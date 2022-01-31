@@ -1,9 +1,6 @@
-use std::{
-    borrow::Cow,
-    io::{BufRead, BufReader, Write},
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::borrow::Cow;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 
 use rustc_demangle::try_demangle;
 
@@ -68,9 +65,8 @@ fn demangle_line<'a>(s: &'a str) -> Cow<'a, str> {
                 dedemangled.push_str(&demangled[start..]);
             }
 
-
             Cow::Owned(dedemangled + &s[right..])
-        },
+        }
         Err(_error) => Cow::Borrowed(s),
     }
 }
@@ -81,7 +77,7 @@ fn main() {
         .skip(1)
         .next()
         .expect("Must enter path to executable.");
-    let path = PathBuf::from(path);
+    let path = std::path::PathBuf::from(path);
 
     assert!(path.is_file(), "Path to executable doesn't exist");
     let objdump = Command::new("objdump")
@@ -97,11 +93,7 @@ fn main() {
     let mut stdout = BufReader::new(objdump.stdout.unwrap());
     for line in (&mut stdout).lines() {
         let line = match line {
-            Ok(ref line) => {
-                let line = demangle_line(line);
-                
-                line
-            },
+            Ok(ref line) => demangle_line(line),
             Err(_) => Cow::Borrowed("???????????"),
         };
 
