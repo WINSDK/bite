@@ -4,6 +4,9 @@ use std::process::{Command, Stdio};
 
 use rustc_demangle::try_demangle;
 
+mod args;
+mod replace;
+
 // struct Instruction<'a> {
 //     // Position relative to the start of the executable.
 //     position: usize,
@@ -18,7 +21,11 @@ use rustc_demangle::try_demangle;
 //     source: String,
 // }
 
-fn demangle_line<'a>(s: &'a str) -> Cow<'a, str> {
+fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
+    Cow::Borrowed("")
+}
+
+fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
     let mut left = 0;
     for idx in 0..s.len() {
         if s.as_bytes()[idx] == b'<' {
@@ -65,6 +72,8 @@ fn demangle_line<'a>(s: &'a str) -> Cow<'a, str> {
                 dedemangled.push_str(&demangled[start..]);
             }
 
+            if args.simplify {}
+
             Cow::Owned(dedemangled + &s[right..])
         }
         Err(_error) => Cow::Borrowed(s),
@@ -73,27 +82,21 @@ fn demangle_line<'a>(s: &'a str) -> Cow<'a, str> {
 
 // TODO: impliment own version of `objdump`.
 fn main() {
-    let path = std::env::args()
-        .skip(1)
-        .next()
-        .expect("Must enter path to executable.");
-    let path = std::path::PathBuf::from(path);
-
-    assert!(path.is_file(), "Path to executable doesn't exist");
+    let args = args::Cli::new();
     let objdump = Command::new("objdump")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null())
         .arg("-x86-asm-syntax=intel")
         .arg("-D")
-        .arg(path)
+        .arg(&args.disassemble)
         .spawn()
         .unwrap();
 
     let mut stdout = BufReader::new(objdump.stdout.unwrap());
     for line in (&mut stdout).lines() {
         let line = match line {
-            Ok(ref line) => demangle_line(line),
+            Ok(ref line) => demangle_line(&args, line),
             Err(_) => Cow::Borrowed("???????????"),
         };
 
