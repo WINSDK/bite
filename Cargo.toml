@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 rustc-demangle = "0.1"
-clap = { version = "3", features = ["derive"] }
 phf = { version = "0.10", features = ["macros"] }
+# tokio = { version = "1.0", features = ["full"] }

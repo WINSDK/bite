@@ -1,25 +1,75 @@
-#[derive(clap::Parser)]
-#[clap(name = "rust object file dumper")]
+use std::path::PathBuf;
+
+const HELP: &'static str = "OVERVIEW: rust object dumper
+
+USAGE: rustdump [options] <OBJECTS>
+
+OPTIONS:
+  -H, --help          Print usage information
+  -D, --dissasembly   Path to object you're disassembling
+  -S, --simplify      Replace common types with shortened paths";
+
+macro_rules! exit {
+    () => {{
+        std::process::exit(1);
+    }};
+
+    ($($arg:tt)*) => {{
+        eprintln!($($arg)*);
+        std::process::exit(1);
+    }};
+}
+
+macro_rules! assert_exit {
+    ($cond:expr $(,)?) => {{
+        if !($cond) {
+            exit!();
+        }
+    }};
+
+    ($cond:expr, $($arg:tt)+) => {{
+        if !($cond) {
+            exit!($($arg)*);
+        }
+    }};
+}
+
+#[derive(Debug, Clone)]
 pub struct Cli {
-    /// Strips symbols into a simpler format
-    #[clap(short, long)]
+    /// Strip symbols into a simpler format
     pub simplify: bool,
 
-    /// Path to the executable you want to disassembly
-    #[clap(short)]
-    pub disassemble: std::path::PathBuf,
+    /// Path to symbol being disassembled
+    pub disassemble: PathBuf,
 }
 
 impl Cli {
-    pub fn new() -> Self {
-        use clap::Parser;
+    pub fn parse() -> Self {
+        let mut cli = Cli {
+            simplify: false,
+            disassemble: PathBuf::new(),
+        };
 
-        let args = Self::parse();
-        assert!(
-            args.disassemble.is_file(),
-            "Path to executable doesn't exist"
-        );
+        let mut args = std::env::args().skip(1);
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "-H" | "--help" => exit!("{HELP}"),
+                "-S" | "--simplify" => cli.simplify = true,
+                "-D" | "--disassemble" => {
+                    cli.disassemble = match args.next().as_deref() {
+                        Some("") | None => exit!("Must enter path to disassembled file"),
+                        Some(path) => PathBuf::from(path),
+                    }
+                }
+                unknown => exit!("Unknown cmd arg '{unknown}' was entered"),
+            }
+        }
 
-        args
+        cli.validate_args();
+        cli
+    }
+
+    fn validate_args(&self) {
+        assert_exit!(self.disassemble.is_file(), "{HELP}");
     }
 }

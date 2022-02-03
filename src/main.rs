@@ -1,8 +1,8 @@
 use std::borrow::Cow;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
-use rustc_demangle::try_demangle;
+use rustc_demangle::demangle;
 
 mod args;
 mod replace;
@@ -49,55 +49,19 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
         return Cow::Borrowed(s);
     }
 
-    match try_demangle(&s[left + 1..=right - 1]) {
-        Ok(demangled) => {
-            let mut demangled = demangled.to_string();
+    let demangled = Cow::Owned(format!("{:#}", demangle(&s[left + 1..=right - 1])));
+    let demangled = if args.simplify {
+        replace::simplify_type(&demangled)
+    } else {
+        demangled
+    };
 
-            let (mut idx, mut start) = (0, 0);
-            while idx != demangled.len() {
-                // TODO: replace with algorithm that doesn't loop through the whole symbol again.
-                if let Some(jdx) = demangled.find("<>") {
-                    demangled = demangled[..jdx].to_string() + "<_>" + &demangled[jdx + 2..]
-                }
-
-                if demangled.as_bytes()[idx] == b'[' {
-                    start = idx;
-                }
-
-                if demangled.as_bytes()[idx] == b']' {
-                    let diff = idx - start;
-
-                    unsafe {
-                        std::ptr::copy(
-                            demangled[idx + 1..].as_ptr(),
-                            demangled[start..].as_mut_ptr(),
-                            demangled[idx + 1..].len(),
-                        );
-
-                        demangled.truncate(demangled.len() - diff - 1);
-                    }
-
-                    idx -= diff;
-                }
-
-                idx += 1;
-            }
-
-            let demangled = if args.simplify {
-                replace::simplify_type(&demangled)
-            } else {
-                Cow::Owned(demangled)
-            };
-
-            Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
-        }
-        Err(_error) => Cow::Borrowed(s),
-    }
+    Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
 }
 
 // TODO: impliment own version of `objdump`.
 fn main() {
-    let args = args::Cli::new();
+    let args = args::Cli::parse();
     let objdump = Command::new("objdump")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -108,13 +72,19 @@ fn main() {
         .spawn()
         .unwrap();
 
+    let mut stream = std::io::BufWriter::new(std::io::stdout());
     let mut stdout = BufReader::new(objdump.stdout.unwrap());
+
+    // Buffer stdout for every 10 lines.
     for line in (&mut stdout).lines() {
         let line = match line {
             Ok(ref line) => demangle_line(&args, line),
             Err(_) => Cow::Borrowed("???????????"),
         };
 
-        println!("{}", line);
+        stream.write(line.as_ref().as_bytes()).unwrap();
+        stream.write(b"\n").unwrap();
     }
+
+    stream.flush().unwrap();
 }
