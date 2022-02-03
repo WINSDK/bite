@@ -72,19 +72,13 @@ fn main() {
         .spawn()
         .unwrap();
 
-    let mut stream = std::io::BufWriter::new(std::io::stdout());
     let mut stdout = BufReader::new(objdump.stdout.unwrap());
-
-    // Buffer stdout for every 10 lines.
     for line in (&mut stdout).lines() {
         let line = match line {
             Ok(ref line) => demangle_line(&args, line),
             Err(_) => Cow::Borrowed("???????????"),
         };
 
-        stream.write(line.as_ref().as_bytes()).unwrap();
-        stream.write(b"\n").unwrap();
+        println!("{line}");
     }
-
-    stream.flush().unwrap();
 }
