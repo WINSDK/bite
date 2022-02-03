@@ -21,10 +21,6 @@ mod replace;
 //     source: String,
 // }
 
-fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
-    Cow::Borrowed("")
-}
-
 fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
     let mut left = 0;
     for idx in 0..s.len() {
@@ -55,26 +51,45 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
 
     match try_demangle(&s[left + 1..=right - 1]) {
         Ok(demangled) => {
-            let demangled = demangled.to_string();
-            let mut dedemangled = s[..=left].to_string();
+            let mut demangled = demangled.to_string();
 
-            let mut start = 0;
-            for (idx, chr) in demangled.chars().enumerate() {
-                if chr == '[' {
-                    dedemangled.push_str(&demangled[start..idx]);
+            let (mut idx, mut start) = (0, 0);
+            while idx != demangled.len() {
+                // TODO: replace with algorithm that doesn't loop through the whole symbol again.
+                if let Some(jdx) = demangled.find("<>") {
+                    demangled = demangled[..jdx].to_string() + "<_>" + &demangled[jdx + 2..]
                 }
-                if chr == ']' {
-                    start = idx + 1;
+
+                if demangled.as_bytes()[idx] == b'[' {
+                    start = idx;
                 }
+
+                if demangled.as_bytes()[idx] == b']' {
+                    let diff = idx - start;
+
+                    unsafe {
+                        std::ptr::copy(
+                            demangled[idx + 1..].as_ptr(),
+                            demangled[start..].as_mut_ptr(),
+                            demangled[idx + 1..].len(),
+                        );
+
+                        demangled.truncate(demangled.len() - diff - 1);
+                    }
+
+                    idx -= diff;
+                }
+
+                idx += 1;
             }
 
-            if start != 0 {
-                dedemangled.push_str(&demangled[start..]);
-            }
+            let demangled = if args.simplify {
+                replace::simplify_type(&demangled)
+            } else {
+                Cow::Owned(demangled)
+            };
 
-            if args.simplify {}
-
-            Cow::Owned(dedemangled + &s[right..])
+            Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
         }
         Err(_error) => Cow::Borrowed(s),
     }

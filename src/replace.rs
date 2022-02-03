@@ -12,12 +12,17 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "std::io" => "io",
     "std::sync::mutex::Mutex" => "Mutex",
     "std::ffi::os_str::OsString" => "OsString",
+    "std::ffi::os_str::OsStr" =>  "OsStr",
     "core::ptr::non_null::NonNull" => "ptr::NonNull",
     "core::ptr::unique::Unique" => "UniquePtr",
     "core::ptr::drop_in_place" => "Drop",
     "core::ops::index::Index" => "Index",
     "core::ptr" => "ptr",
     "core::slice" => "slice",
+
+    // Str (TODO: doesn't convert for some reason)
+    "core::str::converts::from_utf8_unchecked_mut" => "str::from_utf8_unchecked_mut",
+    "core::str::converts::from_utf8_unchecked" => "str::from_utf8_unchecked",
 
     // Alloc
     "alloc::string::String" => "String",
@@ -30,6 +35,7 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "core::slice::iter::Iter" => "slice::Iter",
     "core::iter::adapters" => "iter",
     "core::option::Option" => "Option",
+    "core::result::Result" => "Result",
 
     // https://doc.rust-lang.org/std/prelude/v1/index.html
     // Basic traits
@@ -74,16 +80,15 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
 pub struct Type<'a>(&'a str, usize);
 
 impl<'a> Type<'a> {
+    #[inline]
     pub fn new(s: &'a str) -> Self {
+        assert!(s.len() > 0);
+
         #[cfg(debug_assertions)]
-        {
-            for chr in s.chars() {
-                match chr {
-                    '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' | ':' => {}
-                    _ => {
-                        panic!("type: `{s}` includes invalid characters");
-                    }
-                }
+        for chr in s.chars() {
+            match chr {
+                '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' | ':' => {}
+                _ => panic!("type: `{s}` includes invalid characters"),
             }
         }
 
@@ -106,18 +111,15 @@ impl<'a> fmt::Debug for Type<'a> {
 impl<'a> Iterator for Type<'a> {
     type Item = (&'a str, &'a str);
 
-    // Splits type.
+    // Splits path of type.
     // e.g. ("core::ptr::NonNull", "") => ("core::ptr", "::NonNull") => ("core", "::ptr::NonNull"),
     //      ("std::option::Option", "") => ("std::option", "::Option") => ("std", "::option::Option"),
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let (s, split) = (&mut self.0, &mut self.1);
 
         if *split == 0 {
-            return s.len().checked_sub(1).map(|n| {
-                *split = n;
-                (*s, "")
-            });
+            *split = s.len();
+            return Some((s, ""));
         }
 
         for idx in (0..*split).rev() {
@@ -137,11 +139,11 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
 
     while idx != s.len() {
         if s[idx..].starts_with("::") {
+            // Move to the left until a seperator is reached or the start of the str.
             let mut left = 0;
             for jdx in (0..idx).rev() {
-                // print!("{} ", slice[jdx] as char);
                 match s.as_bytes()[jdx] {
-                    b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b':' => {}
+                    b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' => {}
                     _ => {
                         left = jdx + 1;
                         break;
@@ -149,9 +151,9 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
                 }
             }
 
+            // Move to the right until a seperator is reached or the end of the str.
             let mut right = idx;
             for jdx in idx + 2..s.len() {
-                // print!("{} ", slice[jdx] as char);
                 match s.as_bytes()[jdx] {
                     b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b':' => {}
                     _ => {
@@ -161,13 +163,25 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
                 }
             }
 
+            // The type is an extension of a path e.g. Iterator<Item = u8>::next.
+            if s[left..].starts_with("::") {
+                idx += 2;
+                continue;
+            }
+
+            // Walk the type hierarchy.
             let mut ty = Type::new(&s[left..right]);
             while let Some((type_path_left, type_path_right)) = ty.next() {
+                // Check whether a shorter representation of a type exists.
                 if let Some(simple_type_path_left) = TOKENS.get(type_path_left) {
+                    // Reserve space in for String since the a new type will have to be allocated.
+                    concat.reserve(s.len());
+
                     concat.push_str(&s[last_end..left]);
                     concat.push_str(simple_type_path_left);
                     concat.push_str(type_path_right);
                     last_end = right;
+                    break;
                 }
             }
 
@@ -191,12 +205,25 @@ mod test {
 
     #[test]
     fn simplify() {
-        let sample = "std::io::Result<alloc::string::String> as core::ops::try_trait::Try";
-
+        let sample = "<std::path::PathBuf as core::convert::From<&str>>::from>";
         assert_eq!(
-            Cow::Borrowed("io::Result<String> as Try"),
+            Cow::Borrowed("<std::path::PathBuf as From<&str>>::from>"),
             simplify_type(sample)
-        )
+        );
+
+        let sample = "core::ptr::unique::Unique<dyn core::ops::function::FnMut<(), Output = core::result::Result<(), std::io::error::Error>> + core::marker::Sync + core::marker::Send>";
+        assert_eq!(
+            Cow::Borrowed(
+                "UniquePtr<dyn FnMut<(), Output = Result<(), io::error::Error>> + Sync + Send>"
+            ),
+            simplify_type(sample)
+        );
+
+        let sample = "core::unicode::unicode_data::n::lookup::he820b1879a01d5c6";
+        assert_eq!(
+            Cow::Borrowed("core::unicode::unicode_data::n::lookup::he820b1879a01d5c6"),
+            simplify_type(sample)
+        );
     }
 
     #[test]
