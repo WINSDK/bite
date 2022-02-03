@@ -10,33 +10,54 @@ use std::fmt;
 const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     // Generic shortenings
     "std::io" => "io",
+    "core::fmt" => "fmt",
+
     "core::panicking::panic" => "panic",
+    "core::panicking::panic_fmt" => "panic_fmt",
     "std::sync::mutex::Mutex" => "Mutex",
+
     "std::ffi::os_str::OsString" => "OsString",
     "std::ffi::os_str::OsStr" =>  "OsStr",
+
     "core::ptr::non_null::NonNull" => "ptr::NonNull",
     "core::ptr::unique::Unique" => "UniquePtr",
     "core::ptr::drop_in_place" => "Drop",
+
     "core::ops::index::Index" => "Index",
+    "core::ops::index::IndexMut" => "IndexMut",
+    "core::slice::index::SliceIndex" => "SliceIndex",
+
     "core::ptr" => "ptr",
     "core::slice" => "slice",
 
-    // Str (TODO: doesn't convert for some reason)
+    // Str (TODO: doesn't convert for some reason) and so does panic
     "core::str::converts::from_utf8_unchecked_mut" => "str::from_utf8_unchecked_mut",
     "core::str::converts::from_utf8_unchecked" => "str::from_utf8_unchecked",
 
     // Alloc
     "alloc::string::String" => "String",
-    "alloc::vec::Vec" => "Vec",
+    "alloc::string::ToString" => "ToString",
+    "alloc::slice::hack::ConvertVec" => "slice::ToVec",
     "alloc::raw_vec::RawVec" => "RawVec",
+    "alloc::vec::Vec" => "Vec",
+    "alloc::collections::btree" => "btree",
     "alloc::alloc" => "alloc",
     "core::alloc" => "alloc",
 
     // Iterators
+    "core::str::iter::Chars" => "iter::Chars",
     "core::slice::iter::Iter" => "slice::Iter",
     "core::slice::iter::IterMut" => "slice::IterMut",
-    "core::iter::adapters::filter::Filter" => "Filter",
+
+    "core::iter::adapters::peekable::Peekable" => "Peekable",
     "core::iter::adapters::filter_map::FilterMap" => "FilterMap",
+    "core::iter::adapters::filter::Filter" => "Filter",
+    "core::iter::adapters::copied::Copied" => "iter::Copied",
+    "core::iter::adapters::skip::Skip" => "iter::Skip",
+    "core::iter::adapters::rev::Rev" => "iter::Rev",
+    "core::iter::range::Step" => "iter::Step",
+    "core::str::iter::Bytes" => "iter::Bytes",
+
     "core::option::Option" => "Option",
     "core::result::Result" => "Result",
 
@@ -74,11 +95,16 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "core::marker::Sync" => "Sync",
     "core::marker::Unpin" => "Unpin",
 
+    // Ranges
+    "core::ops::range::RangeToInclusive" => "RangeToInclusive",
     "core::ops::range::RangeFrom" => "RangeFrom",
+    "core::ops::range::RangeFull" => "RangeFull",
+    "core::ops::range::RangeTo" => "RangeTo",
     "core::ops::range::Range" => "Range",
 
     // Complex traits
     "alloc::vec::spec_extend::SpecExtend" => "Vec::Extend",
+    "core::mem::maybe_uninit::MaybeUninit" => "mem::MaybeUninit",
     "core::ops::try_trait::Try" => "Try",
 };
 
