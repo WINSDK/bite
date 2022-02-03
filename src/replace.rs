@@ -10,6 +10,7 @@ use std::fmt;
 const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     // Generic shortenings
     "std::io" => "io",
+    "core::panicking::panic" => "panic",
     "std::sync::mutex::Mutex" => "Mutex",
     "std::ffi::os_str::OsString" => "OsString",
     "std::ffi::os_str::OsStr" =>  "OsStr",
@@ -33,7 +34,9 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
 
     // Iterators
     "core::slice::iter::Iter" => "slice::Iter",
-    "core::iter::adapters" => "iter",
+    "core::slice::iter::IterMut" => "slice::IterMut",
+    "core::iter::adapters::filter::Filter" => "Filter",
+    "core::iter::adapters::filter_map::FilterMap" => "FilterMap",
     "core::option::Option" => "Option",
     "core::result::Result" => "Result",
 
@@ -70,6 +73,9 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "core::marker::Sized" => "Sized",
     "core::marker::Sync" => "Sync",
     "core::marker::Unpin" => "Unpin",
+
+    "core::ops::range::RangeFrom" => "RangeFrom",
+    "core::ops::range::Range" => "Range",
 
     // Complex traits
     "alloc::vec::spec_extend::SpecExtend" => "Vec::Extend",
@@ -115,7 +121,7 @@ impl<'a> Iterator for Type<'a> {
     // e.g. ("core::ptr::NonNull", "") => ("core::ptr", "::NonNull") => ("core", "::ptr::NonNull"),
     //      ("std::option::Option", "") => ("std::option", "::Option") => ("std", "::option::Option"),
     fn next(&mut self) -> Option<Self::Item> {
-        let (s, split) = (&mut self.0, &mut self.1);
+        let (s, split) = (&self.0, &mut self.1);
 
         if *split == 0 {
             *split = s.len();
