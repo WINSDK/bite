@@ -1,66 +1,53 @@
 use std::path::PathBuf;
 
+use crate::{assert_exit, exit};
+
 const HELP: &'static str = "OVERVIEW: rust object dumper
 
-USAGE: rustdump [options] <OBJECTS>
+USAGE: rustdump [options] <OBJECT>
 
 OPTIONS:
   -H, --help          Print usage information
+  -L, --libs          Print linked shared libraries 
   -D, --dissasembly   Path to object you're disassembling
   -S, --simplify      Replace common types with shortened paths";
 
-macro_rules! exit {
-    () => {{
-        std::process::exit(1);
-    }};
-
-    ($($arg:tt)*) => {{
-        eprintln!($($arg)*);
-        std::process::exit(1);
-    }};
-}
-
-macro_rules! assert_exit {
-    ($cond:expr $(,)?) => {{
-        if !($cond) {
-            exit!();
-        }
-    }};
-
-    ($cond:expr, $($arg:tt)+) => {{
-        if !($cond) {
-            exit!($($arg)*);
-        }
-    }};
-}
-
 #[derive(Debug, Clone)]
 pub struct Cli {
-    /// Strip symbols into a simpler format
+    /// Print shared libraries the object is linked against.
+    pub libs: bool,
+
+    /// Strip symbols into a simpler format.
     pub simplify: bool,
 
-    /// Path to symbol being disassembled
-    pub disassemble: PathBuf,
+    /// Disassemble object into `readable` assembly,
+    pub disassemble: bool,
+
+    /// Path to symbol being disassembled.
+    pub path: PathBuf,
 }
 
 impl Cli {
     pub fn parse() -> Self {
         let mut cli = Cli {
+            libs: false,
             simplify: false,
-            disassemble: PathBuf::new(),
+            disassemble: false,
+            path: PathBuf::new(),
         };
 
-        let mut args = std::env::args().skip(1);
+        let mut args = std::env::args().skip(1).peekable();
         while let Some(arg) = args.next() {
+            if args.peek().is_none() {
+                cli.path = PathBuf::from(arg);
+                break;
+            }
+
             match arg.as_str() {
                 "-H" | "--help" => exit!("{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
-                "-D" | "--disassemble" => {
-                    cli.disassemble = match args.next().as_deref() {
-                        Some("") | None => exit!("Must enter path to disassembled file"),
-                        Some(path) => PathBuf::from(path),
-                    }
-                }
+                "-D" | "--disassemble" => cli.disassemble = true,
+                "-L" | "--libs" => cli.libs = true,
                 unknown => exit!("Unknown cmd arg '{unknown}' was entered"),
             }
         }
@@ -70,6 +57,10 @@ impl Cli {
     }
 
     fn validate_args(&self) {
-        assert_exit!(self.disassemble.is_file(), "{HELP}");
+        assert_exit!(self.path.is_file(), "{HELP}");
+        assert_exit!(
+            self.disassemble as u8 + self.libs as u8 == 1,
+            "Invalid combination of required arguements"
+        );
     }
 }

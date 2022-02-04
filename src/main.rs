@@ -1,11 +1,39 @@
 use std::borrow::Cow;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
+use goblin::{mach, Object};
 use rustc_demangle::demangle;
 
 mod args;
 mod replace;
+
+#[macro_export]
+macro_rules! exit {
+    () => {{
+        std::process::exit(0);
+    }};
+
+    ($($arg:tt)*) => {{
+        eprintln!($($arg)*);
+        std::process::exit(1);
+    }};
+}
+
+#[macro_export]
+macro_rules! assert_exit {
+    ($cond:expr $(,)?) => {{
+        if !($cond) {
+            $crate::exit!();
+        }
+    }};
+
+    ($cond:expr, $($arg:tt)+) => {{
+        if !($cond) {
+            $crate::exit!($($arg)*);
+        }
+    }};
+}
 
 // struct Instruction<'a> {
 //     // Position relative to the start of the executable.
@@ -59,16 +87,14 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
     Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
 }
 
-// TODO: impliment own version of `objdump`.
-fn main() {
-    let args = args::Cli::parse();
+fn objdump(args: &args::Cli) {
     let objdump = Command::new("objdump")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null())
         .arg("-x86-asm-syntax=intel")
         .arg("-D")
-        .arg(&args.disassemble)
+        .arg(&args.path)
         .spawn()
         .unwrap();
 
@@ -81,4 +107,38 @@ fn main() {
 
         println!("{line}");
     }
+}
+
+// TODO: impliment own version of `objdump`.
+fn main() -> goblin::error::Result<()> {
+    let args = args::Cli::parse();
+
+    let object_bytes = std::fs::read(&args.path).unwrap();
+    let object = goblin::Object::parse(object_bytes.as_slice()).unwrap();
+    let object = match object {
+        Object::Mach(mac) => match mac {
+            mach::Mach::Fat(fat) => fat.get(0)?,
+            mach::Mach::Binary(bin) => bin,
+        },
+        _ => todo!(),
+    };
+
+    if args.libs {
+        println!("{}:", args.path.display());
+        for lib in object.libs.iter().skip(1) {
+            let lib = std::path::Path::new(lib);
+            println!("\t{} => {}", 
+                lib.file_name().map(|v| v.to_str().unwrap()).unwrap_or("???? Invalid utf8"), 
+                lib.display()
+            );
+        }
+
+        exit!();
+    }
+
+    if args.disassemble {
+        objdump(&args);
+    }
+
+    Ok(())
 }
