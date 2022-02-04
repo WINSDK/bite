@@ -127,13 +127,55 @@ fn main() -> goblin::error::Result<()> {
         println!("{}:", args.path.display());
         for lib in object.libs.iter().skip(1) {
             let lib = std::path::Path::new(lib);
-            println!("\t{} => {}", 
-                lib.file_name().map(|v| v.to_str().unwrap()).unwrap_or("???? Invalid utf8"), 
-                lib.display()
-            );
+            let lib_name = lib
+                .file_name()
+                .map(|v| v.to_str().unwrap())
+                .unwrap_or("???? Invalid utf8");
+
+            println!("\t{} => {}", lib_name, lib.display());
         }
 
         exit!();
+    }
+
+    if args.names {
+        let names: Vec<&str> = object
+            .symbols()
+            .filter_map(|symbol| symbol.map(|v| v.0).ok())
+            .collect();
+
+        let thread_count = num_cpus::get();
+        let symbols_per_thread = (names.len() + (thread_count - 1)) / thread_count;
+        let mut handles = Vec::with_capacity(thread_count);
+
+        for slice in names.chunks(symbols_per_thread) {
+            // FIXME: use thread::scoped when it becomes stable to replace this.
+            let slice: &[&'static str] = unsafe {
+                &*(slice as *const [&str] as *const [*const str] as *const [&'static str])
+            };
+
+            handles.push(std::thread::spawn(move || {
+                let mut demangled_names = Vec::with_capacity(slice.len());
+
+                for symbol in slice {
+                    let mut demangled_name = format!("{:#}", demangle(symbol));
+
+                    if args.simplify {
+                        demangled_name = replace::simplify_type(&demangled_name).to_string();
+                    }
+
+                    if !demangled_name.is_empty() {
+                        demangled_names.push(demangled_name);
+                    }
+                }
+
+                demangled_names
+            }))
+        }
+
+        for demangled_symbol in handles.into_iter().map(|t| t.join().unwrap()).flatten() {
+            println!("{demangled_symbol}");
+        }
     }
 
     if args.disassemble {

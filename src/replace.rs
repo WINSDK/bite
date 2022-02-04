@@ -57,8 +57,12 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
 
     "core::iter::adapters::map::Map" => "Map",
     "core::iter::adapters::zip::Zip" => "Zip",
+    "core::iter::adapters::chain::Chain" => "Chain",
+    "core::iter::adapters::take::Take" => "Take",
+    "core::iter::adapters::take_while::TakeWhile" => "TakeWhile",
     "core::iter::adapters::zip::ZipImpl" => "ZipImpl",
     "core::iter::adapters::peekable::Peekable" => "Peekable",
+    "core::iter::adapters::enumerate::Enumerate" => "Enumerate",
     "core::iter::adapters::filter_map::FilterMap" => "FilterMap",
     "core::iter::adapters::filter::Filter" => "Filter",
     "core::iter::adapters::copied::Copied" => "iter::Copied",
