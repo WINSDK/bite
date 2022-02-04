@@ -14,14 +14,19 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
 
     "core::panicking::panic" => "panic",
     "core::panicking::panic_fmt" => "panic_fmt",
-    "std::sync::mutex::Mutex" => "Mutex",
+    "core::sync::atomic" => "atomic",
+    "alloc::sync::Arc" => "sync::Arc",
+    "std::sync::mutex::Mutex" => "sync::Mutex",
+    "std::sync::rwlock::RwLock" => "sync::RwLock",
+    "std::sync::rwlock::RwLockReadGuard" => "sync::RwLockReadGuard",
+    "std::sync::poison" => "poison",
 
     "std::ffi::os_str::OsString" => "OsString",
     "std::ffi::os_str::OsStr" =>  "OsStr",
 
     "core::ptr::non_null::NonNull" => "ptr::NonNull",
     "core::ptr::unique::Unique" => "UniquePtr",
-    "core::ptr::drop_in_place" => "Drop",
+    "core::ptr::drop_in_place" => "drop_in_place",
 
     "core::ops::index::Index" => "Index",
     "core::ops::index::IndexMut" => "IndexMut",
@@ -38,6 +43,7 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "alloc::string::String" => "String",
     "alloc::string::ToString" => "ToString",
     "alloc::slice::hack::ConvertVec" => "slice::ToVec",
+    "alloc::slice::hack::to_vec" => "ToVec",
     "alloc::raw_vec::RawVec" => "RawVec",
     "alloc::vec::Vec" => "Vec",
     "alloc::collections::btree" => "btree",
@@ -49,6 +55,9 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "core::slice::iter::Iter" => "slice::Iter",
     "core::slice::iter::IterMut" => "slice::IterMut",
 
+    "core::iter::adapters::map::Map" => "Map",
+    "core::iter::adapters::zip::Zip" => "Zip",
+    "core::iter::adapters::zip::ZipImpl" => "ZipImpl",
     "core::iter::adapters::peekable::Peekable" => "Peekable",
     "core::iter::adapters::filter_map::FilterMap" => "FilterMap",
     "core::iter::adapters::filter::Filter" => "Filter",
@@ -79,6 +88,7 @@ const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     "alloc::borrow::ToOwned" => "ToOwned",
     "core::clone::Clone" => "Clone",
     "core::default::Default" => "Default",
+    "core::ops::drop::Drop" => "Drop",
 
     "core::ops::function::Fn" => "Fn",
     "core::ops::function::FnOnce" => "FnOnce",
