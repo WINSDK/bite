@@ -8,6 +8,7 @@ use goblin::{mach, Object};
 use rustc_demangle::demangle;
 
 mod args;
+mod decode;
 mod replace;
 
 #[macro_export]
@@ -35,6 +36,30 @@ macro_rules! assert_exit {
             $crate::exit!($($arg)*);
         }
     }};
+}
+
+trait Crash<T> {
+    fn panic_crash(self, msg: &str) -> T;
+}
+
+impl<T> Crash<T> for Option<T> {
+    fn panic_crash(self, msg: &str) -> T {
+        if let Some(unwrapped) = self {
+            unwrapped
+        } else {
+            exit!("{}", msg)
+        }
+    }
+}
+
+impl<T, E> Crash<T> for Result<T, E> {
+    fn panic_crash(self, msg: &str) -> T {
+        if let Ok(unwrapped) = self {
+            unwrapped
+        } else {
+            exit!("{}", msg)
+        }
+    }
 }
 
 // struct Instruction<'a> {
@@ -80,11 +105,7 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
     }
 
     let demangled = Cow::Owned(format!("{:#}", demangle(&s[left + 1..=right - 1])));
-    let demangled = if args.simplify {
-        replace::simplify_type(&demangled)
-    } else {
-        demangled
-    };
+    let demangled = if args.simplify { replace::simplify_type(&demangled) } else { demangled };
 
     Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
 }
@@ -129,10 +150,8 @@ fn main() -> goblin::error::Result<()> {
         println!("{}:", args.path.display());
         for lib in object.libs.iter().skip(1) {
             let lib = std::path::Path::new(lib);
-            let lib_name = lib
-                .file_name()
-                .map(|v| v.to_str().unwrap())
-                .unwrap_or("???? Invalid utf8");
+            let lib_name =
+                lib.file_name().map(|v| v.to_str().unwrap()).unwrap_or("???? Invalid utf8");
 
             println!("\t{} => {}", lib_name, lib.display());
         }
@@ -141,10 +160,8 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.names {
-        let symbols: Vec<&str> = object
-            .symbols()
-            .filter_map(|symbol| symbol.map(|v| v.0).ok())
-            .collect();
+        let symbols: Vec<&str> =
+            object.symbols().filter_map(|symbol| symbol.map(|v| v.0).ok()).collect();
 
         let thread_count = num_cpus::get();
         let symbols_per_thread = (symbols.len() + (thread_count - 1)) / thread_count;
