@@ -139,25 +139,25 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.names {
-        let names: Vec<&str> = object
+        let symbols: Vec<&str> = object
             .symbols()
             .filter_map(|symbol| symbol.map(|v| v.0).ok())
             .collect();
 
         let thread_count = num_cpus::get();
-        let symbols_per_thread = (names.len() + (thread_count - 1)) / thread_count;
+        let symbols_per_thread = (symbols.len() + (thread_count - 1)) / thread_count;
         let mut handles = Vec::with_capacity(thread_count);
 
-        for slice in names.chunks(symbols_per_thread) {
+        for symbols_chunk in symbols.chunks(symbols_per_thread) {
             // FIXME: use thread::scoped when it becomes stable to replace this.
-            let slice: &[&'static str] = unsafe {
-                &*(slice as *const [&str] as *const [*const str] as *const [&'static str])
+            let symbols_chunk: &[&'static str] = unsafe {
+                &*(symbols_chunk as *const [&str] as *const [*const str] as *const [&'static str])
             };
 
             handles.push(std::thread::spawn(move || {
-                let mut demangled_names = Vec::with_capacity(slice.len());
+                let mut demangled_names = Vec::with_capacity(symbols_chunk.len());
 
-                for symbol in slice {
+                for symbol in symbols_chunk {
                     let mut demangled_name = format!("{:#}", demangle(symbol));
 
                     if args.simplify {
