@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use goblin::{mach, Object};
 use rustc_demangle::demangle;
@@ -146,35 +148,50 @@ fn main() -> goblin::error::Result<()> {
 
         let thread_count = num_cpus::get();
         let symbols_per_thread = (symbols.len() + (thread_count - 1)) / thread_count;
+        let finished_threads = Arc::new(AtomicUsize::new(0));
+
         let mut handles = Vec::with_capacity(thread_count);
+        let (symbol_sender, demangled_symbols) = std::sync::mpsc::channel();
 
         for symbols_chunk in symbols.chunks(symbols_per_thread) {
             // FIXME: use thread::scoped when it becomes stable to replace this.
+            // SAFETY: `symbols` is only dropped after the threads have joined therefore
+            // it's safe to send to other threads as a &'static str.
             let symbols_chunk: &[&'static str] = unsafe {
                 &*(symbols_chunk as *const [&str] as *const [*const str] as *const [&'static str])
             };
 
-            handles.push(std::thread::spawn(move || {
-                let mut demangled_names = Vec::with_capacity(symbols_chunk.len());
+            // Clone versions to send to threads.
+            let symbol_sender = symbol_sender.clone();
+            let finished_threads = finished_threads.clone();
 
-                for symbol in symbols_chunk {
+            handles.push(std::thread::spawn(move || {
+                for symbol in symbols_chunk.iter().filter(|symbol| !symbol.is_empty()) {
                     let mut demangled_name = format!("{:#}", demangle(symbol));
 
                     if args.simplify {
                         demangled_name = replace::simplify_type(&demangled_name).to_string();
                     }
 
-                    if !demangled_name.is_empty() {
-                        demangled_names.push(demangled_name);
-                    }
+                    symbol_sender.send(demangled_name).unwrap();
                 }
 
-                demangled_names
+                finished_threads.fetch_add(1, Ordering::SeqCst);
             }))
         }
 
-        for demangled_symbol in handles.into_iter().map(|t| t.join().unwrap()).flatten() {
-            println!("{demangled_symbol}");
+        while finished_threads.load(Ordering::SeqCst) != thread_count {
+            while let Ok(symbol) = demangled_symbols.try_recv() {
+                println!("{symbol}");
+            }
+        }
+
+        for handle in handles {
+            let id = handle.thread().id();
+
+            handle.join().unwrap_or_else(|e| {
+                panic!("Failed to join thread with id: {:?}, error: {:?}", id, e)
+            });
         }
     }
 
