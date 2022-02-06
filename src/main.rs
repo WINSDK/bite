@@ -213,7 +213,24 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.disassemble {
-        objdump(&args);
+        let (sec, data) = object
+            .segments
+            .into_iter()
+            .find(|seg| matches!(seg.name(), Ok("__TEXT")))
+            .expect("Object is missing a `text` section")
+            .sections()
+            .expect("Failed to parse section")
+            .into_iter()
+            .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
+            .panic_crash("Object looks like it's been stripped");
+
+        let data = &data[sec.offset as usize..];
+
+        println!("{:x?}", &data[0x65730..][..300]);
+
+        decode::x86_64::asm(&[0xf3, 0x48, 0xa5]).unwrap();
+
+        // objdump(&args);
     }
 
     Ok(())
