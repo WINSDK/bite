@@ -1,3 +1,5 @@
+#![feature(bool_to_option)]
+
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};

@@ -1,5 +1,6 @@
-use std::mem::MaybeUninit;
 use std::fmt;
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub mod arm;
 pub mod riscv;
@@ -23,6 +24,10 @@ impl<T: Default, const S: usize> Array<T, S> {
         }
 
         Self { bytes: unsafe { bytes.assume_init() }, width: S }
+    }
+
+    pub unsafe fn uninit() -> Self {
+        Self { bytes: MaybeUninit::uninit().assume_init(), width: S }
     }
 }
 
@@ -48,25 +53,72 @@ impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
     }
 }
 
-macro_rules! consume_exact {
-    ($reader:expr, $byte_count:expr) => {{
-        use std::io::Read;
-
-        let mut buf = [0u8; $byte_count];
-        let res = $reader.read_exact(&mut buf);
-        res.map(|_| buf)
-    }};
+pub(crate) struct Reader<'a> {
+    buf: &'a [u8],
+    pos: AtomicUsize,
 }
 
-macro_rules! consume {
-    ($reader:expr, $ty:ident) => {{
-        use std::io::Read;
+#[allow(dead_code)]
+impl<'a> Reader<'a> {
+    pub const fn new(buf: &'a [u8]) -> Self {
+        Self { buf, pos: AtomicUsize::new(0) }
+    }
 
-        let mut buf = [0u8; std::mem::size_of::<$ty>()];
-        let res = $reader.read_exact(&mut buf);
-        res.map(|_| <$ty>::from_le_bytes(buf))
-    }};
+    pub fn increment(&self, num_bytes: usize) {
+        let pos = self.pos.fetch_add(num_bytes, Ordering::SeqCst);
+        assert!(pos < self.buf.len());
+    }
+
+    pub fn seek(&self) -> Option<u8> {
+        let pos = self.pos.load(Ordering::SeqCst);
+        unsafe { (pos < self.buf.len()).then_some(*self.buf.get_unchecked(pos)) }
+    }
+
+    pub fn seek_exact(&self, num_bytes: usize) -> Option<&[u8]> {
+        unsafe {
+            let pos = self.pos.load(Ordering::SeqCst);
+            (pos + num_bytes < self.buf.len())
+                .then_some(self.buf.get_unchecked(pos..).get_unchecked(..num_bytes))
+        }
+    }
+
+    pub fn consume(&self) -> Option<u8> {
+        let pos = self.pos.fetch_add(1, Ordering::SeqCst);
+        unsafe { (pos < self.buf.len()).then_some(*self.buf.get_unchecked(pos)) }
+    }
+
+    pub fn consume_exact(&self, num_bytes: usize) -> Option<&[u8]> {
+        unsafe {
+            let pos = self.pos.fetch_add(num_bytes, Ordering::SeqCst);
+            (pos < self.buf.len())
+                .then_some(self.buf.get_unchecked(pos..).get_unchecked(..num_bytes))
+        }
+    }
+
+    pub fn consume_eq(&self, other: u8) -> Option<u8> {
+        let pos = self.pos.fetch_add(1, Ordering::SeqCst);
+        if pos < self.buf.len() {
+            if self.buf[pos] == other {
+                return Some(unsafe { *self.buf.get_unchecked(pos) });
+            }
+        }
+
+        None
+    }
+
+    pub fn consume_neq(&self, other: u8) -> Option<u8> {
+        let pos = self.pos.fetch_add(1, Ordering::SeqCst);
+        if pos < self.buf.len() {
+            if self.buf[pos] != other {
+                return Some(unsafe { *self.buf.get_unchecked(pos) });
+            }
+        }
+
+        None
+    }
+
+    pub unsafe fn consume_into<T>(&self) -> Option<&T> {
+        (std::mem::size_of::<T>() <= self.pos.load(Ordering::SeqCst))
+            .then_some(&*(self.buf[self.pos.load(Ordering::SeqCst)..].as_ptr() as *const T))
+    }
 }
-
-pub(crate) use consume;
-pub(crate) use consume_exact;
