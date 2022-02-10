@@ -227,12 +227,11 @@ fn main() -> goblin::error::Result<()> {
             .panic_crash("Object looks like it's been stripped");
 
         let data = &data[sec.offset as usize..];
-
         println!("{:x?}", &data[0x65730..][..300]);
 
-        decode::x86_64::asm(&[0xf3, 0x48, 0xa5]).unwrap();
+        objdump(&args);
 
-        // objdump(&args);
+        todo!("{:?}", decode::x86_64::asm(&[0xf3, 0x48, 0xa5]));
     }
 
     Ok(())
