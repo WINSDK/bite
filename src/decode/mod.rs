@@ -53,7 +53,6 @@ impl<T, const S: usize> std::ops::IndexMut<usize> for Array<T, S> {
 
 impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.width.load(Ordering::SeqCst);
         f.write_fmt(format_args!("{:?}", &self.bytes[..self.width.load(Ordering::SeqCst)]))
     }
 }
