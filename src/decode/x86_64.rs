@@ -17,7 +17,7 @@ pub struct Instruction {
 /// Implementation of the basic x86_64 prefixes.
 #[allow(dead_code)]
 #[repr(u8)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Prefix {
     // No prefix.
     None = 0x0,
@@ -59,7 +59,6 @@ enum Prefix {
 }
 
 impl Default for Prefix {
-    #[inline]
     fn default() -> Self {
         Self::None
     }
@@ -80,35 +79,41 @@ pub fn asm(asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
         return Err(DecodeError::InvalidInputSize(asm_bytes.len()));
     }
 
-    let asm_bytes = Reader::new(asm_bytes);
+    let asm_reader = Reader::new(asm_bytes);
 
     // An instruction can have up to 4 prefixes.
-    let prefixes: Array<Prefix, 4> = {
+    let mut prefixes: Array<Prefix, 4> = {
         let mut arr = Array::new();
-        let mut idx = 0;
 
-        while let Some(byte) = asm_bytes.consume_neq(Prefix::None as u8) {
-            arr[idx] = Prefix::translate(byte);
-            idx += 1;
-
-            if idx == 4 || arr[idx] == Prefix::None {
-                break;
+        for idx in 0..4 {
+            match asm_reader.seek().map(Prefix::translate) {
+                None | Some(Prefix::None) => break,
+                Some(prefix) => {
+                    arr[idx] = prefix;
+                    asm_reader.increment(1);
+                }
             }
         }
 
         arr
     };
 
-    let mut opcode_width = 1usize;
-    while let Some(_) = asm_bytes.consume_eq(0x0f) {
-        opcode_width += 1;
+    // Check if opcode is multibyte.
+    let mut multibyte = false;
+    if prefixes[0] as u8 == 0x66 || prefixes[0] as u8 == 0xf2 || prefixes[0] as u8 == 0xf3 {
+        debug_assert!(asm_bytes.len() > prefixes.len());
+
+        if asm_reader.consume_eq(0x0f).is_some() {
+            multibyte = true;
+            prefixes.remove(0);
+        }
     }
 
-    println!("[DEBUG]: width: {opcode_width}, instruction: {:x}", asm_bytes.seek().unwrap());
-    let repr = X86InstructionsLookup::get(opcode_width, asm_bytes.consume().unwrap());
+    eprintln!("[DEBUG]: opcode is multibyte: {multibyte}");
+    let repr = X86InstructionsLookup::get(asm_reader.consume().unwrap());
 
     let (mut idx, mut bytes) = (0, Array::new());
-    while let Some(byte) = asm_bytes.consume() {
+    while let Some(byte) = asm_reader.consume() {
         bytes[idx] = byte;
         idx += 1;
     }
@@ -120,14 +125,20 @@ pub fn asm(asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
 mod test {
     #[test]
     pub fn asm() {
-        // rep movsq qword ptr es:[rdi], qword ptr [rsi]
-        panic!("{:?}", super::asm(&[0xf3, 0x48, 0xa5]).unwrap());
+        eprintln!("\n---------------------\nrep movsq qword ptr es:[rdi], qword ptr [rsi]\n---------------------");
+        assert_eq!(super::asm(&[0xf3, 0x48, 0xa5]).map(|ins| ins.repr.mnemomic), Ok("movsq"));
+
+        eprintln!("\n---------------------\nphaddw xmm0, xmm1\n---------------------");
+        assert_eq!(super::asm(&[0x66, 0x0f, 0x38, 0x01, 0xc1]).map(|ins| ins.repr.mnemomic), Ok("phaddw"));
+
+        eprintln!("\n---------------------\npop rbp\n---------------------");
+        assert_eq!(super::asm(&[0x5d]).map(|ins| ins.repr.mnemomic), Ok("pop"));
+        eprintln!("{:?}", super::asm(&[0x5d]).unwrap());
+
+        todo!()
     }
 }
 
 // Every instruction has default register's to pick from.
 //
 // Segment prefixes are ignored for jump instructions.
-//
-#[allow(dead_code)]
-const LOOKUP_TABLE: &[&str] = &[];

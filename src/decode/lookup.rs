@@ -5,11 +5,9 @@ pub struct X86InstructionsLookup {
 }
 
 impl X86InstructionsLookup {
-    pub fn get(width: usize, opcode: u8) -> Self {
-        match width {
-            1 => X86_SINGLE[opcode as usize],
-            _ => todo!(),
-        }
+    // TODO: handle multibyte instructions using multiple looking tables preferably.
+    pub fn get(opcode: u8) -> Self {
+        X86_SINGLE[opcode as usize]
     }
 }
 

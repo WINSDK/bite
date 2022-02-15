@@ -10,7 +10,7 @@ mod lookup;
 
 pub(crate) struct Array<T, const S: usize> {
     bytes: [T; S],
-    pub width: AtomicUsize,
+    len: AtomicUsize,
 }
 
 impl<T: Default, const S: usize> Array<T, S> {
@@ -25,11 +25,36 @@ impl<T: Default, const S: usize> Array<T, S> {
             }
         }
 
-        Self { bytes: unsafe { bytes.assume_init() }, width: AtomicUsize::new(0) }
+        Self { bytes: unsafe { bytes.assume_init() }, len: AtomicUsize::new(0) }
     }
 
-    pub unsafe fn uninit() -> Self {
-        Self { bytes: MaybeUninit::uninit().assume_init(), width: AtomicUsize::new(0) }
+    #[inline]
+    pub fn iter<'a>(&'a self) -> std::slice::Iter<'a, T> {
+        self.as_ref().iter()
+    }
+
+    #[inline]
+    pub fn iter_mut<'a>(&'a mut self) -> std::slice::IterMut<'a, T> {
+        self.as_mut().iter_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.len.load(Ordering::Relaxed)
+    }
+
+    pub fn remove(&mut self, idx: usize) {
+        let len = self.len.load(Ordering::Acquire);
+        assert!(idx < len, "idx is {idx} which is out of bounce for len of {len}");
+
+        unsafe {
+            std::ptr::copy(
+                self.bytes.as_ptr().add(idx + 1),
+                self.bytes.as_mut_ptr().add(idx),
+                len - idx - 1,
+            );
+        }
+
+        self.len.store(len - 1, Ordering::Release);
     }
 }
 
@@ -38,7 +63,7 @@ impl<T, const S: usize> std::ops::Index<usize> for Array<T, S> {
 
     #[inline]
     fn index(&self, idx: usize) -> &Self::Output {
-        self.width.fetch_max(idx, Ordering::SeqCst);
+        self.len.fetch_max(idx + 1, Ordering::AcqRel);
         &self.bytes[idx]
     }
 }
@@ -46,14 +71,26 @@ impl<T, const S: usize> std::ops::Index<usize> for Array<T, S> {
 impl<T, const S: usize> std::ops::IndexMut<usize> for Array<T, S> {
     #[inline]
     fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
-        self.width.fetch_max(idx, Ordering::SeqCst);
+        self.len.fetch_max(idx + 1, Ordering::AcqRel);
         &mut self.bytes[idx]
+    }
+}
+
+impl<T, const S: usize> AsRef<[T]> for Array<T, S> {
+    fn as_ref(&self) -> &[T] {
+        &self.bytes[..self.len.load(Ordering::Relaxed)]
+    }
+}
+
+impl<T, const S: usize> AsMut<[T]> for Array<T, S> {
+    fn as_mut(&mut self) -> &mut [T] {
+        &mut self.bytes[..self.len.load(Ordering::Relaxed)]
     }
 }
 
 impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{:?}", &self.bytes[..self.width.load(Ordering::SeqCst)]))
+        f.write_fmt(format_args!("{:?}", &self.bytes[..self.len.load(Ordering::Relaxed)]))
     }
 }
 
@@ -86,6 +123,28 @@ impl<'a> Reader<'a> {
         }
     }
 
+    pub fn seek_eq(&self, other: u8) -> Option<u8> {
+        let pos = self.pos.load(Ordering::Relaxed);
+        if pos < self.buf.len() {
+            if self.buf[pos] == other {
+                return Some(unsafe { *self.buf.get_unchecked(pos) });
+            }
+        }
+
+        None
+    }
+
+    pub fn seek_neq(&self, other: u8) -> Option<u8> {
+        let pos = self.pos.load(Ordering::Relaxed);
+        if pos < self.buf.len() {
+            if self.buf[pos] != other {
+                return Some(unsafe { *self.buf.get_unchecked(pos) });
+            }
+        }
+
+        None
+    }
+
     pub fn consume(&self) -> Option<u8> {
         let pos = self.pos.fetch_add(1, Ordering::AcqRel);
         unsafe { (pos < self.buf.len()).then_some(*self.buf.get_unchecked(pos)) }
@@ -101,26 +160,22 @@ impl<'a> Reader<'a> {
 
     pub fn consume_eq(&self, other: u8) -> Option<u8> {
         let pos = self.pos.load(Ordering::Acquire);
-        if pos < self.buf.len() {
-            self.pos.store(pos + 1, Ordering::Release);
-            if self.buf[pos] == other {
-                return Some(unsafe { *self.buf.get_unchecked(pos) });
-            }
-        }
-
-        None
+        self.buf.get(pos).and_then(|val| {
+            (*val == other).then_some({
+                self.pos.store(pos + 1, Ordering::Release);
+                *val
+            })
+        })
     }
 
     pub fn consume_neq(&self, other: u8) -> Option<u8> {
         let pos = self.pos.load(Ordering::Acquire);
-        if pos < self.buf.len() {
-            self.pos.store(pos + 1, Ordering::Release);
-            if self.buf[pos] != other {
-                return Some(unsafe { *self.buf.get_unchecked(pos) });
-            }
-        }
-
-        None
+        self.buf.get(pos).and_then(|val| {
+            (*val != other).then_some({
+                self.pos.store(pos + 1, Ordering::Release);
+                *val
+            })
+        })
     }
 
     pub unsafe fn consume_into<T>(&self) -> Option<&T> {
