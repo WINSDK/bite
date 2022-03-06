@@ -1,4 +1,4 @@
-use super::{lookup::X86InstructionsLookup, Array, Reader};
+use super::{lookup, Array, BitWidth, Reader};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DecodeError {
@@ -7,15 +7,21 @@ pub enum DecodeError {
 }
 
 // An Intel/AMD/IA-32 instruction is made up of up to 15 bytes.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Instruction {
+    rex_prefix: Option<u8>,
     prefixes: Array<Prefix, 4>,
     bytes: Array<u8, 11>,
-    repr: X86InstructionsLookup,
+    repr: lookup::X86,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum Addressing {
+    Direct(&'static str),
+    Indirect(String),
 }
 
 /// Implementation of the basic x86_64 prefixes.
-#[allow(dead_code)]
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Prefix {
@@ -51,11 +57,225 @@ enum Prefix {
     /// 64-bit only segment override. A pointer to thread local storage.
     GS = 0x65,
 
-    /// Switch between register size. E.g. `mov ax` is `mov eax` but with the size prefix.
+    /// Switch between register size.
     OperandSize = 0x66,
 
-    /// Switch between address size. E.g. `mov [eax]` is `mov [rax]` but with the address prefix.
+    /// Switch between address size.
     AddrSize = 0x67,
+}
+
+// Derived from APPENDIX A.2.1 in the intel x86/64 instruction set reference.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum AddressingMethod {
+    /// The VEX.vvvv field of the VEX prefix selects a general purpose register.
+    GeneralVexRegister,
+
+    /// The VEX.vvvv field of the VEX prefix selects a 128-bit XMM register or a 256-bit YMM
+    /// register, determined by operand type. For legacy SSE encodings this operand does not exist,
+    /// changing the instruction to destructive form.
+    WideVexRegister,
+
+    /// The reg field of the ModR/M byte selects a 128-bit XMM register or a 256-bit YMM register,
+    /// determined by operand type.
+    WideRegRegister,
+
+    /// The R/M field of the ModR/M byte selects a 128-bit XMM register or a 256-bit YMM register,
+    /// determined by operand type.
+    WideRMRegister,
+
+    /// The upper 4 bits of the 8-bit immediate selects a 128-bit XMM register or a 256-bit YMM
+    /// register, determined by operand type.
+    WideImmediateRegister,
+
+    /// The reg field of the ModR/M byte selects a general register.
+    RegGeneralRegister,
+
+    /// The R/M field of the ModR/M byte may refer only to a general register.
+    RMGeneralRegister,
+
+    /// The reg field of the ModR/M byte selects a control register.
+    ControlRegister,
+
+    /// The reg field of the ModR/M byte selects a debug register
+    DebugRegister,
+
+    /// The reg field of the ModR/M byte selects a packed-quadword, MMX register (sse predecessor).
+    RegMXXRegister,
+
+    /// The R/M field of the ModR/M byte selects a packed-quadword, MMX register (sse predecessor).
+    RMMXXRegister,
+
+    /// The reg field of the ModR/M byte selects a segment register
+    SegmentRegister,
+
+    /// EFLAGS/RFLAGS Register.
+    FlagsRegister,
+
+    /// The instruction has no ModR/M byte. The offset of the operand is coded as a word or double
+    /// word (depending on address size attribute) in the instruction. No base register, index
+    /// register, or scaling factor can be applied.
+    NoModRM,
+
+    /// A ModR/M byte follows the opcode and specifies the operand. The operand is either a
+    /// general-purpose register or a memory address. If it is a memory address, the address is
+    /// computed from a segment register and any of the following values: a base register, an index
+    /// register, a scaling factor, a displacement.
+    ModRM,
+
+    /// The operand value is encoded in subsequent bytes of the instruction.
+    ImmediateData,
+
+    /// The instruction contains a relative offset to be added to the instruction pointer register.
+    RelativeOffset,
+
+    /// The instruction has no ModR/M byte; the address of the operand is encoded in the
+    /// instruction. No base register, index register, or scaling factor can be applied.
+    Direct,
+
+    /// The ModR/M byte may refer only to memory.
+    Memory,
+
+    /// Memory addressed by the DS:rSI register pair (for example, MOVS, CMPS, OUTS, or LODS).
+    DataSegmentRSIRegister,
+
+    /// Memory addressed by the ES:rDI register pair (for example, MOVS, CMPS, INS, STOS, or SCAS).
+    ExtraSegmentRDIRegister,
+
+    /// A ModR/M byte follows the opcode and specifies the operand. The operand is either an MMX
+    /// technology register or a memory address. If it is a memory address, the address is computed
+    /// from a segment register and any of the following values: a base register, an index
+    /// register, a scaling factor, and a displacement.
+    WhatTheFuckIsThisMode,
+
+    /// A ModR/M byte follows the opcode and specifies the operand. The operand is either a 128-bit
+    /// XMM register, a 256-bit YMM register (determined by operand type), or a memory address. If
+    /// it is a memory address, the address is computed from a segment register and any of the
+    /// following values: a base register, an index register, a scaling factor, and a displacement.
+    WhatTheFuckIsThisAswell,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum OperandType {
+    /// 8-bit integer, regardless of operand-size attribute.
+    U8,
+
+    /// 16-bit integer, regardless of operand-size attribute.
+    U16,
+
+    /// Signed 16-bit, regardless of operand-size attribute (only exists for x87 FPU instructions).
+    I16,
+
+    /// 32-bit integer, regardless of operand-size attribute.
+    U32,
+
+    /// Signed 32-bit, regardless of operand-size attribute (only exists for x87 FPU instructions).
+    I32,
+
+    /// 64-bit integer, regardless of operand-size attribute.
+    U64,
+
+    /// Signed 64-bit, regardless of operand-size attribute (only exists for x87 FPU instructions).
+    I64,
+
+    /// 64-bit integer, depending on if REX.W is set. I'm confused by the difference
+    /// between this and `DoubleOrQuad` or even a regular u64.
+    PromotedU64,
+
+    /// 128-bit integer, regardless of operand-size attribute.
+    U128,
+
+    /// Two one-word operands in memory or two double-word operands in memory, depending on
+    /// operand-size attribute.
+    DoubleMemory,
+
+    /// Byte, sign-extended to the size of the destination operand.
+    ByteOperandExtended,
+
+    /// Byte, sign-extened to 64 bits.
+    Byte64BitExtended,
+
+    /// Byte, sign-extended to the size of the stack pointer
+    ByteStackExtended,
+
+    /// Byte made up of 2 `digits` sized 4 bits each (only exists for x87 FPU instructions).
+    PackedByte,
+
+    /// 8/16-bit integer, depending on operand-size attribute.
+    #[allow(dead_code)]
+    ByteOrDouble,
+
+    /// 16/32-bit integer, depending on operand-size attribute.
+    SingleOrDouble,
+
+    /// 16/32-bit integer, sign extended to the size of the stack pointer.
+    SingleOrDoubleExtended,
+
+    /// 16/32-bit integer, depending on operand-size attribute, or sign-extended to 64 bits for
+    /// 64-bit operand size.
+    SingleOrDoubleQuadExtended,
+
+    /// 16/64-bit integer, depending on if the operand-size prefix is set.
+    SingleOrQuad,
+
+    /// 16/32-bit integer, depending on if the operand-size prefix is set or 64-bit depending on
+    /// whether REX.W is set in 64-bit mode
+    SingleOrDoubleOrQuad,
+
+    /// 32/64-bit integer, depends on whether REX.W is set in 64-bit mode.
+    DoubleOrQuad,
+
+    /// Single-real. Only x87 FPU instructions.
+    SingleReal,
+
+    /// Double-real. Only x87 FPU instructions
+    DoubleReal,
+
+    /// 32-bit integer, sign-extended to 64 bits
+    U32Extended,
+
+    /// x87 FPU environment
+    Environment,
+
+    /// x87 FPU state
+    FPUState,
+
+    /// x87 FPU and SIMD state
+    SIMDState,
+
+    /// Extended-real. Only x87 FPU instructions (for example, FLD).
+    ExtendedReal,
+
+    /// 64-bit MMX?
+    MMXData,
+
+    /// 128-bit packed double-precision floating-point digits.
+    PackedDouble,
+
+    /// Scalar element of a 128-bit packed double-precision floating digits.
+    ScalerPackedDouble,
+
+    /// 128-bit packed single-precision floating-point digits.
+    PackedSingle,
+
+    /// Scalar element of a 128-bit packed single-precision floating data.
+    ScalerPackedSingle,
+
+    /// 64-bit packed single-precision floating-point digits.
+    PackedSingleSmall,
+
+    /// 32-bit or 48-bit pointer, depending on operand-size attribute
+    Pointer,
+
+    /// 32-bit or 48-bit pointer, depending on operand-size attribute, or 80-bit far pointer
+    /// depending on whether REX.W is set in 64-bit mode.
+    FatPointer,
+
+    /// 6-byte pseudo-descriptor, or 10-byte pseudo-descriptor in 64-bit mode.
+    PsuedoDescriptor,
+
+    /// Doubleword integer register.
+    #[allow(dead_code)]
+    DoubleRegister,
 }
 
 impl Default for Prefix {
@@ -74,43 +294,100 @@ impl Prefix {
     }
 }
 
-pub fn asm(asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
+pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
+    let asm_reader = Reader::new(asm_bytes);
     if asm_bytes.len() < 1 || asm_bytes.len() > 15 {
         return Err(DecodeError::InvalidInputSize(asm_bytes.len()));
     }
 
-    let asm_reader = Reader::new(asm_bytes);
-
-    // An instruction can have up to 4 prefixes.
-    let mut prefixes: Array<Prefix, 4> = {
-        let mut arr = Array::new();
-
-        for idx in 0..4 {
-            match asm_reader.seek().map(Prefix::translate) {
-                None | Some(Prefix::None) => break,
-                Some(prefix) => {
-                    arr[idx] = prefix;
-                    asm_reader.increment(1);
-                }
-            }
+    // Read instruction prefixes (1-4 optional bytes).
+    let mut prefixes: Array<Prefix, 4> = Array::new();
+    for idx in 0..4 {
+        if let Some(prefix) = asm_reader.consume_eq(|x| Prefix::translate(x) != Prefix::None) {
+            prefixes[idx] = unsafe { std::mem::transmute(prefix) };
         }
+    }
 
-        arr
-    };
+    // Read optional REX prefix (1 byte).
+    let mut rex_prefix = None;
+    if width == BitWidth::U64 {
+        if let Some(prefix) = asm_reader.consume_eq(|x| (x >> 4) == 0b0100) {
+            debug_assert_eq!(prefix >> 4, 0b0100);
+
+            let is_64_operand = (prefix & 0b00001000) == 0b00001000;
+            let mod_rm_reg = (prefix & 0b00000100) == 0b00000100;
+            let sib_idx_field = (prefix & 0b00000010) == 0b00000010;
+            let extension = (prefix & 0b00000001) == 0b00000001;
+
+            dbg!(is_64_operand);
+            rex_prefix = Some(prefix);
+        }
+    }
 
     // Check if opcode is multibyte.
     let mut multibyte = false;
     if prefixes[0] as u8 == 0x66 || prefixes[0] as u8 == 0xf2 || prefixes[0] as u8 == 0xf3 {
         debug_assert!(asm_bytes.len() > prefixes.len());
 
-        if asm_reader.consume_eq(0x0f).is_some() {
+        if asm_reader.consume_eq(|x| x == 0x0f).is_some() {
             multibyte = true;
             prefixes.remove(0);
         }
     }
 
-    eprintln!("[DEBUG]: opcode is multibyte: {multibyte}");
-    let repr = X86InstructionsLookup::get(asm_reader.consume().unwrap());
+    // Read opcode bytes (1-3 bytes).
+    let repr = lookup::X86_SINGLE[asm_reader.consume().unwrap() as usize];
+
+    // Read ModR/M (optional 1 byte).
+    //
+    //    2        3         2
+    // ┌─────┬────────────┬─────┐
+    // │ mod │ reg/opcode │ R/M │
+    // └─────┴────────────┴─────┘
+    //
+    let mut displacement = 0;
+    if let Some(byte) = asm_reader.consume() {
+        let memory_addressing_mode = byte >> 6;
+        let register_addressing_mode = (byte & 0b00111111) >> 3;
+        let memory_operand_mode = byte & 0b00000111;
+
+        let is_64bit_addr = prefixes.as_ref().contains(&Prefix::AddrSize);
+
+        dbg!(is_64bit_addr);
+        eprintln!("addressing_mode: 0b{:02b}", memory_operand_mode);
+        eprintln!("0b{byte:08b}");
+
+        // match memory_addressing_mode {
+        //     0b00 => {
+        //         // Displacement only addressing.
+        //         if register_addressing_mode == 0b110 {}
+        //     }
+        //     // Register addressing mode
+        //     0b11 => if is_64bit_addr {},
+        // }
+
+        // the ModR/M is a register.
+        if byte >= 0xc0 {
+            panic!("{}", lookup::X86_REGISTERS[byte as usize - 0xc0]);
+        }
+
+        panic!("0x{:x}", byte);
+    }
+
+    // Read SIB (optional 1 byte).
+    //
+    //     2       3      3
+    // ┌───────┬───────┬──────┐
+    // │ scale │ index │ base │
+    // └───────┴───────┴──────┘
+    //
+
+    // A displacement is the constant offset that is applied when reading memory.
+    // E.g. mov edx, [rsp + displacement]
+
+    // Read displacement (1-4 optional bytes).
+
+    // Read immediate (1-4 optional bytes).
 
     let (mut idx, mut bytes) = (0, Array::new());
     while let Some(byte) = asm_reader.consume() {
@@ -118,24 +395,38 @@ pub fn asm(asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
         idx += 1;
     }
 
-    Ok(Instruction { prefixes, bytes, repr })
+    Ok(Instruction { prefixes, bytes, repr, rex_prefix })
 }
 
 #[cfg(test)]
 mod test {
+    use crate::decode::BitWidth;
+
     #[test]
     pub fn asm() {
         eprintln!("\n---------------------\nrep movsq qword ptr es:[rdi], qword ptr [rsi]\n---------------------");
-        assert_eq!(super::asm(&[0xf3, 0x48, 0xa5]).map(|ins| ins.repr.mnemomic), Ok("movsq"));
+        assert_eq!(
+            super::asm(BitWidth::U64, &[0xf3, 0x48, 0xa5]).map(|ins| ins.repr.mnemomic),
+            Ok("movsq")
+        );
 
         eprintln!("\n---------------------\nphaddw xmm0, xmm1\n---------------------");
-        assert_eq!(super::asm(&[0x66, 0x0f, 0x38, 0x01, 0xc1]).map(|ins| ins.repr.mnemomic), Ok("phaddw"));
+        assert_eq!(
+            super::asm(BitWidth::U64, &[0x66, 0x0f, 0x38, 0x01, 0xc1]).map(|ins| ins.repr.mnemomic),
+            Ok("phaddw")
+        );
 
         eprintln!("\n---------------------\npop rbp\n---------------------");
-        assert_eq!(super::asm(&[0x5d]).map(|ins| ins.repr.mnemomic), Ok("pop"));
-        eprintln!("{:?}", super::asm(&[0x5d]).unwrap());
+        assert_eq!(super::asm(BitWidth::U64, &[0x5d]).map(|ins| ins.repr.mnemomic), Ok("pop"));
+        eprintln!("{:?}", super::asm(BitWidth::U64, &[0x5d]).unwrap());
 
         todo!()
+    }
+
+    #[test]
+    fn rex_prefix() {
+        eprintln!("\n---------------------\ncvtdq2pd xmm0, qword ptr [r10]\n---------------------");
+        panic!("{:?}", super::asm(BitWidth::U64, &[0xf3, 0x41, 0x0f, 0xe6, 0x02]));
     }
 }
 
