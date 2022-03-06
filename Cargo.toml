@@ -8,6 +8,5 @@ edition = "2021"
 [dependencies]
 rustc-demangle = "0.1"
 phf = { version = "0.10", features = ["macros"] }
-goblin = "0.4"
-num_cpus = "1.0"
+goblin = "0.5"
 # tokio = { version = "1.0", features = ["full"] }

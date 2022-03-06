@@ -64,20 +64,6 @@ impl<T, E> Crash<T> for Result<T, E> {
     }
 }
 
-// struct Instruction<'a> {
-//     // Position relative to the start of the executable.
-//     position: usize,
-//     // Bytes that make up an instruction, largest instruction can be 15 bytes.
-//     bytes: ([u8; 15], usize),
-//     // Interpretation of the bytes that make up the instruction.
-//     interpretation: &'a str,
-// }
-//
-// pub struct Instructions<'a> {
-//     inner: Vec<Instruction<'a>>,
-//     source: String,
-// }
-
 fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
     let mut left = 0;
     for idx in 0..s.len() {
@@ -162,14 +148,16 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.names {
-        let symbols: Vec<&str> =
-            object.symbols().filter_map(|symbol| symbol.map(|v| v.0).ok()).collect();
+        let symbols: Vec<&str> = object.symbols().filter_map(|sym| sym.map(|v| v.0).ok()).collect();
+        let thread_count = std::thread::available_parallelism().unwrap_or_else(|err| {
+            eprintln!("Failed to get thread_count: {err}");
+            unsafe { std::num::NonZeroUsize::new_unchecked(1) }
+        });
 
-        let thread_count = num_cpus::get();
-        let symbols_per_thread = (symbols.len() + (thread_count - 1)) / thread_count;
+        let symbols_per_thread = (symbols.len() + (thread_count.get() - 1)) / thread_count;
         let finished_threads = Arc::new(AtomicUsize::new(0));
 
-        let mut handles = Vec::with_capacity(thread_count);
+        let mut handles = Vec::with_capacity(thread_count.get());
         let (symbol_sender, demangled_symbols) = std::sync::mpsc::channel();
 
         for symbols_chunk in symbols.chunks(symbols_per_thread) {
@@ -199,7 +187,7 @@ fn main() -> goblin::error::Result<()> {
             }))
         }
 
-        while finished_threads.load(Ordering::SeqCst) != thread_count {
+        while finished_threads.load(Ordering::SeqCst) != thread_count.get() {
             while let Ok(symbol) = demangled_symbols.try_recv() {
                 println!("{symbol}");
             }
@@ -215,7 +203,7 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.disassemble {
-        let (sec, data) = object
+        let (_sec, _data) = object
             .segments
             .into_iter()
             .find(|seg| matches!(seg.name(), Ok("__TEXT")))
@@ -226,12 +214,8 @@ fn main() -> goblin::error::Result<()> {
             .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
             .panic_crash("Object looks like it's been stripped");
 
-        let data = &data[sec.offset as usize..];
-        println!("{:x?}", &data[0x65730..][..300]);
-
         objdump(&args);
-
-        todo!("{:?}", decode::x86_64::asm(&[0xf3, 0x48, 0xa5]));
+        todo!("{:?}", decode::x86_64::asm(decode::BitWidth::U64, &[0xf3, 0x48, 0xa5]));
     }
 
     Ok(())
