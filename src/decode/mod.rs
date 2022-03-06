@@ -8,7 +8,15 @@ pub mod x86_64;
 
 mod lookup;
 
-pub(crate) struct Array<T, const S: usize> {
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum BitWidth {
+    U128,
+    U64,
+    U32,
+    U16,
+}
+
+pub struct Array<T, const S: usize> {
     bytes: [T; S],
     len: AtomicUsize,
 }
@@ -27,7 +35,9 @@ impl<T: Default, const S: usize> Array<T, S> {
 
         Self { bytes: unsafe { bytes.assume_init() }, len: AtomicUsize::new(0) }
     }
+}
 
+impl<T, const S: usize> Array<T, S> {
     #[inline]
     pub fn iter<'a>(&'a self) -> std::slice::Iter<'a, T> {
         self.as_ref().iter()
@@ -58,6 +68,29 @@ impl<T: Default, const S: usize> Array<T, S> {
     }
 }
 
+impl<T: Clone, const S: usize> Clone for Array<T, S> {
+    fn clone(&self) -> Self {
+        Self {
+            bytes: self.bytes.clone(),
+            len: AtomicUsize::new(self.len.load(Ordering::SeqCst)),
+        }
+    }
+}
+
+impl<T: PartialEq, const S: usize> PartialEq for Array<T, S> {
+    fn eq(&self, other: &Self) -> bool {
+        for idx in 0..self.len() {
+            if self[idx] != other[idx] {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+impl<T: Eq, const S: usize> Eq for Array<T, S> {}
+
 impl<T, const S: usize> std::ops::Index<usize> for Array<T, S> {
     type Output = T;
 
@@ -78,13 +111,15 @@ impl<T, const S: usize> std::ops::IndexMut<usize> for Array<T, S> {
 
 impl<T, const S: usize> AsRef<[T]> for Array<T, S> {
     fn as_ref(&self) -> &[T] {
-        &self.bytes[..self.len.load(Ordering::Relaxed)]
+        let len = self.len();
+        &self.bytes[..len]
     }
 }
 
 impl<T, const S: usize> AsMut<[T]> for Array<T, S> {
     fn as_mut(&mut self) -> &mut [T] {
-        &mut self.bytes[..self.len.load(Ordering::Relaxed)]
+        let len = self.len();
+        &mut self.bytes[..len]
     }
 }
 
@@ -94,7 +129,7 @@ impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
     }
 }
 
-pub(crate) struct Reader<'a> {
+pub struct Reader<'a> {
     buf: &'a [u8],
     pos: AtomicUsize,
 }
@@ -103,11 +138,6 @@ pub(crate) struct Reader<'a> {
 impl<'a> Reader<'a> {
     pub const fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: AtomicUsize::new(0) }
-    }
-
-    pub fn increment(&self, num_bytes: usize) {
-        let pos = self.pos.fetch_add(num_bytes, Ordering::AcqRel);
-        assert!(pos < self.buf.len());
     }
 
     pub fn seek(&self) -> Option<u8> {
@@ -123,26 +153,10 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub fn seek_eq(&self, other: u8) -> Option<u8> {
-        let pos = self.pos.load(Ordering::Relaxed);
-        if pos < self.buf.len() {
-            if self.buf[pos] == other {
-                return Some(unsafe { *self.buf.get_unchecked(pos) });
-            }
-        }
-
-        None
-    }
-
-    pub fn seek_neq(&self, other: u8) -> Option<u8> {
-        let pos = self.pos.load(Ordering::Relaxed);
-        if pos < self.buf.len() {
-            if self.buf[pos] != other {
-                return Some(unsafe { *self.buf.get_unchecked(pos) });
-            }
-        }
-
-        None
+    /// Returns `None` if either the reader is at the end of a byte stream or the conditional
+    #[inline]
+    pub fn seek_eq<F: FnOnce(u8) -> bool>(&self, f: F) -> Option<u8> {
+        self.buf.get(self.pos.load(Ordering::Relaxed)).filter(|x| f(**x)).map(|v| *v)
     }
 
     pub fn consume(&self) -> Option<u8> {
@@ -158,23 +172,14 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub fn consume_eq(&self, other: u8) -> Option<u8> {
+    /// Returns `None` if either the reader is at the end of a byte stream or the conditional
+    /// fails, on success will increment internal position.
+    #[inline]
+    pub fn consume_eq<F: FnOnce(u8) -> bool>(&self, f: F) -> Option<u8> {
         let pos = self.pos.load(Ordering::Acquire);
-        self.buf.get(pos).and_then(|val| {
-            (*val == other).then_some({
-                self.pos.store(pos + 1, Ordering::Release);
-                *val
-            })
-        })
-    }
-
-    pub fn consume_neq(&self, other: u8) -> Option<u8> {
-        let pos = self.pos.load(Ordering::Acquire);
-        self.buf.get(pos).and_then(|val| {
-            (*val != other).then_some({
-                self.pos.store(pos + 1, Ordering::Release);
-                *val
-            })
+        self.buf.get(pos).filter(|x| f(**x)).map(|x| {
+            self.pos.store(pos + 1, Ordering::Release);
+            *x
         })
     }
 
