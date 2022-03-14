@@ -1,3 +1,5 @@
+use std::fmt;
+
 use super::{lookup, Array, BitWidth, Reader};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -64,6 +66,39 @@ enum Prefix {
     AddrSize = 0x67,
 }
 
+#[rustfmt::skip]
+#[repr(usize)]
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum Register {
+    RAX,  RCX,  RDX,  RBX,  RSP,  RBP,  RSI,  RDI,
+    EAX,  ECX,  EDX,  EBX,  ESP,  EBP,  ESI,  EDI,
+    AX,   CX,   DX,   BX,   SP,   BP,   SI,   DI,
+    AL,   CL,   DL,   BL,   AH,   CH,   DH,   BH,
+    MM0,  MM1,  MM2,  MM3,  MM4,  MM5,  MM6,  MM7,
+    XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7
+}
+
+impl fmt::Display for Register {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[rustfmt::skip]
+        pub const REPR: &[&'static str] = &[
+            "eax",  "ecx",  "edx",  "ebx",  "esp",  "ebp",  "esi",  "edi",
+            "ax",   "cx",   "dx",   "bx",   "sp",   "bp",   "si",   "di",
+            "al",   "cl",   "dl",   "bl",   "ah",   "ch",   "dh",   "bh",
+            "mm0",  "mm1",  "mm2",  "mm3",  "mm4",  "mm5",  "mm6",  "mm7",
+            "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7"
+        ];
+
+        f.write_str(REPR[unsafe { std::mem::transmute::<_, usize>(*self) }])
+    }
+}
+
+impl fmt::Debug for Register {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}", self))
+    }
+}
+
 // Derived from APPENDIX A.2.1 in the intel x86/64 instruction set reference.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressingMethod {
@@ -77,7 +112,7 @@ pub enum AddressingMethod {
 
     /// The reg field of the ModR/M byte selects a 128-bit XMM register or a 256-bit YMM register,
     /// determined by operand type.
-    WideRegRegister,
+    WideRegister,
 
     /// The R/M field of the ModR/M byte selects a 128-bit XMM register or a 256-bit YMM register,
     /// determined by operand type.
@@ -88,7 +123,7 @@ pub enum AddressingMethod {
     WideImmediateRegister,
 
     /// The reg field of the ModR/M byte selects a general register.
-    RegGeneralRegister,
+    GeneralRegister,
 
     /// The R/M field of the ModR/M byte may refer only to a general register.
     RMGeneralRegister,
@@ -100,7 +135,7 @@ pub enum AddressingMethod {
     DebugRegister,
 
     /// The reg field of the ModR/M byte selects a packed-quadword, MMX register (sse predecessor).
-    RegMXXRegister,
+    MXXRegister,
 
     /// The R/M field of the ModR/M byte selects a packed-quadword, MMX register (sse predecessor).
     RMMXXRegister,
@@ -110,6 +145,12 @@ pub enum AddressingMethod {
 
     /// EFLAGS/RFLAGS Register.
     FlagsRegister,
+
+    /// Hardcoded registers.
+    FixedRegister(Register),
+
+    /// Hardcoded set of registers.
+    FixedRegisters(&'static [Register]),
 
     /// The instruction has no ModR/M byte. The offset of the operand is coded as a word or double
     /// word (depending on address size attribute) in the instruction. No base register, index
@@ -336,7 +377,7 @@ pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError
     }
 
     // Read opcode bytes (1-3 bytes).
-    let repr = lookup::X86_SINGLE[asm_reader.consume().unwrap() as usize];
+    let repr = todo!("{:?}", lookup::X86_SINGLE[asm_reader.consume().unwrap() as usize]);
 
     // Read ModR/M (optional 1 byte).
     //
@@ -368,7 +409,7 @@ pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError
 
         // the ModR/M is a register.
         if byte >= 0xc0 {
-            panic!("{}", lookup::X86_REGISTERS[byte as usize - 0xc0]);
+            panic!("{}", unsafe { std::mem::transmute::<_, Register>(byte as usize - 0xc0) });
         }
 
         panic!("0x{:x}", byte);
@@ -430,6 +471,4 @@ mod test {
     }
 }
 
-// Every instruction has default register's to pick from.
-//
 // Segment prefixes are ignored for jump instructions.

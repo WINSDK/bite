@@ -70,10 +70,7 @@ impl<T, const S: usize> Array<T, S> {
 
 impl<T: Clone, const S: usize> Clone for Array<T, S> {
     fn clone(&self) -> Self {
-        Self {
-            bytes: self.bytes.clone(),
-            len: AtomicUsize::new(self.len.load(Ordering::SeqCst)),
-        }
+        Self { bytes: self.bytes.clone(), len: AtomicUsize::new(self.len.load(Ordering::SeqCst)) }
     }
 }
 
