@@ -13,6 +13,9 @@ OPTIONS:
   -D, --dissasembly   Path to object you're disassembling
   -S, --simplify      Replace common types with shortened paths";
 
+const NAMES: &[&'static str] = &["--help", "--libs", "--names", "--dissasembly", "--simplify"];
+const SHORT: &[&'static str] = &["-H", "-L", "-N", "-D", "-S"];
+
 #[derive(Debug, Clone)]
 pub struct Cli {
     /// Print shared libraries the object is linked against.
@@ -52,9 +55,38 @@ impl Cli {
                 "-H" | "--help" => exit!("{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
                 "-N" | "--names" => cli.names = true,
-                "-D" | "--disassemble" => cli.disassemble = true,
                 "-L" | "--libs" => cli.libs = true,
-                unknown => exit!("Unknown cmd arg '{unknown}' was entered"),
+                "-D" | "--disassemble" => {
+                    cli.disassemble = true;
+
+                    if let Some(path) = args.next().as_deref() {
+                        if NAMES.contains(&path) || SHORT.contains(&path) {
+                            exit!("Must specify path to object");
+                        }
+
+                        cli.path = PathBuf::from(path);
+                    } else {
+                        exit!("Must specify path to object");
+                    }
+                }
+                unknown => {
+                    let mut distance = u32::MAX;
+                    let mut best_guess = "";
+                    for name in NAMES {
+                        let d = triple_accel::levenshtein_exp(unknown.as_bytes(), name.as_bytes());
+                        if d < distance {
+                            distance = d;
+                            best_guess = name;
+                        }
+                    }
+
+                    // A guess that's less than 3 `steps` away from a correct arg.
+                    if distance < 4 {
+                        exit!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
+                    } else {
+                        exit!("Unknown cmd arg '{unknown}' was entered.");
+                    }
+                },
             }
         }
 

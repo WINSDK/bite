@@ -9,4 +9,5 @@ edition = "2021"
 rustc-demangle = "0.1"
 phf = { version = "0.10", features = ["macros"] }
 goblin = "0.5"
+triple_accel = "0.4"
 # tokio = { version = "1.0", features = ["full"] }

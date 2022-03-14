@@ -168,6 +168,7 @@ dependencies = [
  "goblin",
  "phf",
  "rustc-demangle",
+ "triple_accel",
 ]
 
 [[package]]
@@ -206,6 +207,12 @@ dependencies = [
  "quote",
  "unicode-xid",
 ]
+
+[[package]]
+name = "triple_accel"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22048bc95dfb2ffd05b1ff9a756290a009224b60b2f0e7525faeee7603851e63"
 
 [[package]]
 name = "unicode-xid"
