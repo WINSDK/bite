@@ -99,6 +99,26 @@ impl fmt::Debug for Register {
     }
 }
 
+#[rustfmt::skip]
+#[repr(usize)]
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum Segment {
+    ES, CS, SS, DS, FS, GS
+}
+
+impl fmt::Display for Segment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        pub const REPR: &[&'static str] = &["ES", "CS", "SS", "DS", "FS", "GS"];
+        f.write_str(REPR[unsafe { std::mem::transmute::<_, usize>(*self) }])
+    }
+}
+
+impl fmt::Debug for Segment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}", self))
+    }
+}
+
 // Derived from APPENDIX A.2.1 in the intel x86/64 instruction set reference.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressingMethod {
@@ -145,6 +165,8 @@ pub enum AddressingMethod {
 
     /// EFLAGS/RFLAGS Register.
     FlagsRegister,
+
+    FixedSegment(Segment),
 
     /// Hardcoded registers.
     FixedRegister(Register),
@@ -225,7 +247,7 @@ pub enum OperandType {
     /// 128-bit integer, regardless of operand-size attribute.
     U128,
 
-    /// Two one-word operands in memory or two double-word operands in memory, depending on
+    /// Two 32-bit operands in memory or two 64-bit operands in memory, depending on
     /// operand-size attribute.
     DoubleMemory,
 
