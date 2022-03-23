@@ -86,7 +86,7 @@ impl Cli {
                     } else {
                         exit!("Unknown cmd arg '{unknown}' was entered.");
                     }
-                },
+                }
             }
         }
 

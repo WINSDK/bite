@@ -6,8 +6,17 @@ use std::fmt;
 //
 // https://github.com/rust-lang/rfcs/blob/master/text/2603-rust-symbol-name-mangling-v0.md#unicode-identifiers
 
-#[allow(dead_code)]
-const TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
+// TODO: Change scheme for tokens.
+// namespaces simplificantion should follow rust defitions.
+//
+// use std::io::prelude::* should simplify all items in prelude be removing their suffix.
+// use std::io::prelude should simplify all items in prelude by replacing their suffix with
+// 'prelude::<...>'.
+//
+// TODO: Allow for dynamic loading of token simplification schemes. Have to also decide whether to
+// use toml, json or some custom-ish format.
+
+const DEFAULT_TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     // Generic shortenings
     "std::io" => "io",
     "core::fmt" => "fmt",
@@ -219,7 +228,7 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
             let mut ty = Type::new(&s[left..right]);
             while let Some((type_path_left, type_path_right)) = ty.next() {
                 // Check whether a shorter representation of a type exists.
-                if let Some(simple_type_path_left) = TOKENS.get(type_path_left) {
+                if let Some(simple_type_path_left) = DEFAULT_TOKENS.get(type_path_left) {
                     // Reserve space in for String since the a new type will have to be allocated.
                     concat.reserve(s.len());
 
