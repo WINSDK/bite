@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::fmt;
 
 use super::{lookup, Array, BitWidth, Reader};
@@ -462,7 +464,7 @@ pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::decode::BitWidth;
 
     #[test]

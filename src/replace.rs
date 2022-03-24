@@ -255,7 +255,7 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
