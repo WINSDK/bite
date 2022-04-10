@@ -11,6 +11,7 @@ use rustc_demangle::demangle;
 
 mod args;
 mod decode;
+mod demangler;
 mod replace;
 
 #[macro_export]
@@ -38,30 +39,6 @@ macro_rules! assert_exit {
             $crate::exit!($($arg)*);
         }
     }};
-}
-
-trait Crash<T> {
-    fn panic_crash(self, msg: &str) -> T;
-}
-
-impl<T> Crash<T> for Option<T> {
-    fn panic_crash(self, msg: &str) -> T {
-        if let Some(unwrapped) = self {
-            unwrapped
-        } else {
-            exit!("{}", msg)
-        }
-    }
-}
-
-impl<T, E> Crash<T> for Result<T, E> {
-    fn panic_crash(self, msg: &str) -> T {
-        if let Ok(unwrapped) = self {
-            unwrapped
-        } else {
-            exit!("{}", msg)
-        }
-    }
 }
 
 fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
@@ -212,7 +189,7 @@ fn main() -> goblin::error::Result<()> {
             .expect("Failed to parse section")
             .into_iter()
             .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
-            .panic_crash("Object looks like it's been stripped");
+            .unwrap_or_else(|| exit!("Object looks like it's been stripped"));
 
         objdump(&args);
         todo!("{:?}", decode::x86_64::asm(decode::BitWidth::U64, &[0xf3, 0x48, 0xa5]));
