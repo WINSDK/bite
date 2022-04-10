@@ -76,17 +76,17 @@ impl<T: Clone, const S: usize> Clone for Array<T, S> {
 
 impl<T: PartialEq, const S: usize> PartialEq for Array<T, S> {
     fn eq(&self, other: &Self) -> bool {
-        for idx in 0..self.len() {
-            if self[idx] != other[idx] {
-                return false;
-            }
-        }
-
-        true
+        self.bytes == other.bytes
     }
 }
 
 impl<T: Eq, const S: usize> Eq for Array<T, S> {}
+
+impl<T: Default + Copy, const S: usize> Default for Array<T, S> {
+    fn default() -> Self {
+        Self { bytes: [T::default(); S], len: AtomicUsize::new(0) }
+    }
+}
 
 impl<T, const S: usize> std::ops::Index<usize> for Array<T, S> {
     type Output = T;
@@ -153,7 +153,7 @@ impl<'a> Reader<'a> {
     /// Returns `None` if either the reader is at the end of a byte stream or the conditional
     #[inline]
     pub fn seek_eq<F: FnOnce(u8) -> bool>(&self, f: F) -> Option<u8> {
-        self.buf.get(self.pos.load(Ordering::Relaxed)).filter(|x| f(**x)).map(|v| *v)
+        self.buf.get(self.pos.load(Ordering::Relaxed)).filter(|x| f(**x)).cloned()
     }
 
     pub fn consume(&self) -> Option<u8> {
