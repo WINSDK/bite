@@ -26,8 +26,6 @@ struct Stack<'p> {
     ptr: usize,
 }
 
-// rustdump::demangler::Symbol::parse(s: &'p str) -> Result<Self, Error> {}
-
 impl<'p> Symbol<'p> {
     pub fn parse(s: &'p str) -> Result<Self, Error> {
         let mut sym = Symbol {
@@ -209,7 +207,6 @@ impl<'p> Path<'p> {
         }
 
         let stack_start = holder.ptr;
-        depth += 1;
 
         match s.as_bytes()[0] {
             b'C' => {
@@ -241,14 +238,20 @@ impl<'p> Path<'p> {
             }
             b'M' => {
                 // [disambiguator] <path> <type>
+
+                todo!()
             }
             b'X' => {
                 // [disambiguator] <path> <type> <identifier>
                 //
                 // <crate::Foo<_> *as* Readable> for example
+
+                todo!()
             }
             b'Y' => {
                 // <type> <path>
+
+                todo!()
             }
             b'N' => {
                 // <namespace> <path> <identifier>
@@ -271,7 +274,8 @@ impl<'p> Path<'p> {
                     id = Some(disambiguator);
                 }
 
-                s = &s[self.parse_path(s, holder, depth)?..];
+                let jump = self.parse_path(s, holder, depth + 1)?;
+                s = &s[jump..];
 
                 let path = &mut holder.stack[holder.ptr];
                 let (repr, ident_len) = consume_ident_name(&mut s)?;
@@ -282,8 +286,9 @@ impl<'p> Path<'p> {
                 path.repr = repr;
                 path.id = id;
 
-                // Consume the 'N*', optional disambiguator and identifier.
-                return Ok(2 + disambiguator_len + ident_len + repr.len());
+                // Jump the 'N*', optional disambiguator, identifier and all the characters of
+                // the previous part of the path.
+                return Ok(2 + disambiguator_len + ident_len + repr.len() + jump);
             }
             b'I' => {
                 s = &s[1..];
