@@ -1,10 +1,13 @@
 #![cfg(test)]
 
+use std::fmt;
+use std::mem::MaybeUninit;
+use std::ops::Range;
+
 #[derive(Debug, PartialEq, Eq)]
 enum Error {
     UnknownPrefix,
     RecursionLimit,
-    NamespaceTooManyParts,
     PathLengthNotNumber,
     ArgDelimiterNotFound,
     DecodingBase62Num,
@@ -21,28 +24,39 @@ struct Symbol<'p> {
     holder: Stack<'p>,
 }
 
+impl<'p> Symbol<'p> {
+    pub fn parse(s: &'p str) -> Result<Self, Error> {
+        let mut holder = Stack::default();
+        parse_path(s, &mut holder, 0)?;
+        Ok(Self { source: s, holder })
+    }
+}
+
 struct Stack<'p> {
-    stack: [Path<'p>; MAX_COMPLEXITY],
+    stack: [Type<'p>; MAX_COMPLEXITY],
     ptr: usize,
 }
 
-impl<'p> Symbol<'p> {
-    pub fn parse(s: &'p str) -> Result<Self, Error> {
-        let mut sym = Symbol {
-            source: s,
-            holder: Stack { stack: [Path::default(); MAX_COMPLEXITY], ptr: 0 },
-        };
+impl<'p> Default for Stack<'p> {
+    fn default() -> Self {
+        let mut bytes: MaybeUninit<[Type<'p>; MAX_COMPLEXITY]> = MaybeUninit::uninit();
+        let mut ptr = bytes.as_mut_ptr() as *mut Type<'p>;
 
-        sym.holder.stack[0].parse_path(sym.source, &mut sym.holder, 0)?;
+        for _ in 0..MAX_COMPLEXITY {
+            unsafe {
+                ptr.write(Type::Empty);
+                ptr = ptr.offset(1);
+            }
+        }
 
-        Ok(sym)
+        Self { stack: unsafe { bytes.assume_init() }, ptr: 0 }
     }
+}
 
-    // <path> = C <identifier>                      // crate-id root
-    //        | M <type>                            // inherent impl root
-    //        | X <type> <path>                     // trait impl root
-    //        | N <namespace> <path> <identifier>   // nested path
-    //        | I <path> {<generic-arg>} E          // generic arguments
+impl fmt::Debug for Stack<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:#?}", &self.stack[..self.ptr]))
+    }
 }
 
 /// Demangle's a symbol.
@@ -59,6 +73,10 @@ fn demangle(s: &str) -> Result<Symbol, Error> {
     } else {
         return Err(Error::UnknownPrefix);
     };
+
+    if s.is_empty() {
+        return Err(Error::Invalid);
+    }
 
     // Only work with ascii text
     if s.bytes().any(|c| c & 0x80 != 0) {
@@ -124,43 +142,47 @@ impl Base62Num {
 
         Err(Error::DecodingBase62Num)
     }
-
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct Lifetime(Base62Num);
 
 // <type> ["n"] {hex-digit} "_" "p"
-struct Const<'a, 'b> {
-    ty: &'a Type<'a, 'b>,
-    data: &'a [usize],
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct Const<'p> {
+    ty: &'p Type<'p>,
+    data: &'p [usize],
 }
 
-enum Type<'a, 'b> {
+#[derive(Debug, PartialEq, Clone)]
+enum Type<'p> {
+    Empty,
+
     Basic(&'static str),
 
     /// <path>: named type
-    Path(Path<'b>),
+    Path(Path<'p>),
 
     /// <type> <const>: [T; N]
-    Array(&'a Type<'a, 'b>, Const<'a, 'b>),
+    Array(usize, Const<'p>),
 
     /// <type>: [T]
-    Slice(&'a Type<'a, 'b>),
+    Slice(usize),
 
     /// "T" {type} "E": (T, T, T, ...)
-    Tuple(&'a [Type<'a, 'b>]),
+    Tuple(Range<usize>),
 
     /// "R" [lifetime] <type>: &T
-    Ref(Option<Lifetime>, &'a Type<'a, 'b>),
+    Ref(Option<Lifetime>, usize),
 
     /// "Q" [lifetime] <type>: &mut T
-    RefMut(Option<Lifetime>, &'a Type<'a, 'b>),
+    RefMut(Option<Lifetime>, usize),
 
     /// "P" <type>: *const T
-    Pointer(&'a Type<'a, 'b>),
+    Pointer(usize),
 
     /// "O" <type>: *mut T
-    PointerMut(&'a Type<'a, 'b>),
+    PointerMut(usize),
 
     /// <abi> = "C" <undisambiguated-identifier>
     /// <undisambiguated-identifier> = ["u"] <decimal-number> ["_"] <byte str>
@@ -171,10 +193,224 @@ enum Type<'a, 'b> {
     ///
     /// If the "U" is present then the function is `unsafe`.
     /// "K" Indicates an abi is present.
-    FnSig(Base62Num, usize, &'b str, &'a [Type<'a, 'b>], &'a Type<'a, 'b>),
+    FnSig(Base62Num, usize, usize, Range<usize>, usize),
 
     /// "D" ["G" <base-62-number>] {path {"p" undisambiguated-identifier type}} lifetime <life "E": dyn Trait<Item = X> + Send + 'a
-    DynTrait(Option<Base62Num>, &'a [(Path<'b>, &'a [(&'a str, &'a Type<'a, 'b>)])], Lifetime),
+    DynTrait(Option<Base62Num>, &'p [(Path<'p>, &'p [(&'p str, &'p Type<'p>)])], Lifetime),
+}
+
+// Returns number of bytes consumed.
+fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Result<usize, Error> {
+    if depth == MAX_ARGUEMENT_DEPTH {
+        return Err(Error::RecursionLimit);
+    }
+
+    match s.as_bytes()[0] {
+        b'C' => {
+            // <identifier>
+
+            s = &s[1..];
+            let mut disambiguator_len = 0;
+            let mut id = None;
+
+            // Try to consume a disambiguator.
+            if s.as_bytes()[0] == b's' {
+                let (disambiguator, bytes_consumed) = Base62Num::try_consume_into(&mut s)?;
+
+                disambiguator_len = bytes_consumed;
+                id = Some(disambiguator);
+            }
+
+            let (repr, ident_len) = consume_ident_name(&mut s)?;
+
+            holder.stack[holder.ptr] =
+                Type::Path(Path { id, repr, namespace: Namespace::Crate, ..Default::default() });
+
+            holder.ptr += 1;
+
+            // Consume the 'C', optional disambiguator and identifier.
+            return Ok(1 + disambiguator_len + ident_len + repr.len());
+        }
+        b'M' => {
+            // [disambiguator] <path> <type>
+
+            todo!()
+        }
+        b'X' => {
+            // [disambiguator] <path> <type> <identifier>
+            //
+            // <crate::Foo<_> *as* Readable> for example
+
+            todo!()
+        }
+        b'Y' => {
+            // <type> <path>
+
+            todo!()
+        }
+        b'N' => {
+            // <namespace> <path> <identifier>
+
+            let namespace = match s.as_bytes()[1] {
+                b'v' => Namespace::Value,
+                b't' => Namespace::Type,
+                _ => Namespace::Unknown,
+            };
+
+            s = &s[2..];
+            let mut disambiguator_len = 0;
+            let mut id = None;
+
+            // Try to consume a disambiguator.
+            if s.as_bytes()[0] == b's' {
+                let (disambiguator, bytes_consumed) = Base62Num::try_consume_into(&mut s)?;
+
+                disambiguator_len = bytes_consumed;
+                id = Some(disambiguator);
+            }
+
+            let jump = parse_path(s, holder, depth + 1)?;
+            s = &s[jump..];
+
+            let (repr, ident_len) = consume_ident_name(&mut s)?;
+
+            holder.stack[holder.ptr] =
+                Type::Path(Path { id, repr, namespace, ..Default::default() });
+
+            // Mention to the last type that it has a `next` if it's a path.
+            match holder.stack[holder.ptr - 1] {
+                Type::Path(ref mut path) => {
+                    path.next = Some(holder.ptr);
+                }
+                _ => {}
+            }
+
+            holder.ptr += 1;
+
+            // Jump the 'N*', optional disambiguator, identifier and all the characters of
+            // the previous part of the path.
+            return Ok(2 + disambiguator_len + ident_len + repr.len() + jump);
+        }
+        b'I' => {
+            // <path> {<lifetime> <type>} "E"
+
+            s = &s[1..];
+            let jump = parse_path(s, holder, depth + 1)?;
+            s = &s[jump..];
+
+            match s.find('E') {
+                Some(end) => {
+                    s = &s[..end];
+
+                    match holder.stack[holder.ptr - 1] {
+                        // Specify that the last path has an arguement.
+                        Type::Path(ref mut path) => {
+                            path.arguement = Some(holder.ptr);
+                        }
+                        _ => {}
+                    }
+
+                    let jump = parse_type(s, holder, depth + 1)?;
+                    s = &s[jump..];
+
+                    holder.ptr += 1;
+
+                    if s.as_bytes().get(end + 1) == Some(&b'C') {
+                        let (_, crate_id_len) = consume_ident_name(&mut s)?;
+                        return Ok(2 + crate_id_len + jump);
+                    }
+
+                    // Jump the 'I', 'E' and the type.
+                    return Ok(2 + jump);
+                }
+                None => return Err(Error::ArgDelimiterNotFound),
+            }
+        }
+        _ => unreachable!("Could be a backref that isn't being accounted for?"),
+    }
+}
+
+fn parse_type<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Result<usize, Error> {
+    if depth == MAX_ARGUEMENT_DEPTH {
+        return Err(Error::RecursionLimit);
+    }
+
+    if s.is_empty() {
+        holder.ptr -= 1;
+        return Ok(0);
+    }
+
+    match s.as_bytes()[0] {
+        b'A' => {
+            // <type> <const>
+
+            todo!()
+        }
+        b'S' => {
+            // <type>
+
+            holder.stack[holder.ptr] = Type::Slice(holder.ptr + 1);
+            holder.ptr += 1;
+
+            Ok(1 + parse_type(&s[1..], holder, depth + 1)?)
+        }
+        b'T' => {
+            // {<type>} "E"
+
+            todo!()
+        }
+        b'R' => {
+            // [lifetime] <type>
+
+            todo!()
+        }
+        b'Q' => {
+            // [lifetime] <type>
+
+            todo!()
+        }
+        b'P' => {
+            // <type>
+
+            holder.stack[holder.ptr] = Type::Pointer(holder.ptr + 1);
+            holder.ptr += 1;
+
+            Ok(1 + parse_type(&s[1..], holder, depth + 1)?)
+        }
+        b'O' => {
+            // <type>
+
+            holder.stack[holder.ptr] = Type::PointerMut(holder.ptr + 1);
+            holder.ptr += 1;
+
+            Ok(1 + parse_type(&s[1..], holder, depth + 1)?)
+        }
+        b'F' => {
+            // <fn-sig>
+
+            todo!()
+        }
+        b'D' => {
+            // <dyn-bounds> <lifetime>
+
+            todo!()
+        }
+        b'B' => {
+            // <base-62-number>
+
+            todo!()
+        }
+        c @ _ => {
+            // <basic-type> | <path>
+
+            if let Some(ty) = basic_types(c) {
+                holder.stack[holder.ptr] = Type::Basic(ty);
+                return Ok(1);
+            }
+
+            parse_path(s, holder, depth + 1)
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -194,136 +430,6 @@ struct Path<'p> {
     next: Option<usize>,
 }
 
-impl<'p> Path<'p> {
-    // Returns number of bytes consumed.
-    pub fn parse_path<'a>(
-        mut self,
-        mut s: &'p str,
-        holder: &mut Stack<'p>,
-        mut depth: usize,
-    ) -> Result<usize, Error> {
-        if depth == MAX_ARGUEMENT_DEPTH {
-            return Err(Error::RecursionLimit);
-        }
-
-        let stack_start = holder.ptr;
-
-        match s.as_bytes()[0] {
-            b'C' => {
-                // <identifier>
-
-                s = &s[1..];
-                let mut disambiguator_len = 0;
-                let mut id = None;
-
-                // Try to consume a disambiguator.
-                if s.as_bytes()[0] == b's' {
-                    let (disambiguator, bytes_consumed) = Base62Num::try_consume_into(&mut s)?;
-
-                    disambiguator_len = bytes_consumed;
-                    id = Some(disambiguator);
-                }
-
-                let path = &mut holder.stack[holder.ptr];
-                let (repr, ident_len) = consume_ident_name(&mut s)?;
-
-                holder.ptr += 1;
-                path.namespace = Namespace::Crate;
-                path.next = (!s.is_empty()).then_some(holder.ptr);
-                path.repr = repr;
-                path.id = id;
-
-                // Consume the 'C', optional disambiguator and identifier.
-                return Ok(1 + disambiguator_len + ident_len + repr.len());
-            }
-            b'M' => {
-                // [disambiguator] <path> <type>
-
-                todo!()
-            }
-            b'X' => {
-                // [disambiguator] <path> <type> <identifier>
-                //
-                // <crate::Foo<_> *as* Readable> for example
-
-                todo!()
-            }
-            b'Y' => {
-                // <type> <path>
-
-                todo!()
-            }
-            b'N' => {
-                // <namespace> <path> <identifier>
-
-                let namespace = match s.as_bytes()[1] {
-                    b'v' => Namespace::Value,
-                    b't' => Namespace::Type,
-                    _ => Namespace::Unknown,
-                };
-
-                s = &s[2..];
-                let mut disambiguator_len = 0;
-                let mut id = None;
-
-                // Try to consume a disambiguator.
-                if s.as_bytes()[0] == b's' {
-                    let (disambiguator, bytes_consumed) = Base62Num::try_consume_into(&mut s)?;
-
-                    disambiguator_len = bytes_consumed;
-                    id = Some(disambiguator);
-                }
-
-                let jump = self.parse_path(s, holder, depth + 1)?;
-                s = &s[jump..];
-
-                let path = &mut holder.stack[holder.ptr];
-                let (repr, ident_len) = consume_ident_name(&mut s)?;
-
-                holder.ptr += 1;
-                path.namespace = namespace;
-                path.next = (!s.is_empty()).then_some(holder.ptr);
-                path.repr = repr;
-                path.id = id;
-
-                // Jump the 'N*', optional disambiguator, identifier and all the characters of
-                // the previous part of the path.
-                return Ok(2 + disambiguator_len + ident_len + repr.len() + jump);
-            }
-            b'I' => {
-                s = &s[1..];
-
-                match s.find('E') {
-                    Some(end) => {
-                        holder.ptr += 1;
-
-                        self.arguement = Some(holder.ptr);
-                        self.parse_path(&s[..end][1..], holder, depth + 1)?;
-
-                        s = &s[end + 1..];
-                    }
-                    None => return Err(Error::ArgDelimiterNotFound),
-                }
-            }
-            // we actually parse one of the available paths.
-            _ => {},
-        }
-
-        if s.is_empty() {
-            // Path must have a crate.
-            debug_assert!(
-                holder.stack[..holder.ptr].iter().any(|path| path.namespace == Namespace::Crate)
-            );
-
-            return Ok(0);
-        }
-
-        for part in &mut holder.stack[stack_start..=holder.ptr] {}
-
-        Err(Error::RecursionLimit)
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Namespace {
     Unknown,
@@ -339,7 +445,7 @@ impl Default for Namespace {
     }
 }
 
-fn common_type(tag: u8) -> Option<&'static str> {
+fn basic_types(tag: u8) -> Option<&'static str> {
     Some(match tag {
         b'b' => "bool",
         b'c' => "char",
@@ -369,11 +475,12 @@ fn common_type(tag: u8) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, Path, demangle};
+    use super::{demangle, Error, Type};
 
     #[test]
-    fn idents() {
-        demangle("_RINvNtCdemangle6decode6x86_64dE").unwrap();
+    fn simple_arg() {
+        let symbol = demangle("_RINvNtC3std3mem8align_ofjEC3foo").unwrap();
+        dbg!(&symbol.holder);
     }
 
     #[test]
@@ -383,23 +490,21 @@ mod tests {
 
     #[test]
     fn simple_namespace() {
-        let symbol = demangle("_RNts9_Cs1234_8rustdump6decode").unwrap();
-        dbg!(&symbol.holder.stack[..symbol.holder.ptr]);
+        let symbol_a = demangle("_RNts9_Cs1234_8rustdump6decode").unwrap();
+        dbg!(&symbol_a.holder);
 
-        let symbol = demangle("_RNvNtCs1234_7mycrate3foo3bar").unwrap();
-        dbg!(&symbol.holder.stack[..symbol.holder.ptr]);
+        let symbol_b = demangle("_RNvNtCs1234_7mycrate3foo3bar").unwrap();
+        dbg!(&symbol_b.holder);
     }
 
     #[test]
     fn simple_crate() {
         let symbol = demangle("_RC8demangle").unwrap();
-        assert_eq!(symbol.holder.stack[0].repr, "demangle");
-        assert_eq!(symbol.holder.stack[1], Path::default());
-    }
 
-    #[test]
-    fn empty_type() {
-        demangle("_R").unwrap();
+        match symbol.holder.stack[0] {
+            Type::Path(path) => assert_eq!(path.repr, "demangle"),
+            _ => unreachable!(),
+        }
     }
 
     #[test]
