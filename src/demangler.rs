@@ -16,8 +16,38 @@ enum Error {
     Invalid,
 }
 
+// `MAX_COMPLEXITY` must be less than u16::MAX - 1 as Path::Generic's arguement lists 
+// addresses generic's in u16's.
 const MAX_COMPLEXITY: usize = 256;
-const MAX_ARGUEMENT_DEPTH: usize = 16;
+const MAX_DEPTH: usize = 32;
+const MAX_GENERIC_ARGUEMENTS: usize = 16;
+
+/// Demangle's a symbol.
+fn demangle(s: &str) -> Result<Symbol, Error> {
+    let s = if s.starts_with("_R") {
+        &s[2..]
+    } else if s.starts_with('R') {
+        // On Windows, dbghelp strips leading underscores, so we accept "R..."
+        // form too.
+        &s[1..]
+    } else if s.starts_with("__R") {
+        // On OSX, symbols are prefixed with an extra _
+        &s[3..]
+    } else {
+        return Err(Error::UnknownPrefix);
+    };
+
+    if s.is_empty() {
+        return Err(Error::Invalid);
+    }
+
+    // Only work with ascii text
+    if s.bytes().any(|c| c & 0x80 != 0) {
+        return Err(Error::NotAscii);
+    }
+
+    Symbol::parse(s)
+}
 
 struct Symbol<'p> {
     source: &'p str,
@@ -57,51 +87,6 @@ impl fmt::Debug for Stack<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{:#?}", &self.stack[..self.ptr]))
     }
-}
-
-/// Demangle's a symbol.
-fn demangle(s: &str) -> Result<Symbol, Error> {
-    let s = if s.starts_with("_R") {
-        &s[2..]
-    } else if s.starts_with('R') {
-        // On Windows, dbghelp strips leading underscores, so we accept "R..."
-        // form too.
-        &s[1..]
-    } else if s.starts_with("__R") {
-        // On OSX, symbols are prefixed with an extra _
-        &s[3..]
-    } else {
-        return Err(Error::UnknownPrefix);
-    };
-
-    if s.is_empty() {
-        return Err(Error::Invalid);
-    }
-
-    // Only work with ascii text
-    if s.bytes().any(|c| c & 0x80 != 0) {
-        return Err(Error::NotAscii);
-    }
-
-    Symbol::parse(s)
-}
-
-/// Consume length of path and convert to a str returning the ident len as well.
-fn consume_ident_name<'s>(s: &mut &'s str) -> Result<(&'s str, usize), Error> {
-    for (width, chr) in s.bytes().enumerate() {
-        if !chr.is_ascii_digit() {
-            match usize::from_str_radix(&s[..width], 10) {
-                Err(_) => return Err(Error::PathLengthNotNumber),
-                Ok(len) => {
-                    let ident = &s[width..][..len];
-                    *s = &s[width + len..];
-                    return Ok((ident, width));
-                }
-            }
-        }
-    }
-
-    Err(Error::Invalid)
 }
 
 /// (base-62 number, length of original number)
@@ -145,6 +130,14 @@ impl Base62Num {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Namespace {
+    Unknown,
+    Opaque,
+    Type,
+    Value,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct Lifetime(Base62Num);
 
 // <type> ["n"] {hex-digit} "_" "p"
@@ -152,6 +145,44 @@ struct Lifetime(Base62Num);
 struct Const<'p> {
     ty: &'p Type<'p>,
     data: &'p [usize],
+}
+
+// Macros can generate an item with the same name as another item. We can differentiate between
+// these using an optional `"s" [base-62-num] "_"` prefix.
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum Path<'p> {
+    /// [disambiguator] <ident>
+    ///
+    /// crate root.
+    Crate(Option<Base62Num>, &'p str),
+
+    /// [disambiguator] <type>
+    ///
+    /// <T>
+    InherentImpl(Option<Base62Num>, usize),
+
+    /// [disambiguator] <type> <path>
+    ///
+    /// <T as Trait>
+    TraitImpl(Option<Base62Num>, usize, usize),
+
+    /// <type> <path>
+    ///
+    /// <T as Trait>
+    TraitDef(usize, usize),
+
+    /// <namespace> <path> [disambiguator] <ident>
+    ///
+    /// ...::ident
+    NestedPath(Namespace, usize, Option<Base62Num>, &'p str),
+
+    /// <path> {generic-arg} "E"
+    ///
+    /// for now only allow one generic :(
+    ///
+    /// ...<T, U>
+    Generic(usize, [u16; MAX_GENERIC_ARGUEMENTS]),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -201,7 +232,7 @@ enum Type<'p> {
 
 // Returns number of bytes consumed.
 fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Result<usize, Error> {
-    if depth == MAX_ARGUEMENT_DEPTH {
+    if depth == MAX_DEPTH {
         return Err(Error::RecursionLimit);
     }
 
@@ -222,10 +253,7 @@ fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
             }
 
             let (repr, ident_len) = consume_ident_name(&mut s)?;
-
-            holder.stack[holder.ptr] =
-                Type::Path(Path { id, repr, namespace: Namespace::Crate, ..Default::default() });
-
+            holder.stack[holder.ptr] = Type::Path(Path::Crate(id, repr));
             holder.ptr += 1;
 
             // Consume the 'C', optional disambiguator and identifier.
@@ -269,23 +297,14 @@ fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
                 id = Some(disambiguator);
             }
 
+            let spot = holder.ptr;
+            holder.ptr += 1;
+
             let jump = parse_path(s, holder, depth + 1)?;
             s = &s[jump..];
 
             let (repr, ident_len) = consume_ident_name(&mut s)?;
-
-            holder.stack[holder.ptr] =
-                Type::Path(Path { id, repr, namespace, ..Default::default() });
-
-            // Mention to the last type that it has a `next` if it's a path.
-            match holder.stack[holder.ptr - 1] {
-                Type::Path(ref mut path) => {
-                    path.next = Some(holder.ptr);
-                }
-                _ => {}
-            }
-
-            holder.ptr += 1;
+            holder.stack[spot] = Type::Path(Path::NestedPath(namespace, spot + 1, id, repr));
 
             // Jump the 'N*', optional disambiguator, identifier and all the characters of
             // the previous part of the path.
@@ -295,6 +314,10 @@ fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
             // <path> {<lifetime> <type>} "E"
 
             s = &s[1..];
+
+            let path_spot = holder.ptr;
+            holder.ptr += 1;
+
             let jump = parse_path(s, holder, depth + 1)?;
             s = &s[jump..];
 
@@ -302,19 +325,16 @@ fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
                 Some(end) => {
                     s = &s[..end];
 
-                    match holder.stack[holder.ptr - 1] {
-                        // Specify that the last path has an arguement.
-                        Type::Path(ref mut path) => {
-                            path.arguement = Some(holder.ptr);
-                        }
-                        _ => {}
-                    }
+                    // Temporary hack is I implement multiple generic parsing.
+                    let mut generic_spots = [u16::MAX; MAX_GENERIC_ARGUEMENTS];
+                    generic_spots[0] = holder.ptr as u16;
 
                     let jump = parse_type(s, holder, depth + 1)?;
                     s = &s[jump..];
 
-                    holder.ptr += 1;
+                    holder.stack[path_spot] = Type::Path(Path::Generic(path_spot + 1, generic_spots));
 
+                    // Consume and ignore optional unique id suffix.
                     if s.as_bytes().get(end + 1) == Some(&b'C') {
                         let (_, crate_id_len) = consume_ident_name(&mut s)?;
                         return Ok(2 + crate_id_len + jump);
@@ -331,7 +351,7 @@ fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
 }
 
 fn parse_type<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Result<usize, Error> {
-    if depth == MAX_ARGUEMENT_DEPTH {
+    if depth == MAX_DEPTH {
         return Err(Error::RecursionLimit);
     }
 
@@ -349,10 +369,15 @@ fn parse_type<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
         b'S' => {
             // <type>
 
-            holder.stack[holder.ptr] = Type::Slice(holder.ptr + 1);
+            let spot = holder.ptr;
             holder.ptr += 1;
 
-            Ok(1 + parse_type(&s[1..], holder, depth + 1)?)
+            let jump = parse_type(&s[1..], holder, depth + 1)?;
+            s = &s[jump..];
+
+            holder.stack[holder.ptr] = Type::Slice(spot + 1);
+
+            Ok(1 + jump)
         }
         b'T' => {
             // {<type>} "E"
@@ -372,18 +397,28 @@ fn parse_type<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
         b'P' => {
             // <type>
 
-            holder.stack[holder.ptr] = Type::Pointer(holder.ptr + 1);
+            let spot = holder.ptr;
             holder.ptr += 1;
 
-            Ok(1 + parse_type(&s[1..], holder, depth + 1)?)
+            let jump = parse_type(&s[1..], holder, depth + 1)?;
+            s = &s[jump..];
+
+            holder.stack[holder.ptr] = Type::Pointer(spot + 1);
+
+            Ok(1 + jump)
         }
         b'O' => {
             // <type>
 
-            holder.stack[holder.ptr] = Type::PointerMut(holder.ptr + 1);
+            let spot = holder.ptr;
             holder.ptr += 1;
 
-            Ok(1 + parse_type(&s[1..], holder, depth + 1)?)
+            let jump = parse_type(&s[1..], holder, depth + 1)?;
+            s = &s[jump..];
+
+            holder.stack[holder.ptr] = Type::PointerMut(spot + 1);
+
+            Ok(1 + jump)
         }
         b'F' => {
             // <fn-sig>
@@ -405,6 +440,7 @@ fn parse_type<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
 
             if let Some(ty) = basic_types(c) {
                 holder.stack[holder.ptr] = Type::Basic(ty);
+                holder.ptr += 1;
                 return Ok(1);
             }
 
@@ -413,36 +449,22 @@ fn parse_type<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-struct Path<'p> {
-    repr: &'p str,
-    namespace: Namespace,
-
-    /// Macros can generate an item with the same name as another item in the same scope. we
-    /// identify these using an `s[optional idx]_` prefix before the length of a path's component.
-    /// I'm also assuming an identical item isn't generated more then u16::MAX times.
-    id: Option<Base62Num>,
-
-    /// Index into the symbol's arguement table.
-    arguement: Option<usize>,
-
-    /// Next substring of the path.
-    next: Option<usize>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum Namespace {
-    Unknown,
-    Opaque,
-    Type,
-    Value,
-    Crate,
-}
-
-impl Default for Namespace {
-    fn default() -> Self {
-        Self::Unknown
+/// Consume length of path and convert to a str returning the ident len as well.
+fn consume_ident_name<'s>(s: &mut &'s str) -> Result<(&'s str, usize), Error> {
+    for (width, chr) in s.bytes().enumerate() {
+        if !chr.is_ascii_digit() {
+            match usize::from_str_radix(&s[..width], 10) {
+                Err(_) => return Err(Error::PathLengthNotNumber),
+                Ok(len) => {
+                    let ident = &s[width..][..len];
+                    *s = &s[width + len..];
+                    return Ok((ident, width));
+                }
+            }
+        }
     }
+
+    Err(Error::Invalid)
 }
 
 fn basic_types(tag: u8) -> Option<&'static str> {
@@ -475,7 +497,7 @@ fn basic_types(tag: u8) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{demangle, Error, Type};
+    use super::{demangle, Error, Path, Type};
 
     #[test]
     fn simple_arg() {
@@ -489,8 +511,17 @@ mod tests {
     }
 
     #[test]
+    fn complex_namespace() {
+        let symbol = demangle("_RINvNtC8rustdump6decode6x86_64NvC3lol4damnE").unwrap();
+        dbg!(&symbol.holder);
+
+        let symbol = demangle("_RIC3lolpE").unwrap();
+        dbg!(&symbol.holder);
+    }
+
+    #[test]
     fn simple_namespace() {
-        let symbol_a = demangle("_RNts9_Cs1234_8rustdump6decode").unwrap();
+        let symbol_a = demangle("_RNtC8rustdump6decode").unwrap();
         dbg!(&symbol_a.holder);
 
         let symbol_b = demangle("_RNvNtCs1234_7mycrate3foo3bar").unwrap();
@@ -502,7 +533,7 @@ mod tests {
         let symbol = demangle("_RC8demangle").unwrap();
 
         match symbol.holder.stack[0] {
-            Type::Path(path) => assert_eq!(path.repr, "demangle"),
+            Type::Path(Path::Crate(_, repr)) => assert_eq!(repr, "demangle"),
             _ => unreachable!(),
         }
     }
@@ -528,5 +559,11 @@ mod tests {
 
         let mut s = "abc";
         assert_eq!(Err(Error::DecodingBase62Num), Base62Num::try_consume_into(&mut s));
+    }
+
+    #[test]
+    fn cache_lines() {
+        assert!(dbg!(std::mem::size_of::<Path>()) <= 64);
+        assert!(dbg!(std::mem::size_of::<Type>()) <= 64);
     }
 }
