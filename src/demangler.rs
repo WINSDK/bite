@@ -16,7 +16,7 @@ enum Error {
     Invalid,
 }
 
-// `MAX_COMPLEXITY` must be less than u16::MAX - 1 as Path::Generic's arguement lists 
+// `MAX_COMPLEXITY` must be less than u16::MAX - 2 as Path::Generic's arguement lists
 // addresses generic's in u16's.
 const MAX_COMPLEXITY: usize = 256;
 const MAX_DEPTH: usize = 32;
@@ -59,6 +59,72 @@ impl<'p> Symbol<'p> {
         let mut holder = Stack::default();
         parse_path(s, &mut holder, 0)?;
         Ok(Self { source: s, holder })
+    }
+
+    pub fn display(&self) -> String {
+        let mut name = String::new();
+        let mut this_path = String::new();
+
+        self.fmt(&mut name, &mut this_path, &self.holder.stack[0]);
+
+        if name.is_empty() {
+            this_path
+        } else {
+            name
+        }
+    }
+
+    // `this_path` can't work for recursively storing generics within generics.
+    fn fmt(&self, name: &mut String, this_path: &mut String, ty: &Type<'p>) {
+        match ty {
+            Type::Empty => unreachable!(),
+            Type::Basic(s) => {
+                this_path.clear();
+                this_path.push_str(s);
+            }
+            Type::Path(path) => match path {
+                Path::Crate(_, ident) => {
+                    this_path.clear();
+                    this_path.push_str(ident);
+                }
+                Path::NestedPath(_, path_idx, _disambiguator, ident) => {
+                    self.fmt(name, this_path, &self.holder.stack[*path_idx]);
+
+                    this_path.push_str("::");
+                    this_path.push_str(ident);
+                }
+                Path::Generic(path_idx, generics) => {
+                    self.fmt(name, this_path, &self.holder.stack[*path_idx]);
+                    name.push_str(this_path);
+
+                    name.push_str("::<");
+
+                    let mut generics = generics.iter().peekable();
+                    while let Some(generic) = generics.next() {
+                        if *generic == u16::MAX {
+                            break;
+                        }
+
+                        if *generic == u16::MAX - 1 {
+                            name.push_str("...");
+                            break;
+                        }
+
+                        self.fmt(name, this_path, &self.holder.stack[*generic as usize]);
+                        name.push_str(this_path);
+
+                        match generics.peek() {
+                            Some(next) if **next != u16::MAX => name.push_str(", "),
+                            _ => {}
+                        }
+                    }
+
+                    name.push_str(">");
+                }
+                _ => todo!("{:?}", path),
+            },
+            _ => todo!("{:?}", ty),
+        }
     }
 }
 
@@ -115,9 +181,9 @@ impl Base62Num {
             }
 
             let base_62_c = match c {
-                b'0'..=b'9' => c as u8 - b'0',
-                b'a'..=b'z' => c as u8 - b'a' + 10,
-                b'A'..=b'Z' => c as u8 - b'A' + 36,
+                b'0'..=b'9' => c - b'0',
+                b'a'..=b'z' => c - b'a' + 10,
+                b'A'..=b'Z' => c - b'A' + 36,
                 _ => return Err(Error::DecodingBase62Num),
             };
 
@@ -318,35 +384,52 @@ fn parse_path<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
             let path_spot = holder.ptr;
             holder.ptr += 1;
 
-            let jump = parse_path(s, holder, depth + 1)?;
-            s = &s[jump..];
+            let mut jump_total = parse_path(s, holder, depth + 1)?;
+            s = &s[jump_total..];
 
-            match s.find('E') {
+            match s.rfind('E') {
                 Some(end) => {
                     s = &s[..end];
 
-                    // Temporary hack is I implement multiple generic parsing.
                     let mut generic_spots = [u16::MAX; MAX_GENERIC_ARGUEMENTS];
-                    generic_spots[0] = holder.ptr as u16;
+                    let mut idx = 0;
 
-                    let jump = parse_type(s, holder, depth + 1)?;
-                    s = &s[jump..];
+                    loop {
+                        if s.is_empty() {
+                            break;
+                        }
 
-                    holder.stack[path_spot] = Type::Path(Path::Generic(path_spot + 1, generic_spots));
+                        if idx == MAX_GENERIC_ARGUEMENTS - 1 {
+                            // Indicate that there are too many arguements to display.
+                            generic_spots[MAX_GENERIC_ARGUEMENTS - 1] = u16::MAX - 1;
+
+                            break;
+                        }
+
+                        generic_spots[idx] = holder.ptr as u16;
+                        let jump = parse_type(s, holder, depth + 1)?;
+                        s = &s[jump..];
+
+                        jump_total += jump;
+                        idx += 1;
+                    }
+
+                    holder.stack[path_spot] =
+                        Type::Path(Path::Generic(1 + path_spot, generic_spots));
 
                     // Consume and ignore optional unique id suffix.
                     if s.as_bytes().get(end + 1) == Some(&b'C') {
                         let (_, crate_id_len) = consume_ident_name(&mut s)?;
-                        return Ok(2 + crate_id_len + jump);
+                        return Ok(2 + crate_id_len + jump_total);
                     }
 
                     // Jump the 'I', 'E' and the type.
-                    return Ok(2 + jump);
+                    return Ok(2 + jump_total);
                 }
                 None => return Err(Error::ArgDelimiterNotFound),
             }
         }
-        _ => unreachable!("Could be a backref that isn't being accounted for?"),
+        _ => unreachable!("Could be a backref that isn't being accounted for? {}", s),
     }
 }
 
@@ -433,10 +516,15 @@ fn parse_type<'p>(mut s: &'p str, holder: &mut Stack<'p>, depth: usize) -> Resul
         b'B' => {
             // <base-62-number>
 
-            todo!()
+            let (num, bytes_consumed) = Base62Num::try_consume_into(&mut s)?;
+
+            holder.ptr += 1;
+            holder.stack[holder.ptr] = todo!();
+
+            Ok(1 + bytes_consumed)
         }
         c @ _ => {
-            // <basic-type> | <path>
+            // <basic-type | path>
 
             if let Some(ty) = basic_types(c) {
                 holder.stack[holder.ptr] = Type::Basic(ty);
@@ -506,6 +594,12 @@ mod tests {
     }
 
     #[test]
+    fn complex_arg() {
+        let symbol = demangle("_RINvNtC3std3mem8align_ofINtC4what4helldddEE").unwrap();
+        dbg!(&symbol.holder);
+    }
+
+    #[test]
     fn namespaces() {
         demangle("_RNvNtC8rustdump6decode6x86_64").unwrap();
     }
@@ -565,5 +659,29 @@ mod tests {
     fn cache_lines() {
         assert!(dbg!(std::mem::size_of::<Path>()) <= 64);
         assert!(dbg!(std::mem::size_of::<Type>()) <= 64);
+    }
+
+    #[test]
+    fn fmt() {
+        let symbol = demangle("_RC8demangle").unwrap();
+        assert_eq!(dbg!(symbol.display()), "demangle");
+
+        let symbol = demangle("_RNtC8rustdump6decode").unwrap();
+        assert_eq!(dbg!(symbol.display()), "rustdump::decode");
+
+        let symbol = demangle("_RINvNtC8rustdump6decode6x86_64NvC3lol4damnE").unwrap();
+        assert_eq!(dbg!(symbol.display()), "rustdump::decode::x86_64::<lol::damn>");
+
+        let symbol = demangle("_RINvNtC3std3mem8align_ofjdE").unwrap();
+        assert_eq!(dbg!(symbol.display()), "std::mem::align_of::<usize, f64>");
+
+        let symbol = demangle("_RINvNtC3std3mem8align_ofhhhhhhhhhhhhhhhhhhhhE").unwrap();
+        assert_eq!(
+            dbg!(symbol.display()),
+            "std::mem::align_of::<u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, ...>"
+        );
+
+        let symbol = demangle("_RINvNtC3std3mem8align_ofINtC4what4helldddEE").unwrap();
+        assert_eq!(dbg!(symbol.display()), "std::mem::align_of::<what::hell::<f64, f64, f64>>");
     }
 }
