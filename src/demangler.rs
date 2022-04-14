@@ -132,10 +132,6 @@ impl<'p> Symbol<'p> {
         }
     }
 
-    fn consume_namespace(&mut self) -> ManglingResult<()> {
-        Ok(())
-    }
-
     fn consume_base62(&mut self) -> ManglingResult<Base62Num> {
         let mut num = 0u64;
 
@@ -196,6 +192,7 @@ impl<'p> Symbol<'p> {
             return Err(Error::TooComplex);
         }
 
+        self.depth += 1;
         match self.source.consume().ok_or(Error::Invalid)? {
             b'C' => {
                 // <identifier>
@@ -275,6 +272,7 @@ impl<'p> Symbol<'p> {
             return Err(Error::TooComplex);
         }
 
+        self.depth += 1;
         match self.source.seek().ok_or(Error::Invalid)? {
             b'A' => {
                 // <type> <const>
