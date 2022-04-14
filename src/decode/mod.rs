@@ -133,8 +133,16 @@ pub struct Reader<'a> {
 
 #[allow(dead_code)]
 impl<'a> Reader<'a> {
-    pub const fn new(buf: &'a [u8]) -> Self {
+    pub fn new(buf: &'a [u8]) -> Self {
         Self { buf, pos: AtomicUsize::new(0) }
+    }
+
+    pub fn inc(&self, num_bytes: usize) {
+        self.pos.fetch_add(num_bytes, Ordering::AcqRel);
+    }
+
+    pub fn inner(&self) -> &'a [u8] {
+        &self.buf[self.pos.load(Ordering::SeqCst)..]
     }
 
     pub fn seek(&self) -> Option<u8> {
@@ -151,7 +159,6 @@ impl<'a> Reader<'a> {
     }
 
     /// Returns `None` if either the reader is at the end of a byte stream or the conditional
-    #[inline]
     pub fn seek_eq<F: FnOnce(u8) -> bool>(&self, f: F) -> Option<u8> {
         self.buf.get(self.pos.load(Ordering::Relaxed)).filter(|x| f(**x)).cloned()
     }
@@ -171,13 +178,31 @@ impl<'a> Reader<'a> {
 
     /// Returns `None` if either the reader is at the end of a byte stream or the conditional
     /// fails, on success will increment internal position.
-    #[inline]
     pub fn consume_eq<F: FnOnce(u8) -> bool>(&self, f: F) -> Option<u8> {
         let pos = self.pos.load(Ordering::Acquire);
         self.buf.get(pos).filter(|x| f(**x)).map(|x| {
             self.pos.store(pos + 1, Ordering::Release);
             *x
         })
+    }
+
+    /// Returns `None` if either the reader is at the end of a byte stream or the conditional
+    /// fails, on success will increment internal position.
+    pub fn consume_exact_eq<F: FnMut(u8) -> bool>(
+        &self,
+        mut f: F,
+        num_bytes: usize,
+    ) -> Option<&[u8]> {
+        let pos = self.pos.load(Ordering::Acquire);
+
+        if let Some(bytes) = self.buf.get(pos..pos + num_bytes) {
+            if bytes.iter().all(|x| f(*x)) {
+                self.pos.store(pos + 1, Ordering::Release);
+                return Some(bytes);
+            }
+        }
+
+        None
     }
 
     pub unsafe fn consume_into<T>(&self) -> Option<&T> {
