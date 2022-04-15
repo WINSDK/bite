@@ -137,12 +137,23 @@ impl<'a> Reader<'a> {
         Self { buf, pos: AtomicUsize::new(0) }
     }
 
-    pub fn inc(&self, num_bytes: usize) {
-        self.pos.fetch_add(num_bytes, Ordering::AcqRel);
-    }
-
     pub fn inner(&self) -> &'a [u8] {
         &self.buf[self.pos.load(Ordering::SeqCst)..]
+    }
+
+    pub fn offset(&self, num_bytes: isize) {
+        let pos = self.pos.load(Ordering::Acquire) as isize;
+        self.pos.store((pos + num_bytes) as usize, Ordering::Release);
+    }
+
+    pub fn take(&self, byte: u8) -> bool {
+        let pos = self.pos.load(Ordering::SeqCst);
+        if self.buf.get(pos) == Some(&byte) {
+            self.pos.store(pos + 1, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn seek(&self) -> Option<u8> {
