@@ -74,7 +74,7 @@ impl<'p> Symbol<'p> {
 
     fn fmt(&self, repr: &mut String, ty: &Type<'p>) {
         match ty {
-            Type::Empty => unreachable!(),
+            Type::Empty => unreachable!("{:#?}", &self.ast),
             Type::Basic(s) => repr.push_str(s),
             Type::Path(path) => match path {
                 Path::Crate(_, ident) => {
@@ -216,6 +216,35 @@ impl<'p> Symbol<'p> {
             Type::PointerMut(type_idx) => {
                 repr.push_str("*mut ");
                 self.fmt(repr, &self.ast.stack[*type_idx]);
+            }
+            Type::FnSig(_, is_unsafe, opt_ident, arg_indices, opt_return_idx) => {
+                if *is_unsafe {
+                    repr.push_str("unsafe ");
+                }
+
+                if let Some(ident) = opt_ident {
+                    repr.push_str("fn ");
+                    repr.push_str(ident);
+                    repr.push('(');
+                } else {
+                    repr.push_str("fn(");
+                }
+
+                let mut arg_indices = arg_indices.iter().peekable();
+                while let Some(arg_idx) = arg_indices.next() {
+                    self.fmt(repr, &self.ast.stack[*arg_idx]);
+
+                    if arg_indices.peek().is_some() {
+                        repr.push_str(", ");
+                    }
+                }
+
+                repr.push(')');
+
+                if let Some(return_idx) = opt_return_idx {
+                    repr.push_str(" -> ");
+                    self.fmt(repr, &self.ast.stack[*return_idx]);
+                }
             }
             _ => todo!("{:?}", ty),
         }
@@ -408,6 +437,16 @@ impl<'p> Symbol<'p> {
         Ok(())
     }
 
+    fn consume_types(&mut self) -> ManglingResult<Vec<usize>> {
+        let mut spots = Vec::new();
+        while !self.source.take(b'E') {
+            spots.push(self.ast.ptr);
+            self.consume_type()?;
+        }
+
+        Ok(spots)
+    }
+
     fn consume_type(&mut self) -> ManglingResult<()> {
         if self.depth == MAX_DEPTH {
             return Err(Error::TooComplex);
@@ -439,14 +478,8 @@ impl<'p> Symbol<'p> {
                 // {<type>} "E"
 
                 let spot = self.ast.ptr;
-                let mut spots = Vec::new();
-                while !self.source.take(b'E') {
-                    self.ast.ptr += 1;
-                    spots.push(self.ast.ptr);
-                    self.consume_type()?;
-                }
-
-                self.ast.stack[spot] = Type::Tuple(spots);
+                self.ast.ptr += 1;
+                self.ast.stack[spot] = Type::Tuple(self.consume_types()?);
 
                 Ok(())
             }
@@ -493,9 +526,35 @@ impl<'p> Symbol<'p> {
                 self.consume_type()
             }
             b'F' => {
-                // <fn-sig>
+                // [<binder>] ["U"] ["K" <abi>] {<type>} "E" <type>
 
-                todo!()
+                let mut binder = None;
+                if self.source.take(b'G') {
+                    Some(todo!("bind in fn signature"));
+                }
+
+                let mut is_unsafe = self.source.take(b'U');
+                let mut ident = None;
+
+                if self.source.take(b'K') && self.source.take(b'C') {
+                    ident = Some(self.consume_ident()?);
+                }
+
+                let spot = self.ast.ptr;
+                self.ast.ptr += 1;
+
+                let args = self.consume_types()?;
+
+                let mut return_ty = None;
+                if !self.source.take(b'u') {
+                    return_ty = Some(self.ast.ptr);
+                }
+
+                self.consume_type()?;
+
+                self.ast.stack[spot] = Type::FnSig(binder, is_unsafe, ident, args, return_ty);
+
+                Ok(())
             }
             b'D' => {
                 // <dyn-bounds> <lifetime>
@@ -657,7 +716,7 @@ enum Type<'p> {
     ///
     /// If the "U" is present then the function is `unsafe`.
     /// "K" Indicates an abi is present.
-    FnSig(Base62Num, usize, usize, Range<usize>, usize),
+    FnSig(Option<Base62Num>, bool, Option<&'p str>, Vec<usize>, Option<usize>),
 
     /// "D" ["G" <base-62-number>] {path {"p" undisambiguated-identifier type}} lifetime <life "E": dyn Trait<Item = X> + Send + 'a
     DynTrait(Option<Base62Num>, &'p [(Path<'p>, &'p [(&'p str, &'p Type<'p>)])], Base62Num),
@@ -748,6 +807,15 @@ mod tests {
     #[test]
     fn tupples() {
         fmt!("_RINvNtC3std3mem8align_ofjTddNvC4core3ptrEE" => "std::mem::align_of::<usize, (f64, f64, core::ptr)>");
+    }
+
+    #[test]
+    fn fn_signature() {
+        fmt!("_RINvNtC3std3mem8align_ofFUKC3rundddEoE" => "std::mem::align_of::<unsafe fn run(f64, f64, f64) -> u128>");
+
+        fmt!("_RINvNtC3std3mem8align_ofFKC3rundddEoE" => "std::mem::align_of::<fn run(f64, f64, f64) -> u128>");
+
+        fmt!("_RINvNtC3std3mem8align_ofFdddEoE" => "std::mem::align_of::<fn(f64, f64, f64) -> u128>");
     }
 
     #[test]
