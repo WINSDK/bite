@@ -91,22 +91,23 @@ impl<'p> Symbol<'p> {
 
                     repr.push_str("::<");
 
-                    let mut generics = generics.iter().peekable();
-                    while let Some(generic_idx) = generics.next() {
-                        if *generic_idx == u16::MAX {
-                            break;
-                        }
+                    for idx in 0..generics.len() {
+                        const MAX_ARG_POS: u16 = u16::MAX - 1;
+                        const EMPTY: u16 = u16::MAX;
 
-                        if *generic_idx == u16::MAX - 1 {
-                            repr.push_str("...");
-                            break;
-                        }
+                        match generics[idx] {
+                            EMPTY => break,
+                            MAX_ARG_POS => {
+                                repr.push_str("...");
+                                break;
+                            }
+                            generic_idx => {
+                                self.fmt(repr, &self.ast.stack[generic_idx as usize]);
 
-                        self.fmt(repr, &self.ast.stack[*generic_idx as usize]);
-
-                        match generics.peek() {
-                            Some(next) if **next != u16::MAX => repr.push_str(", "),
-                            _ => {}
+                                if idx != generics.len() - 1 && generics[idx + 1] != EMPTY {
+                                    repr.push_str(", ");
+                                }
+                            }
                         }
                     }
 
@@ -174,11 +175,10 @@ impl<'p> Symbol<'p> {
             Type::Tuple(type_indices) => {
                 repr.push('(');
 
-                let mut type_indices = type_indices.iter().peekable();
-                while let Some(type_idx) = type_indices.next() {
-                    self.fmt(repr, &self.ast.stack[*type_idx]);
+                for idx in 0..type_indices.len() {
+                    self.fmt(repr, &self.ast.stack[type_indices[idx]]);
 
-                    if type_indices.peek().is_some() {
+                    if idx != type_indices.len() - 1 {
                         repr.push_str(", ");
                     }
                 }
@@ -230,11 +230,10 @@ impl<'p> Symbol<'p> {
                     repr.push_str("fn(");
                 }
 
-                let mut arg_indices = arg_indices.iter().peekable();
-                while let Some(arg_idx) = arg_indices.next() {
-                    self.fmt(repr, &self.ast.stack[*arg_idx]);
+                for idx in 0..arg_indices.len() {
+                    self.fmt(repr, &self.ast.stack[arg_indices[idx]]);
 
-                    if arg_indices.peek().is_some() {
+                    if idx != arg_indices.len() - 1 {
                         repr.push_str(", ");
                     }
                 }
