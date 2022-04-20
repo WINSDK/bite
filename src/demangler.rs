@@ -3,7 +3,6 @@
 use crate::decode::Reader;
 use std::fmt;
 use std::mem::MaybeUninit;
-use std::ops::Range;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Error {
@@ -146,23 +145,7 @@ impl<'p> Symbol<'p> {
                             repr.push_str("false");
                         }
                     }
-                    Const::Integar(mut num) => {
-                        // TODO: increase the performance of integar to string conversion.
-
-                        if num.is_negative() {
-                            num = -num;
-                            repr.push('-');
-                        }
-
-                        let mut len = (num as f64 + 1.).log10().ceil() as u32;
-                        while len != 0 {
-                            let pow = 10isize.pow(len - 1);
-                            repr.push(((num / pow) as u8 + b'0') as char);
-
-                            num %= pow;
-                            len -= 1;
-                        }
-                    }
+                    Const::Integar(num) => format_num(repr, *num),
                 }
 
                 repr.push(']');
@@ -187,10 +170,16 @@ impl<'p> Symbol<'p> {
             }
             Type::Ref(opt_lifetime, type_idx) => {
                 match opt_lifetime {
-                    Some(Base62Num(0)) | None => repr.push('&'),
+                    Some(Lifetime(0)) | None => repr.push('&'),
                     Some(lifetime) => {
                         repr.push_str("&'");
-                        repr.push(lifetime_fmt(*lifetime));
+
+                        if let Some(formatted) = lifetime.fmt() {
+                            repr.push(formatted);
+                        } else {
+                            format_num(repr, lifetime.0 as isize);
+                        }
+
                         repr.push(' ');
                     }
                 }
@@ -199,10 +188,16 @@ impl<'p> Symbol<'p> {
             }
             Type::RefMut(opt_lifetime, type_idx) => {
                 match opt_lifetime {
-                    Some(Base62Num(0)) | None => repr.push_str("&mut "),
+                    Some(Lifetime(0)) | None => repr.push_str("&mut "),
                     Some(lifetime) => {
                         repr.push_str("&'");
-                        repr.push(lifetime_fmt(*lifetime));
+
+                        if let Some(formatted) = lifetime.fmt() {
+                            repr.push(formatted);
+                        } else {
+                            format_num(repr, lifetime.0 as isize);
+                        }
+
                         repr.push_str(" mut ");
                     }
                 }
@@ -245,22 +240,52 @@ impl<'p> Symbol<'p> {
                     self.fmt(repr, &self.ast.stack[*return_idx]);
                 }
             }
-            _ => todo!("{:?}", ty),
+            Type::DynTrait(_, dyn_trait_indices, lifetime) => {
+                repr.push_str("dyn ");
+
+                for (trait_idx, assoc_binding_indices) in dyn_trait_indices {
+                    self.fmt(repr, &self.ast.stack[*trait_idx]);
+
+                    if !assoc_binding_indices.is_empty() {
+                        repr.push('<');
+                        for idx in 0..assoc_binding_indices.len() {
+                            let (ident, type_idx) = &assoc_binding_indices[idx];
+
+                            repr.push_str(ident);
+                            repr.push_str(" = ");
+                            self.fmt(repr, &self.ast.stack[*type_idx]);
+
+                            if idx != assoc_binding_indices.len() - 1 {
+                                repr.push_str(", ");
+                            }
+                        }
+                        repr.push('>');
+                    }
+                }
+
+                if let Some(formatted) = lifetime.fmt() {
+                    repr.push_str(" + '");
+                    repr.push(formatted);
+                }
+            }
         }
     }
 
-    fn consume_base62(&mut self) -> ManglingResult<Base62Num> {
+    fn consume_lifetime(&mut self) -> ManglingResult<Lifetime> {
+        self.consume_base62().map(|v| Lifetime(v))
+    }
+
+    fn consume_base62(&mut self) -> ManglingResult<u64> {
         let mut num = 0u64;
 
         if self.source.take(b'_') {
-            return Ok(Base62Num(num));
+            return Ok(num);
         }
 
         while let Some(chr) = self.source.consume() {
             if chr == b'_' {
                 return num
                     .checked_add(1)
-                    .map(|val| Base62Num(val))
                     .ok_or(Error::DecodingBase62Num);
             }
 
@@ -278,7 +303,7 @@ impl<'p> Symbol<'p> {
         Err(Error::DecodingBase62Num)
     }
 
-    fn try_consume_disambiguator(&mut self) -> ManglingResult<Option<Base62Num>> {
+    fn try_consume_disambiguator(&mut self) -> ManglingResult<Option<u64>> {
         if self.source.take(b's') {
             return Ok(Some(self.consume_base62()?));
         }
@@ -312,9 +337,9 @@ impl<'p> Symbol<'p> {
         let constant = if true_prefix | false_prefix {
             Const::Boolean(true_prefix)
         } else if self.source.take(b'n') {
-            Const::Integar(-(self.consume_base62()?.0 as isize))
+            Const::Integar(-(self.consume_base62()? as isize))
         } else {
-            Const::Integar(self.consume_base62()?.0 as isize)
+            Const::Integar(self.consume_base62()? as isize)
         };
 
         Ok(constant)
@@ -487,7 +512,7 @@ impl<'p> Symbol<'p> {
 
                 let mut lifetime = None;
                 if self.source.take(b'L') {
-                    lifetime = Some(self.consume_base62()?);
+                    lifetime = Some(self.consume_lifetime()?);
                 }
 
                 self.ast.stack[self.ast.ptr] = Type::Ref(lifetime, self.ast.ptr + 1);
@@ -500,7 +525,7 @@ impl<'p> Symbol<'p> {
 
                 let mut lifetime = None;
                 if self.source.take(b'L') {
-                    lifetime = Some(self.consume_base62()?);
+                    lifetime = Some(self.consume_lifetime()?);
                 }
 
                 self.ast.stack[self.ast.ptr] = Type::RefMut(lifetime, self.ast.ptr + 1);
@@ -532,7 +557,7 @@ impl<'p> Symbol<'p> {
                     binder = Some(todo!("bind in fn signature"));
                 }
 
-                let mut is_unsafe = self.source.take(b'U');
+                let is_unsafe = self.source.take(b'U');
                 let mut ident = None;
 
                 if self.source.take(b'K') && self.source.take(b'C') {
@@ -560,7 +585,7 @@ impl<'p> Symbol<'p> {
 
                 let mut binder = None;
                 if self.source.take(b'G') {
-                    Some(todo!("bind in dyn trait"));
+                    binder = Some(todo!("bind in dyn trait"));
                 }
 
                 let spot = self.ast.ptr;
@@ -569,12 +594,14 @@ impl<'p> Symbol<'p> {
                 let mut dyn_trait_spots = Vec::new();
                 while !self.source.take(b'E') {
                     let path_spot = self.ast.ptr;
+
                     self.consume_path()?;
 
                     let mut dyn_trait_assoc_binding_spots = Vec::new();
                     while self.source.take(b'p') {
                         let ident = self.consume_ident()?;
                         let ty_spot = self.ast.ptr;
+
                         self.consume_type()?;
 
                         dyn_trait_assoc_binding_spots.push((ident, ty_spot));
@@ -587,7 +614,7 @@ impl<'p> Symbol<'p> {
                     return Err(Error::DecodingBase62Num);
                 }
 
-                let lifetime = self.consume_base62()?;
+                let lifetime = self.consume_lifetime()?;
 
                 self.ast.stack[spot] = Type::DynTrait(binder, dyn_trait_spots, lifetime);
 
@@ -642,18 +669,24 @@ impl fmt::Debug for Stack<'_> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct Base62Num(u64);
+struct Lifetime(u64);
 
-fn lifetime_fmt(lifetime: Base62Num) -> char {
-    #[rustfmt::skip]
-    const CHARS: [char; 52] = [
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-        'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-    ];
+impl Lifetime {
+    fn fmt(&self) -> Option<char> {
+        #[rustfmt::skip]
+        const CHARS: [char; 52] = [
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+            'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+            'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+            'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+        ];
 
-    CHARS.get(lifetime.0 as usize - 1).copied().unwrap_or('_')
+        if self.0 != 0 {
+            return CHARS.get(self.0 as usize - 1).copied();
+        }
+
+        None
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -679,17 +712,17 @@ enum Path<'p> {
     /// [disambiguator] <ident>
     ///
     /// crate root.
-    Crate(Option<Base62Num>, &'p str),
+    Crate(Option<u64>, &'p str),
 
     /// [disambiguator] <path> <type>
     ///
     /// <T>
-    InherentImpl(Option<Base62Num>, usize, usize),
+    InherentImpl(Option<u64>, usize, usize),
 
     /// [disambiguator] <path> <type> <path>
     ///
     /// <T as Trait>
-    TraitImpl(Option<Base62Num>, usize, usize, usize),
+    TraitImpl(Option<u64>, usize, usize, usize),
 
     /// <type> <path>
     ///
@@ -699,7 +732,7 @@ enum Path<'p> {
     /// <namespace> <path> [disambiguator] <ident>
     ///
     /// ...::ident
-    Nested(Namespace, usize, Option<Base62Num>, &'p str),
+    Nested(Namespace, usize, Option<u64>, &'p str),
 
     /// <path> {generic-arg} "E"
     ///
@@ -728,10 +761,10 @@ enum Type<'p> {
     Tuple(Vec<usize>),
 
     /// "R" [lifetime] <type>: &T
-    Ref(Option<Base62Num>, usize),
+    Ref(Option<Lifetime>, usize),
 
     /// "Q" [lifetime] <type>: &mut T
-    RefMut(Option<Base62Num>, usize),
+    RefMut(Option<Lifetime>, usize),
 
     /// "P" <type>: *const T
     Pointer(usize),
@@ -748,10 +781,30 @@ enum Type<'p> {
     ///
     /// If the "U" is present then the function is `unsafe`.
     /// "K" Indicates an abi is present.
-    FnSig(Option<Base62Num>, bool, Option<&'p str>, Vec<usize>, Option<usize>),
+    FnSig(Option<u64>, bool, Option<&'p str>, Vec<usize>, Option<usize>),
 
     /// [binder] {path {"p" ident type}} "E" <lifetime>
-    DynTrait(Option<Base62Num>, Vec<(usize, Vec<(&'p str, usize)>)>, Base62Num),
+    ///
+    /// dyn Trait<ident = type> + Read<ident = type> + Sync + ... + 'lifetime
+    DynTrait(Option<u64>, Vec<(usize, Vec<(&'p str, usize)>)>, Lifetime),
+}
+
+fn format_num(repr: &mut String, mut num: isize) {
+    // TODO: increase the performance of integar to string conversion.
+
+    if num.is_negative() {
+        num = -num;
+        repr.push('-');
+    }
+
+    let mut len = (num as f64 + 1.).log10().ceil() as u32;
+    while len != 0 {
+        let pow = 10isize.pow(len - 1);
+        repr.push(((num / pow) as u8 + b'0') as char);
+
+        num %= pow;
+        len -= 1;
+    }
 }
 
 fn basic_types(tag: u8) -> Option<&'static str> {
@@ -850,6 +903,17 @@ mod tests {
         fmt!("_RINvNtC3std3mem8align_ofFdddEoE" => "std::mem::align_of::<fn(f64, f64, f64) -> u128>");
     }
 
+    #[test]
+    fn dyn_traits() {
+        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4Readp4ItemReEL_E" => "core::simd::mul::<dyn core::mem::Read<Item = &str>>");
+
+        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL0_E" => "core::simd::mul::<dyn core::mem::Read + 'a>");
+
+        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL_E" => "core::simd::mul::<dyn core::mem::Read>");
+    }
+
+    // TODO: decrease size of enums
+    #[should_panic]
     #[test]
     fn cache_lines() {
         assert!(dbg!(std::mem::size_of::<Path>()) <= 64);
