@@ -128,7 +128,7 @@ impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
 
 pub struct Reader<'a> {
     buf: &'a [u8],
-    pos: AtomicUsize,
+    pub pos: AtomicUsize,
 }
 
 #[allow(dead_code)]

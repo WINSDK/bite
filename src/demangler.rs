@@ -3,6 +3,7 @@
 use crate::decode::Reader;
 use std::fmt;
 use std::mem::MaybeUninit;
+use std::sync::atomic::Ordering;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Error {
@@ -24,33 +25,6 @@ const MAX_COMPLEXITY: usize = 256;
 const MAX_DEPTH: usize = 100;
 const MAX_GENERIC_ARGUEMENTS: usize = 16;
 
-/// Demangle's a symbol.
-fn demangle(s: &str) -> ManglingResult<Symbol> {
-    let s = if s.starts_with("_R") {
-        &s[2..]
-    } else if s.starts_with('R') {
-        // On Windows, dbghelp strips leading underscores, so we accept "R..."
-        // form too.
-        &s[1..]
-    } else if s.starts_with("__R") {
-        // On OSX, symbols are prefixed with an extra _
-        &s[3..]
-    } else {
-        return Err(Error::UnknownPrefix);
-    };
-
-    if s.is_empty() {
-        return Err(Error::Invalid);
-    }
-
-    // Only work with ascii text
-    if s.bytes().any(|c| c & 0x80 != 0) {
-        return Err(Error::NotAscii);
-    }
-
-    Symbol::parse(s)
-}
-
 struct Symbol<'p> {
     ast: Stack<'p>,
     source: Reader<'p>,
@@ -58,7 +32,30 @@ struct Symbol<'p> {
 }
 
 impl<'p> Symbol<'p> {
+    /// Demangle's a symbol.
     pub fn parse(s: &'p str) -> ManglingResult<Self> {
+        let s = if s.starts_with("_R") {
+            &s[2..]
+        } else if s.starts_with('R') {
+            // On Windows, dbghelp strips leading underscores, so we accept "R..."
+            // form too.
+            &s[1..]
+        } else if s.starts_with("__R") {
+            // On OSX, symbols are prefixed with an extra _
+            &s[3..]
+        } else {
+            return Err(Error::UnknownPrefix);
+        };
+
+        if s.is_empty() {
+            return Err(Error::Invalid);
+        }
+
+        // Only work with ascii text
+        if s.bytes().any(|c| c & 0x80 != 0) {
+            return Err(Error::NotAscii);
+        }
+
         let mut res = Self { source: Reader::new(s.as_bytes()), ast: Stack::default(), depth: 0 };
         res.consume_path()?;
 
@@ -271,6 +268,12 @@ impl<'p> Symbol<'p> {
         }
     }
 
+    fn take_spot(&mut self) -> usize {
+        let old = self.ast.ptr;
+        self.ast.ptr += 1;
+        old
+    }
+
     fn consume_lifetime(&mut self) -> ManglingResult<Lifetime> {
         self.consume_base62().map(|v| Lifetime(v))
     }
@@ -284,9 +287,7 @@ impl<'p> Symbol<'p> {
 
         while let Some(chr) = self.source.consume() {
             if chr == b'_' {
-                return num
-                    .checked_add(1)
-                    .ok_or(Error::DecodingBase62Num);
+                return num.checked_add(1).ok_or(Error::DecodingBase62Num);
             }
 
             let base_62_chr = match chr {
@@ -366,18 +367,15 @@ impl<'p> Symbol<'p> {
                 // "X" <impl-path> <type> <path>
 
                 let id = self.try_consume_disambiguator()?;
-                let spot = self.ast.ptr;
+                let spot = self.take_spot();
 
-                self.ast.ptr += 1;
                 let impl_path_spot = self.ast.ptr;
                 self.consume_path()?;
 
-                self.ast.ptr += 1;
                 let type_spot = self.ast.ptr;
                 self.consume_type()?;
 
                 self.ast.stack[spot] = if c == b'X' {
-                    self.ast.ptr += 1;
                     let path_spot = self.ast.ptr;
                     self.consume_path()?;
 
@@ -389,13 +387,11 @@ impl<'p> Symbol<'p> {
             b'Y' => {
                 // "Y" <type> <path>
 
-                let spot = self.ast.ptr;
+                let spot = self.take_spot();
 
-                self.ast.ptr += 1;
                 let type_spot = self.ast.ptr;
                 self.consume_type()?;
 
-                self.ast.ptr += 1;
                 let path_spot = self.ast.ptr;
                 self.consume_path()?;
 
@@ -410,9 +406,8 @@ impl<'p> Symbol<'p> {
                     _ => Namespace::Unknown,
                 };
 
-                let spot = self.ast.ptr;
+                let spot = self.take_spot();
 
-                self.ast.ptr += 1;
                 self.consume_path()?;
 
                 let id = self.try_consume_disambiguator()?;
@@ -424,9 +419,8 @@ impl<'p> Symbol<'p> {
                 // <path> {<lifetime> <type>} "E"
 
                 let mut generic_spots = [u16::MAX; MAX_GENERIC_ARGUEMENTS];
-                let spot = self.ast.ptr;
+                let spot = self.take_spot();
 
-                self.ast.ptr += 1;
                 self.consume_path()?;
 
                 for idx in 0.. {
@@ -440,11 +434,11 @@ impl<'p> Symbol<'p> {
                         break;
                     }
 
-                    let spot = self.ast.ptr;
+                    let type_spot = self.ast.ptr;
 
                     self.consume_type()?;
 
-                    generic_spots[idx] = spot as u16;
+                    generic_spots[idx] = type_spot as u16;
                 }
 
                 self.ast.stack[spot] = Type::Path(Path::Generic(spot + 1, generic_spots));
@@ -454,7 +448,19 @@ impl<'p> Symbol<'p> {
                     self.consume_ident()?;
                 }
             }
+            b'B' => {
+                // <base-62-number>
+
+                let backref = self.consume_base62()? as usize - 2;
+                let current = self.source.pos.load(Ordering::Acquire);
+
+                self.source.pos.store(backref, Ordering::Relaxed);
+                self.consume_type()?;
+                self.source.pos.store(current, Ordering::Release);
+            }
             b'E' => {}
+            #[cfg(debug_assertions)]
+            _ => panic!("{:#?}", &self.ast),
             _ => return Err(Error::Invalid),
         }
 
@@ -481,31 +487,22 @@ impl<'p> Symbol<'p> {
             b'A' => {
                 // <type> <const>
 
-                let spot = self.ast.ptr;
-
-                self.ast.ptr += 1;
+                let spot = self.take_spot();
                 self.consume_type()?;
-
                 self.ast.stack[spot] = Type::Array(spot + 1, self.consume_const()?);
-
-                Ok(())
             }
             b'S' => {
                 // <type>
 
-                self.ast.stack[self.ast.ptr] = Type::Slice(self.ast.ptr + 1);
-                self.ast.ptr += 1;
-
-                self.consume_type()
+                let spot = self.take_spot();
+                self.consume_type()?;
+                self.ast.stack[spot] = Type::Slice(spot + 1);
             }
             b'T' => {
                 // {<type>} "E"
 
-                let spot = self.ast.ptr;
-                self.ast.ptr += 1;
+                let spot = self.take_spot();
                 self.ast.stack[spot] = Type::Tuple(self.consume_types()?);
-
-                Ok(())
             }
             b'R' => {
                 // [lifetime] <type>
@@ -515,10 +512,9 @@ impl<'p> Symbol<'p> {
                     lifetime = Some(self.consume_lifetime()?);
                 }
 
-                self.ast.stack[self.ast.ptr] = Type::Ref(lifetime, self.ast.ptr + 1);
-                self.ast.ptr += 1;
-
-                self.consume_type()
+                let spot = self.take_spot();
+                self.consume_type()?;
+                self.ast.stack[spot] = Type::Ref(lifetime, spot + 1);
             }
             b'Q' => {
                 // [lifetime] <type>
@@ -528,26 +524,23 @@ impl<'p> Symbol<'p> {
                     lifetime = Some(self.consume_lifetime()?);
                 }
 
-                self.ast.stack[self.ast.ptr] = Type::RefMut(lifetime, self.ast.ptr + 1);
-                self.ast.ptr += 1;
-
-                self.consume_type()
+                let spot = self.take_spot();
+                self.consume_type()?;
+                self.ast.stack[spot] = Type::RefMut(lifetime, spot + 1);
             }
             b'P' => {
                 // <type>
 
-                self.ast.stack[self.ast.ptr] = Type::Pointer(self.ast.ptr + 1);
-                self.ast.ptr += 1;
-
-                self.consume_type()
+                let spot = self.take_spot();
+                self.consume_type()?;
+                self.ast.stack[spot] = Type::Pointer(spot + 1);
             }
             b'O' => {
                 // <type>
 
-                self.ast.stack[self.ast.ptr] = Type::PointerMut(self.ast.ptr + 1);
-                self.ast.ptr += 1;
-
-                self.consume_type()
+                let spot = self.take_spot();
+                self.consume_type()?;
+                self.ast.stack[spot] = Type::PointerMut(spot + 1);
             }
             b'F' => {
                 // [<binder>] ["U"] ["K" <abi>] {<type>} "E" <type>
@@ -564,9 +557,7 @@ impl<'p> Symbol<'p> {
                     ident = Some(self.consume_ident()?);
                 }
 
-                let spot = self.ast.ptr;
-                self.ast.ptr += 1;
-
+                let spot = self.take_spot();
                 let args = self.consume_types()?;
 
                 let mut return_ty = None;
@@ -577,8 +568,6 @@ impl<'p> Symbol<'p> {
                 self.consume_type()?;
 
                 self.ast.stack[spot] = Type::FnSig(binder, is_unsafe, ident, args, return_ty);
-
-                Ok(())
             }
             b'D' => {
                 // [binder] {path {"p" ident type}} "E" <lifetime>
@@ -588,9 +577,7 @@ impl<'p> Symbol<'p> {
                     binder = Some(todo!("bind in dyn trait"));
                 }
 
-                let spot = self.ast.ptr;
-                self.ast.ptr += 1;
-
+                let spot = self.take_spot();
                 let mut dyn_trait_spots = Vec::new();
                 while !self.source.take(b'E') {
                     let path_spot = self.ast.ptr;
@@ -617,27 +604,31 @@ impl<'p> Symbol<'p> {
                 let lifetime = self.consume_lifetime()?;
 
                 self.ast.stack[spot] = Type::DynTrait(binder, dyn_trait_spots, lifetime);
-
-                Ok(())
             }
             b'B' => {
                 // <base-62-number>
 
-                todo!()
+                let backref = self.consume_base62()? as usize - 2;
+                let current = self.source.pos.load(Ordering::Acquire);
+
+                self.source.pos.store(backref, Ordering::Relaxed);
+                self.consume_type()?;
+                self.source.pos.store(current, Ordering::Release);
             }
             c @ _ => {
                 // <basic-type | path>
 
                 if let Some(ty) = basic_types(c) {
-                    self.ast.stack[self.ast.ptr] = Type::Basic(ty);
-                    self.ast.ptr += 1;
+                    self.ast.stack[self.take_spot()] = Type::Basic(ty);
                     return Ok(());
                 }
 
                 self.source.offset(-1);
-                self.consume_path()
+                self.consume_path()?;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -837,12 +828,14 @@ fn basic_types(tag: u8) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{demangle, Error, Path, Type};
+    use super::{Path, Type};
 
     macro_rules! fmt {
         ($mangled:literal => $demangled:literal) => {
             assert_eq!(
-                demangle($mangled).map(|sym| dbg!(sym.display())).as_deref(),
+                $crate::demangler::Symbol::parse($mangled)
+                    .map(|sym| dbg!(sym.display()))
+                    .as_deref(),
                 Ok($demangled)
             );
         };
@@ -910,6 +903,13 @@ mod tests {
         fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL0_E" => "core::simd::mul::<dyn core::mem::Read + 'a>");
 
         fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL_E" => "core::simd::mul::<dyn core::mem::Read>");
+    }
+
+    #[test]
+    fn type_compression() {
+        fmt!("_RINxC3std3fooTNyB4_3BarBe_EBd_E" => "std::foo::<(std::Bar, std::Bar), (std::Bar, std::Bar)>");
+
+        fmt!("_RINvCs1234_7mycrate3fooNvB4_3barNvBn_3bazE" => "mycrate::foo::<mycrate::bar, mycrate::bar::baz>");
     }
 
     // TODO: decrease size of enums
