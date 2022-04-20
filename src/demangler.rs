@@ -529,7 +529,7 @@ impl<'p> Symbol<'p> {
 
                 let mut binder = None;
                 if self.source.take(b'G') {
-                    Some(todo!("bind in fn signature"));
+                    binder = Some(todo!("bind in fn signature"));
                 }
 
                 let mut is_unsafe = self.source.take(b'U');
@@ -556,9 +556,42 @@ impl<'p> Symbol<'p> {
                 Ok(())
             }
             b'D' => {
-                // <dyn-bounds> <lifetime>
+                // [binder] {path {"p" ident type}} "E" <lifetime>
 
-                todo!()
+                let mut binder = None;
+                if self.source.take(b'G') {
+                    Some(todo!("bind in dyn trait"));
+                }
+
+                let spot = self.ast.ptr;
+                self.ast.ptr += 1;
+
+                let mut dyn_trait_spots = Vec::new();
+                while !self.source.take(b'E') {
+                    let path_spot = self.ast.ptr;
+                    self.consume_path()?;
+
+                    let mut dyn_trait_assoc_binding_spots = Vec::new();
+                    while self.source.take(b'p') {
+                        let ident = self.consume_ident()?;
+                        let ty_spot = self.ast.ptr;
+                        self.consume_type()?;
+
+                        dyn_trait_assoc_binding_spots.push((ident, ty_spot));
+                    }
+
+                    dyn_trait_spots.push((path_spot, dyn_trait_assoc_binding_spots));
+                }
+
+                if !self.source.take(b'L') {
+                    return Err(Error::DecodingBase62Num);
+                }
+
+                let lifetime = self.consume_base62()?;
+
+                self.ast.stack[spot] = Type::DynTrait(binder, dyn_trait_spots, lifetime);
+
+                Ok(())
             }
             b'B' => {
                 // <base-62-number>
@@ -717,8 +750,8 @@ enum Type<'p> {
     /// "K" Indicates an abi is present.
     FnSig(Option<Base62Num>, bool, Option<&'p str>, Vec<usize>, Option<usize>),
 
-    /// "D" ["G" <base-62-number>] {path {"p" undisambiguated-identifier type}} lifetime <life "E": dyn Trait<Item = X> + Send + 'a
-    DynTrait(Option<Base62Num>, &'p [(Path<'p>, &'p [(&'p str, &'p Type<'p>)])], Base62Num),
+    /// [binder] {path {"p" ident type}} "E" <lifetime>
+    DynTrait(Option<Base62Num>, Vec<(usize, Vec<(&'p str, usize)>)>, Base62Num),
 }
 
 fn basic_types(tag: u8) -> Option<&'static str> {
