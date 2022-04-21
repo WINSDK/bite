@@ -11,6 +11,7 @@ enum Error {
     TooComplex,
     PathLengthNotNumber,
     ArgDelimiterNotFound,
+    BackrefIsFrontref,
     DecodingBase62Num,
     SymbolTooSmall,
     NotAscii,
@@ -278,8 +279,8 @@ impl<'p> Symbol<'p> {
         self.consume_base62().map(|v| Lifetime(v))
     }
 
-    fn consume_base62(&mut self) -> ManglingResult<u64> {
-        let mut num = 0u64;
+    fn consume_base62(&mut self) -> ManglingResult<usize> {
+        let mut num = 0usize;
 
         if self.source.take(b'_') {
             return Ok(num);
@@ -298,13 +299,13 @@ impl<'p> Symbol<'p> {
             };
 
             num = num.checked_mul(62).ok_or(Error::DecodingBase62Num)?;
-            num = num.checked_add(base_62_chr as u64).ok_or(Error::DecodingBase62Num)?;
+            num = num.checked_add(base_62_chr as usize).ok_or(Error::DecodingBase62Num)?;
         }
 
         Err(Error::DecodingBase62Num)
     }
 
-    fn try_consume_disambiguator(&mut self) -> ManglingResult<Option<u64>> {
+    fn try_consume_disambiguator(&mut self) -> ManglingResult<Option<usize>> {
         if self.source.take(b's') {
             return Ok(Some(self.consume_base62()?));
         }
@@ -359,8 +360,7 @@ impl<'p> Symbol<'p> {
                 let id = self.try_consume_disambiguator()?;
                 let ident = self.consume_ident()?;
 
-                self.ast.stack[self.ast.ptr] = Type::Path(Path::Crate(id, ident));
-                self.ast.ptr += 1;
+                self.ast.stack[self.take_spot()] = Type::Path(Path::Crate(id, ident));
             }
             c @ (b'M' | b'X') => {
                 // "M" <impl-path> <type>
@@ -451,8 +451,12 @@ impl<'p> Symbol<'p> {
             b'B' => {
                 // <base-62-number>
 
-                let backref = self.consume_base62()? as usize - 2;
+                let backref = self.consume_base62()?;
                 let current = self.source.pos.load(Ordering::Acquire);
+
+                if backref >= current - 1 {
+                    return Err(Error::BackrefIsFrontref);
+                }
 
                 self.source.pos.store(backref, Ordering::Relaxed);
                 self.consume_type()?;
@@ -608,8 +612,12 @@ impl<'p> Symbol<'p> {
             b'B' => {
                 // <base-62-number>
 
-                let backref = self.consume_base62()? as usize - 2;
+                let backref = self.consume_base62()?;
                 let current = self.source.pos.load(Ordering::Acquire);
+
+                if backref >= current - 1 {
+                    return Err(Error::BackrefIsFrontref);
+                }
 
                 self.source.pos.store(backref, Ordering::Relaxed);
                 self.consume_type()?;
@@ -660,7 +668,7 @@ impl fmt::Debug for Stack<'_> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct Lifetime(u64);
+struct Lifetime(usize);
 
 impl Lifetime {
     fn fmt(&self) -> Option<char> {
@@ -703,17 +711,17 @@ enum Path<'p> {
     /// [disambiguator] <ident>
     ///
     /// crate root.
-    Crate(Option<u64>, &'p str),
+    Crate(Option<usize>, &'p str),
 
     /// [disambiguator] <path> <type>
     ///
     /// <T>
-    InherentImpl(Option<u64>, usize, usize),
+    InherentImpl(Option<usize>, usize, usize),
 
     /// [disambiguator] <path> <type> <path>
     ///
     /// <T as Trait>
-    TraitImpl(Option<u64>, usize, usize, usize),
+    TraitImpl(Option<usize>, usize, usize, usize),
 
     /// <type> <path>
     ///
@@ -723,7 +731,7 @@ enum Path<'p> {
     /// <namespace> <path> [disambiguator] <ident>
     ///
     /// ...::ident
-    Nested(Namespace, usize, Option<u64>, &'p str),
+    Nested(Namespace, usize, Option<usize>, &'p str),
 
     /// <path> {generic-arg} "E"
     ///
@@ -772,12 +780,12 @@ enum Type<'p> {
     ///
     /// If the "U" is present then the function is `unsafe`.
     /// "K" Indicates an abi is present.
-    FnSig(Option<u64>, bool, Option<&'p str>, Vec<usize>, Option<usize>),
+    FnSig(Option<usize>, bool, Option<&'p str>, Vec<usize>, Option<usize>),
 
     /// [binder] {path {"p" ident type}} "E" <lifetime>
     ///
     /// dyn Trait<ident = type> + Read<ident = type> + Sync + ... + 'lifetime
-    DynTrait(Option<u64>, Vec<(usize, Vec<(&'p str, usize)>)>, Lifetime),
+    DynTrait(Option<usize>, Vec<(usize, Vec<(&'p str, usize)>)>, Lifetime),
 }
 
 fn format_num(repr: &mut String, mut num: isize) {
@@ -907,9 +915,8 @@ mod tests {
 
     #[test]
     fn type_compression() {
-        fmt!("_RINxC3std3fooTNyB4_3BarBe_EBd_E" => "std::foo::<(std::Bar, std::Bar), (std::Bar, std::Bar)>");
-
-        fmt!("_RINvCs1234_7mycrate3fooNvB4_3barNvBn_3bazE" => "mycrate::foo::<mycrate::bar, mycrate::bar::baz>");
+        fmt!("_RINvNtCs9ltgdHTiPiY_4core3ptr13drop_in_placeNtCs1GtwyVVVJ4z_6goblin6ObjectECsjO9TEQ1PNLx_8rustdump" => 
+             "core::ptr::drop_in_place::<goblin::Object>");
     }
 
     // TODO: decrease size of enums
