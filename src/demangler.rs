@@ -73,14 +73,32 @@ impl<'p> Symbol<'p> {
             Type::Empty => unreachable!("{:#?}", &self.ast),
             Type::Basic(s) => repr.push_str(s),
             Type::Path(path) => match path {
-                Path::Crate(_, ident) => {
-                    repr.push_str(ident);
-                }
-                Path::Nested(_, path_idx, _disambiguator, ident) => {
+                Path::Crate(_, ident) => repr.push_str(ident),
+                Path::Nested(namespace, path_idx, disambiguator, ident) => {
                     self.fmt(repr, &self.ast.stack[*path_idx]);
 
                     repr.push_str("::");
-                    repr.push_str(ident);
+
+                    if *namespace == Namespace::Closure {
+                        repr.push_str("{closure");
+
+                        if !ident.is_empty() {
+                            repr.push(':');
+                            repr.push_str(ident);
+                        }
+
+                        match disambiguator {
+                            Some(0) | None => {}
+                            Some(num) => {
+                                repr.push('#');
+                                fmt_num(repr, *num as isize)
+                            }
+                        }
+
+                        repr.push('}');
+                    } else {
+                        repr.push_str(ident);
+                    }
                 }
                 Path::Generic(path_idx, generics) => {
                     self.fmt(repr, &self.ast.stack[*path_idx]);
@@ -88,7 +106,7 @@ impl<'p> Symbol<'p> {
                     // Generics on types shouldn't print a `::`.
                     match self.ast.stack[*path_idx] {
                         Type::Path(Path::Nested(Namespace::Type, ..)) => repr.push('<'),
-                        _ => repr.push_str("::<")
+                        _ => repr.push_str("::<"),
                     }
 
                     for idx in 0..generics.len() {
@@ -276,19 +294,7 @@ impl<'p> Symbol<'p> {
                         }
                     };
 
-                    if num.is_negative() {
-                        num = -num;
-                        repr.push('-');
-                    }
-
-                    let mut len = (num as f64 + 1.).log10().ceil() as u32;
-                    while len != 0 {
-                        let pow = 10isize.pow(len - 1);
-                        repr.push(((num / pow) as u8 + b'0') as char);
-
-                        num %= pow;
-                        len -= 1;
-                    }
+                    fmt_num(repr, num);
                 }
                 b'c' => repr.push(self.source.inner()[0] as char),
                 _ => todo!(),
@@ -356,7 +362,7 @@ impl<'p> Symbol<'p> {
             }
         }
 
-        Err(Error::Invalid)
+        Ok("")
     }
 
     fn consume_const(&mut self) -> ManglingResult<Const> {
@@ -417,7 +423,6 @@ impl<'p> Symbol<'p> {
                     self.consume_path()?;
                 }
 
-
                 let type_spot = self.ast.ptr;
                 self.consume_type()?;
 
@@ -437,6 +442,7 @@ impl<'p> Symbol<'p> {
                 let namespace = match self.source.consume() {
                     Some(b'v') => Namespace::Value,
                     Some(b't') => Namespace::Type,
+                    Some(b'C') => Namespace::Closure,
                     _ => Namespace::Unknown,
                 };
 
@@ -729,8 +735,9 @@ impl Lifetime {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Namespace {
     Unknown,
-    Type,
     Value,
+    Type,
+    Closure,
 }
 
 // <type> ["n"] {hex-digit} "_" "p"
@@ -849,6 +856,22 @@ fn basic_types(tag: u8) -> Option<&'static str> {
     })
 }
 
+fn fmt_num(repr: &mut String, mut num: isize) {
+    if num.is_negative() {
+        num = -num;
+        repr.push('-');
+    }
+
+    let mut len = (num as f64 + 1.).log10().ceil() as u32;
+    while len != 0 {
+        let pow = 10isize.pow(len - 1);
+        repr.push(((num / pow) as u8 + b'0') as char);
+
+        num %= pow;
+        len -= 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Path, Type};
@@ -954,5 +977,15 @@ mod tests {
     fn cache_lines() {
         assert!(dbg!(std::mem::size_of::<Path>()) <= 64);
         assert!(dbg!(std::mem::size_of::<Type>()) <= 64);
+    }
+
+    #[test]
+    fn closures() {
+        fmt!("_RNCNvC8rustdump6decodes_0" => "rustdump::decode::{closure}");
+        fmt!("_RNCNvC8rustdump6decodes0_" => "rustdump::decode::{closure#1}");
+        fmt!("_RNCNvC8rustdump6decodes0_3wow" => "rustdump::decode::{closure:wow#1}");
+
+        fmt!("_RINvMNtCs9ltgdHTiPiY_4core6optionINtB3_6OptionRhE3maphNCINvMs9_NtCsd4VYFwevHkG_8rustdump6decodeNtBZ_6Reader10consume_eqNCNvNtBZ_6x86_643asms_0Es0_0EB11_" =>
+             "<core::option::Option<&u8>>::map::<u8, <rustdump::decode::Reader>::consume_eq::<rustdump::decode::x86_64::asm::{closure}>::{closure#1}>");
     }
 }
