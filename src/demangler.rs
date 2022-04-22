@@ -775,9 +775,7 @@ enum Path<'p> {
 
     /// <path> {generic-arg} "E"
     ///
-    /// for now only allow one generic :(
-    ///
-    /// ...<T, U>
+    /// ...<T1, T2, T3, ...>
     Generic(usize, Vec<Generic>),
 }
 
@@ -785,30 +783,47 @@ enum Path<'p> {
 enum Type<'p> {
     Empty,
 
+    /// Types returned from `basic_types`
     Basic(&'static str),
 
-    /// <path>: named type
+    /// <path>:
+    ///
+    /// named type
     Path(Path<'p>),
 
-    /// <type> <const>: [T; N]
+    /// <type> <const>
+    ///
+    /// [T; N]
     Array(usize, Const),
 
-    /// <type>: [T]
+    /// <type>
+    ///
+    /// [T]
     Slice(usize),
 
-    /// "T" {type} "E": (T, T, T, ...)
+    /// "T" {type} "E":
+    ///
+    /// (T, T, T, ...)
     Tuple(Vec<usize>),
 
-    /// "R" [lifetime] <type>: &T
+    /// "R" [lifetime] <type>:
+    ///
+    /// &T
     Ref(Option<Lifetime>, usize),
 
-    /// "Q" [lifetime] <type>: &mut T
+    /// "Q" [lifetime] <type>
+    ///
+    /// &mut T
     RefMut(Option<Lifetime>, usize),
 
-    /// "P" <type>: *const T
+    /// "P" <type>
+    ///
+    /// *const T
     Pointer(usize),
 
-    /// "O" <type>: *mut T
+    /// "O" <type>
+    ///
+    /// *mut T
     PointerMut(usize),
 
     /// <abi> = "C" <undisambiguated-identifier>
