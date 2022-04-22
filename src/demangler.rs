@@ -10,7 +10,7 @@ enum Error {
     UnknownPrefix,
     TooComplex,
     PathLengthNotNumber,
-    ArgDelimiterNotFound,
+    ConstDelimiterNotFound,
     BackrefIsFrontref,
     DecodingBase62Num,
     SymbolTooSmall,
@@ -24,7 +24,6 @@ type ManglingResult<T> = Result<T, Error>;
 // addresses generic's in u16's.
 const MAX_COMPLEXITY: usize = 256;
 const MAX_DEPTH: usize = 100;
-const MAX_GENERIC_ARGUEMENTS: usize = 16;
 
 struct Symbol<'p> {
     ast: Stack<'p>,
@@ -49,7 +48,7 @@ impl<'p> Symbol<'p> {
         };
 
         if s.is_empty() {
-            return Err(Error::Invalid);
+            return Err(Error::SymbolTooSmall);
         }
 
         // Only work with ascii text
@@ -86,66 +85,56 @@ impl<'p> Symbol<'p> {
                 Path::Generic(path_idx, generics) => {
                     self.fmt(repr, &self.ast.stack[*path_idx]);
 
-                    repr.push_str("::<");
+                    // Generics on types shouldn't print a `::`.
+                    match self.ast.stack[*path_idx] {
+                        Type::Path(Path::Nested(Namespace::Type, ..)) => repr.push('<'),
+                        _ => repr.push_str("::<")
+                    }
 
                     for idx in 0..generics.len() {
-                        const MAX_ARG_POS: u16 = u16::MAX - 1;
-                        const EMPTY: u16 = u16::MAX;
-
                         match generics[idx] {
-                            EMPTY => break,
-                            MAX_ARG_POS => {
-                                repr.push_str("...");
-                                break;
-                            }
-                            generic_idx => {
-                                self.fmt(repr, &self.ast.stack[generic_idx as usize]);
+                            Generic::Lifetime(lifetime) => {
+                                repr.push('\'');
 
-                                if idx != generics.len() - 1 && generics[idx + 1] != EMPTY {
-                                    repr.push_str(", ");
+                                if let Some(formatted) = lifetime.fmt() {
+                                    repr.push(formatted);
+                                } else {
+                                    repr.push('_');
                                 }
                             }
+                            Generic::Type(type_idx) => self.fmt(repr, &self.ast.stack[type_idx]),
+                            Generic::Const(ref constant) => self.fmt_const(repr, constant),
+                        }
+
+                        if idx != generics.len() - 1 {
+                            repr.push_str(", ");
                         }
                     }
 
                     repr.push('>');
                 }
-                Path::InherentImpl(_, impl_path_idx, type_idx) => {
+                Path::InherentImpl(type_idx) => {
                     repr.push('<');
 
                     self.fmt(repr, &self.ast.stack[*type_idx]);
 
-                    repr.push_str(">::");
-                    self.fmt(repr, &self.ast.stack[*impl_path_idx]);
+                    repr.push('>');
                 }
-                Path::TraitImpl(_, impl_path_idx, type_idx, path_idx) => {
+                Path::Trait(type_idx, path_idx) => {
                     repr.push('<');
 
                     self.fmt(repr, &self.ast.stack[*type_idx]);
                     repr.push_str(" as ");
                     self.fmt(repr, &self.ast.stack[*path_idx]);
 
-                    repr.push_str(">::");
-                    self.fmt(repr, &self.ast.stack[*impl_path_idx]);
+                    repr.push('>');
                 }
-                _ => todo!("{:?}", path),
             },
             Type::Array(type_idx, constant) => {
                 repr.push('[');
                 self.fmt(repr, &self.ast.stack[*type_idx]);
                 repr.push_str("; ");
-
-                match constant {
-                    Const::Boolean(cond) => {
-                        if *cond {
-                            repr.push_str("true");
-                        } else {
-                            repr.push_str("false");
-                        }
-                    }
-                    Const::Integar(num) => format_num(repr, *num),
-                }
-
+                self.fmt_const(repr, constant);
                 repr.push(']');
             }
             Type::Slice(type_idx) => {
@@ -175,7 +164,7 @@ impl<'p> Symbol<'p> {
                         if let Some(formatted) = lifetime.fmt() {
                             repr.push(formatted);
                         } else {
-                            format_num(repr, lifetime.0 as isize);
+                            repr.push('_');
                         }
 
                         repr.push(' ');
@@ -193,7 +182,7 @@ impl<'p> Symbol<'p> {
                         if let Some(formatted) = lifetime.fmt() {
                             repr.push(formatted);
                         } else {
-                            format_num(repr, lifetime.0 as isize);
+                            repr.push('_');
                         }
 
                         repr.push_str(" mut ");
@@ -269,6 +258,45 @@ impl<'p> Symbol<'p> {
         }
     }
 
+    fn fmt_const(&self, repr: &mut String, constant: &Const) {
+        match self.ast.stack[constant.ty] {
+            Type::Basic(s) => match s.as_bytes()[0] {
+                b'_' => repr.push('_'),
+                b'u' | b'i' => {
+                    // TODO: increase the performance of integar to string conversion.
+
+                    let data_range = constant.data.0..constant.data.1;
+                    let data =
+                        unsafe { std::str::from_utf8_unchecked(&self.source.buf[data_range]) };
+                    let mut num = match usize::from_str_radix(data, 16) {
+                        Ok(num) => num as isize,
+                        Err(..) => {
+                            repr.push('_');
+                            return;
+                        }
+                    };
+
+                    if num.is_negative() {
+                        num = -num;
+                        repr.push('-');
+                    }
+
+                    let mut len = (num as f64 + 1.).log10().ceil() as u32;
+                    while len != 0 {
+                        let pow = 10isize.pow(len - 1);
+                        repr.push(((num / pow) as u8 + b'0') as char);
+
+                        num %= pow;
+                        len -= 1;
+                    }
+                }
+                b'c' => repr.push(self.source.inner()[0] as char),
+                _ => todo!(),
+            },
+            _ => unreachable!("Generic constant values don't exist yet in rust"),
+        }
+    }
+
     fn take_spot(&mut self) -> usize {
         let old = self.ast.ptr;
         self.ast.ptr += 1;
@@ -332,19 +360,35 @@ impl<'p> Symbol<'p> {
     }
 
     fn consume_const(&mut self) -> ManglingResult<Const> {
-        let prefix = self.source.seek_exact(2);
-        let true_prefix = prefix == Some(b"1_");
-        let false_prefix = prefix == Some(b"0_");
+        if self.source.take(b'p') {
+            let spot = self.take_spot();
+            self.ast.stack[spot] = Type::Basic("_");
 
-        let constant = if true_prefix | false_prefix {
-            Const::Boolean(true_prefix)
-        } else if self.source.take(b'n') {
-            Const::Integar(-(self.consume_base62()? as isize))
-        } else {
-            Const::Integar(self.consume_base62()? as isize)
-        };
+            return Ok(Const { neg: false, ty: spot, data: (0, 0) });
+        }
 
-        Ok(constant)
+        let ty = self.ast.ptr;
+        self.consume_type()?;
+
+        let neg = self.source.take(b'n');
+
+        let start = self.source.pos.load(Ordering::SeqCst);
+        let mut end = 0;
+        for idx in start.. {
+            if *self.source.buf.get(idx).ok_or(Error::ConstDelimiterNotFound)? == b'_' {
+                end = idx;
+
+                // Skip over const bytes and `_`.
+                self.source.offset((end - start + 1) as isize);
+                break;
+            }
+        }
+
+        if end == 0 {
+            return Err(Error::ConstDelimiterNotFound);
+        }
+
+        Ok(Const { neg, ty, data: (start, end) })
     }
 
     fn consume_path(&mut self) -> ManglingResult<()> {
@@ -362,40 +406,30 @@ impl<'p> Symbol<'p> {
 
                 self.ast.stack[self.take_spot()] = Type::Path(Path::Crate(id, ident));
             }
-            c @ (b'M' | b'X') => {
-                // "M" <impl-path> <type>
-                // "X" <impl-path> <type> <path>
+            c @ (b'M' | b'X' | b'Y') => {
+                // "M" <impl-path> <type> | "X" <impl-path> <type> <path> | "Y" <type> <path>
 
-                let id = self.try_consume_disambiguator()?;
                 let spot = self.take_spot();
 
-                let impl_path_spot = self.ast.ptr;
-                self.consume_path()?;
+                if c != b'Y' {
+                    let _id = self.try_consume_disambiguator()?;
+                    let _impl_path_spot = self.ast.ptr;
+                    self.consume_path()?;
+                }
+
 
                 let type_spot = self.ast.ptr;
                 self.consume_type()?;
 
-                self.ast.stack[spot] = if c == b'X' {
+                if c != b'M' {
                     let path_spot = self.ast.ptr;
                     self.consume_path()?;
 
-                    Type::Path(Path::TraitImpl(id, impl_path_spot, type_spot, path_spot))
-                } else {
-                    Type::Path(Path::InherentImpl(id, impl_path_spot, type_spot))
+                    self.ast.stack[spot] = Type::Path(Path::Trait(type_spot, path_spot));
+                    return Ok(());
                 }
-            }
-            b'Y' => {
-                // "Y" <type> <path>
 
-                let spot = self.take_spot();
-
-                let type_spot = self.ast.ptr;
-                self.consume_type()?;
-
-                let path_spot = self.ast.ptr;
-                self.consume_path()?;
-
-                self.ast.stack[spot] = Type::Path(Path::TraitDef(type_spot, path_spot));
+                self.ast.stack[spot] = Type::Path(Path::InherentImpl(type_spot));
             }
             b'N' => {
                 // <namespace> <path> <identifier>
@@ -416,32 +450,29 @@ impl<'p> Symbol<'p> {
                 self.ast.stack[spot] = Type::Path(Path::Nested(namespace, spot + 1, id, ident));
             }
             b'I' => {
-                // <path> {<lifetime> <type>} "E"
+                // <path> {lifetime | type | "K" const} "E"
 
-                let mut generic_spots = [u16::MAX; MAX_GENERIC_ARGUEMENTS];
+                let mut generics = Vec::new();
                 let spot = self.take_spot();
 
                 self.consume_path()?;
 
-                for idx in 0.. {
-                    if self.source.take(b'E') {
-                        break;
-                    }
+                while !self.source.take(b'E') {
+                    let generic = match self.source.consume() {
+                        Some(b'L') => Generic::Lifetime(self.consume_lifetime()?),
+                        Some(b'K') => Generic::Const(self.consume_const()?),
+                        _ => {
+                            self.source.offset(-1);
+                            let spot = self.ast.ptr;
+                            self.consume_type()?;
+                            Generic::Type(spot)
+                        }
+                    };
 
-                    if idx == MAX_GENERIC_ARGUEMENTS - 1 {
-                        // Indicate that there are too many arguements to display.
-                        generic_spots[MAX_GENERIC_ARGUEMENTS - 1] = u16::MAX - 1;
-                        break;
-                    }
-
-                    let type_spot = self.ast.ptr;
-
-                    self.consume_type()?;
-
-                    generic_spots[idx] = type_spot as u16;
+                    generics.push(generic);
                 }
 
-                self.ast.stack[spot] = Type::Path(Path::Generic(spot + 1, generic_spots));
+                self.ast.stack[spot] = Type::Path(Path::Generic(spot + 1, generics));
 
                 // Consume and ignore optional unique id suffix.
                 if self.source.take(b'c') {
@@ -464,7 +495,7 @@ impl<'p> Symbol<'p> {
             }
             b'E' => {}
             #[cfg(debug_assertions)]
-            _ => panic!("{:#?}", &self.ast),
+            c => panic!("char: {}\n{:#?}", c as char, &self.ast),
             _ => return Err(Error::Invalid),
         }
 
@@ -667,6 +698,13 @@ impl fmt::Debug for Stack<'_> {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum Generic {
+    Lifetime(Lifetime),
+    Type(usize),
+    Const(Const),
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct Lifetime(usize);
 
@@ -691,42 +729,37 @@ impl Lifetime {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Namespace {
     Unknown,
-    Opaque,
     Type,
     Value,
 }
 
 // <type> ["n"] {hex-digit} "_" "p"
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum Const {
-    Boolean(bool),
-    Integar(isize),
+struct Const {
+    neg: bool,
+    ty: usize,
+    data: (usize, usize),
 }
 
 // Macros can generate an item with the same name as another item. We can differentiate between
 // these using an optional `"s" [base-62-num] "_"` prefix.
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 enum Path<'p> {
     /// [disambiguator] <ident>
     ///
     /// crate root.
     Crate(Option<usize>, &'p str),
 
-    /// [disambiguator] <path> <type>
+    /// ~~[disambiguator] <path>~~ <type>
     ///
     /// <T>
-    InherentImpl(Option<usize>, usize, usize),
+    InherentImpl(usize),
 
-    /// [disambiguator] <path> <type> <path>
+    /// ~~[disambiguator] <path>~~ <type> <path>
     ///
     /// <T as Trait>
-    TraitImpl(Option<usize>, usize, usize, usize),
-
-    /// <type> <path>
-    ///
-    /// <T as Trait>
-    TraitDef(usize, usize),
+    Trait(usize, usize),
 
     /// <namespace> <path> [disambiguator] <ident>
     ///
@@ -738,7 +771,7 @@ enum Path<'p> {
     /// for now only allow one generic :(
     ///
     /// ...<T, U>
-    Generic(usize, [u16; MAX_GENERIC_ARGUEMENTS]),
+    Generic(usize, Vec<Generic>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -788,24 +821,6 @@ enum Type<'p> {
     DynTrait(Option<usize>, Vec<(usize, Vec<(&'p str, usize)>)>, Lifetime),
 }
 
-fn format_num(repr: &mut String, mut num: isize) {
-    // TODO: increase the performance of integar to string conversion.
-
-    if num.is_negative() {
-        num = -num;
-        repr.push('-');
-    }
-
-    let mut len = (num as f64 + 1.).log10().ceil() as u32;
-    while len != 0 {
-        let pow = 10isize.pow(len - 1);
-        repr.push(((num / pow) as u8 + b'0') as char);
-
-        num %= pow;
-        len -= 1;
-    }
-}
-
 fn basic_types(tag: u8) -> Option<&'static str> {
     Some(match tag {
         b'b' => "bool",
@@ -842,7 +857,10 @@ mod tests {
         ($mangled:literal => $demangled:literal) => {
             assert_eq!(
                 $crate::demangler::Symbol::parse($mangled)
-                    .map(|sym| dbg!(sym.display()))
+                    .map(|sym| {
+                        println!("{}\n", unsafe { std::str::from_utf8_unchecked(sym.source.buf) });
+                        sym.display()
+                    })
                     .as_deref(),
                 Ok($demangled)
             );
@@ -856,43 +874,54 @@ mod tests {
 
     #[test]
     fn generics() {
-        fmt!("_RINvNtC3std3mem8align_ofjdE" => "std::mem::align_of::<usize, f64>");
-        fmt!("_RINvNtC3std3mem8align_ofINtC3wow4lmaopEE" => "std::mem::align_of::<wow::lmao::<_>>");
+        fmt!("_RINvNvC3std3mem8align_ofjdE" => "std::mem::align_of::<usize, f64>");
+        fmt!("_RINvNtC3std3mem8align_ofINtC3wow6HolderpEE" => "std::mem::align_of::<wow::Holder<_>>");
     }
 
     #[test]
     fn namespaces() {
-        fmt!("_RNtC8rustdump6decode" => "rustdump::decode");
-        fmt!("_RNvNtC8rustdump6decode6x86_64" => "rustdump::decode::x86_64");
-        fmt!("_RINvNtC8rustdump6decode6x86_64NvC3lol4damnE" => "rustdump::decode::x86_64::<lol::damn>");
+        fmt!("_RNvC8rustdump6decode" => "rustdump::decode");
+        fmt!("_RNvNvC8rustdump6decode6x86_64" => "rustdump::decode::x86_64");
+        fmt!("_RINvNvC8rustdump6decode6x86_64NvC3lol4damnE" => "rustdump::decode::x86_64::<lol::damn>");
     }
 
     #[test]
     fn methods() {
         fmt!("_RNvNvXs2_C7mycrateINtC7mycrate3FoopEINtNtC3std7convert4FrompE4from3MSG" =>
-             "<mycrate::Foo::<_> as std::convert::From::<_>>::mycrate::from::MSG");
+             "<mycrate::Foo<_> as std::convert::From<_>>::from::MSG");
     }
 
     #[test]
     fn pointers() {
-        fmt!("_RINtC8rustdump6decodeRL_eE" => "rustdump::decode::<&str>");
-        fmt!("_RINtC8rustdump6decodeRL0_eE" => "rustdump::decode::<&'a str>");
+        fmt!("_RINvC8rustdump6decodeRL_eE" => "rustdump::decode::<&str>");
+        fmt!("_RINvC8rustdump6decodeRL0_eE" => "rustdump::decode::<&'a str>");
 
-        fmt!("_RINtC8rustdump6decodeQL_eE" => "rustdump::decode::<&mut str>");
-        fmt!("_RINtC8rustdump6decodeQL0_eE" => "rustdump::decode::<&'a mut str>");
+        fmt!("_RINvC8rustdump6decodeQL_eE" => "rustdump::decode::<&mut str>");
+        fmt!("_RINvC8rustdump6decodeQL0_eE" => "rustdump::decode::<&'a mut str>");
 
-        fmt!("_RINtC8rustdump6decodePeE" => "rustdump::decode::<*const str>");
-        fmt!("_RINtC8rustdump6decodeOeE" => "rustdump::decode::<*mut str>");
+        fmt!("_RINvC8rustdump6decodePeE" => "rustdump::decode::<*const str>");
+        fmt!("_RINvC8rustdump6decodeOeE" => "rustdump::decode::<*mut str>");
     }
 
     #[test]
     fn arrays() {
-        fmt!("_RINtC8rustdump6decodeANtNvC3std5array5Arrayf_E" => "rustdump::decode::<[std::array::Array; 16]>");
+        fmt!("_RINvC8rustdump6decodeANtNvC3std5array5Arrayjf_E" => "rustdump::decode::<[std::array::Array; 15]>");
     }
 
     #[test]
     fn tupples() {
         fmt!("_RINvNtC3std3mem8align_ofjTddNvC4core3ptrEE" => "std::mem::align_of::<usize, (f64, f64, core::ptr)>");
+    }
+
+    #[test]
+    fn constants() {
+        fmt!("_RNvXs5_NtCsd4VYFwevHkG_8rustdump6decodeINtB5_5ArrayNtNtB5_6x86_646PrefixKj4_EINtNtNtCs9ltgdHTiPiY_4core3ops5index8IndexMutjE9index_mutB7_" =>
+             "<rustdump::decode::Array<rustdump::decode::x86_64::Prefix, 4> as core::ops::index::IndexMut<usize>>::index_mut");
+
+        fmt!("__RNvMNtCs9ltgdHTiPiY_4core5sliceSRe4iterCslWKjbRFJPpS_3log" => "<[&str]>::iter");
+
+        fmt!("__RNvMs1_NtNtCs9ltgdHTiPiY_4core3ptr8non_nullINtB5_7NonNullReE6as_ptrCslWKjbRFJPpS_3log" =>
+             "<core::ptr::non_null::NonNull<&str>>::as_ptr")
     }
 
     #[test]
