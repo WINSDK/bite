@@ -80,15 +80,15 @@ impl Config {
     pub fn from_string(s: String) -> Self {
         let mut includes = Vec::new();
 
-        'outer: for mut line in s.lines() {
+        'lines: for mut line in s.lines() {
             skip_whitespace(&mut line);
 
-            if line.starts_with("use") {
-                line = &line[3..];
-                if !skip_whitespace(&mut line) {
-                    continue;
-                }
-            } else {
+            if !line.starts_with("use") {
+                continue;
+            }
+
+            line = &line[3..];
+            if !skip_whitespace(&mut line) {
                 continue;
             }
 
@@ -105,30 +105,31 @@ impl Config {
                         includes.push(Statement::Include(&line[..new_idx]));
                     }
 
-                    continue 'outer;
+                    continue 'lines;
                 }
             }
 
-            skip_whitespace(&mut line);
-
-            let statement = if line.starts_with("as") {
-                line = &line[2..];
-                if !skip_whitespace(&mut line) {
-                    continue;
+            if !skip_whitespace(&mut line) {
+                if !line.starts_with("as") {
+                    includes.push(Statement::Path(path));
                 }
 
-                for (idx, c) in line.bytes().enumerate() {
-                    if c == b' ' {
-                        line = &line[..idx];
-                        break;
-                    }
-                }
-                Statement::Rename(path, line)
-            } else {
-                Statement::Path(path)
-            };
+                continue;
+            }
 
-            includes.push(statement);
+            line = &line[2..];
+            if !skip_whitespace(&mut line) {
+                continue;
+            }
+
+            for (idx, c) in line.bytes().enumerate() {
+                if c == b' ' {
+                    line = &line[..idx];
+                    break;
+                }
+            }
+
+            includes.push(Statement::Rename(path, line));
         }
 
         Self { includes, inner: s }
