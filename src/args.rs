@@ -13,8 +13,9 @@ OPTIONS:
   -D, --dissasembly   Path to object you're disassembling
   -S, --simplify      Replace common types with shortened paths";
 
-const NAMES: &[&'static str] = &["--help", "--libs", "--names", "--dissasembly", "--simplify"];
-const SHORT: &[&'static str] = &["-H", "-L", "-N", "-D", "-S"];
+const SHORT: &[&'static str] = &["-H", "-L", "-N", "-D", "-S", "-C"];
+const NAMES: &[&'static str] =
+    &["--help", "--libs", "--names", "--dissasembly", "--simplify", "--config"];
 
 #[derive(Debug, Clone)]
 pub struct Cli {
@@ -32,6 +33,9 @@ pub struct Cli {
 
     /// Path to symbol being disassembled.
     pub path: PathBuf,
+
+    /// Optional path to a symbol formatting config.
+    pub config: Option<PathBuf>,
 }
 
 impl Cli {
@@ -41,6 +45,7 @@ impl Cli {
             names: false,
             simplify: false,
             disassemble: false,
+            config: None,
             path: PathBuf::new(),
         };
 
@@ -65,6 +70,17 @@ impl Cli {
                         }
 
                         cli.path = PathBuf::from(path);
+                    } else {
+                        exit!("Must specify path to object");
+                    }
+                }
+                "-C" | "--config" => {
+                    if let Some(path) = args.next().as_deref() {
+                        if NAMES.contains(&path) || SHORT.contains(&path) {
+                            exit!("Must specify path to object");
+                        }
+
+                        cli.config = Some(PathBuf::from(path));
                     } else {
                         exit!("Must specify path to object");
                     }
@@ -95,6 +111,10 @@ impl Cli {
     }
 
     fn validate_args(&self) {
+        if let Some(ref config) = self.config {
+            assert_exit!(config.is_file(), "{HELP}");
+        }
+
         assert_exit!(self.path.is_file(), "{HELP}");
         assert_exit!(
             self.disassemble as u8 + self.libs as u8 + self.names as u8 == 1,

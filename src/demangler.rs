@@ -1,12 +1,10 @@
-#![cfg(test)]
-
 use crate::decode::Reader;
 use std::fmt;
 use std::mem::MaybeUninit;
 use std::sync::atomic::Ordering;
 
 #[derive(Debug, PartialEq, Eq)]
-enum Error {
+pub enum Error {
     UnknownPrefix,
     TooComplex,
     PathLengthNotNumber,
@@ -25,7 +23,7 @@ type ManglingResult<T> = Result<T, Error>;
 const MAX_COMPLEXITY: usize = 256;
 const MAX_DEPTH: usize = 100;
 
-struct Symbol<'p> {
+pub struct Symbol<'p> {
     ast: Stack<'p>,
     source: Reader<'p>,
     depth: usize,
@@ -63,7 +61,7 @@ impl<'p> Symbol<'p> {
     }
 
     pub fn display(&self) -> String {
-        let mut name = String::new();
+        let mut name = String::with_capacity(150);
         self.fmt(&mut name, &self.ast.stack[0]);
         name
     }
@@ -502,6 +500,7 @@ impl<'p> Symbol<'p> {
             b'E' => {}
             #[cfg(debug_assertions)]
             c => panic!("char: {}\n{:#?}", c as char, &self.ast),
+            #[cfg(not(debug_assertions))]
             _ => return Err(Error::Invalid),
         }
 
@@ -677,6 +676,7 @@ impl<'p> Symbol<'p> {
     }
 }
 
+// NOTE: Maybe use a stack allocator instead because generics and tupples require allocations rn.
 struct Stack<'p> {
     stack: [Type<'p>; MAX_COMPLEXITY],
     ptr: usize,
@@ -901,7 +901,7 @@ mod tests {
                     })
                     .as_deref(),
                 Ok($demangled)
-            );
+            )
         };
     }
 

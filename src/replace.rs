@@ -1,20 +1,154 @@
 use std::borrow::Cow;
 use std::fmt;
 
-// The v0 mangling scheme transforms unicode characters into some
-// ascii representation that looks similar.
-//
-// https://github.com/rust-lang/rfcs/blob/master/text/2603-rust-symbol-name-mangling-v0.md#unicode-identifiers
+pub enum Statement {
+    /// use crate::namespace::Type
+    ///
+    /// Replace full path with last section of path.
+    Path(*const str),
 
-// TODO: Change scheme for tokens.
-// namespaces simplificantion should follow rust defitions.
-//
-// use std::io::prelude::* should simplify all items in prelude be removing their suffix.
-// use std::io::prelude should simplify all items in prelude by replacing their suffix with
-// 'prelude::<...>'.
-//
-// TODO: Allow for dynamic loading of token simplification schemes. Have to also decide whether to
-// use toml, json or some custom-ish format.
+    /// use crate::namespace::*
+    ///
+    /// Remove everything in path up to `*`.
+    Include(*const str),
+
+    /// use crate::namespace::Type as OtherType
+    ///
+    /// Replace path with other path.
+    Rename(*const str, *const str),
+}
+
+impl fmt::Debug for Statement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unsafe {
+            match self {
+                Self::Path(p) => {
+                    f.write_str("Path(")?;
+                    f.write_str(std::mem::transmute(*p))?;
+                    f.write_str(")")
+                }
+                Self::Include(p) => {
+                    f.write_str("Include(")?;
+                    f.write_str(std::mem::transmute(*p))?;
+                    f.write_str(")")
+                }
+                Self::Rename(p1, p2) => {
+                    f.write_str("Rename(")?;
+                    f.write_str(std::mem::transmute(*p1))?;
+                    f.write_str(", ")?;
+                    f.write_str(std::mem::transmute(*p2))?;
+                    f.write_str(")")
+                }
+            }
+        }
+    }
+}
+
+// NOTE: Using *const str's to refer to parts of inner is correct for as long as `inner` doesn't
+// reallocate. Moving inner shouldn't change the pointer to it's internal Vec<u8>.
+
+pub struct Config {
+    inner: String,
+    includes: Vec<Statement>,
+}
+
+impl Config {
+    pub fn from_env(args: &crate::args::Cli) -> Self {
+        if let Some(ref conf_path) = args.config {
+            if let Ok(data) = std::fs::read(conf_path) {
+                if let Ok(s) = String::from_utf8(data) {
+                    return Self::from_string(s);
+                }
+            }
+        }
+
+        if let Ok(data) = std::fs::read(".dumpfmt") {
+            if let Ok(s) = String::from_utf8(data) {
+                return Self::from_string(s);
+            }
+        }
+
+        if let Ok(data) = std::fs::read("~/.dumpfmt") {
+            if let Ok(s) = String::from_utf8(data) {
+                return Self::from_string(s);
+            }
+        }
+
+        Self { includes: Vec::new(), inner: String::new() }
+    }
+
+    pub fn from_string(s: String) -> Self {
+        let mut includes = Vec::new();
+
+        'outer: for mut line in s.lines() {
+            skip_whitespace(&mut line);
+
+            if line.starts_with("use") {
+                line = &line[3..];
+                if !skip_whitespace(&mut line) {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            let mut path = line;
+            for (idx, c) in line.bytes().enumerate() {
+                if c == b' ' {
+                    path = &line[..idx];
+                    line = &line[idx..];
+                    break;
+                }
+
+                if c == b'*' {
+                    if let Some(new_idx) = idx.checked_sub(2) {
+                        includes.push(Statement::Include(&line[..new_idx]));
+                    }
+
+                    continue 'outer;
+                }
+            }
+
+            skip_whitespace(&mut line);
+
+            let statement = if line.starts_with("as") {
+                line = &line[2..];
+                if !skip_whitespace(&mut line) {
+                    continue;
+                }
+
+                for (idx, c) in line.bytes().enumerate() {
+                    if c == b' ' {
+                        line = &line[..idx];
+                        break;
+                    }
+                }
+                Statement::Rename(path, line)
+            } else {
+                Statement::Path(path)
+            };
+
+            includes.push(statement);
+        }
+
+        Self { includes, inner: s }
+    }
+}
+
+/// Skips whitespace and returns if it skipped any whitespace.
+fn skip_whitespace(line: &mut &str) -> bool {
+    let mut skipped = false;
+    for (idx, c) in line.bytes().enumerate() {
+        if c != b' ' {
+            *line = &line[idx..];
+            return skipped;
+        }
+
+        skipped = true;
+    }
+
+    skipped
+}
 
 const DEFAULT_TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {
     // Generic shortenings
@@ -289,5 +423,34 @@ mod tests {
         assert_eq!(sample.next(), Some(("core::option", "::Option")));
         assert_eq!(sample.next(), Some(("core", "::option::Option")));
         assert_eq!(sample.next(), None);
+    }
+
+    #[test]
+    fn cfg_generate() {
+        let example = r#"
+            use        std::path::Path
+                                                use std::mem::*
+            use     std::mem::transmute          as       rename D:
+        "#;
+
+        let mut conf1 = Config::from_string(example.to_string());
+        dbg!(&conf1.includes);
+
+        let example = r#"
+            use        std::troll
+                                                use std::compare
+            use     std::mem::transmute
+        "#;
+
+        let mut conf2 = Config::from_string(example.to_string());
+        dbg!(&conf2.includes);
+
+        let (fmt1, fmt2) = (format!("{:?}", &conf1.includes), format!("{:?}", &conf2.includes));
+        std::mem::swap(&mut conf1, &mut conf2);
+        let (fmt3, fmt4) = (format!("{:?}", &conf1.includes), format!("{:?}", &conf2.includes));
+
+        // Assert that the swap correctly references to the internal `Statement`s.
+        assert_eq!(fmt1, fmt4);
+        assert_eq!(fmt2, fmt3);
     }
 }

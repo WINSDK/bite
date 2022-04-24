@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use goblin::{mach, Object};
-use rustc_demangle::demangle;
 
 mod args;
 mod decode;
@@ -69,7 +68,19 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
         return Cow::Borrowed(s);
     }
 
-    let demangled = Cow::Owned(format!("{:#}", demangle(&s[left + 1..=right - 1])));
+    let mangled = &s[left + 1..=right - 1];
+    let demangled = match demangler::Symbol::parse(mangled) {
+        Ok(demangled) => Cow::Owned(demangled.display()),
+        Err(..) => {
+            if let Some("__Z") = mangled.get(0..3) {
+                Cow::Owned(format!("{}", rustc_demangle::demangle(mangled)))
+            } else {
+                Cow::Borrowed(mangled)
+            }
+        }
+    };
+
+    // let demangled = Cow::Owned(format!("{:#}", demangle(&s[left + 1..=right - 1])));
     let demangled = if args.simplify { replace::simplify_type(&demangled) } else { demangled };
 
     Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
@@ -100,6 +111,7 @@ fn objdump(args: &args::Cli) {
 // TODO: impliment own version of `objdump`.
 fn main() -> goblin::error::Result<()> {
     let args = args::Cli::parse();
+    let _config = replace::Config::from_env(&args);
 
     let object_bytes = std::fs::read(&args.path).unwrap();
     let object = goblin::Object::parse(object_bytes.as_slice()).unwrap();
@@ -151,11 +163,11 @@ fn main() -> goblin::error::Result<()> {
 
             handles.push(std::thread::spawn(move || {
                 for symbol in symbols_chunk.iter().filter(|symbol| !symbol.is_empty()) {
-                    let mut demangled_name = format!("{:#}", demangle(symbol));
+                    // TODO: Simplify symbol here.
 
-                    if args.simplify {
-                        demangled_name = replace::simplify_type(&demangled_name).to_string();
-                    }
+                    let demangled_name = demangler::Symbol::parse(symbol)
+                        .map(|s| s.display())
+                        .unwrap_or(symbol.to_string());
 
                     symbol_sender.send(demangled_name).unwrap();
                 }
