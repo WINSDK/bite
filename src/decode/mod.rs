@@ -8,7 +8,7 @@ pub mod x86_64;
 
 mod lookup;
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BitWidth {
     U128,
     U64,
@@ -38,16 +38,6 @@ impl<T: Default, const S: usize> Array<T, S> {
 }
 
 impl<T, const S: usize> Array<T, S> {
-    #[inline]
-    pub fn iter<'a>(&'a self) -> std::slice::Iter<'a, T> {
-        self.as_ref().iter()
-    }
-
-    #[inline]
-    pub fn iter_mut<'a>(&'a mut self) -> std::slice::IterMut<'a, T> {
-        self.as_mut().iter_mut()
-    }
-
     pub fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
     }

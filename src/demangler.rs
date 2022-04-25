@@ -752,7 +752,7 @@ struct Const {
 // these using an optional `"s" [base-62-num] "_"` prefix.
 
 #[derive(Debug, PartialEq, Clone)]
-enum Path<'p> {
+pub enum Path<'p> {
     /// [disambiguator] <ident>
     ///
     /// crate root.

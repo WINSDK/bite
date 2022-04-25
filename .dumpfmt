@@ -1,3 +1,112 @@
-use std::rate
-use std::mem::*
+// Generic shortenings
+use std::io
+use core::fmt
+
+use core::panicking::panic
+use core::panicking::panic_fmt
+use core::sync::atomic
+use alloc::sync::Arc
+use std::sync::mutex::Mutex
+use std::sync::rwlock::RwLock
+use std::sync::rwlock::RwLockReadGuard
+use std::sync::poison
+
+use std::ffi::os_str::OsString
+use std::ffi::os_str::OsStr
+
+use core::ptr::non_null::NonNull
+use core::ptr::unique::Unique
+use core::ptr::drop_in_place
+
+use core::ops::index::Index
+use core::ops::index::IndexMut
+use core::slice::index::SliceIndex
+
 use core::ptr
+use core::slice
+
+// Str (TODO: doesn't convert for some reason) and so does panic
+use core::str::converts::from_utf8_unchecked_mut as str::from_utf8_unchecked_mut
+use core::str::converts::from_utf8_unchecked as str::from_utf8_unchecked
+
+// Alloc
+use alloc::string::String
+use alloc::string::ToString
+use alloc::slice::hack::ConvertVec
+use alloc::slice::hack::to_vec
+use alloc::raw_vec::RawVec
+use alloc::vec::Vec
+use alloc::collections::btree
+use alloc::alloc
+use core::alloc
+
+// Iterators
+use core::str::iter::Chars as iter::Chars
+use core::slice::iter::Iter as slice::Iter
+use core::slice::iter::IterMut as slice::IterMut
+
+use core::iter::adapters::map::Map
+use core::iter::adapters::zip::Zip
+use core::iter::adapters::chain::Chain
+use core::iter::adapters::take::Take
+use core::iter::adapters::take_while::TakeWhile
+use core::iter::adapters::zip::ZipImpl
+use core::iter::adapters::peekable::Peekable
+use core::iter::adapters::enumerate::Enumerate
+use core::iter::adapters::filter_map::FilterMap
+use core::iter::adapters::filter::Filter
+use core::iter::adapters::copied::Copied
+use core::iter::adapters::skip::Skip as iter::Skip
+use core::iter::adapters::rev::Rev as iter::Rev
+use core::iter::range::Step as iter::Step
+use core::str::iter::Bytes as iter::Bytes
+
+use core::option::Option
+use core::result::Result
+
+// https://doc.rust-lang.org/std/prelude/v1/index.html
+// Basic traits
+use core::convert::Into
+use core::convert::From
+use core::convert::AsMut
+use core::convert::AsRef
+use core::convert::TryFrom
+use core::convert::TryInto
+
+use core::cmp::Eq
+use core::cmp::Ord
+use core::cmp::PartialEq
+use core::cmp::PartiaOrd
+
+use alloc::boxed::Box
+use alloc::borrow::ToOwned
+use core::clone::Clone
+use core::default::Default
+use core::ops::drop::Drop
+
+use core::ops::function::Fn
+use core::ops::function::FnOnce
+use core::ops::function::FnMut
+
+use core::iter::traits::double_ended::DoubleEndedIterator
+use core::iter::traits::exact_size::ExactSizeIterator
+use core::iter::traits::collect::IntoIterator
+use core::iter::traits::collect::Extend
+use core::iter::traits::iterator::Iterator
+
+use core::marker::Send
+use core::marker::Sized
+use core::marker::Sync
+use core::marker::Unpin
+
+// Ranges
+use core::ops::range::RangeToInclusive
+use core::ops::range::RangeFrom
+use core::ops::range::RangeFull
+use core::ops::range::RangeTo
+use core::ops::range::Range
+
+// Complex traits
+use alloc::vec::spec_extend::SpecExtend as Vec::Extend
+use core::mem::maybe_uninit::MaybeUninit as mem::MaybeUninit
+use core::ops::try_trait::Try

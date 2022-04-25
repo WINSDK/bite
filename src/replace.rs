@@ -1,7 +1,14 @@
 use std::borrow::Cow;
 use std::fmt;
 
-pub enum Statement {
+// 1. sort the statements
+// 2. do a binary search on the first section of a path
+// 3. return a range of path's that match the subpath
+// 4. if any path's match the subset exactly and the superset either
+//    doesn't exist or has no matches to any of the statements return
+// 5. repeat from 2 starting at the next section
+
+enum Statement {
     /// use crate::namespace::Type
     ///
     /// Replace full path with last section of path.
@@ -44,11 +51,47 @@ impl fmt::Debug for Statement {
     }
 }
 
+impl PartialEq for Statement {
+    fn eq(&self, other: &Self) -> bool {
+        let lhs = match self {
+            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
+        };
+
+        let rhs = match other {
+            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
+        };
+
+        unsafe { &**lhs == &**rhs }
+    }
+}
+
+impl Eq for Statement {}
+
+impl PartialOrd for Statement {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Statement {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let lhs = match self {
+            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
+        };
+
+        let rhs = match other {
+            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
+        };
+
+        unsafe { str::cmp(&**lhs, &**rhs) }
+    }
+}
+
 // NOTE: Using *const str's to refer to parts of inner is correct for as long as `inner` doesn't
 // reallocate. Moving inner shouldn't change the pointer to it's internal Vec<u8>.
 
 pub struct Config {
-    inner: String,
+    _inner: String,
     includes: Vec<Statement>,
 }
 
@@ -62,19 +105,13 @@ impl Config {
             }
         }
 
-        if let Ok(data) = std::fs::read(".dumpfmt") {
+        if let Ok(data) = std::fs::read(".dumpfmt").or(std::fs::read("~/.dumpfmt")) {
             if let Ok(s) = String::from_utf8(data) {
                 return Self::from_string(s);
             }
         }
 
-        if let Ok(data) = std::fs::read("~/.dumpfmt") {
-            if let Ok(s) = String::from_utf8(data) {
-                return Self::from_string(s);
-            }
-        }
-
-        Self { includes: Vec::new(), inner: String::new() }
+        Self { includes: Vec::new(), _inner: String::new() }
     }
 
     pub fn from_string(s: String) -> Self {
@@ -132,7 +169,10 @@ impl Config {
             includes.push(Statement::Rename(path, line));
         }
 
-        Self { includes, inner: s }
+        includes.sort_unstable();
+
+        dbg!(&includes);
+        Self { includes, _inner: s }
     }
 }
 
@@ -149,6 +189,48 @@ fn skip_whitespace(line: &mut &str) -> bool {
     }
 
     skipped
+}
+
+/// Returns all entries in slice that start with `target`.
+fn binary_search_range<'a, 'b>(slice: &'a [&'b str], target: &str) -> &'a [&'b str] {
+    if slice.is_empty() {
+        return &[];
+    }
+
+    let (mut start, mut end) = (0, slice.len() - 1);
+    while start <= end {
+        let midpoint = (start + end) / 2;
+        let middle = &slice[midpoint];
+        let middle = &middle[..std::cmp::min(middle.len(), target.len())];
+
+        match str::cmp(middle, target) {
+            std::cmp::Ordering::Greater => end = midpoint - 1,
+            std::cmp::Ordering::Less => start = midpoint + 1,
+            _ => {
+                let (left, right) = slice.split_at(midpoint);
+
+                // Go to the left and check if there are more matches.
+                let mut start = midpoint;
+                for elem in left.iter().rev() {
+                    if elem.get(..target.len()) == Some(target) {
+                        start -= 1;
+                    }
+                }
+
+                // Go to the right and check if there are more matches.
+                let mut end = midpoint;
+                for elem in right {
+                    if elem.get(..target.len()) == Some(target) {
+                        end += 1;
+                    }
+                }
+
+                return &slice[start..end];
+            }
+        }
+    }
+
+    &[]
 }
 
 const DEFAULT_TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {

@@ -111,7 +111,7 @@ fn objdump(args: &args::Cli) {
 // TODO: impliment own version of `objdump`.
 fn main() -> goblin::error::Result<()> {
     let args = args::Cli::parse();
-    let _config = replace::Config::from_env(&args);
+    let config = replace::Config::from_env(&args);
 
     let object_bytes = std::fs::read(&args.path).unwrap();
     let object = goblin::Object::parse(object_bytes.as_slice()).unwrap();

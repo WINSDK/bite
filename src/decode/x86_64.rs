@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, unused_assignments)]
 
 use std::fmt;
 
