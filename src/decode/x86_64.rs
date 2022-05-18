@@ -97,7 +97,7 @@ impl fmt::Display for Register {
 
 impl fmt::Debug for Register {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{}", self))
+        write!(f, "{self}")
     }
 }
 
@@ -117,7 +117,7 @@ impl fmt::Display for Segment {
 
 impl fmt::Debug for Segment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{}", self))
+        write!(f, "{self}")
     }
 }
 

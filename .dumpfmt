@@ -25,7 +25,6 @@ use core::slice::index::SliceIndex
 use core::ptr
 use core::slice
 
-// Str (TODO: doesn't convert for some reason) and so does panic
 use core::str::converts::from_utf8_unchecked_mut as str::from_utf8_unchecked_mut
 use core::str::converts::from_utf8_unchecked as str::from_utf8_unchecked
 

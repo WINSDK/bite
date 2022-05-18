@@ -8,7 +8,8 @@ use std::fmt;
 //    doesn't exist or has no matches to any of the statements return
 // 5. repeat from 2 starting at the next section
 
-enum Statement {
+#[derive(Clone, Copy)]
+pub enum Statement {
     /// use crate::namespace::Type
     ///
     /// Replace full path with last section of path.
@@ -24,6 +25,16 @@ enum Statement {
     /// Replace path with other path.
     Rename(*const str, *const str),
 }
+
+impl Statement {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => unsafe { &**p },
+        }
+    }
+}
+
+unsafe impl Sync for Statement {}
 
 impl fmt::Debug for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -87,9 +98,20 @@ impl Ord for Statement {
     }
 }
 
+impl std::ops::Deref for Statement {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => unsafe { &**p },
+        }
+    }
+}
+
 // NOTE: Using *const str's to refer to parts of inner is correct for as long as `inner` doesn't
 // reallocate. Moving inner shouldn't change the pointer to it's internal Vec<u8>.
 
+#[derive(Debug)]
 pub struct Config {
     _inner: String,
     includes: Vec<Statement>,
@@ -171,8 +193,12 @@ impl Config {
 
         includes.sort_unstable();
 
-        dbg!(&includes);
         Self { includes, _inner: s }
+    }
+
+    /// Returns all entries in slice that start with `target`.
+    pub fn search(&self) -> Search {
+        Search { offset: 0, pos: 0, slice: self.includes.as_slice() }
     }
 }
 
@@ -191,46 +217,71 @@ fn skip_whitespace(line: &mut &str) -> bool {
     skipped
 }
 
-/// Returns all entries in slice that start with `target`.
-fn binary_search_range<'a, 'b>(slice: &'a [&'b str], target: &str) -> &'a [&'b str] {
-    if slice.is_empty() {
-        return &[];
-    }
+#[derive(Debug, Default)]
+pub struct Search<'a> {
+    pub offset: usize,
+    pos: usize,
+    pub slice: &'a [Statement],
+}
 
-    let (mut start, mut end) = (0, slice.len() - 1);
-    while start <= end {
-        let midpoint = (start + end) / 2;
-        let middle = &slice[midpoint];
-        let middle = &middle[..std::cmp::min(middle.len(), target.len())];
+impl<'a> Search<'a> {
+    /// Returns all entries in slice that start with `target` at `offset`.
+    pub fn binary_search_range(&mut self, target: &str) {
+        if self.slice.is_empty() {
+            return;
+        }
 
-        match str::cmp(middle, target) {
-            std::cmp::Ordering::Greater => end = midpoint - 1,
-            std::cmp::Ordering::Less => start = midpoint + 1,
-            _ => {
-                let (left, right) = slice.split_at(midpoint);
+        let (mut start, mut end) = (0, self.slice.len() - 1);
+        while start <= end {
+            let midpoint = (start + end) / 2;
+            let middle: &str = match &self.slice[midpoint].get(self.offset..) {
+                Some(middle) => &middle[..std::cmp::min(middle.len(), target.len())],
+                _ => return,
+            };
 
-                // Go to the left and check if there are more matches.
-                let mut start = midpoint;
-                for elem in left.iter().rev() {
-                    if elem.get(..target.len()) == Some(target) {
-                        start -= 1;
+            match str::cmp(middle, target) {
+                std::cmp::Ordering::Greater => match midpoint.checked_sub(1) {
+                    Some(num) => end = num,
+                    _ => break,
+                },
+                std::cmp::Ordering::Less => match midpoint.checked_add(1) {
+                    Some(num) => start = num,
+                    _ => break,
+                },
+                _ => {
+                    let (left, right) = self.slice.split_at(midpoint);
+
+                    // Go to the left and check if there are more matches.
+                    let mut start = midpoint;
+                    for x in left.iter().rev() {
+                        if x.get(self.offset..self.offset + target.len()) == Some(target) {
+                            start -= 1;
+                        }
                     }
-                }
 
-                // Go to the right and check if there are more matches.
-                let mut end = midpoint;
-                for elem in right {
-                    if elem.get(..target.len()) == Some(target) {
-                        end += 1;
+                    // Go to the right and check if there are more matches.
+                    let mut end = midpoint;
+                    for x in right {
+                        if x.get(self.offset..self.offset + target.len()) == Some(target) {
+                            end += 1;
+                        }
                     }
-                }
 
-                return &slice[start..end];
+                    self.slice = &self.slice[start..end];
+                    return;
+                }
             }
         }
+
+        self.slice = &[];
+        return;
     }
 
-    &[]
+    /// Returns first match and will panic if not found.
+    pub fn first_match(&self) -> Statement {
+        debug_assert!(self.slice.len() == 1, "{:?}", &self.slice);
+        self.slice[0]
+    }
 }
 
 const DEFAULT_TOKENS: phf::Map<&'static str, &'static str> = phf::phf_map! {

@@ -3,8 +3,6 @@
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 use goblin::{mach, Object};
 
@@ -40,7 +38,7 @@ macro_rules! assert_exit {
     }};
 }
 
-fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
+fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> Cow<'a, str> {
     let mut left = 0;
     for idx in 0..s.len() {
         if s.as_bytes()[idx] == b'<' {
@@ -69,7 +67,7 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
     }
 
     let mangled = &s[left + 1..=right - 1];
-    let demangled = match demangler::Symbol::parse(mangled) {
+    let demangled = match demangler::Symbol::parse_with_config(mangled, &config) {
         Ok(demangled) => Cow::Owned(demangled.display()),
         Err(..) => {
             if let Some("__Z") = mangled.get(0..3) {
@@ -86,7 +84,7 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str) -> Cow<'a, str> {
     Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
 }
 
-fn objdump(args: &args::Cli) {
+fn objdump(args: &args::Cli, config: &replace::Config) {
     let objdump = Command::new("objdump")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -100,7 +98,7 @@ fn objdump(args: &args::Cli) {
     let mut stdout = BufReader::new(objdump.stdout.unwrap());
     for line in (&mut stdout).lines() {
         let line = match line {
-            Ok(ref line) => demangle_line(&args, line),
+            Ok(ref line) => demangle_line(&args, line, config),
             Err(_) => Cow::Borrowed("???????????"),
         };
 
@@ -110,6 +108,8 @@ fn objdump(args: &args::Cli) {
 
 // TODO: impliment own version of `objdump`.
 fn main() -> goblin::error::Result<()> {
+    use demangler::Error;
+
     let args = args::Cli::parse();
     let config = replace::Config::from_env(&args);
 
@@ -144,10 +144,7 @@ fn main() -> goblin::error::Result<()> {
         });
 
         let symbols_per_thread = (symbols.len() + (thread_count.get() - 1)) / thread_count;
-        let finished_threads = Arc::new(AtomicUsize::new(0));
-
         let mut handles = Vec::with_capacity(thread_count.get());
-        let (symbol_sender, demangled_symbols) = std::sync::mpsc::channel();
 
         for symbols_chunk in symbols.chunks(symbols_per_thread) {
             // FIXME: use thread::scoped when it becomes stable to replace this.
@@ -157,29 +154,19 @@ fn main() -> goblin::error::Result<()> {
                 &*(symbols_chunk as *const [&str] as *const [*const str] as *const [&'static str])
             };
 
-            // Clone versions to send to threads.
-            let symbol_sender = symbol_sender.clone();
-            let finished_threads = finished_threads.clone();
-
             handles.push(std::thread::spawn(move || {
                 for symbol in symbols_chunk.iter().filter(|symbol| !symbol.is_empty()) {
                     // TODO: Simplify symbol here.
 
-                    let demangled_name = demangler::Symbol::parse(symbol)
-                        .map(|s| s.display())
-                        .unwrap_or(symbol.to_string());
+                    let demangled_name = match demangler::Symbol::parse(symbol) {
+                        Ok(sym) => sym.display(),
+                        Err(Error::UnknownPrefix) => rustc_demangle::demangle(symbol).to_string(),
+                        Err(..) => symbol.to_string(),
+                    };
 
-                    symbol_sender.send(demangled_name).unwrap();
+                    println!("{demangled_name}");
                 }
-
-                finished_threads.fetch_add(1, Ordering::SeqCst);
             }))
-        }
-
-        while finished_threads.load(Ordering::SeqCst) != thread_count.get() {
-            while let Ok(symbol) = demangled_symbols.try_recv() {
-                println!("{symbol}");
-            }
         }
 
         for handle in handles {
@@ -203,7 +190,7 @@ fn main() -> goblin::error::Result<()> {
             .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
             .unwrap_or_else(|| exit!("Object looks like it's been stripped"));
 
-        objdump(&args);
+        objdump(&args, &config);
         todo!("{:?}", decode::x86_64::asm(decode::BitWidth::U64, &[0xf3, 0x48, 0xa5]));
     }
 

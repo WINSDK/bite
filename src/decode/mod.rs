@@ -112,7 +112,7 @@ impl<T, const S: usize> AsMut<[T]> for Array<T, S> {
 
 impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{:?}", &self.bytes[..self.len.load(Ordering::Relaxed)]))
+        write!(f, "{:?}", &self.bytes[..self.len.load(Ordering::Relaxed)])
     }
 }
 
