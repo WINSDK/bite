@@ -1,10 +1,8 @@
-#![feature(bool_to_option)]
-
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
-use goblin::{mach, Object};
+use goblin::Object;
 
 mod args;
 mod decode;
@@ -36,6 +34,12 @@ macro_rules! assert_exit {
             $crate::exit!($($arg)*);
         }
     }};
+}
+
+struct GenericBinary<'a> {
+    symbols: Vec<&'a str>,
+    libs: Vec<&'a str>,
+    raw: &'a [u8],
 }
 
 fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> Cow<'a, str> {
@@ -114,12 +118,43 @@ fn main() -> goblin::error::Result<()> {
     let config = replace::Config::from_env(&args);
 
     let object_bytes = std::fs::read(&args.path).unwrap();
-    let object = goblin::Object::parse(object_bytes.as_slice()).unwrap();
+    let object = goblin::Object::parse(object_bytes.as_slice())?;
     let object = match object {
-        Object::Mach(mac) => match mac {
-            mach::Mach::Fat(fat) => fat.get(0)?,
-            mach::Mach::Binary(bin) => bin,
-        },
+        Object::Mach(bin) => {
+            let bin = match bin {
+                goblin::mach::Mach::Fat(fat) => fat.get(0)?,
+                goblin::mach::Mach::Binary(bin) => bin,
+            };
+
+            let (_section, raw) = bin
+                .segments
+                .into_iter()
+                .find(|seg| matches!(seg.name(), Ok("__TEXT")))
+                .expect("Object is missing a `text` section")
+                .sections()
+                .expect("Failed to parse section")
+                .into_iter()
+                .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
+                .unwrap_or_else(|| exit!("Object looks like it's been stripped"));
+
+            GenericBinary {
+                symbols: bin.symbols().filter_map(|x| x.map(|y| y.0).ok()).collect(),
+                libs: bin.libs,
+                raw,
+            }
+        }
+        Object::Elf(bin) => {
+            let raw = bin
+                .section_headers
+                .into_iter()
+                .find(|header| &bin.shdr_strtab[header.sh_name] == ".text")
+                .and_then(|header| header.file_range())
+                .map(|section_range| &object_bytes[section_range])
+                .unwrap_or_else(|| exit!("No text section found"));
+
+            GenericBinary { symbols: bin.strtab.to_vec()?, libs: bin.libraries, raw }
+        }
+        Object::Unknown(..) => exit!("Unable to recognize the object's format"),
         _ => todo!(),
     };
 
@@ -137,7 +172,7 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.names {
-        let symbols: Vec<&str> = object.symbols().filter_map(|sym| sym.map(|v| v.0).ok()).collect();
+        let symbols: Vec<&str> = object.symbols;
         let thread_count = std::thread::available_parallelism().unwrap_or_else(|err| {
             eprintln!("Failed to get thread_count: {err}");
             unsafe { std::num::NonZeroUsize::new_unchecked(1) }
@@ -179,17 +214,6 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.disassemble {
-        let (_sec, _data) = object
-            .segments
-            .into_iter()
-            .find(|seg| matches!(seg.name(), Ok("__TEXT")))
-            .expect("Object is missing a `text` section")
-            .sections()
-            .expect("Failed to parse section")
-            .into_iter()
-            .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
-            .unwrap_or_else(|| exit!("Object looks like it's been stripped"));
-
         objdump(&args, &config);
         todo!("{:?}", decode::x86_64::asm(decode::BitWidth::U64, &[0xf3, 0x48, 0xa5]));
     }
