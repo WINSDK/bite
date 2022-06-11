@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
+use goblin::elf::header::EI_CLASS;
+use goblin::mach::header::MH_MAGIC_64;
 use goblin::Object;
 
 mod args;
@@ -39,7 +41,9 @@ macro_rules! assert_exit {
 struct GenericBinary<'a> {
     symbols: Vec<&'a str>,
     libs: Vec<&'a str>,
+    #[allow(dead_code)]
     raw: &'a [u8],
+    width: decode::BitWidth,
 }
 
 fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> Cow<'a, str> {
@@ -137,10 +141,17 @@ fn main() -> goblin::error::Result<()> {
                 .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
                 .unwrap_or_else(|| exit!("Object looks like it's been stripped"));
 
+            let width = if bin.header.magic == MH_MAGIC_64 {
+                decode::BitWidth::U64
+            } else {
+                decode::BitWidth::U32
+            };
+
             GenericBinary {
                 symbols: bin.symbols().filter_map(|x| x.map(|y| y.0).ok()).collect(),
                 libs: bin.libs,
                 raw,
+                width,
             }
         }
         Object::Elf(bin) => {
@@ -152,7 +163,13 @@ fn main() -> goblin::error::Result<()> {
                 .map(|section_range| &object_bytes[section_range])
                 .unwrap_or_else(|| exit!("No text section found"));
 
-            GenericBinary { symbols: bin.strtab.to_vec()?, libs: bin.libraries, raw }
+            let width = if bin.header.e_ident[EI_CLASS] == 0 {
+                decode::BitWidth::U64
+            } else {
+                decode::BitWidth::U32
+            };
+
+            GenericBinary { symbols: bin.strtab.to_vec()?, libs: bin.libraries, raw, width }
         }
         Object::Unknown(..) => exit!("Unable to recognize the object's format"),
         _ => todo!(),
@@ -215,7 +232,7 @@ fn main() -> goblin::error::Result<()> {
 
     if args.disassemble {
         objdump(&args, &config);
-        todo!("{:?}", decode::x86_64::asm(decode::BitWidth::U64, &[0xf3, 0x48, 0xa5]));
+        todo!("{:?}", decode::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]));
     }
 
     Ok(())
