@@ -8,113 +8,60 @@ use std::fmt;
 //    doesn't exist or has no matches to any of the statements return
 // 5. repeat from 2 starting at the next section
 
-#[derive(Clone, Copy)]
-pub enum Statement {
+#[derive(Debug, Clone)]
+pub enum Statement<'p> {
     /// use crate::namespace::Type
     ///
     /// Replace full path with last section of path.
-    Path(*const str),
+    Path(Vec<&'p str>),
 
     /// use crate::namespace::*
     ///
     /// Remove everything in path up to `*`.
-    Include(*const str),
+    Include(Vec<&'p str>),
 
     /// use crate::namespace::Type as OtherType
     ///
     /// Replace path with other path.
-    Rename(*const str, *const str),
+    Rename(Vec<&'p str>, &'p str),
 }
 
-impl Statement {
-    pub fn as_str(&self) -> &'static str {
+impl Statement<'_> {
+    #[inline]
+    pub fn path(&self) -> &[&str] {
         match self {
-            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => unsafe { &**p },
+            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
         }
     }
 }
 
-unsafe impl Sync for Statement {}
-
-impl fmt::Debug for Statement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unsafe {
-            match self {
-                Self::Path(p) => {
-                    f.write_str("Path(")?;
-                    f.write_str(std::mem::transmute(*p))?;
-                    f.write_str(")")
-                }
-                Self::Include(p) => {
-                    f.write_str("Include(")?;
-                    f.write_str(std::mem::transmute(*p))?;
-                    f.write_str(")")
-                }
-                Self::Rename(p1, p2) => {
-                    f.write_str("Rename(")?;
-                    f.write_str(std::mem::transmute(*p1))?;
-                    f.write_str(", ")?;
-                    f.write_str(std::mem::transmute(*p2))?;
-                    f.write_str(")")
-                }
-            }
-        }
-    }
-}
-
-impl PartialEq for Statement {
+impl PartialEq for Statement<'_> {
     fn eq(&self, other: &Self) -> bool {
-        let lhs = match self {
-            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
-        };
-
-        let rhs = match other {
-            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
-        };
-
-        unsafe { &**lhs == &**rhs }
+        self.path() == other.path()
     }
 }
 
-impl Eq for Statement {}
-
-impl PartialOrd for Statement {
+impl PartialOrd for Statement<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Statement {
+impl Ord for Statement<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let lhs = match self {
-            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
-        };
-
-        let rhs = match other {
-            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => p,
-        };
-
-        unsafe { str::cmp(&**lhs, &**rhs) }
+        self.path().cmp(&other.path())
     }
 }
 
-impl std::ops::Deref for Statement {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Path(p) | Self::Include(p) | Self::Rename(p, _) => unsafe { &**p },
-        }
-    }
-}
+impl Eq for Statement<'_> {}
 
 // NOTE: Using *const str's to refer to parts of inner is correct for as long as `inner` doesn't
 // reallocate. Moving inner shouldn't change the pointer to it's internal Vec<u8>.
 
 #[derive(Debug)]
 pub struct Config {
-    _inner: String,
-    includes: Vec<Statement>,
+    inner: &'static str,
+    includes: Vec<Statement<'static>>,
 }
 
 impl Config {
@@ -133,13 +80,14 @@ impl Config {
             }
         }
 
-        Self { includes: Vec::new(), _inner: String::new() }
+        Self { includes: Vec::new(), inner: Box::leak(String::into_boxed_str(String::new())) }
     }
 
     pub fn from_string(s: String) -> Self {
         let mut includes = Vec::new();
 
-        'lines: for mut line in s.lines() {
+        let s: &'static str = Box::leak(s.into_boxed_str());
+        for mut line in s.lines() {
             skip_whitespace(&mut line);
 
             if !line.starts_with("use") {
@@ -151,54 +99,52 @@ impl Config {
                 continue;
             }
 
-            let mut path = line;
-            for (idx, c) in line.bytes().enumerate() {
-                if c == b' ' {
-                    path = &line[..idx];
-                    line = &line[idx..];
-                    break;
-                }
+            let mut rename = "";
+            let mut is_rename_statement = false;
+            if let Some((statement, renamed)) = line.split_once(" as ") {
+                line = statement.trim();
 
-                if c == b'*' {
-                    if let Some(new_idx) = idx.checked_sub(2) {
-                        includes.push(Statement::Include(&line[..new_idx]));
-                    }
-
-                    continue 'lines;
-                }
+                rename = &renamed.trim_start();
+                rename = &rename[..rename.find(' ').unwrap_or(rename.len())];
+                is_rename_statement = true;
             }
 
-            if !skip_whitespace(&mut line) {
-                if !line.starts_with("as") {
-                    includes.push(Statement::Path(path));
-                }
+            let mut path = Vec::new();
 
-                continue;
+            while let Some(end_of_path_part) = line.find("::") {
+                path.push(&line[..end_of_path_part]);
+                line = &line[end_of_path_part + 2..];
             }
 
-            line = &line[2..];
-            if !skip_whitespace(&mut line) {
-                continue;
+            let mut is_include_statement = false;
+            if let Some(include_spot) = line.find('*') {
+                line = &line[..include_spot];
+                is_include_statement = true;
             }
 
-            for (idx, c) in line.bytes().enumerate() {
-                if c == b' ' {
-                    line = &line[..idx];
-                    break;
-                }
+            if !line.is_empty() {
+                path.push(line);
             }
 
-            includes.push(Statement::Rename(path, line));
+            let statement = if is_include_statement {
+                Statement::Include(path)
+            } else if is_rename_statement {
+                Statement::Rename(path, rename)
+            } else {
+                Statement::Path(path)
+            };
+
+            includes.push(statement);
         }
 
         includes.sort_unstable();
 
-        Self { includes, _inner: s }
+        Self { includes, inner: s }
     }
 
     /// Returns all entries in slice that start with `target`.
     pub fn search(&self) -> Search {
-        Search { offset: 0, pos: 0, slice: self.includes.as_slice() }
+        Search { matches: self.includes.as_slice(), part_amount_match: 0, best_match: None }
     }
 }
 
@@ -219,68 +165,58 @@ fn skip_whitespace(line: &mut &str) -> bool {
 
 #[derive(Debug, Default)]
 pub struct Search<'a> {
-    pub offset: usize,
-    pos: usize,
-    pub slice: &'a [Statement],
+    matches: &'a [Statement<'static>],
+    part_amount_match: usize,
+    pub best_match: Option<&'a Statement<'static>>,
 }
 
 impl<'a> Search<'a> {
     /// Returns all entries in slice that start with `target` at `offset`.
     pub fn binary_search_range(&mut self, target: &str) {
-        if self.slice.is_empty() {
+        if self.matches.is_empty() {
             return;
         }
 
-        let (mut start, mut end) = (0, self.slice.len() - 1);
-        while start <= end {
-            let midpoint = (start + end) / 2;
-            let middle: &str = match &self.slice[midpoint].get(self.offset..) {
-                Some(middle) => &middle[..std::cmp::min(middle.len(), target.len())],
-                _ => return,
-            };
+        let midpoint = self
+            .matches
+            .into_iter()
+            .position(|m| m.path().get(self.part_amount_match) == Some(&target));
 
-            match str::cmp(middle, target) {
-                std::cmp::Ordering::Greater => match midpoint.checked_sub(1) {
-                    Some(num) => end = num,
-                    _ => break,
-                },
-                std::cmp::Ordering::Less => match midpoint.checked_add(1) {
-                    Some(num) => start = num,
-                    _ => break,
-                },
-                _ => {
-                    let (left, right) = self.slice.split_at(midpoint);
+        let ((mut start, mut end), (left, right)) = match midpoint {
+            Some(midpoint) => ((midpoint, midpoint), self.matches.split_at(midpoint)),
+            None => {
+                self.matches = &[];
+                return;
+            }
+        };
 
-                    // Go to the left and check if there are more matches.
-                    let mut start = midpoint;
-                    for x in left.iter().rev() {
-                        if x.get(self.offset..self.offset + target.len()) == Some(target) {
-                            start -= 1;
-                        }
-                    }
-
-                    // Go to the right and check if there are more matches.
-                    let mut end = midpoint;
-                    for x in right {
-                        if x.get(self.offset..self.offset + target.len()) == Some(target) {
-                            end += 1;
-                        }
-                    }
-
-                    self.slice = &self.slice[start..end];
-                    return;
-                }
+        // Go to the left and check if there are more matches.
+        for matched in left.iter().rev() {
+            if matched.path().get(self.part_amount_match) == Some(&target) {
+                start -= 1;
             }
         }
 
-        self.slice = &[];
+        // Go to the right and check if there are more matches.
+        for matched in right {
+            if matched.path().get(self.part_amount_match) == Some(&target) {
+                end += 1;
+            }
+        }
+
+        self.matches = &self.matches[start..end];
+        self.part_amount_match += 1;
+
         return;
     }
 
-    /// Returns first match and will panic if not found.
-    pub fn first_match(&self) -> Statement {
-        debug_assert!(self.slice.len() == 1, "{:?}", &self.slice);
-        self.slice[0]
+    pub fn calculate_matches(&mut self) {
+        for matched in self.matches {
+            if matched.path().len() == self.part_amount_match {
+                self.best_match = Some(matched);
+                return;
+            }
+        }
     }
 }
 
@@ -525,39 +461,6 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn simplify() {
-        let sample = "<std::path::PathBuf as core::convert::From<&str>>::from>";
-        assert_eq!(
-            Cow::Borrowed("<std::path::PathBuf as From<&str>>::from>"),
-            simplify_type(sample)
-        );
-
-        let sample = "core::ptr::unique::Unique<dyn core::ops::function::FnMut<(), Output = core::result::Result<(), std::io::error::Error>> + core::marker::Sync + core::marker::Send>";
-        assert_eq!(
-            Cow::Borrowed(
-                "UniquePtr<dyn FnMut<(), Output = Result<(), io::error::Error>> + Sync + Send>"
-            ),
-            simplify_type(sample)
-        );
-
-        let sample = "core::unicode::unicode_data::n::lookup::he820b1879a01d5c6";
-        assert_eq!(
-            Cow::Borrowed("core::unicode::unicode_data::n::lookup::he820b1879a01d5c6"),
-            simplify_type(sample)
-        );
-    }
-
-    #[test]
-    fn slice_type() {
-        let mut sample = Type::new("core::option::Option");
-
-        assert_eq!(sample.next(), Some(("core::option::Option", "")));
-        assert_eq!(sample.next(), Some(("core::option", "::Option")));
-        assert_eq!(sample.next(), Some(("core", "::option::Option")));
-        assert_eq!(sample.next(), None);
-    }
 
     #[test]
     fn cfg_generate() {

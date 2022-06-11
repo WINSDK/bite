@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_variables, unused_assignments)]
+
 use std::fmt;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};

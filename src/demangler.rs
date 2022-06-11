@@ -1,5 +1,7 @@
 use crate::decode::Reader;
 use crate::replace::Config;
+use crate::replace::Statement;
+
 use std::fmt;
 use std::fmt::Write;
 use std::mem::MaybeUninit;
@@ -111,7 +113,7 @@ impl<'p> Symbol<'p> {
     fn fmt(&self, repr: &mut String, ty: &Type<'p>) {
         match ty {
             Type::Empty => unreachable!("{:#?}", &self.ast),
-            Type::Basic(s) => repr.push_str(s),
+            Type::Basic(ident) | Type::RenamedIdent(ident) => repr.push_str(ident),
             Type::Path(path) => match path {
                 Path::Crate(_, ident) => repr.push_str(ident),
                 Path::Nested(namespace, path, disambiguator, ident) => {
@@ -311,7 +313,7 @@ impl<'p> Symbol<'p> {
 
     fn fmt_const(&self, repr: &mut String, constant: &Const) {
         match self.ast.stack[constant.ty] {
-            Type::Basic(s) => match s.as_bytes()[0] {
+            Type::Basic(ident) => match ident.as_bytes()[0] {
                 b'_' => repr.push('_'),
                 b'u' | b'i' => {
                     let mut num = 0;
@@ -320,7 +322,6 @@ impl<'p> Symbol<'p> {
                             b'0'..=b'9' => chr - b'0',
                             b'a'..=b'f' => chr - b'a' + 10,
                             _ => {
-                                dbg!(*chr as char);
                                 repr.push('_');
                                 return;
                             }
@@ -443,56 +444,41 @@ impl<'p> Symbol<'p> {
         match self.ast.stack[spot] {
             Type::Path(Path::Crate(_, ident)) => {
                 matches.binary_search_range(ident);
-
-                // There is a match.
-                if let Some(m) = matches.slice.get(0) {
-                    // The match matches a given crate.
-                    if m.get(..ident.len()) == Some(ident) {
-                        // Skip previous crate ident.
-                        matches.offset += ident.len();
-
-                        return true;
-                    }
-                }
             }
             Type::Path(Path::Nested(_, next, _, ident)) => {
-                let prev = self.reformat_path(matches, next);
-
-                // Skip previous `::`.
-                matches.offset += 2;
-                matches.binary_search_range(ident);
-
-                // There is a match.
-                if let Some(m) = matches.slice.get(0) {
-                    // The sub-path of set match, matches the current sub-path path.
-                    if (m.get(matches.offset..matches.offset + ident.len()) == Some(ident)) & prev {
-                        // Skip path ident.
-                        matches.offset += ident.len();
-
-                        return true;
-                    }
+                // Failed to match in previous iteration.
+                if !self.reformat_path(matches, next) {
+                    return false;
                 }
+
+                matches.binary_search_range(ident);
             }
-            _ => {}
+            _ => return false,
         }
 
-        false
+        matches.calculate_matches();
+        true
     }
 
     fn consume_path(&mut self) -> Result<()> {
         let spot = self.ast.ptr;
-
         self.consume_path_impl()?;
 
         if let Some(config) = self.formatter {
             let mut search = config.search();
 
-            if self.reformat_path(&mut search, spot) {
-                let m = search.first_match().as_str();
-                let start = m.rfind("::").unwrap_or(0);
-
-                self.ast.stack[spot] = Type::Path(Path::Crate(None, &m[start + 2..]));
+            if !self.reformat_path(&mut search, spot) {
+                return Ok(());
             }
+
+            let best = match search.best_match {
+                Some(Statement::Path(p)) => p.last().unwrap(),
+                Some(Statement::Rename(_, p)) => p,
+                Some(Statement::Include(p)) => todo!("{p:?}"),
+                None => return Ok(()),
+            };
+
+            self.ast.stack[spot] = Type::RenamedIdent(best);
         }
 
         Ok(())
@@ -850,9 +836,6 @@ struct Const {
     data: (usize, usize),
 }
 
-// Macros can generate an item with the same name as another item. We can differentiate between
-// these using an optional `"s" [base-62-num] "_"` prefix.
-
 #[derive(Debug, PartialEq, Clone)]
 enum Path<'p> {
     /// [disambiguator] <ident>
@@ -887,6 +870,9 @@ enum Type<'p> {
 
     /// Types returned from `basic_types`
     Basic(&'static str),
+
+    /// use <path> as <ident>
+    RenamedIdent(&'static str),
 
     /// <path>:
     ///
@@ -1121,8 +1107,14 @@ mod tests {
     fn formatting() {
         fmt!("_RNvNvNvNtC4core4iter8adapters3map3Map" => "Map", &CONFIG);
 
-        fmt!("__RINvNvMs_NtCsiU9zNs5JoLw_5alloc7raw_vecINtB7_6RawVecppE7reserve21do_reserve_and_handlehNtNtC3dem5alloc6GlobalECsuo8w5Bdzp_8rustdump" => 
-             "<RawVec<_, _>>::reserve::do_reserve_and_handle::<u8, dem::alloc::Global>", &CONFIG
+        fmt!("_RNvNvNvNtC4core4iter6traits8iterator8Iterator"=> "Iterator", &CONFIG);
+
+        // core::ptr::drop_in_place::<alloc::raw_vec::RawVec<(usize, alloc::vec::Vec<(&str, usize)>)>>
+        fmt!("__RINvNtCs6sMkaBefFpu_4core3ptr13drop_in_placeINtNtCsiU9zNs5JoLw_5alloc7raw_vec6RawVecTjINtNtBL_3vec3VecTRejEEEEECsuo8w5Bdzp_8rustdump" => 
+             "drop_in_place::<RawVec::<(usize, Vec::<(&str, usize)>)>>", &CONFIG);
+
+        fmt!("__RINvNvMs_NtCsiU9zNs5JoLw_5alloc7raw_vecINtB7_6RawVecppE7reserve21do_reserve_and_handlehNtNtC3dem5alloc6GlobalECsuo8w5Bdzp_8rustdump" =>
+             "<RawVec::<_, _>>::reserve::do_reserve_and_handle::<u8, dem::alloc::Global>", &CONFIG
         );
     }
 }

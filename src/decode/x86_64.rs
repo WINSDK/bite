@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_assignments)]
-
 use std::fmt;
 
 use super::{lookup, Array, BitWidth, Reader};
