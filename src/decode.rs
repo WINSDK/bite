@@ -150,15 +150,12 @@ impl<'a> Reader<'a> {
 
     pub fn seek(&self) -> Option<u8> {
         let pos = self.pos.load(Ordering::SeqCst);
-        unsafe { (pos < self.buf.len()).then_some(*self.buf.get_unchecked(pos)) }
+        self.buf.get(pos).copied()
     }
 
     pub fn seek_exact(&self, num_bytes: usize) -> Option<&[u8]> {
-        unsafe {
-            let pos = self.pos.load(Ordering::SeqCst);
-            (pos + num_bytes < self.buf.len())
-                .then_some(self.buf.get_unchecked(pos..).get_unchecked(..num_bytes))
-        }
+        let pos = self.pos.load(Ordering::SeqCst);
+        self.buf.get(pos..pos + num_bytes)
     }
 
     /// Returns `None` if either the reader is at the end of a byte stream or the conditional
@@ -168,15 +165,12 @@ impl<'a> Reader<'a> {
 
     pub fn consume(&self) -> Option<u8> {
         let pos = self.pos.fetch_add(1, Ordering::AcqRel);
-        unsafe { (pos < self.buf.len()).then_some(*self.buf.get_unchecked(pos)) }
+        self.buf.get(pos).copied()
     }
 
     pub fn consume_exact(&self, num_bytes: usize) -> Option<&[u8]> {
-        unsafe {
-            let pos = self.pos.fetch_add(num_bytes, Ordering::AcqRel);
-            (pos < self.buf.len())
-                .then_some(self.buf.get_unchecked(pos..).get_unchecked(..num_bytes))
-        }
+        let pos = self.pos.fetch_add(num_bytes, Ordering::AcqRel);
+        self.buf.get(pos..pos + num_bytes)
     }
 
     /// Returns `None` if either the reader is at the end of a byte stream or the conditional
@@ -212,8 +206,7 @@ impl<'a> Reader<'a> {
         let size = std::mem::size_of::<T>();
         let pos = self.pos.fetch_add(size, Ordering::AcqRel);
 
-        (size <= self.buf.len() - pos)
-            .then_some(&*(self.buf.get_unchecked(pos..).as_ptr() as *const T))
+        self.buf.get(pos..).map(|slice| std::mem::transmute(slice.as_ptr()))
     }
 }
 

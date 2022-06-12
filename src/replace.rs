@@ -60,7 +60,6 @@ impl Eq for Statement<'_> {}
 
 #[derive(Debug)]
 pub struct Config {
-    inner: &'static str,
     includes: Vec<Statement<'static>>,
 }
 
@@ -80,7 +79,7 @@ impl Config {
             }
         }
 
-        Self { includes: Vec::new(), inner: Box::leak(String::into_boxed_str(String::new())) }
+        Self { includes: Vec::new() }
     }
 
     pub fn from_string(s: String) -> Self {
@@ -139,7 +138,7 @@ impl Config {
 
         includes.sort_unstable();
 
-        Self { includes, inner: s }
+        Self { includes }
     }
 
     /// Returns all entries in slice that start with `target`.
