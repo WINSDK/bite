@@ -66,6 +66,7 @@ enum Prefix {
     AddrSize = 0x67,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[rustfmt::skip]
 #[repr(usize)]
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -81,7 +82,7 @@ pub enum Register {
 impl fmt::Display for Register {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[rustfmt::skip]
-        pub const REPR: &[&'static str] = &[
+        pub const REPR: &[&str] = &[
             "eax",  "ecx",  "edx",  "ebx",  "esp",  "ebp",  "esi",  "edi",
             "ax",   "cx",   "dx",   "bx",   "sp",   "bp",   "si",   "di",
             "al",   "cl",   "dl",   "bl",   "ah",   "ch",   "dh",   "bh",
@@ -108,7 +109,7 @@ pub enum Segment {
 
 impl fmt::Display for Segment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        pub const REPR: &[&'static str] = &["ES", "CS", "SS", "DS", "FS", "GS"];
+        pub const REPR: &[&str] = &["ES", "CS", "SS", "DS", "FS", "GS"];
         f.write_str(REPR[unsafe { std::mem::transmute::<_, usize>(*self) }])
     }
 }
@@ -359,7 +360,7 @@ impl Prefix {
 
 pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
     let asm_reader = Reader::new(asm_bytes);
-    if asm_bytes.len() < 1 || asm_bytes.len() > 15 {
+    if asm_bytes.is_empty() || asm_bytes.len() > 15 {
         return Err(DecodeError::InvalidInputSize(asm_bytes.len()));
     }
 

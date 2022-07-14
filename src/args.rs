@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::{assert_exit, exit};
 
-const HELP: &'static str = "OVERVIEW: rust object dumper
+const HELP: &str = "OVERVIEW: rust object dumper
 
 USAGE: rustdump [options] <OBJECT>
 
@@ -13,9 +13,8 @@ OPTIONS:
   -D, --dissasembly   Path to object you're disassembling
   -S, --simplify      Replace common types with shortened paths";
 
-const SHORT: &[&'static str] = &["-H", "-L", "-N", "-D", "-S", "-C"];
-const NAMES: &[&'static str] =
-    &["--help", "--libs", "--names", "--dissasembly", "--simplify", "--config"];
+const SHORT: &[&str] = &["-H", "-L", "-N", "-D", "-S", "-C"];
+const NAMES: &[&str] = &["--help", "--libs", "--names", "--dissasembly", "--simplify", "--config"];
 
 #[derive(Debug, Clone)]
 pub struct Cli {

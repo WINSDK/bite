@@ -37,19 +37,6 @@ pub struct Symbol<'p> {
 impl<'p> Symbol<'p> {
     /// Demangle's a symbol.
     pub fn parse(s: &'p str) -> Result<Self> {
-        let s = if s.starts_with("_R") {
-            &s[2..]
-        } else if s.starts_with('R') {
-            // On Windows, dbghelp strips leading underscores, so we accept "R..."
-            // form too.
-            &s[1..]
-        } else if s.starts_with("__R") {
-            // On OSX, symbols are prefixed with an extra _
-            &s[3..]
-        } else {
-            return Err(Error::UnknownPrefix);
-        };
-
         if s.is_empty() {
             return Err(Error::SymbolTooSmall);
         }
@@ -66,24 +53,12 @@ impl<'p> Symbol<'p> {
             formatter: None,
         };
 
+        sym.consume_prefix()?;
         sym.consume_path()?;
         Ok(sym)
     }
 
     pub fn parse_with_config(s: &'p str, config: &'p Config) -> Result<Self> {
-        let s = if s.starts_with("_R") {
-            &s[2..]
-        } else if s.starts_with('R') {
-            // On Windows, dbghelp strips leading underscores, so we accept "R..."
-            // form too.
-            &s[1..]
-        } else if s.starts_with("__R") {
-            // On OSX, symbols are prefixed with an extra _
-            &s[3..]
-        } else {
-            return Err(Error::UnknownPrefix);
-        };
-
         if s.is_empty() {
             return Err(Error::SymbolTooSmall);
         }
@@ -100,6 +75,7 @@ impl<'p> Symbol<'p> {
             formatter: Some(config),
         };
 
+        sym.consume_prefix()?;
         sym.consume_path()?;
         Ok(sym)
     }
@@ -352,8 +328,18 @@ impl<'p> Symbol<'p> {
         old
     }
 
+    fn consume_prefix(&mut self) -> Result<()> {
+        let src = &mut self.source;
+
+        if !(src.take_slice(b"__R") | src.take_slice(b"_R") | src.take_slice(b"R")) {
+            return Err(Error::UnknownPrefix);
+        }
+
+        Ok(())
+    }
+
     fn consume_lifetime(&mut self) -> Result<Lifetime> {
-        self.consume_base62().map(|v| Lifetime(v))
+        self.consume_base62().map(Lifetime)
     }
 
     fn consume_base62(&mut self) -> Result<usize> {
@@ -395,7 +381,7 @@ impl<'p> Symbol<'p> {
 
         for (width, chr) in s.bytes().enumerate() {
             if !chr.is_ascii_digit() {
-                return match usize::from_str_radix(&s[..width], 10) {
+                return match s[..width].parse() {
                     Err(_) => Err(Error::PathLengthNotNumber),
                     Ok(len) => {
                         self.source.offset((width + len) as isize);
@@ -747,10 +733,10 @@ impl<'p> Symbol<'p> {
                 self.consume_type()?;
                 self.source.pos.store(current, Ordering::Release);
             }
-            c @ _ => {
+            chr => {
                 // <basic-type | path>
 
-                if let Some(ty) = basic_types(c) {
+                if let Some(ty) = basic_types(chr) {
                     self.ast.stack[self.take_spot()] = Type::Basic(ty);
                     return Ok(());
                 }

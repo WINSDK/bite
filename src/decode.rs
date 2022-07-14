@@ -148,6 +148,16 @@ impl<'a> Reader<'a> {
         }
     }
 
+    pub fn take_slice(&self, bytes: &[u8]) -> bool {
+        let pos = self.pos.load(Ordering::SeqCst);
+        if self.buf.get(pos..pos + bytes.len()) == Some(bytes) {
+            self.pos.store(pos + bytes.len(), Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn seek(&self) -> Option<u8> {
         let pos = self.pos.load(Ordering::SeqCst);
         self.buf.get(pos).copied()
@@ -206,7 +216,7 @@ impl<'a> Reader<'a> {
         let size = std::mem::size_of::<T>();
         let pos = self.pos.fetch_add(size, Ordering::AcqRel);
 
-        self.buf.get(pos..).map(|slice| std::mem::transmute(slice.as_ptr()))
+        self.buf.get(pos..).map(|slice| &*(slice.as_ptr() as *const T))
     }
 }
 

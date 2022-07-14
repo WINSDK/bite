@@ -75,7 +75,7 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> 
     }
 
     let mangled = &s[left + 1..=right - 1];
-    let demangled = match demangler::Symbol::parse_with_config(mangled, &config) {
+    let demangled = match demangler::Symbol::parse_with_config(mangled, config) {
         Ok(demangled) => Cow::Owned(demangled.display()),
         Err(..) => {
             if let Some("__Z") = mangled.get(0..3) {
@@ -106,7 +106,7 @@ fn objdump(args: &args::Cli, config: &replace::Config) {
     let mut stdout = BufReader::new(objdump.stdout.unwrap());
     for line in (&mut stdout).lines() {
         let line = match line {
-            Ok(ref line) => demangle_line(&args, line, config),
+            Ok(ref line) => demangle_line(args, line, config),
             Err(_) => Cow::Borrowed("???????????"),
         };
 

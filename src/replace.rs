@@ -49,7 +49,7 @@ impl PartialOrd for Statement<'_> {
 
 impl Ord for Statement<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.path().cmp(&other.path())
+        self.path().cmp(other.path())
     }
 }
 
@@ -73,7 +73,7 @@ impl Config {
             }
         }
 
-        if let Ok(data) = std::fs::read(".dumpfmt").or(std::fs::read("~/.dumpfmt")) {
+        if let Ok(data) = std::fs::read(".dumpfmt").or_else(|_| std::fs::read("~/.dumpfmt")) {
             if let Ok(s) = String::from_utf8(data) {
                 return Self::from_string(s);
             }
@@ -103,7 +103,7 @@ impl Config {
             if let Some((statement, renamed)) = line.split_once(" as ") {
                 line = statement.trim();
 
-                rename = &renamed.trim_start();
+                rename = renamed.trim_start();
                 rename = &rename[..rename.find(' ').unwrap_or(rename.len())];
                 is_rename_statement = true;
             }
@@ -178,8 +178,8 @@ impl<'a> Search<'a> {
 
         let midpoint = self
             .matches
-            .into_iter()
-            .position(|m| m.path().get(self.part_amount_match) == Some(&target));
+            .iter()
+            .position(|statement| statement.path().get(self.part_amount_match) == Some(&target));
 
         let ((mut start, mut end), (left, right)) = match midpoint {
             Some(midpoint) => ((midpoint, midpoint), self.matches.split_at(midpoint)),
@@ -205,8 +205,6 @@ impl<'a> Search<'a> {
 
         self.matches = &self.matches[start..end];
         self.part_amount_match += 1;
-
-        return;
     }
 
     pub fn calculate_matches(&mut self) {
@@ -340,7 +338,7 @@ pub struct Type<'a>(&'a str, usize);
 impl<'a> Type<'a> {
     #[inline]
     pub fn new(s: &'a str) -> Self {
-        assert!(s.len() > 0);
+        assert!(!s.is_empty());
 
         #[cfg(debug_assertions)]
         for chr in s.chars() {
@@ -391,7 +389,7 @@ impl<'a> Iterator for Type<'a> {
     }
 }
 
-pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
+pub fn simplify_type(s: &str) -> Cow<'_, str> {
     let (mut idx, mut last_end) = (0, 0);
     let mut concat = String::new();
 
@@ -428,8 +426,7 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
             }
 
             // Walk the type hierarchy.
-            let mut ty = Type::new(&s[left..right]);
-            while let Some((type_path_left, type_path_right)) = ty.next() {
+            for (type_path_left, type_path_right) in Type::new(&s[left..right]) {
                 // Check whether a shorter representation of a type exists.
                 if let Some(simple_type_path_left) = DEFAULT_TOKENS.get(type_path_left) {
                     // Reserve space in for String since the a new type will have to be allocated.
@@ -449,7 +446,7 @@ pub fn simplify_type<'a>(s: &'a str) -> Cow<'a, str> {
         idx += 1;
     }
 
-    if concat.len() == 0 {
+    if concat.is_empty() {
         Cow::Borrowed(s)
     } else {
         concat.push_str(&s[last_end..]);
