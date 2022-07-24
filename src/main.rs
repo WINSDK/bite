@@ -74,30 +74,37 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> 
         return Cow::Borrowed(s);
     }
 
-    let mangled = &s[left + 1..=right - 1];
-    let demangled = match demangler::Symbol::parse_with_config(mangled, config) {
-        Ok(demangled) => Cow::Owned(demangled.display()),
-        Err(..) => {
-            if let Some("__Z") = mangled.get(0..3) {
-                Cow::Owned(format!("{}", rustc_demangle::demangle(mangled)))
-            } else {
-                Cow::Borrowed(mangled)
-            }
+    let m = &s[left + 1..=right - 1];
+
+    let demangled: Cow<str> = if m.starts_with("__Z") | m.starts_with("_Z") | m.starts_with('Z') {
+        Cow::Owned(format!("{:#}", rustc_demangle::demangle(m)))
+    } else {
+        let demangle_attempt = if args.simplify {
+            demangler::Symbol::parse_with_config(m, config)
+        } else {
+            demangler::Symbol::parse(m)
+        };
+
+        match demangle_attempt {
+            Ok(demangled) => Cow::Owned(demangled.display()),
+            Err(..) => return Cow::Borrowed(s),
         }
     };
 
-    // let demangled = Cow::Owned(format!("{:#}", demangle(&s[left + 1..=right - 1])));
-    let demangled = if args.simplify { replace::simplify_type(&demangled) } else { demangled };
-
-    Cow::Owned(s[..=left].to_string() + demangled.as_ref() + &s[right..])
+    Cow::Owned(format!("{}{}{}", &s[..=left], demangled, &s[right..]))
 }
 
 fn objdump(args: &args::Cli, config: &replace::Config) {
+    let syntax = "-Mintel";
+
+    #[cfg(target_os = "macos")]
+    let syntax = "-x86-asm-syntax=intel";
+
     let objdump = Command::new("objdump")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null())
-        .arg("-x86-asm-syntax=intel")
+        .arg(syntax)
         .arg("-D")
         .arg(&args.path)
         .spawn()
@@ -232,7 +239,7 @@ fn main() -> goblin::error::Result<()> {
 
     if args.disassemble {
         objdump(&args, &config);
-        todo!("{:?}", decode::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]));
+        // todo!("{:?}", decode::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]));
     }
 
     Ok(())
