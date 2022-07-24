@@ -350,14 +350,11 @@ impl<'p> Symbol<'p> {
         }
 
         while let Some(chr) = self.source.consume() {
-            if chr == b'_' {
-                return num.checked_add(1).ok_or(Error::DecodingBase62Num);
-            }
-
             let base_62_chr = match chr {
                 b'0'..=b'9' => chr - b'0',
                 b'a'..=b'z' => chr - b'a' + 10,
                 b'A'..=b'Z' => chr - b'A' + 36,
+                b'_' => return num.checked_add(1).ok_or(Error::DecodingBase62Num),
                 _ => return Err(Error::DecodingBase62Num),
             };
 
