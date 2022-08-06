@@ -2,6 +2,9 @@ use std::borrow::Cow;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
 use goblin::elf::header::EI_CLASS;
 use goblin::mach::header::MH_MAGIC_64;
 use goblin::Object;
@@ -248,46 +251,55 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.names {
-        let symbols: Vec<&str> = object.symbols;
+        let symbols = object.symbols;
         let thread_count = std::thread::available_parallelism().unwrap_or_else(|err| {
             eprintln!("Failed to get thread_count: {err}");
             unsafe { std::num::NonZeroUsize::new_unchecked(1) }
         });
 
         let symbols_per_thread = (symbols.len() + (thread_count.get() - 1)) / thread_count;
-        let mut handles = Vec::with_capacity(thread_count.get());
 
-        for symbols_chunk in symbols.chunks(symbols_per_thread) {
-            // FIXME: use thread::scoped when it becomes stable to replace this.
-            // SAFETY: `symbols` is only dropped after the threads have joined therefore
-            // it's safe to send to other threads as a &'static str.
-            let symbols_chunk: &[&'static str] = unsafe {
-                &*(symbols_chunk as *const [&str] as *const [*const str] as *const [&'static str])
-            };
+        std::thread::scope(|s| {
+            let demangled = Arc::new(Mutex::new(Vec::with_capacity(symbols.len())));
+            let threads_working = Arc::new(AtomicUsize::new(0));
 
-            handles.push(std::thread::spawn(move || {
-                for symbol in symbols_chunk.iter().filter(|symbol| !symbol.is_empty()) {
-                    // TODO: Simplify symbol here.
+            for symbols_chunk in symbols.chunks(symbols_per_thread) {
+                let demangled = Arc::clone(&demangled);
+                let threads_working = Arc::clone(&threads_working);
 
-                    let demangled_name = match demangler::Symbol::parse(symbol) {
-                        Ok(sym) => sym.display(),
-                        Err(..) => {
-                            format!("{:#?}", rustc_demangle::demangle(symbol))
-                        }
-                    };
+                // notify that a thread has started working
+                threads_working.fetch_add(1, Ordering::AcqRel);
 
-                    println!("{demangled_name}");
-                }
-            }))
-        }
+                s.spawn(move || {
+                    for symbol in symbols_chunk {
+                        let demangled_name = match demangler::Symbol::parse(symbol) {
+                            Ok(sym) => sym.display(),
+                            Err(..) => {
+                                format!("{:#?}", rustc_demangle::demangle(symbol))
+                            }
+                        };
 
-        for handle in handles {
-            let id = handle.thread().id();
+                        demangled.lock().unwrap().push(demangled_name)
+                    }
 
-            handle.join().unwrap_or_else(|e| {
-                panic!("Failed to join thread with id: {:?}, error: {:?}", id, e)
-            });
-        }
+                    // notify that a thread has finished working
+                    threads_working.fetch_sub(1, Ordering::AcqRel);
+                });
+            }
+
+            // wait till all threads are finished working
+            //
+            // NOTE: could technically be replaced by in-place sorting
+            //       whilst values are being yielded amongst threads
+            while threads_working.load(Ordering::Relaxed) != 0 {
+                std::thread::yield_now();
+            }
+
+            let mut demangled = demangled.lock().unwrap();
+
+            demangled.sort_unstable();
+            demangled.iter().for_each(|name| println!("{name}"));
+        });
     }
 
     if args.disassemble {
