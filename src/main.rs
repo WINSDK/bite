@@ -6,6 +6,8 @@ use goblin::elf::header::EI_CLASS;
 use goblin::mach::header::MH_MAGIC_64;
 use goblin::Object;
 
+use pdb::FallibleIterator;
+
 mod args;
 mod decode;
 mod demangler;
@@ -41,7 +43,6 @@ macro_rules! assert_exit {
 struct GenericBinary<'a> {
     symbols: Vec<&'a str>,
     libs: Vec<&'a str>,
-    #[allow(dead_code)]
     raw: &'a [u8],
     width: decode::BitWidth,
 }
@@ -123,8 +124,6 @@ fn objdump(args: &args::Cli, config: &replace::Config) {
 
 // TODO: impliment own version of `objdump`.
 fn main() -> goblin::error::Result<()> {
-    use demangler::Error;
-
     let args = args::Cli::parse();
     let config = replace::Config::from_env(&args);
 
@@ -179,38 +178,54 @@ fn main() -> goblin::error::Result<()> {
             GenericBinary { symbols: bin.strtab.to_vec()?, libs: bin.libraries, raw, width }
         }
         Object::PE(bin) => {
-            let mut unknown_ident = 0;
-            let symbols = bin
-                .exports
-                .iter()
-                .map(|export| match export.name {
-                    None => {
-                        unknown_ident += 1;
-                        Box::leak(format!("fun_{unknown_ident}").into_boxed_str())
-                    }
-                    Some(name) => name,
-                })
-                .collect();
+            let read_symbols = |f: std::fs::File| {
+                let mut symbols = Vec::new();
+                let mut pdb = pdb::PDB::open(f)?;
 
-            let mut raw = None;
-            for section in bin.sections {
-                match section.name() {
-                    Ok(".text") => {}
-                    _ => continue,
+                // get symbol table
+                let symbol_table = pdb.global_symbols()?;
+                // leak symbols onto the heap for later use
+                let symbol_table = Box::leak(Box::new(symbol_table));
+                // iterate through symbols collected earlier
+                let mut symbol_table = symbol_table.iter();
+
+                while let Some(symbol) = symbol_table.next()? {
+                    let symbol = symbol.parse()?;
+
+                    let symbol_name = match symbol {
+                        pdb::SymbolData::Public(s) => std::str::from_utf8(s.name.as_bytes()),
+                        pdb::SymbolData::Export(s) => std::str::from_utf8(s.name.as_bytes()),
+                        _ => Ok(""),
+                    };
+
+                    if let Ok(symbol_name) = symbol_name {
+                        symbols.push(symbol_name);
+                    }
                 }
 
-                let start = section.pointer_to_raw_data as usize;
-                let size = section.size_of_raw_data as usize;
+                Ok(symbols)
+            };
 
-                raw = Some(&object_bytes[start..][..size]);
-            }
+            let symbols = std::fs::File::open(args.path.with_extension("pdb"))
+                .map_err(|_| pdb::Error::UnrecognizedFileFormat)
+                .and_then(read_symbols)
+                .unwrap_or_default();
 
-            // bin.entry;
-            // bin.image_base
+            let raw = bin
+                .sections
+                .iter()
+                .find(|section| matches!(section.name(), Ok(".text")))
+                .map(|section| {
+                    let start = section.pointer_to_raw_data as usize;
+                    let size = section.size_of_raw_data as usize;
+
+                    &object_bytes[start..][..size]
+                })
+                .unwrap();
 
             let width = if bin.is_64 { decode::BitWidth::U64 } else { decode::BitWidth::U32 };
 
-            GenericBinary { symbols, libs: bin.libraries, raw: raw.unwrap(), width }
+            GenericBinary { symbols, libs: bin.libraries, raw, width }
         }
         Object::Unknown(..) => exit!("Unable to recognize the object's format"),
         _ => todo!(),
@@ -256,8 +271,9 @@ fn main() -> goblin::error::Result<()> {
 
                     let demangled_name = match demangler::Symbol::parse(symbol) {
                         Ok(sym) => sym.display(),
-                        Err(Error::UnknownPrefix) => rustc_demangle::demangle(symbol).to_string(),
-                        Err(..) => symbol.to_string(),
+                        Err(..) => {
+                            format!("{:#?}", rustc_demangle::demangle(symbol))
+                        }
                     };
 
                     println!("{demangled_name}");
@@ -276,7 +292,10 @@ fn main() -> goblin::error::Result<()> {
 
     if args.disassemble {
         objdump(&args, &config);
-        // todo!("{:?}", decode::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]));
+
+        if todo!("custom asm decoder") {
+            decode::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]).unwrap();
+        }
     }
 
     Ok(())
