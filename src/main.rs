@@ -178,6 +178,40 @@ fn main() -> goblin::error::Result<()> {
 
             GenericBinary { symbols: bin.strtab.to_vec()?, libs: bin.libraries, raw, width }
         }
+        Object::PE(bin) => {
+            let mut unknown_ident = 0;
+            let symbols = bin
+                .exports
+                .iter()
+                .map(|export| match export.name {
+                    None => {
+                        unknown_ident += 1;
+                        Box::leak(format!("fun_{unknown_ident}").into_boxed_str())
+                    }
+                    Some(name) => name,
+                })
+                .collect();
+
+            let mut raw = None;
+            for section in bin.sections {
+                match section.name() {
+                    Ok(".text") => {}
+                    _ => continue,
+                }
+
+                let start = section.pointer_to_raw_data as usize;
+                let size = section.size_of_raw_data as usize;
+
+                raw = Some(&object_bytes[start..][..size]);
+            }
+
+            // bin.entry;
+            // bin.image_base
+
+            let width = if bin.is_64 { decode::BitWidth::U64 } else { decode::BitWidth::U32 };
+
+            GenericBinary { symbols, libs: bin.libraries, raw: raw.unwrap(), width }
+        }
         Object::Unknown(..) => exit!("Unable to recognize the object's format"),
         _ => todo!(),
     };
@@ -189,6 +223,9 @@ fn main() -> goblin::error::Result<()> {
             let lib_name =
                 lib.file_name().map(|v| v.to_str().unwrap()).unwrap_or("???? Invalid utf8");
 
+            #[cfg(target_family = "windows")]
+            println!("\t{}", lib_name);
+            #[cfg(not(target_family = "windows"))]
             println!("\t{} => {}", lib_name, lib.display());
         }
 
