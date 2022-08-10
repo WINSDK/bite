@@ -54,7 +54,7 @@ impl<'p> Symbol<'p> {
         };
 
         sym.consume_prefix()?;
-        sym.consume_path()?;
+        sym.consume_path_fmt()?;
         Ok(sym)
     }
 
@@ -76,7 +76,7 @@ impl<'p> Symbol<'p> {
         };
 
         sym.consume_prefix()?;
-        sym.consume_path()?;
+        sym.consume_path_fmt()?;
         Ok(sym)
     }
 
@@ -331,7 +331,7 @@ impl<'p> Symbol<'p> {
     fn consume_prefix(&mut self) -> Result<()> {
         let src = &mut self.source;
 
-        if !(src.take_slice(b"__R") | src.take_slice(b"_R") | src.take_slice(b"R")) {
+        if !(src.trim_buf(b"__R") | src.trim_buf(b"_R") | src.trim_buf(b"R")) {
             return Err(Error::UnknownPrefix);
         }
 
@@ -443,9 +443,9 @@ impl<'p> Symbol<'p> {
         true
     }
 
-    fn consume_path(&mut self) -> Result<()> {
+    fn consume_path_fmt(&mut self) -> Result<()> {
         let spot = self.ast.ptr;
-        self.consume_path_impl()?;
+        self.consume_path()?;
 
         if let Some(config) = self.formatter {
             let mut search = config.search();
@@ -467,7 +467,7 @@ impl<'p> Symbol<'p> {
         Ok(())
     }
 
-    fn consume_path_impl(&mut self) -> Result<()> {
+    fn consume_path(&mut self) -> Result<()> {
         if self.depth == MAX_DEPTH {
             return Err(Error::TooComplex);
         }
@@ -489,7 +489,7 @@ impl<'p> Symbol<'p> {
                 if c != b'Y' {
                     let _id = self.try_consume_disambiguator()?;
                     let _impl_path_spot = self.ast.ptr;
-                    self.consume_path_impl()?;
+                    self.consume_path()?;
                 }
 
                 let type_spot = self.ast.ptr;
@@ -497,7 +497,7 @@ impl<'p> Symbol<'p> {
 
                 if c != b'M' {
                     let path_spot = self.ast.ptr;
-                    self.consume_path()?;
+                    self.consume_path_fmt()?;
 
                     self.ast.stack[spot] = Type::Path(Path::Trait(type_spot, path_spot));
                     return Ok(());
@@ -517,7 +517,7 @@ impl<'p> Symbol<'p> {
 
                 let spot = self.take_spot();
 
-                self.consume_path_impl()?;
+                self.consume_path()?;
 
                 let id = self.try_consume_disambiguator()?;
                 let ident = self.consume_ident()?;
@@ -530,7 +530,7 @@ impl<'p> Symbol<'p> {
                 let mut generics = Vec::new();
                 let spot = self.take_spot();
 
-                self.consume_path()?;
+                self.consume_path_fmt()?;
 
                 while !self.source.take(b'E') {
                     let generic = match self.source.consume() {
@@ -557,16 +557,7 @@ impl<'p> Symbol<'p> {
             b'B' => {
                 // <base-62-number>
 
-                let backref = self.consume_base62()?;
-                let current = self.source.pos.load(Ordering::Acquire);
-
-                if backref >= current - 1 {
-                    return Err(Error::BackrefIsFrontref);
-                }
-
-                self.source.pos.store(backref, Ordering::Relaxed);
-                self.consume_type()?;
-                self.source.pos.store(current, Ordering::Release);
+                self.consume_backref()?;
             }
             b'E' => {}
             #[cfg(debug_assertions)]
@@ -693,7 +684,7 @@ impl<'p> Symbol<'p> {
                 while !self.source.take(b'E') {
                     let path_spot = self.ast.ptr;
 
-                    self.consume_path()?;
+                    self.consume_path_fmt()?;
 
                     let mut dyn_trait_assoc_binding_spots = Vec::new();
                     while self.source.take(b'p') {
@@ -719,16 +710,7 @@ impl<'p> Symbol<'p> {
             b'B' => {
                 // <base-62-number>
 
-                let backref = self.consume_base62()?;
-                let current = self.source.pos.load(Ordering::Acquire);
-
-                if backref >= current - 1 {
-                    return Err(Error::BackrefIsFrontref);
-                }
-
-                self.source.pos.store(backref, Ordering::Relaxed);
-                self.consume_type()?;
-                self.source.pos.store(current, Ordering::Release);
+                self.consume_backref()?;
             }
             chr => {
                 // <basic-type | path>
@@ -739,9 +721,24 @@ impl<'p> Symbol<'p> {
                 }
 
                 self.source.offset(-1);
-                self.consume_path()?;
+                self.consume_path_fmt()?;
             }
         }
+
+        Ok(())
+    }
+
+    fn consume_backref(&mut self) -> Result<()> {
+        let backref = self.consume_base62()?;
+        let current = self.source.pos.load(Ordering::Acquire);
+
+        if backref >= current - 1 {
+            return Err(Error::BackrefIsFrontref);
+        }
+
+        self.source.pos.store(backref, Ordering::Relaxed);
+        self.consume_path_fmt()?;
+        self.source.pos.store(current, Ordering::Release);
 
         Ok(())
     }
@@ -1092,7 +1089,6 @@ mod tests {
 
         fmt!("_RNvNvNvNtC4core4iter6traits8iterator8Iterator"=> "Iterator", &CONFIG);
 
-        // core::ptr::drop_in_place::<alloc::raw_vec::RawVec<(usize, alloc::vec::Vec<(&str, usize)>)>>
         fmt!("__RINvNtCs6sMkaBefFpu_4core3ptr13drop_in_placeINtNtCsiU9zNs5JoLw_5alloc7raw_vec6RawVecTjINtNtBL_3vec3VecTRejEEEEECsuo8w5Bdzp_8rustdump" => 
              "drop_in_place::<RawVec::<(usize, Vec::<(&str, usize)>)>>", &CONFIG);
 

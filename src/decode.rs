@@ -147,10 +147,10 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub fn take_slice(&self, bytes: &[u8]) -> bool {
+    pub fn trim_buf(&mut self, bytes: &[u8]) -> bool {
         let pos = self.pos.load(Ordering::Acquire);
         if self.buf.get(pos..pos + bytes.len()) == Some(bytes) {
-            self.pos.store(pos + bytes.len(), Ordering::Release);
+            self.buf = &self.buf[bytes.len()..];
             true
         } else {
             false
