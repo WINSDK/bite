@@ -5,7 +5,6 @@ use crate::replace::Statement;
 use std::fmt;
 use std::fmt::Write;
 use std::mem::MaybeUninit;
-use std::sync::atomic::Ordering;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -410,7 +409,7 @@ impl<'p> Symbol<'p> {
 
         let neg = self.source.take(b'n');
 
-        let start = self.source.pos.load(Ordering::SeqCst);
+        let start = self.source.pos;
         let mut end = 0;
         for idx in start.. {
             if *self.source.buf.get(idx).ok_or(Error::ConstDelimiterNotFound)? == b'_' {
@@ -734,15 +733,15 @@ impl<'p> Symbol<'p> {
 
     fn consume_backref(&mut self) -> Result<()> {
         let backref = self.consume_base62()?;
-        let current = self.source.pos.load(Ordering::Acquire);
+        let current = self.source.pos;
 
         if backref >= current - 1 {
             return Err(Error::BackrefIsFrontref);
         }
 
-        self.source.pos.store(backref, Ordering::Relaxed);
+        self.source.pos = backref;
         self.consume_path_fmt()?;
-        self.source.pos.store(current, Ordering::Release);
+        self.source.pos = current;
 
         Ok(())
     }

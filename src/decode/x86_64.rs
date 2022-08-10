@@ -359,7 +359,7 @@ impl Prefix {
 }
 
 pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
-    let asm_reader = Reader::new(asm_bytes);
+    let mut asm_reader = Reader::new(asm_bytes);
     if asm_bytes.is_empty() || asm_bytes.len() > 15 {
         return Err(DecodeError::InvalidInputSize(asm_bytes.len()));
     }

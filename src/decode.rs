@@ -1,11 +1,11 @@
-#![allow(dead_code, unused_variables, unused_assignments)]
-
 use std::fmt;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub mod arm;
 pub mod riscv;
+
+#[allow(dead_code, unused_variables, unused_assignments)]
 pub mod x86_64;
 
 mod lookup;
@@ -120,27 +120,25 @@ impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
 
 pub struct Reader<'a> {
     pub buf: &'a [u8],
-    pub pos: AtomicUsize,
+    pub pos: usize,
 }
 
 impl<'a> Reader<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
-        Self { buf, pos: AtomicUsize::new(0) }
+        Self { buf, pos: 0 }
     }
 
     pub fn inner(&self) -> &'a [u8] {
-        &self.buf[self.pos.load(Ordering::SeqCst)..]
+        &self.buf[self.pos..]
     }
 
-    pub fn offset(&self, num_bytes: isize) {
-        let pos = self.pos.load(Ordering::Acquire) as isize;
-        self.pos.store((pos + num_bytes) as usize, Ordering::Release);
+    pub fn offset(&mut self, num_bytes: isize) {
+        self.pos = (self.pos as isize + num_bytes) as usize;
     }
 
-    pub fn take(&self, byte: u8) -> bool {
-        let pos = self.pos.load(Ordering::Acquire);
-        if self.buf.get(pos) == Some(&byte) {
-            self.pos.store(pos + 1, Ordering::Release);
+    pub fn take(&mut self, byte: u8) -> bool {
+        if self.buf.get(self.pos) == Some(&byte) {
+            self.pos += 1;
             true
         } else {
             false
@@ -148,8 +146,7 @@ impl<'a> Reader<'a> {
     }
 
     pub fn trim_buf(&mut self, bytes: &[u8]) -> bool {
-        let pos = self.pos.load(Ordering::Acquire);
-        if self.buf.get(pos..pos + bytes.len()) == Some(bytes) {
+        if self.buf.get(self.pos..self.pos + bytes.len()) == Some(bytes) {
             self.buf = &self.buf[bytes.len()..];
             true
         } else {
@@ -157,22 +154,20 @@ impl<'a> Reader<'a> {
         }
     }
 
-    #[inline]
-    pub fn consume(&self) -> Option<u8> {
-        let pos = self.pos.fetch_add(1, Ordering::AcqRel);
-        self.buf.get(pos).copied()
+    pub fn consume(&mut self) -> Option<u8> {
+        self.buf.get(self.pos).map(|&val| {
+            self.pos += 1;
+            val
+        })
     }
 
     /// Returns `None` if either the reader is at the end of a byte stream or the conditional
     /// fails, on success will increment internal position.
-    pub fn consume_eq<F: FnOnce(u8) -> bool>(&self, f: F) -> Option<u8> {
-        let pos = self.pos.load(Ordering::Acquire);
-        self.buf.get(pos).filter(|x| f(**x)).map(|x| {
-            self.pos.store(pos + 1, Ordering::Release);
-            *x
+    pub fn consume_eq<F: FnOnce(u8) -> bool>(&mut self, f: F) -> Option<u8> {
+        let pos = self.pos;
+        self.buf.get(pos).filter(|&&x| f(x)).map(|&val| {
+            self.pos += 1;
+            val
         })
     }
 }
-
-unsafe impl Send for Reader<'_> {}
-unsafe impl Sync for Reader<'_> {}
