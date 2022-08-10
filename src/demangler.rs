@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 pub enum Error {
     UnknownPrefix,
     TooComplex,
-    PathLengthNotNumber,
+    IdentFormatIncorrect,
     ConstDelimiterNotFound,
     BackrefIsFrontref,
     DecodingBase62Num,
@@ -376,19 +376,22 @@ impl<'p> Symbol<'p> {
     fn consume_ident(&mut self) -> Result<&'p str> {
         let s = unsafe { std::str::from_utf8_unchecked(self.source.inner()) };
 
-        for (width, chr) in s.bytes().enumerate() {
-            if !chr.is_ascii_digit() {
-                return match s[..width].parse() {
-                    Err(_) => Err(Error::PathLengthNotNumber),
-                    Ok(len) => {
+        if self.source.take(b'u') {
+            todo!("punycode ident");
+        }
+
+        s.bytes().position(|b| !b.is_ascii_digit()).ok_or(Error::IdentFormatIncorrect).and_then(
+            |width| {
+                self.source.take(b'_');
+                match s.get(..width).map(|s| s.parse()) {
+                    Some(Ok(len)) => {
                         self.source.offset((width + len) as isize);
                         Ok(&s[width..][..len])
                     }
-                };
-            }
-        }
-
-        Ok("")
+                    _ => Err(Error::IdentFormatIncorrect),
+                }
+            },
+        )
     }
 
     fn consume_const(&mut self) -> Result<Const> {
@@ -488,7 +491,6 @@ impl<'p> Symbol<'p> {
 
                 if c != b'Y' {
                     let _id = self.try_consume_disambiguator()?;
-                    let _impl_path_spot = self.ast.ptr;
                     self.consume_path()?;
                 }
 
@@ -717,11 +719,10 @@ impl<'p> Symbol<'p> {
 
                 if let Some(ty) = basic_types(chr) {
                     self.ast.stack[self.take_spot()] = Type::Basic(ty);
-                    return Ok(());
+                } else {
+                    self.source.offset(-1);
+                    self.consume_path_fmt()?;
                 }
-
-                self.source.offset(-1);
-                self.consume_path_fmt()?;
             }
         }
 
@@ -960,27 +961,29 @@ mod tests {
 
     macro_rules! fmt {
         ($mangled:literal => $demangled:literal) => {
-            assert_eq!(
-                $crate::demangler::Symbol::parse($mangled)
-                    .map(|sym| {
-                        println!("{}\n", unsafe { std::str::from_utf8_unchecked(sym.source.buf) });
-                        sym.display()
-                    })
-                    .as_deref(),
-                Ok($demangled)
-            )
+            match $crate::demangler::Symbol::parse($mangled) {
+                Ok(sym) if sym.display() != $demangled => {
+                    let repr = unsafe { std::str::from_utf8_unchecked(sym.source.buf) };
+
+                    println!("{repr} => {:?}", sym.ast);
+                    assert_eq!(sym.display(), $demangled, "left should match right");
+                }
+                Err(err) => panic!("{err:?}"),
+                _ => {}
+            }
         };
 
         ($mangled:literal => $demangled:literal, $cfg:expr) => {
-            assert_eq!(
-                $crate::demangler::Symbol::parse_with_config($mangled, $cfg)
-                    .map(|sym| {
-                        println!("{}\n", unsafe { std::str::from_utf8_unchecked(sym.source.buf) });
-                        sym.display()
-                    })
-                    .as_deref(),
-                Ok($demangled)
-            )
+            match $crate::demangler::Symbol::parse_with_config($mangled, &CONFIG) {
+                Ok(sym) if sym.display() != $demangled => {
+                    let repr = unsafe { std::str::from_utf8_unchecked(sym.source.buf) };
+
+                    println!("{repr} => {:?}", sym.ast);
+                    assert_eq!(sym.display(), $demangled, "left should match right");
+                }
+                Err(err) => panic!("{err:?}"),
+                _ => {}
+            }
         };
     }
 
@@ -992,14 +995,16 @@ mod tests {
     #[test]
     fn generics() {
         fmt!("_RINvNvC3std3mem8align_ofjdE" => "std::mem::align_of::<usize, f64>");
-        fmt!("_RINvNtC3std3mem8align_ofINtC3wow6HolderpEE" => "std::mem::align_of::<wow::Holder<_>>");
+        fmt!("_RINvNtC3std3mem8align_ofINtC3wow6HolderpEE" =>
+             "std::mem::align_of::<wow::Holder<_>>");
     }
 
     #[test]
     fn namespaces() {
         fmt!("_RNvC8rustdump6decode" => "rustdump::decode");
         fmt!("_RNvNvC8rustdump6decode6x86_64" => "rustdump::decode::x86_64");
-        fmt!("_RINvNvC8rustdump6decode6x86_64NvC3lol4damnE" => "rustdump::decode::x86_64::<lol::damn>");
+        fmt!("_RINvNvC8rustdump6decode6x86_64NvC3lol4damnE" =>
+             "rustdump::decode::x86_64::<lol::damn>");
     }
 
     #[test]
@@ -1022,12 +1027,14 @@ mod tests {
 
     #[test]
     fn arrays() {
-        fmt!("_RINvC8rustdump6decodeANtNvC3std5array5Arrayjf_E" => "rustdump::decode::<[std::array::Array; 15]>");
+        fmt!("_RINvC8rustdump6decodeANtNvC3std5array5Arrayjf_E" =>
+             "rustdump::decode::<[std::array::Array; 15]>");
     }
 
     #[test]
     fn tupples() {
-        fmt!("_RINvNtC3std3mem8align_ofjTddNvC4core3ptrEE" => "std::mem::align_of::<usize, (f64, f64, core::ptr)>");
+        fmt!("_RINvNtC3std3mem8align_ofjTddNvC4core3ptrEE" =>
+             "std::mem::align_of::<usize, (f64, f64, core::ptr)>");
     }
 
     #[test]
@@ -1043,25 +1050,31 @@ mod tests {
 
     #[test]
     fn fn_signature() {
-        fmt!("_RINvNtC3std3mem8align_ofFUKC3rundddEoE" => "std::mem::align_of::<unsafe fn run(f64, f64, f64) -> u128>");
+        fmt!("_RINvNtC3std3mem8align_ofFUKC3rundddEoE" =>
+             "std::mem::align_of::<unsafe fn run(f64, f64, f64) -> u128>");
 
-        fmt!("_RINvNtC3std3mem8align_ofFKC3rundddEoE" => "std::mem::align_of::<fn run(f64, f64, f64) -> u128>");
+        fmt!("_RINvNtC3std3mem8align_ofFKC3rundddEoE" =>
+             "std::mem::align_of::<fn run(f64, f64, f64) -> u128>");
 
-        fmt!("_RINvNtC3std3mem8align_ofFdddEoE" => "std::mem::align_of::<fn(f64, f64, f64) -> u128>");
+        fmt!("_RINvNtC3std3mem8align_ofFdddEoE" =>
+             "std::mem::align_of::<fn(f64, f64, f64) -> u128>");
     }
 
     #[test]
     fn dyn_traits() {
-        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4Readp4ItemReEL_E" => "core::simd::mul::<dyn core::mem::Read<Item = &str>>");
+        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4Readp4ItemReEL_E" =>
+             "core::simd::mul::<dyn core::mem::Read<Item = &str>>");
 
-        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL0_E" => "core::simd::mul::<dyn core::mem::Read + 'a>");
+        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL0_E" =>
+             "core::simd::mul::<dyn core::mem::Read + 'a>");
 
-        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL_E" => "core::simd::mul::<dyn core::mem::Read>");
+        fmt!("_RINvNtC4core4simd3mulDNvNtC4core3mem4ReadEL_E" =>
+             "core::simd::mul::<dyn core::mem::Read>");
     }
 
     #[test]
     fn type_compression() {
-        fmt!("_RINvNtCs9ltgdHTiPiY_4core3ptr13drop_in_placeNtCs1GtwyVVVJ4z_6goblin6ObjectECsjO9TEQ1PNLx_8rustdump" => 
+        fmt!("_RINvNtCs9ltgdHTiPiY_4core3ptr13drop_in_placeNtCs1GtwyVVVJ4z_6goblin6ObjectECsjO9TEQ1PNLx_8rustdump" =>
              "core::ptr::drop_in_place::<goblin::Object>");
     }
 
@@ -1089,11 +1102,14 @@ mod tests {
 
         fmt!("_RNvNvNvNtC4core4iter6traits8iterator8Iterator"=> "Iterator", &CONFIG);
 
-        fmt!("__RINvNtCs6sMkaBefFpu_4core3ptr13drop_in_placeINtNtCsiU9zNs5JoLw_5alloc7raw_vec6RawVecTjINtNtBL_3vec3VecTRejEEEEECsuo8w5Bdzp_8rustdump" => 
-             "drop_in_place::<RawVec::<(usize, Vec::<(&str, usize)>)>>", &CONFIG);
+        fmt!("__RINvNtCs6sMkaBefFpu_4core3ptr13drop_in_placeINtNtCsiU9zNs5JoLw_5alloc7raw_vec6RawVecTjINtNtBL_3vec3VecTRejEEEEECsuo8w5Bdzp_8rustdump" =>
+             "drop_in_place::<RawVec::<(usize, Vec::<(&str, usize)>)>>",
+             &CONFIG
+        );
 
         fmt!("__RINvNvMs_NtCsiU9zNs5JoLw_5alloc7raw_vecINtB7_6RawVecppE7reserve21do_reserve_and_handlehNtNtC3dem5alloc6GlobalECsuo8w5Bdzp_8rustdump" =>
-             "<RawVec::<_, _>>::reserve::do_reserve_and_handle::<u8, dem::alloc::Global>", &CONFIG
+             "<RawVec::<_, _>>::reserve::do_reserve_and_handle::<u8, dem::alloc::Global>",
+             &CONFIG
         );
     }
 }
