@@ -16,6 +16,7 @@ pub enum Error {
     BackrefIsFrontref,
     DecodingBase62Num,
     SymbolTooSmall,
+    PunycodeNotYetImplemented,
     NotAscii,
     Invalid,
 }
@@ -377,7 +378,7 @@ impl<'p> Symbol<'p> {
         let s = unsafe { std::str::from_utf8_unchecked(self.source.inner()) };
 
         if self.source.take(b'u') {
-            todo!("punycode ident");
+            return Err(Error::PunycodeNotYetImplemented);
         }
 
         // try to parse decimal number length else return that the ident is empty
