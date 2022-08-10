@@ -238,13 +238,12 @@ fn main() -> goblin::error::Result<()> {
         println!("{}:", args.path.display());
         for lib in object.libs.iter().skip(1) {
             let lib = std::path::Path::new(lib);
-            let lib_name =
-                lib.file_name().map(|v| v.to_str().unwrap()).unwrap_or("???? Invalid utf8");
 
-            #[cfg(target_family = "windows")]
-            println!("\t{}", lib_name);
-            #[cfg(not(target_family = "windows"))]
-            println!("\t{} => {}", lib_name, lib.display());
+            if let Some(name) = cfg!(target_os = "macos").then(|| lib.file_name()).flatten() {
+                println!("\t{} => {}", name.to_string_lossy(), lib.display());
+            } else {
+                println!("\t{}", lib.display());
+            }
         }
 
         exit!();
@@ -256,6 +255,11 @@ fn main() -> goblin::error::Result<()> {
             eprintln!("Failed to get thread_count: {err}");
             unsafe { std::num::NonZeroUsize::new_unchecked(1) }
         });
+
+        if symbols.is_empty() {
+            println!("no symbols found: '{}'", args.path.display());
+            return Ok(());
+        }
 
         let symbols_per_thread = (symbols.len() + (thread_count.get() - 1)) / thread_count;
 
@@ -274,9 +278,7 @@ fn main() -> goblin::error::Result<()> {
                     for symbol in symbols_chunk {
                         let demangled_name = match demangler::Symbol::parse(symbol) {
                             Ok(sym) => sym.display(),
-                            Err(..) => {
-                                format!("{:#?}", rustc_demangle::demangle(symbol))
-                            }
+                            Err(..) => format!("{:#}", rustc_demangle::demangle(symbol)),
                         };
 
                         demangled.lock().unwrap().push(demangled_name)
