@@ -380,18 +380,20 @@ impl<'p> Symbol<'p> {
             todo!("punycode ident");
         }
 
-        s.bytes().position(|b| !b.is_ascii_digit()).ok_or(Error::IdentFormatIncorrect).and_then(
-            |width| {
-                self.source.take(b'_');
-                match s.get(..width).map(|s| s.parse()) {
-                    Some(Ok(len)) => {
-                        self.source.offset((width + len) as isize);
-                        Ok(&s[width..][..len])
-                    }
-                    _ => Err(Error::IdentFormatIncorrect),
-                }
-            },
-        )
+        // try to parse decimal number length else return that the ident is empty
+        let width = match s.bytes().position(|b| !b.is_ascii_digit()) {
+            Some(w) => w,
+            None => return Ok(""),
+        };
+
+        self.source.take(b'_');
+        match s.get(..width).map(str::parse) {
+            Some(Ok(len)) => {
+                self.source.offset((width + len) as isize);
+                Ok(&s[width..][..len])
+            }
+            _ => Err(Error::IdentFormatIncorrect),
+        }
     }
 
     fn consume_const(&mut self) -> Result<Const> {
