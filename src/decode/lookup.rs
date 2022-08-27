@@ -96,7 +96,7 @@ macro_rules! segment {
 }
 
 // 16x16 1-byte instruction lookup
-pub const X86_SINGLE: [[X86; 16]; 7] = [
+pub const X86_SINGLE: [[X86; 16]; 8] = [
     [
         x86!("add" : "Add r8 to r/m8" =>
              [ModRM, U8], [Register, U8]
@@ -414,5 +414,55 @@ pub const X86_SINGLE: [[X86; 16]; 7] = [
         x86!("ins" : "Copies single/word/quad from I/O port specified by `DX` into memory location specified in ES:EDI or RDI"),
         x86!("outsb" : "Copies byte from memory specified in ES:EDI or RDI into I/O port specified by `DX`"),
         x86!("outs" : "Copies single/word/quad from memory specified in ES:EDI or RDI into I/O port specified by `DX`"),
+    ],
+    [
+        x86!("jo" : "Jumps to the first operand if the overflow flag (OF) is set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jno" : "Jumps to the first operand if the overflow flag (OF) is not set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jb/jnae/jc" : "Jumps to the first operand if the carry flag (CF) is set and ????????????????" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jnb/jae/jnc" : "Jumps to the first operand if the carry flag (CF) is not set and ????????????????" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("je" : "Jumps to the first operand if the zero flag (ZF) is set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jne" : "Jumps to the first operand if the zero flag (ZF) is not set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jbe" : "Jumps to the first operand if either the carry flag (CF) or zero flag (ZF) are set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jnbe" : "Jumps to the first operand if neither the carry flag (CF) or zero flag (ZF) are set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("js" : "Jumps to the first operand if the sign flag (SF) is set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jns" : "Jumps to the first operand if the sign flag (SF) is not set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jp" : "Jumps to the first operand if the parity flag (PF) is set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jnp" : "Jumps to the first operand if the parity flag (PF) is not set" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jl/jnge" : "Jumps to the first operand if the sign flag (SF) does not equal the overflow flag (OF) and ?????????????????" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jnl/jge" : "Jumps to the first operand if the sign flag (SF) equals the overflow flag (OF) and ?????????????????" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jle/jng" : "Jumps to the first operand if the zero flag (ZF) is set or if the sign flag (SF) does not equal the overflow flag (OF) and ?????????????????" =>
+             [NoModRM, SingleOrDouble]
+        ),
+        x86!("jle/jng" : "Jumps to the first operand if the zero flag (ZF) is not set and if the sign flag (SF) equals the overflow flag (OF) and ?????????????????" =>
+             [NoModRM, SingleOrDouble]
+        ),
     ]
 ];
