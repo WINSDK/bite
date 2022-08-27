@@ -331,7 +331,7 @@ impl<'p> Symbol<'p> {
     fn consume_prefix(&mut self) -> Result<()> {
         let src = &mut self.source;
 
-        if !(src.trim_buf(b"__R") | src.trim_buf(b"_R") | src.trim_buf(b"R")) {
+        if !(src.take_buf(b"__R") | src.take_buf(b"_R") | src.take_buf(b"R")) {
             return Err(Error::UnknownPrefix);
         }
 

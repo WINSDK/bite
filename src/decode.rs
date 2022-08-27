@@ -1,6 +1,5 @@
 use std::fmt;
 use std::mem::MaybeUninit;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub mod arm;
 pub mod riscv;
@@ -19,102 +18,95 @@ pub enum BitWidth {
 }
 
 pub struct Array<T, const S: usize> {
-    bytes: [T; S],
-    len: AtomicUsize,
+    bytes: [MaybeUninit<T>; S],
+    len: usize,
 }
 
-impl<T: Default, const S: usize> Array<T, S> {
+impl<T, const S: usize> Array<T, S> {
     pub fn new() -> Self {
-        let mut bytes: MaybeUninit<[T; S]> = MaybeUninit::uninit();
-        let mut ptr = bytes.as_mut_ptr() as *mut T;
+        let bytes = unsafe { MaybeUninit::<[MaybeUninit<T>; S]>::uninit().assume_init() };
 
-        for _ in 0..S {
-            unsafe {
-                ptr.write(T::default());
-                ptr = ptr.offset(1);
-            }
-        }
-
-        Self { bytes: unsafe { bytes.assume_init() }, len: AtomicUsize::new(0) }
+        Self { bytes, len: 0 }
     }
 }
 
 impl<T, const S: usize> Array<T, S> {
-    pub fn len(&self) -> usize {
-        self.len.load(Ordering::Relaxed)
+    pub fn push(&mut self, val: T) {
+        assert!(
+            self.len <= self.bytes.len(),
+            "pushing to array would overflow length {}",
+            self.len
+        );
+
+        self.bytes[self.len] = MaybeUninit::new(val);
+        self.len += 1;
     }
 
     pub fn remove(&mut self, idx: usize) {
-        let len = self.len.load(Ordering::Acquire);
-        assert!(idx < len, "idx is {idx} which is out of bounce for len of {len}");
+        assert!(idx < self.len, "idx is {idx} which is out of bounce for len of {}", self.len);
 
         unsafe {
-            std::ptr::copy(
-                self.bytes.as_ptr().add(idx + 1),
-                self.bytes.as_mut_ptr().add(idx),
-                len - idx - 1,
-            );
+            let ptr = self.bytes.as_mut_ptr().add(idx);
+            std::ptr::copy(ptr.offset(1), ptr, self.len - idx - 1);
         }
 
-        self.len.store(len - 1, Ordering::Release);
-    }
-}
-
-impl<T: Clone, const S: usize> Clone for Array<T, S> {
-    fn clone(&self) -> Self {
-        Self { bytes: self.bytes.clone(), len: AtomicUsize::new(self.len.load(Ordering::SeqCst)) }
+        self.len -= 1;
     }
 }
 
 impl<T: PartialEq, const S: usize> PartialEq for Array<T, S> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
+        let a: &[T] = unsafe { std::mem::transmute(&self.bytes[..self.len]) };
+        let b: &[T] = unsafe { std::mem::transmute(&other.bytes[..other.len]) };
+
+        a == b
     }
 }
 
 impl<T: Eq, const S: usize> Eq for Array<T, S> {}
-
-impl<T: Default + Copy, const S: usize> Default for Array<T, S> {
-    fn default() -> Self {
-        Self { bytes: [T::default(); S], len: AtomicUsize::new(0) }
-    }
-}
 
 impl<T, const S: usize> std::ops::Index<usize> for Array<T, S> {
     type Output = T;
 
     #[inline]
     fn index(&self, idx: usize) -> &Self::Output {
-        self.len.fetch_max(idx + 1, Ordering::AcqRel);
-        &self.bytes[idx]
+        if idx >= self.len {
+            panic!("idx `{idx}` is out of bound of array with len `{}`", self.len);
+        }
+
+        unsafe { self.bytes.get_unchecked(idx).assume_init_ref() }
     }
 }
 
 impl<T, const S: usize> std::ops::IndexMut<usize> for Array<T, S> {
     #[inline]
     fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
-        self.len.fetch_max(idx + 1, Ordering::AcqRel);
-        &mut self.bytes[idx]
+        if idx >= self.len {
+            panic!("idx `{idx}` is out of bound of array with len `{}`", self.len)
+        }
+
+        unsafe { self.bytes.get_unchecked_mut(idx).assume_init_mut() }
     }
 }
 
 impl<T, const S: usize> AsRef<[T]> for Array<T, S> {
     fn as_ref(&self) -> &[T] {
-        let len = self.len();
-        &self.bytes[..len]
+        unsafe { std::mem::transmute::<&[MaybeUninit<T>], &[T]>(&self.bytes[..self.len]) }
     }
 }
 
 impl<T, const S: usize> AsMut<[T]> for Array<T, S> {
     fn as_mut(&mut self) -> &mut [T] {
-        let len = self.len();
-        &mut self.bytes[..len]
+        unsafe {
+            std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(&mut self.bytes[..self.len])
+        }
     }
 }
 
 impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", &self.bytes[..self.len.load(Ordering::Relaxed)])
+        write!(f, "{:?}", self.as_ref())
     }
 }
 
@@ -145,7 +137,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub fn trim_buf(&mut self, bytes: &[u8]) -> bool {
+    pub fn take_buf(&mut self, bytes: &[u8]) -> bool {
         if self.buf.get(self.pos..self.pos + bytes.len()) == Some(bytes) {
             self.buf = &self.buf[bytes.len()..];
             true
@@ -154,11 +146,19 @@ impl<'a> Reader<'a> {
         }
     }
 
+    pub fn seek(&self) -> Option<u8> {
+        self.buf.get(self.pos).copied()
+    }
+
     pub fn consume(&mut self) -> Option<u8> {
         self.buf.get(self.pos).map(|&val| {
             self.pos += 1;
             val
         })
+    }
+
+    pub fn consume_exact(&mut self, num_bytes: usize) -> Option<&[u8]> {
+        self.inner().get(..num_bytes)
     }
 
     /// Returns `None` if either the reader is at the end of a byte stream or the conditional

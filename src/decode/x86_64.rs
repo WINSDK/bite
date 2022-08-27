@@ -6,15 +6,23 @@ use super::{lookup, Array, BitWidth, Reader};
 pub enum DecodeError {
     /// The instruction has an impossible size.
     InvalidInputSize(usize),
+
+    /// Somehow the instruction doesn't have an opcode.
+    MissingOpcode,
 }
 
 // An Intel/AMD/IA-32 instruction is made up of up to 15 bytes.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Instruction {
     rex_prefix: Option<u8>,
     prefixes: Array<Prefix, 4>,
-    bytes: Array<u8, 11>,
     repr: lookup::X86,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -27,9 +35,6 @@ enum Addressing {
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Prefix {
-    // No prefix.
-    None = 0x0,
-
     /// Makes instruction atomic. E.g. `lock mov edx, [reg]` is just `mov edx, [reg]`
     /// with the lock prefix.
     Lock = 0xf0,
@@ -69,7 +74,7 @@ enum Prefix {
 #[allow(clippy::upper_case_acronyms)]
 #[rustfmt::skip]
 #[repr(usize)]
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Register {
     RAX,  RCX,  RDX,  RBX,  RSP,  RBP,  RSI,  RDI,
     EAX,  ECX,  EDX,  EBX,  ESP,  EBP,  ESI,  EDI,
@@ -94,29 +99,17 @@ impl fmt::Display for Register {
     }
 }
 
-impl fmt::Debug for Register {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self}")
-    }
-}
-
 #[rustfmt::skip]
 #[repr(usize)]
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Segment {
     ES, CS, SS, DS, FS, GS
 }
 
 impl fmt::Display for Segment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        pub const REPR: &[&str] = &["ES", "CS", "SS", "DS", "FS", "GS"];
+        const REPR: &[&str] = &["ES", "CS", "SS", "DS", "FS", "GS"];
         f.write_str(REPR[unsafe { std::mem::transmute::<_, usize>(*self) }])
-    }
-}
-
-impl fmt::Debug for Segment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self}")
     }
 }
 
@@ -124,7 +117,7 @@ impl fmt::Debug for Segment {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressingMethod {
     /// The VEX.vvvv field of the VEX prefix selects a general purpose register.
-    GeneralVexRegister,
+    VexRegister,
 
     /// The VEX.vvvv field of the VEX prefix selects a 128-bit XMM register or a 256-bit YMM
     /// register, determined by operand type. For legacy SSE encodings this operand does not exist,
@@ -144,10 +137,10 @@ pub enum AddressingMethod {
     WideImmediateRegister,
 
     /// The reg field of the ModR/M byte selects a general register.
-    GeneralRegister,
+    Register,
 
     /// The R/M field of the ModR/M byte may refer only to a general register.
-    RMGeneralRegister,
+    RMRegister,
 
     /// The reg field of the ModR/M byte selects a control register.
     ControlRegister,
@@ -187,7 +180,7 @@ pub enum AddressingMethod {
     ModRM,
 
     /// The operand value is encoded in subsequent bytes of the instruction.
-    ImmediateData,
+    Immediate,
 
     /// The instruction contains a relative offset to be added to the instruction pointer register.
     RelativeOffset,
@@ -198,12 +191,6 @@ pub enum AddressingMethod {
 
     /// The ModR/M byte may refer only to memory.
     Memory,
-
-    /// Memory addressed by the DS:rSI register pair (for example, MOVS, CMPS, OUTS, or LODS).
-    DataSegmentRSIRegister,
-
-    /// Memory addressed by the ES:rDI register pair (for example, MOVS, CMPS, INS, STOS, or SCAS).
-    ExtraSegmentRDIRegister,
 
     /// A ModR/M byte follows the opcode and specifies the operand. The operand is either an MMX
     /// technology register or a memory address. If it is a memory address, the address is computed
@@ -248,8 +235,8 @@ pub enum OperandType {
     /// 128-bit integer, regardless of operand-size attribute.
     U128,
 
-    /// Two 32-bit operands in memory or two 64-bit operands in memory, depending on
-    /// operand-size attribute.
+    /// Two 16-bit operands in memory or two 32-bit operands in memory, depending on
+    /// operand-size attribute (only used by `bound` instruction).
     DoubleMemory,
 
     /// Byte, sign-extended to the size of the destination operand.
@@ -264,9 +251,8 @@ pub enum OperandType {
     /// Byte made up of 2 `digits` sized 4 bits each (only exists for x87 FPU instructions).
     PackedByte,
 
-    /// 8/16-bit integer, depending on operand-size attribute.
-    #[allow(dead_code)]
-    ByteOrDouble,
+    /// 8/16/32-bit integer, sign-extended extended to the size of the first operand.
+    ByteOrSingleOrDoubleExtended,
 
     /// 16/32-bit integer, depending on operand-size attribute.
     SingleOrDouble,
@@ -342,40 +328,36 @@ pub enum OperandType {
     DoubleRegister,
 }
 
-impl Default for Prefix {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl Prefix {
-    #[inline]
-    fn translate(byte: u8) -> Self {
-        match byte {
-            0xf0 | 0xf2 | 0xf3 | 0x2e | 0x66 | 0x67 => unsafe { std::mem::transmute(byte) },
-            _ => Prefix::None,
-        }
-    }
-}
-
-pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError> {
-    let mut asm_reader = Reader::new(asm_bytes);
-    if asm_bytes.is_empty() || asm_bytes.len() > 15 {
-        return Err(DecodeError::InvalidInputSize(asm_bytes.len()));
+pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, DecodeError> {
+    if raw_bytes.is_empty() || raw_bytes.len() > 15 {
+        return Err(DecodeError::InvalidInputSize(raw_bytes.len()));
     }
 
-    // Read instruction prefixes (1-4 optional bytes).
-    let mut prefixes: Array<Prefix, 4> = Array::new();
-    for idx in 0..4 {
-        if let Some(prefix) = asm_reader.consume_eq(|x| Prefix::translate(x) != Prefix::None) {
-            prefixes[idx] = unsafe { std::mem::transmute(prefix) };
+    let mut bytes = Reader::new(raw_bytes);
+
+    // read instruction prefixes (0-4 optional bytes).
+    let mut prefixes = Array::<Prefix, 4>::new();
+    for _ in 0..4 {
+        if let Some(prefix @ (0xf0 | 0xf2 | 0xf3 | 0x2e | 0x66 | 0x67)) = bytes.seek() {
+            prefixes.push(unsafe { std::mem::transmute(prefix) });
+        } else {
+            break;
         }
     }
 
-    // Read optional REX prefix (1 byte).
+    // check if opcode starts with a `required prefix` + escape opcode or just escape opcode.
+    let multibyte = match prefixes.as_ref().get(0) {
+        Some(Prefix::OperandSize | Prefix::RepeatNotEqual | Prefix::Repeat) if bytes.take(0x0f) => {
+            prefixes.remove(0);
+            true
+        },
+        _ => bytes.take(0x0f),
+    };
+
+    // read optional REX prefix (1 byte).
     let mut rex_prefix = None;
-    if width == BitWidth::U64 {
-        if let Some(prefix) = asm_reader.consume_eq(|x| (x >> 4) == 0b0100) {
+    if let Some(prefix) = bytes.consume_eq(|x| (x >> 4) == 0b0100) {
+        if width == BitWidth::U64 {
             debug_assert_eq!(prefix >> 4, 0b0100);
 
             let is_64_operand = (prefix & 0b00001000) == 0b00001000;
@@ -383,34 +365,36 @@ pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError
             let sib_idx_field = (prefix & 0b00000010) == 0b00000010;
             let extension = (prefix & 0b00000001) == 0b00000001;
 
-            dbg!(is_64_operand);
             rex_prefix = Some(prefix);
         }
     }
 
-    // Check if opcode is multibyte.
-    let mut multibyte = false;
-    if prefixes[0] as u8 == 0x66 || prefixes[0] as u8 == 0xf2 || prefixes[0] as u8 == 0xf3 {
-        debug_assert!(asm_bytes.len() > prefixes.len());
+    let opcode = bytes.consume_exact(multibyte as usize + 1).ok_or(DecodeError::MissingOpcode)?;
 
-        if asm_reader.consume_eq(|x| x == 0x0f).is_some() {
-            multibyte = true;
-            prefixes.remove(0);
-        }
-    }
+    println!("{:x?}", opcode);
 
-    // Read opcode bytes (1-3 bytes).
-    let repr = todo!("{:?}", lookup::X86_SINGLE[asm_reader.consume().unwrap() as usize]);
+    // read opcode bytes (1-3 bytes).
+    let repr = if multibyte {
+        todo!()
+    } else {
+        let opcode = opcode[0];
 
-    // Read ModR/M (optional 1 byte).
+        let row = (opcode & 0b11110000) >> 4;
+        let col = (opcode & 0b00001111) >> 0;
+
+
+        eprintln!("row: 0x{row:x}, col: 0x{col:x}");
+        dbg!(lookup::X86_SINGLE[row as usize][col as usize])
+    };
+
+    // read ModR/M (optional 1 byte).
     //
     //    2        3         2
     // ┌─────┬────────────┬─────┐
     // │ mod │ reg/opcode │ R/M │
     // └─────┴────────────┴─────┘
     //
-    let mut displacement = 0;
-    if let Some(byte) = asm_reader.consume() {
+    if let Some(byte) = bytes.consume() {
         let memory_addressing_mode = byte >> 6;
         let register_addressing_mode = (byte & 0b00111111) >> 3;
         let memory_operand_mode = byte & 0b00000111;
@@ -449,48 +433,52 @@ pub fn asm(width: BitWidth, asm_bytes: &[u8]) -> Result<Instruction, DecodeError
     // A displacement is the constant offset that is applied when reading memory.
     // E.g. mov edx, [rsp + displacement]
 
-    // Read displacement (1-4 optional bytes).
+    // Read displacement (0-4 optional bytes).
 
-    // Read immediate (1-4 optional bytes).
+    // Read immediate (0-4 optional bytes).
 
-    let (mut idx, mut bytes) = (0, Array::new());
-    while let Some(byte) = asm_reader.consume() {
-        bytes[idx] = byte;
-        idx += 1;
+    let mut displacement = Array::<u8, 4>::new();
+    while let Some(byte) = bytes.consume() {
+        displacement.push(byte);
     }
 
-    Ok(Instruction { prefixes, bytes, repr, rex_prefix })
+    Ok(Instruction { prefixes, repr, rex_prefix })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::decode::BitWidth;
+    macro_rules! eq {
+        ($bitness:tt, [$($bytes:tt),+] => $repr:expr) => {
+            assert_eq!(
+                $crate::decode::x86_64::asm(
+                    $crate::decode::BitWidth::$bitness,
+                    &[$($bytes),+]
+                ).map(|x| x.to_string()).as_deref(),
+                Ok($repr)
+            )
+        };
+    }
 
     #[test]
-    pub fn asm() {
-        eprintln!("\n---------------------\nrep movsq qword ptr es:[rdi], qword ptr [rsi]\n---------------------");
-        assert_eq!(
-            super::asm(BitWidth::U64, &[0xf3, 0x48, 0xa5]).map(|ins| ins.repr.mnemomic),
-            Ok("movsq")
-        );
-
-        eprintln!("\n---------------------\nphaddw xmm0, xmm1\n---------------------");
-        assert_eq!(
-            super::asm(BitWidth::U64, &[0x66, 0x0f, 0x38, 0x01, 0xc1]).map(|ins| ins.repr.mnemomic),
-            Ok("phaddw")
-        );
-
-        eprintln!("\n---------------------\npop rbp\n---------------------");
-        assert_eq!(super::asm(BitWidth::U64, &[0x5d]).map(|ins| ins.repr.mnemomic), Ok("pop"));
-        eprintln!("{:?}", super::asm(BitWidth::U64, &[0x5d]).unwrap());
-
-        todo!()
+    pub fn random_complex() {
+        eq!(U64, [0xf3, 0x48, 0xa5] => "rep movsq qword ptr es:[rdi], qword ptr [rsi]");
+        eq!(U64, [0x66, 0x0f, 0x38, 0x01, 0xc1] => "phaddw xmm0, xmm1");
+        eq!(U64, [0x5d] => "pop rbp");
     }
 
     #[test]
     fn rex_prefix() {
-        eprintln!("\n---------------------\ncvtdq2pd xmm0, qword ptr [r10]\n---------------------");
-        panic!("{:?}", super::asm(BitWidth::U64, &[0xf3, 0x41, 0x0f, 0xe6, 0x02]));
+        eq!(U64, [0xf3, 0x41, 0x0f, 0xe6, 0x02] => "cvtdq2pd xmm0, qword ptr [r10]");
+    }
+
+    #[test]
+    fn add() {
+        eq!(U64, [0x48, 0x83, 0xc0, 0x0a] => "add rax, 10")
+    }
+
+    #[test]
+    fn mov() {
+        eq!(U64, [0xb8, 0x1, 0x0, 0x0, 0x0] => "mov eax, 10")
     }
 }
 
