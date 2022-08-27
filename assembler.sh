@@ -2,20 +2,16 @@
 
 read -p "Input assembly instruction: " -r asm
 
-printf "#![feature(naked_functions)]\n#![no_std]\n\n#[no_mangle]\n#[naked]\npub unsafe extern \"C\" fn asm() {\n    core::arch::asm!(\n        \"%s\", \n        options(noreturn)\n    )\n}\n" "$asm" > target/asm.rs
+cat << EOF | rustc -o target/asm --crate-type lib - 
+#![feature(naked_functions)]
+#![no_std]
 
-rust_err=$(
-    rustc -C panic=abort \
-    --crate-type lib \
-    -o target/asm \
-    target/asm.rs 2>&1 > /dev/null
-)
-
-if [ $? -ne 0 ]; then
-    cat target/asm.rs
-    printf "\n%s" "$rust_err"
-    exit $?
-fi
+#[no_mangle]
+#[naked]
+pub unsafe extern "C" fn asm() {
+    core::arch::asm!("$asm", options(noreturn));
+}
+EOF
 
 objdump -M intel \
     --section=.text.asm \
