@@ -13,6 +13,10 @@ pub unsafe extern "C" fn asm() {
 }
 EOF
 
+if [ $? -ne 0 ]; then
+    exit $?
+fi
+
 objdump -M intel \
     --section=.text.asm \
     -D target/asm \
