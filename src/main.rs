@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -276,6 +276,10 @@ fn main() -> goblin::error::Result<()> {
 
                 s.spawn(move || {
                     for symbol in symbols_chunk {
+                        if symbol.starts_with("GCC_except_table") || symbol.find("cgu").is_some() {
+                            continue;
+                        }
+
                         let demangled_name = match demangler::Symbol::parse(symbol) {
                             Ok(sym) => sym.display(),
                             Err(..) => format!("{:#}", rustc_demangle::demangle(symbol)),
@@ -300,7 +304,15 @@ fn main() -> goblin::error::Result<()> {
             let mut demangled = demangled.lock().unwrap();
 
             demangled.sort_unstable();
-            demangled.iter().for_each(|name| println!("{name}"));
+            demangled.dedup();
+
+            let mut stdout = std::io::stdout();
+            for name in demangled.iter_mut() {
+                *name += "\n";
+                stdout.write_all(name.as_bytes()).unwrap();
+            }
+
+            stdout.flush().unwrap();
         });
     }
 
