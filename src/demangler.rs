@@ -1,4 +1,4 @@
-use crate::decode::Reader;
+use crate::assembler::Reader;
 use crate::replace::Config;
 use crate::replace::Statement;
 

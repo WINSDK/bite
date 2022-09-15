@@ -12,7 +12,7 @@ use goblin::Object;
 use pdb::FallibleIterator;
 
 mod args;
-mod decode;
+mod assembler;
 mod demangler;
 mod replace;
 
@@ -47,7 +47,7 @@ struct GenericBinary<'a> {
     symbols: Vec<&'a str>,
     libs: Vec<&'a str>,
     raw: &'a [u8],
-    width: decode::BitWidth,
+    width: assembler::BitWidth,
 }
 
 fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> Cow<'a, str> {
@@ -151,9 +151,9 @@ fn main() -> goblin::error::Result<()> {
                 .unwrap_or_else(|| exit!("Object looks like it's been stripped"));
 
             let width = if bin.header.magic == MH_MAGIC_64 {
-                decode::BitWidth::U64
+                assembler::BitWidth::U64
             } else {
-                decode::BitWidth::U32
+                assembler::BitWidth::U32
             };
 
             GenericBinary {
@@ -173,9 +173,9 @@ fn main() -> goblin::error::Result<()> {
                 .unwrap_or_else(|| exit!("No text section found"));
 
             let width = if bin.header.e_ident[EI_CLASS] == 0 {
-                decode::BitWidth::U64
+                assembler::BitWidth::U64
             } else {
-                decode::BitWidth::U32
+                assembler::BitWidth::U32
             };
 
             GenericBinary { symbols: bin.strtab.to_vec()?, libs: bin.libraries, raw, width }
@@ -226,7 +226,7 @@ fn main() -> goblin::error::Result<()> {
                 })
                 .unwrap();
 
-            let width = if bin.is_64 { decode::BitWidth::U64 } else { decode::BitWidth::U32 };
+            let width = if bin.is_64 { assembler::BitWidth::U64 } else { assembler::BitWidth::U32 };
 
             GenericBinary { symbols, libs: bin.libraries, raw, width }
         }
@@ -320,7 +320,7 @@ fn main() -> goblin::error::Result<()> {
         objdump(&args, &config);
 
         if todo!("custom asm decoder") {
-            decode::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]).unwrap();
+            assembler::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]).unwrap();
         }
     }
 
