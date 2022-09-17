@@ -318,10 +318,6 @@ fn main() -> goblin::error::Result<()> {
 
     if args.disassemble {
         objdump(&args, &config);
-
-        if todo!("custom asm decoder") {
-            assembler::x86_64::asm(object.width, &[0xf3, 0x48, 0xa5]).unwrap();
-        }
     }
 
     Ok(())

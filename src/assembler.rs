@@ -12,10 +12,8 @@ mod lookup;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BitWidth {
-    U128,
     U64,
     U32,
-    U16,
 }
 
 pub struct Array<T, const S: usize> {

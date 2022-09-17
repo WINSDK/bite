@@ -1,11 +1,12 @@
 //! MIPS V assembler
 
 use std::fmt;
-use super::lookup::{Format, Register};
+use super::lookup::MIPS_REGS;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     ImpossibleInputSize(usize),
+    UnknownRegister,
     UnknownOpcode,
 }
 
@@ -13,7 +14,8 @@ pub enum Error {
 pub struct Instruction {
     pub mnemomic: &'static str,
     pub desc: &'static str,
-    pub format: Format,
+    pub operands: [usize; 4],
+    pub format: &'static [usize],
 }
 
 impl fmt::Display for Instruction {
@@ -23,55 +25,50 @@ impl fmt::Display for Instruction {
         f.write_str(self.mnemomic)?;
         f.write_char(' ')?;
 
-        match &self.format {
-            Format::Imm(addr) => f.write_str(&format!("0x{addr:x}"))?,
-            Format::RegRegImm(rs, rt, imm) => {
-                f.write_str(&rs)?;
-                f.write_str(", ")?;
-                f.write_str(&rt)?;
-                f.write_str(", ")?;
-                f.write_str(&format!("0x{imm:x}"))?;
-            },
-            Format::RegRegReg(rs, rt, rd) => {
-                f.write_str(&rd)?;
-                f.write_str(", ")?;
-                f.write_str(&rt)?;
-                f.write_str(", ")?;
-                f.write_str(&rs)?;
+        // check if the instruction uses an offset (load/store instructions)
+        if self.format == &[1, 3, 2] {
+            f.write_str(unsafe { MIPS_REGS.get_unchecked(self.operands[1]) })?;
+            f.write_str(", ")?;
+            f.write_str(unsafe { MIPS_REGS.get_unchecked(self.operands[3]) })?;
+            f.write_char('(')?;
+            f.write_str(&format!("0x{:x}", self.operands[3]))?;
+            f.write_char(')')?;
+
+            return Ok(());
+        }
+
+        for idx in 0..self.format.len() {
+            // index into next operand
+            let format = self.format[idx];
+
+            // operand specified by the bitmask
+            let operand = self.operands[format];
+
+            // check if we are formatting an immediate
+            if format == 3 {
+                f.write_str(&format!("0x{operand:x}"))?;
+            } else {
+                f.write_str(unsafe { MIPS_REGS.get_unchecked(operand) })?;
             }
-            _ => todo!()
+
+            // check if we've reached the last operand
+            if idx != self.format.len() - 1 {
+                f.write_str(", ")?;
+            }
         }
 
         Ok(())
     }
 }
 
-pub fn asm(raw_bytes: &[u8]) -> Result<Instruction, Error> {
-    if raw_bytes.len() != 4 {
-        return Err(Error::ImpossibleInputSize(raw_bytes.len()));
+#[allow(dead_code)]
+pub fn asm(raw: &[u8]) -> Result<Instruction, Error> {
+    if raw.len() != 4 {
+        return Err(Error::ImpossibleInputSize(raw.len()));
     }
 
-    let opcode = raw_bytes[0] >> 2;
-    let rs = Register::new((raw_bytes[0] & 0b11) << 3 | raw_bytes[1] >> 5);
-    let rt = Register::new(raw_bytes[1] & 0b11111);
-    let rd = Register::new(raw_bytes[2] >> 3);
-    let shamt = (raw_bytes[2] & 0b111) << 2 | (raw_bytes[3] >> 6);
-    let funct = raw_bytes[3] & 0b111111;
-
-    let addr = match opcode {
-        2 | 3 => u32::from_be_bytes([raw_bytes[0] & 0b11, raw_bytes[1], raw_bytes[2], raw_bytes[3]]),
-        0 if funct == 0 || funct == 2 || funct == 3 => shamt as u32,
-        _ =>  u16::from_be_bytes([raw_bytes[2], raw_bytes[3]]) as u32
-    };
-
-    eprintln!("{:#010b}", raw_bytes[0]);
-    eprintln!("{:#010b}", raw_bytes[1]);
-    eprintln!("{:#010b}", raw_bytes[2]);
-    eprintln!("{:#010b}", raw_bytes[3]);
-    eprintln!("opcode: {opcode:#018b}");
-    eprintln!("shamt: {shamt:#018b}");
-    eprintln!("funct: {funct:#018b}");
-    eprintln!("addr: {addr:#018b}");
+    let opcode = raw[0] >> 2;
+    let funct = raw[3] & 0b111111;
 
     let mut inst = *match opcode {
         0 => super::lookup::MIPS_R_TYPES.get(funct as usize).ok_or(Error::UnknownOpcode)?,
@@ -79,12 +76,31 @@ pub fn asm(raw_bytes: &[u8]) -> Result<Instruction, Error> {
         _ => super::lookup::MIPS_I_TYPES.get(opcode as usize).ok_or(Error::UnknownOpcode)?,
     };
 
-    inst.format = match inst.format {
-        Format::Imm(..) => Format::Imm(addr),
-        Format::RegRegImm(..) => Format::RegRegImm(rs, rt, addr),
-        Format::RegRegReg(..) => Format::RegRegReg(rs, rt, rd),
-        _ => todo!()
-    };
+    let [ref mut rd, ref mut rt, ref mut rs, ref mut imm] = inst.operands;
+
+    *rs = ((raw[0] & 0b11) << 3 | raw[1] >> 5) as usize;
+    *rt = (raw[1] & 0b11111) as usize;
+    *rd = (raw[2] >> 3) as usize;
+
+    if MIPS_REGS.get(*rs).is_none() || MIPS_REGS.get(*rt).is_none() || MIPS_REGS.get(*rd).is_none() {
+        return Err(Error::UnknownRegister);
+    }
+
+    if opcode == 2 || opcode == 3 {
+        *imm = u32::from_be_bytes([raw[0] & 0b11, raw[1], raw[2], raw[3]]) as usize;
+    }
+
+    if opcode == 0 && (funct == 0 || funct == 2 || funct == 3) {
+        *imm = ((raw[2] & 0b111) << 2 | (raw[3] >> 6)) as usize;
+    }
+
+    if opcode > 3 {
+        *imm = u16::from_be_bytes([raw[2], raw[3]]) as usize
+    }
+
+    // eprintln!("opcode: {opcode:#018b}");
+    // eprintln!("funct:  {funct:#018b}");
+    // eprintln!("imm:    {imm:#018b}");
 
     Ok(inst)
 }
@@ -120,5 +136,10 @@ mod tests {
     #[test]
     fn sllv() {
         eq!([0x1, 0x49, 0x48, 0x4] => "sllv $t1, $t1, $t2");
+    }
+
+    #[test]
+    fn lb() {
+        eq!([0x81, 0x49, 0x0, 0x10] => "lb $t1, 0x10($t2)")
     }
 }

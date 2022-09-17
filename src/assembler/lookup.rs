@@ -472,7 +472,8 @@ macro_rules! mips {
         $crate::assembler::mips::Instruction {
             mnemomic: "Invalid instruction",
             desc: "",
-            format: Format::Imm(0),
+            operands: [0, 0, 0, 0],
+            format: &[]
         }
     };
 
@@ -480,65 +481,28 @@ macro_rules! mips {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
+            operands: [0, 0, 0, 0],
             format: $format,
         }
     };
 }
 
+/// Bitmask for order of operands [rd, rt, rs, imm].
 macro_rules! format {
-    (Simple) => { Format::Simple };
-    (Imm) => { Format::Imm(0) };
-    (Reg) => { Format::Reg(Register(0)) };
-    (RegReg) => { Format::RegReg(Register(0), Register(0)) };
-    (RegImm) => { Format::RegImm(Register(0), 0) };
-    (RegRegReg) => { Format::RegRegReg(Register(0), Register(0), Register(0)) };
-    (RegRegImm) => { Format::RegRegImm(Register(0), Register(0), 0) };
-    (RegRegOff) => { Format::RegRegOff(Register(0), Register(0), 0) };
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Register(u8);
-
-impl Register {
-    pub fn new(val: u8) -> Self {
-        debug_assert!(MIPS_REGS.get(val as usize).is_some());
-        Self(val)
-    }
-}
-
-impl std::ops::Deref for Register {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        MIPS_REGS[self.0 as usize]
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Format {
-    /// ins
-    Simple,
-
-    /// ins imm
-    Imm(u32),
-
-    /// ins $rs
-    Reg(Register),
-
-    /// ins $rs, $rt
-    RegReg(Register, Register),
-
-    /// ins $rs, imm
-    RegImm(Register, u32),
-
-    /// ins $rt, $rt, $rd
-    RegRegReg(Register, Register, Register),
-
-    /// ins $rs, $rt, imm
-    RegRegImm(Register, Register, u32),
-
-    /// ins $rt, imm($rs)
-    RegRegOff(Register, Register, u32)
+    (rd, rt, imm) => { &[0, 1, 3] };
+    (rt, rs, imm) => { &[1, 2, 3] };
+    (rs, rt, imm) => { &[2, 1, 3] };
+    (rd, rt, rs) =>  { &[0, 1, 2] };
+    (rd, rs, rt) =>  { &[0, 2, 1] };
+    (rt, imm, rs) => { &[1, 3, 2] };
+    (rs, imm) =>     { &[2, 3]    };
+    (rt, imm) =>     { &[1, 3]    };
+    (rd, rs) =>      { &[0, 2]    };
+    (rs, rt) =>      { &[2, 1]    };
+    (imm) =>         { &[3]       };
+    (rs) =>          { &[2]       };
+    (rd) =>          { &[0]       };
+    () =>            { &[]        };
 }
 
 pub const MIPS_I_TYPES: [crate::assembler::mips::Instruction; 44] = [
@@ -546,18 +510,18 @@ pub const MIPS_I_TYPES: [crate::assembler::mips::Instruction; 44] = [
     mips!(),
     mips!(),
     mips!(),
-    mips!("beq", "", format!(RegRegImm)),
-    mips!("bne", "", format!(RegRegImm)),
-    mips!("blez", "", format!(RegImm)),
-    mips!("bgtz", "", format!(RegImm)),
-    mips!("addi", "", format!(RegRegImm)),
-    mips!("addiu", "", format!(RegRegImm)),
-    mips!("slti", "", format!(RegRegImm)),
-    mips!("sltiu", "", format!(RegRegImm)),
-    mips!("andi", "", format!(RegRegImm)),
-    mips!("ori", "", format!(RegRegImm)),
-    mips!("xori", "", format!(RegRegImm)),
-    mips!("lui", "", format!(RegImm)),
+    mips!("beq", "", format![rs, rt, imm]),
+    mips!("bne", "", format![rs, rt, imm]),
+    mips!("blez", "", format![rs, imm]),
+    mips!("bgtz", "", format![rs, imm]),
+    mips!("addi", "", format![rt, rs, imm]),
+    mips!("addiu", "", format![rt, rs, imm]),
+    mips!("slti", "", format![rt, rs, imm]),
+    mips!("sltiu", "", format![rt, rs, imm]),
+    mips!("andi", "", format![rt, rs, imm]),
+    mips!("ori", "", format![rt, rs, imm]),
+    mips!("xori", "", format![rt, rs, imm]),
+    mips!("lui", "", format![rt, imm]),
     mips!(),
     mips!(),
     mips!(),
@@ -576,69 +540,69 @@ pub const MIPS_I_TYPES: [crate::assembler::mips::Instruction; 44] = [
     mips!(),
     mips!(),
     mips!(),
-    mips!("lb", "", format!(RegRegOff)),
-    mips!("lh", "", format!(RegRegOff)),
-    mips!("lw", "", format!(RegRegOff)),
-    mips!("lbu", "", format!(RegRegOff)),
-    mips!("lhu", "", format!(RegRegOff)),
+    mips!("lb", "", format![rt, imm, rs]),
+    mips!("lh", "", format![rt, imm, rs]),
+    mips!("lw", "", format![rt, imm, rs]),
+    mips!("lbu", "", format![rt, imm, rs]),
+    mips!("lhu", "", format![rt, imm, rs]),
     mips!(),
     mips!(),
-    mips!("sb", "", format!(RegRegOff)),
-    mips!("sh", "", format!(RegRegOff)),
-    mips!("sw", "", format!(RegRegOff)),
+    mips!("sb", "", format![rt, imm, rs]),
+    mips!("sh", "", format![rt, imm, rs]),
+    mips!("sw", "", format![rt, imm, rs]),
 ];
 
 pub const MIPS_J_TYPES: [crate::assembler::mips::Instruction; 4] = [
     mips!(),
     mips!(),
-    mips!("j", "Jump to target address", format!(Imm)),
-    mips!("jr", "Call the target address and save return addr in $ra", format!(Imm)),
+    mips!("j", "Jump to target address", format![imm]),
+    mips!("jr", "Call the target address and save return addr in $ra", format![imm]),
 ];
 
 pub const MIPS_R_TYPES: [crate::assembler::mips::Instruction; 43] = [
-    mips!("sll", "", format!(RegRegImm)),
+    mips!("sll", "", format![rd, rt, imm]),
     mips!(),
-    mips!("srl", "", format!(RegRegImm)),
-    mips!("sra", "", format!(RegRegImm)),
-    mips!("sllv", "", format!(RegRegReg)),
+    mips!("srl", "", format![rd, rt, imm]),
+    mips!("sra", "", format![rd, rt, imm]),
+    mips!("sllv", "", format![rd, rt, rs]),
     mips!(),
-    mips!("srlv", "", format!(RegRegReg)),
-    mips!("srav", "", format!(RegRegReg)),
-    mips!("jr", "", format!(Reg)),
-    mips!(),
-    mips!(),
-    mips!("syscall", "", format!(Simple)),
+    mips!("srlv", "", format![rd, rt, rs]),
+    mips!("srav", "", format![rd, rt, rs]),
+    mips!("jr", "", format![rs]),
     mips!(),
     mips!(),
-    mips!(),
-    mips!("mfhi", "", format!(Reg)),
-    mips!("mthi", "", format!(Reg)),
-    mips!("mflo", "", format!(Reg)),
-    mips!("mtlo", "", format!(Reg)),
+    mips!("syscall", "", format![]),
     mips!(),
     mips!(),
     mips!(),
-    mips!(),
-    mips!("mult", "", format!(RegReg)),
-    mips!("multu", "", format!(RegReg)),
-    mips!("div", "", format!(RegReg)),
-    mips!("divu", "", format!(RegReg)),
+    mips!("mfhi", "", format![rd]),
+    mips!("mthi", "", format![rs]),
+    mips!("mflo", "", format![rd]),
+    mips!("mtlo", "", format![rs]),
     mips!(),
     mips!(),
     mips!(),
     mips!(),
-    mips!("add", "", format!(RegRegReg)),
-    mips!("addu", "", format!(RegRegReg)),
-    mips!("sub", "", format!(RegRegReg)),
-    mips!("subu", "", format!(RegRegReg)),
-    mips!("and", "", format!(RegRegReg)),
-    mips!("or", "", format!(RegRegReg)),
-    mips!("xor", "", format!(RegRegReg)),
-    mips!("nor", "", format!(RegRegReg)),
+    mips!("mult", "", format![rs, rt]),
+    mips!("multu", "", format![rs, rt]),
+    mips!("div", "", format![rs, rt]),
+    mips!("divu", "", format![rs, rt]),
     mips!(),
     mips!(),
-    mips!("slt", "", format!(RegRegReg)),
-    mips!("sltu", "", format!(RegRegReg)),
+    mips!(),
+    mips!(),
+    mips!("add", "", format![rd, rs, rt]),
+    mips!("addu", "", format![rd, rs, rt]),
+    mips!("sub", "", format![rd, rs, rt]),
+    mips!("subu", "", format![rd, rs, rt]),
+    mips!("and", "", format![rd, rs, rt]),
+    mips!("or", "", format![rd, rs, rt]),
+    mips!("xor", "", format![rd, rs, rt]),
+    mips!("nor", "", format![rd, rs, rt]),
+    mips!(),
+    mips!(),
+    mips!("slt", "", format![rd, rs, rt]),
+    mips!("sltu", "", format![rd, rs, rt]),
 ];
 
 pub const MIPS_REGS: [&'static str; 32] = [

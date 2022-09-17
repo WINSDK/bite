@@ -651,9 +651,9 @@ impl<'p> Symbol<'p> {
             b'F' => {
                 // [<binder>] ["U"] ["K" <abi>] {<type>} "E" <type>
 
-                let mut binder = None;
+                let binder = None;
                 if self.source.take(b'G') {
-                    binder = Some(todo!("bind in fn signature"));
+                    todo!("bind in fn signature");
                 }
 
                 let is_unsafe = self.source.take(b'U');
@@ -678,9 +678,9 @@ impl<'p> Symbol<'p> {
             b'D' => {
                 // [binder] {path {"p" ident type}} "E" <lifetime>
 
-                let mut binder = None;
+                let binder = None;
                 if self.source.take(b'G') {
-                    binder = Some(todo!("bind in dyn trait"));
+                    todo!("bind in dyn trait");
                 }
 
                 let spot = self.take_spot();
