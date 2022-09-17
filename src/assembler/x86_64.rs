@@ -450,8 +450,8 @@ mod tests {
     macro_rules! eq {
         ($bitness:tt, [$($bytes:tt),+] => $repr:expr) => {
             assert_eq!(
-                $crate::decode::x86_64::asm(
-                    $crate::decode::BitWidth::$bitness,
+                $crate::assembler::x86_64::asm(
+                    $crate::assembler::BitWidth::$bitness,
                     &[$($bytes),+]
                 ).map(|x| x.to_string()).as_deref(),
                 Ok($repr)

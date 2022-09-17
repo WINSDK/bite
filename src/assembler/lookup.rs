@@ -466,3 +466,212 @@ pub const X86_SINGLE: [[X86; 16]; 8] = [
         ),
     ]
 ];
+
+macro_rules! mips {
+    () => {
+        $crate::assembler::mips::Instruction {
+            mnemomic: "Invalid instruction",
+            desc: "",
+            format: Format::Imm(0),
+        }
+    };
+
+    ($mnemomic:literal, $desc:literal, $format:expr) => {
+        $crate::assembler::mips::Instruction {
+            mnemomic: $mnemomic,
+            desc: $desc,
+            format: $format,
+        }
+    };
+}
+
+macro_rules! format {
+    (Simple) => { Format::Simple };
+    (Imm) => { Format::Imm(0) };
+    (Reg) => { Format::Reg(Register(0)) };
+    (RegReg) => { Format::RegReg(Register(0), Register(0)) };
+    (RegImm) => { Format::RegImm(Register(0), 0) };
+    (RegRegReg) => { Format::RegRegReg(Register(0), Register(0), Register(0)) };
+    (RegRegImm) => { Format::RegRegImm(Register(0), Register(0), 0) };
+    (RegRegOff) => { Format::RegRegOff(Register(0), Register(0), 0) };
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Register(u8);
+
+impl Register {
+    pub fn new(val: u8) -> Self {
+        debug_assert!(MIPS_REGS.get(val as usize).is_some());
+        Self(val)
+    }
+}
+
+impl std::ops::Deref for Register {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        MIPS_REGS[self.0 as usize]
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Format {
+    /// ins
+    Simple,
+
+    /// ins imm
+    Imm(u32),
+
+    /// ins $rs
+    Reg(Register),
+
+    /// ins $rs, $rt
+    RegReg(Register, Register),
+
+    /// ins $rs, imm
+    RegImm(Register, u32),
+
+    /// ins $rt, $rt, $rd
+    RegRegReg(Register, Register, Register),
+
+    /// ins $rs, $rt, imm
+    RegRegImm(Register, Register, u32),
+
+    /// ins $rt, imm($rs)
+    RegRegOff(Register, Register, u32)
+}
+
+pub const MIPS_I_TYPES: [crate::assembler::mips::Instruction; 44] = [
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!("beq", "", format!(RegRegImm)),
+    mips!("bne", "", format!(RegRegImm)),
+    mips!("blez", "", format!(RegImm)),
+    mips!("bgtz", "", format!(RegImm)),
+    mips!("addi", "", format!(RegRegImm)),
+    mips!("addiu", "", format!(RegRegImm)),
+    mips!("slti", "", format!(RegRegImm)),
+    mips!("sltiu", "", format!(RegRegImm)),
+    mips!("andi", "", format!(RegRegImm)),
+    mips!("ori", "", format!(RegRegImm)),
+    mips!("xori", "", format!(RegRegImm)),
+    mips!("lui", "", format!(RegImm)),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!("lb", "", format!(RegRegOff)),
+    mips!("lh", "", format!(RegRegOff)),
+    mips!("lw", "", format!(RegRegOff)),
+    mips!("lbu", "", format!(RegRegOff)),
+    mips!("lhu", "", format!(RegRegOff)),
+    mips!(),
+    mips!(),
+    mips!("sb", "", format!(RegRegOff)),
+    mips!("sh", "", format!(RegRegOff)),
+    mips!("sw", "", format!(RegRegOff)),
+];
+
+pub const MIPS_J_TYPES: [crate::assembler::mips::Instruction; 4] = [
+    mips!(),
+    mips!(),
+    mips!("j", "Jump to target address", format!(Imm)),
+    mips!("jr", "Call the target address and save return addr in $ra", format!(Imm)),
+];
+
+pub const MIPS_R_TYPES: [crate::assembler::mips::Instruction; 43] = [
+    mips!("sll", "", format!(RegRegImm)),
+    mips!(),
+    mips!("srl", "", format!(RegRegImm)),
+    mips!("sra", "", format!(RegRegImm)),
+    mips!("sllv", "", format!(RegRegReg)),
+    mips!(),
+    mips!("srlv", "", format!(RegRegReg)),
+    mips!("srav", "", format!(RegRegReg)),
+    mips!("jr", "", format!(Reg)),
+    mips!(),
+    mips!(),
+    mips!("syscall", "", format!(Simple)),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!("mfhi", "", format!(Reg)),
+    mips!("mthi", "", format!(Reg)),
+    mips!("mflo", "", format!(Reg)),
+    mips!("mtlo", "", format!(Reg)),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!("mult", "", format!(RegReg)),
+    mips!("multu", "", format!(RegReg)),
+    mips!("div", "", format!(RegReg)),
+    mips!("divu", "", format!(RegReg)),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!(),
+    mips!("add", "", format!(RegRegReg)),
+    mips!("addu", "", format!(RegRegReg)),
+    mips!("sub", "", format!(RegRegReg)),
+    mips!("subu", "", format!(RegRegReg)),
+    mips!("and", "", format!(RegRegReg)),
+    mips!("or", "", format!(RegRegReg)),
+    mips!("xor", "", format!(RegRegReg)),
+    mips!("nor", "", format!(RegRegReg)),
+    mips!(),
+    mips!(),
+    mips!("slt", "", format!(RegRegReg)),
+    mips!("sltu", "", format!(RegRegReg)),
+];
+
+pub const MIPS_REGS: [&'static str; 32] = [
+    "$zero",
+    "$at",
+    "$v0",
+    "$v1",
+    "$a0",
+    "$a1",
+    "$a2",
+    "$a3",
+    "$t0",
+    "$t1",
+    "$t2",
+    "$t3",
+    "$t4",
+    "$t5",
+    "$t6",
+    "$t7",
+    "$s0",
+    "$s1",
+    "$s2",
+    "$s3",
+    "$s4",
+    "$s5",
+    "$s6",
+    "$s7",
+    "$t8",
+    "$t9",
+    "$k0",
+    "$k1",
+    "$gp",
+    "$sp",
+    "$fp",
+    "$ra",
+];

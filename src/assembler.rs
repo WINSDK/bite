@@ -3,6 +3,7 @@ use std::mem::MaybeUninit;
 
 pub mod arm;
 pub mod riscv;
+pub mod mips;
 
 #[allow(dead_code, unused_variables, unused_assignments)]
 pub mod x86_64;
