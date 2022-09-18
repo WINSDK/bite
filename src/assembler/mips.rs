@@ -29,9 +29,9 @@ impl fmt::Display for Instruction {
         if self.format == &[1, 3, 2] {
             f.write_str(unsafe { MIPS_REGS.get_unchecked(self.operands[1]) })?;
             f.write_str(", ")?;
-            f.write_str(unsafe { MIPS_REGS.get_unchecked(self.operands[3]) })?;
-            f.write_char('(')?;
             f.write_str(&format!("0x{:x}", self.operands[3]))?;
+            f.write_char('(')?;
+            f.write_str(unsafe { MIPS_REGS.get_unchecked(self.operands[2]) })?;
             f.write_char(')')?;
 
             return Ok(());
@@ -97,10 +97,6 @@ pub fn asm(raw: &[u8]) -> Result<Instruction, Error> {
     if opcode > 3 {
         *imm = u16::from_be_bytes([raw[2], raw[3]]) as usize
     }
-
-    // eprintln!("opcode: {opcode:#018b}");
-    // eprintln!("funct:  {funct:#018b}");
-    // eprintln!("imm:    {imm:#018b}");
 
     Ok(inst)
 }
