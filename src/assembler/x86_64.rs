@@ -3,7 +3,7 @@ use std::fmt;
 use super::{lookup, Array, BitWidth, Reader};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum DecodeError {
+pub enum Error {
     /// The instruction has an impossible size.
     InvalidInputSize(usize),
 
@@ -328,9 +328,9 @@ pub enum OperandType {
     DoubleRegister,
 }
 
-pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, DecodeError> {
+pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, Error> {
     if raw_bytes.is_empty() || raw_bytes.len() > 15 {
-        return Err(DecodeError::InvalidInputSize(raw_bytes.len()));
+        return Err(Error::InvalidInputSize(raw_bytes.len()));
     }
 
     let mut bytes = Reader::new(raw_bytes);
@@ -350,7 +350,7 @@ pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, DecodeError
         Some(Prefix::OperandSize | Prefix::RepeatNotEqual | Prefix::Repeat) if bytes.take(0x0f) => {
             prefixes.remove(0);
             true
-        },
+        }
         _ => bytes.take(0x0f),
     };
 
@@ -369,7 +369,7 @@ pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, DecodeError
         }
     }
 
-    let opcode = bytes.consume_exact(multibyte as usize + 1).ok_or(DecodeError::MissingOpcode)?;
+    let opcode = bytes.consume_exact(multibyte as usize + 1).ok_or(Error::MissingOpcode)?;
 
     println!("{:x?}", opcode);
 
@@ -380,8 +380,7 @@ pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, DecodeError
         let opcode = opcode[0];
 
         let row = (opcode & 0b11110000) >> 4;
-        let col = (opcode & 0b00001111) >> 0;
-
+        let col = opcode & 0b00001111;
 
         eprintln!("row: 0x{row:x}, col: 0x{col:x}");
         dbg!(lookup::X86_SINGLE[row as usize][col as usize])

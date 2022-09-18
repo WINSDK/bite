@@ -276,7 +276,7 @@ fn main() -> goblin::error::Result<()> {
 
                 s.spawn(move || {
                     for symbol in symbols_chunk {
-                        if symbol.starts_with("GCC_except_table") || symbol.find("cgu").is_some() {
+                        if symbol.starts_with("GCC_except_table") || symbol.contains("cgu") {
                             continue;
                         }
 
