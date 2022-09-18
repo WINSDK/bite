@@ -6,6 +6,7 @@ use super::lookup::MIPS_REGS;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     ImpossibleInputSize(usize),
+    InvalidInstruction,
     UnknownRegister,
     UnknownOpcode,
 }
@@ -84,6 +85,10 @@ pub fn asm(raw: &[u8]) -> Result<Instruction, Error> {
 
     if MIPS_REGS.get(*rs).is_none() || MIPS_REGS.get(*rt).is_none() || MIPS_REGS.get(*rd).is_none() {
         return Err(Error::UnknownRegister);
+    }
+
+    if inst.mnemomic == "Invalid instruction" {
+        return Err(Error::InvalidInstruction);
     }
 
     if opcode == 2 || opcode == 3 {
