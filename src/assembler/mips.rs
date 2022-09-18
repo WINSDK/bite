@@ -116,7 +116,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rd, rt, imm) => {
+    ($mnemomic:literal : $desc:literal, rd, rt, imm) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -125,7 +125,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rt, rs, imm) => {
+    ($mnemomic:literal : $desc:literal, rt, rs, imm) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -134,7 +134,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rs, rt, imm) => {
+    ($mnemomic:literal : $desc:literal, rs, rt, imm) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -143,7 +143,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rd, rt, rs) => {
+    ($mnemomic:literal : $desc:literal, rd, rt, rs) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -152,7 +152,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rd, rs, rt) => {
+    ($mnemomic:literal : $desc:literal, rd, rs, rt) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -161,7 +161,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rt, imm, rs) => {
+    ($mnemomic:literal : $desc:literal, rt, imm, rs) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -170,7 +170,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rs, imm) => {
+    ($mnemomic:literal : $desc:literal, rs, imm) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -179,7 +179,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rt, imm) => {
+    ($mnemomic:literal : $desc:literal, rt, imm) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -188,7 +188,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rd, rs) => {
+    ($mnemomic:literal : $desc:literal, rd, rs) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -197,7 +197,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rs, rt) => {
+    ($mnemomic:literal : $desc:literal, rs, rt) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -206,7 +206,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, imm) => {
+    ($mnemomic:literal : $desc:literal, imm) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -215,7 +215,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rs) => {
+    ($mnemomic:literal : $desc:literal, rs) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -224,7 +224,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal, rd) => {
+    ($mnemomic:literal : $desc:literal, rd) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -233,7 +233,7 @@ macro_rules! mips {
         }
     };
 
-    ($mnemomic:literal, $desc:literal) => {
+    ($mnemomic:literal : $desc:literal) => {
         $crate::assembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
@@ -248,18 +248,18 @@ pub const I_TYPES: [crate::assembler::mips::Instruction; 44] = [
     mips!(),
     mips!(),
     mips!(),
-    mips!("beq", "", rs, rt, imm),
-    mips!("bne", "", rs, rt, imm),
-    mips!("blez", "", rs, imm),
-    mips!("bgtz", "", rs, imm),
-    mips!("addi", "", rt, rs, imm),
-    mips!("addiu", "", rt, rs, imm),
-    mips!("slti", "", rt, rs, imm),
-    mips!("sltiu", "", rt, rs, imm),
-    mips!("andi", "", rt, rs, imm),
-    mips!("ori", "", rt, rs, imm),
-    mips!("xori", "", rt, rs, imm),
-    mips!("lui", "", rt, imm),
+    mips!("beq" : "Branch to immediate if values of $rs and $rt are equal", rs, rt, imm),
+    mips!("bne" : "Branch to immediate if values of $rs and $rt are not equal", rs, rt, imm),
+    mips!("blez" : "Branch to immediate if value of $rs is less than or equal to zero", rs, imm),
+    mips!("bgtz" : "Branch to immediate if value of $rs is greater than or equal to zero", rs, imm),
+    mips!("addi" : "Add $rs to the immediate and store result in $rt (signed)", rt, rs, imm),
+    mips!("addiu" : "Add $rs to the immediate and store result in $rt (unsigned)", rt, rs, imm),
+    mips!("slti" : "If $rs is less then immediate, $rt is set to 1 otherwise to 0 (signed)", rt, rs, imm),
+    mips!("sltiu" : "If $rs is less then immediate, $rt is set to 1 otherwise to 0 (unsigned)", rt, rs, imm),
+    mips!("andi" : "Bitwise AND between $rs and immediate storing the result in $rt", rt, rs, imm),
+    mips!("ori" : "Bitwise OR between $rs and immediate storing the result in $rt", rt, rs, imm),
+    mips!("xori" : "Bitwise XOR between $rs and immediate storing the result in $rt", rt, rs, imm),
+    mips!("lui" : "Stores immediate in the upper 16 bits of $rt", rt, imm),
     mips!(),
     mips!(),
     mips!(),
@@ -276,71 +276,71 @@ pub const I_TYPES: [crate::assembler::mips::Instruction; 44] = [
     mips!(),
     mips!(),
     mips!(),
-    mips!("lb", "", rt, imm, rs),
-    mips!("lh", "", rt, imm, rs),
-    mips!("lw", "", rt, imm, rs),
+    mips!("lb" : "Load byte from value at address in $rs with a given offset into $rt sign extending it to 32 bits (signed)", rt, imm, rs),
+    mips!("lh" : "Load 2 bytes from value at address in $rs with a given offset into $rt sign extending it to 32 bits (signed)", rt, imm, rs),
+    mips!("lw" : "Load 4 bytes from value at address in $rs with a given offset into $rt (signed)", rt, imm, rs),
     mips!(),
-    mips!("lbu", "", rt, imm, rs),
-    mips!("lhu", "", rt, imm, rs),
+    mips!("lbu" : "Load byte from value at address in $rs with a given offset into $rt sign extending it to 32 bits (unsigned)", rt, imm, rs),
+    mips!("lhu" : "Load 2 bytes from value at address in $rs with a given offset into $rt sign extending it to 32 bits (unsigned)", rt, imm, rs),
+    mips!("lwu" : "Load 4 bytes from value at address in $rs with a given offset into $rt (unsigned)", rt, imm, rs),
     mips!(),
+    mips!("sb" : "Store byte at address in $rs with a given offset into $rt", rt, imm, rs),
+    mips!("sh" : "Store 2 bytes at address in $rs with a given offset into $rt", rt, imm, rs),
     mips!(),
-    mips!("sb", "", rt, imm, rs),
-    mips!("sh", "", rt, imm, rs),
-    mips!(),
-    mips!("sw", "", rt, imm, rs),
+    mips!("sw" : "Store 4 bytes at address in $rs with a given offset into $rt", rt, imm, rs),
 ];
 
 pub const J_TYPES: [crate::assembler::mips::Instruction; 4] = [
     mips!(),
     mips!(),
-    mips!("j", "Jump to target address", imm),
-    mips!("jr", "Call the target address and save return addr in $ra", imm),
+    mips!("j" : "Jump to target address", imm),
+    mips!("jr" : "Call the target address and save return addr in $ra", imm),
 ];
 
 pub const R_TYPES: [crate::assembler::mips::Instruction; 43] = [
-    mips!("sll", "", rd, rt, imm),
+    mips!("sll" : "Shift value in $rt `immediate` number of times to the left storing the result in $rd and zero extending the shifted bits", rd, rt, imm),
     mips!(),
-    mips!("srl", "", rd, rt, imm),
-    mips!("sra", "", rd, rt, imm),
-    mips!("sllv", "", rd, rt, rs),
+    mips!("srl" : "Shift value in $rt `immediate` number of times to the right storing the result in $rd and zero extending the shifted bits", rd, rt, imm),
+    mips!("sra" : "Shift value in $rt `immediate` number of times to the right storing the result in $rd and sign extending the shifted bits", rd, rt, imm),
+    mips!("sllv" : "Shift value in $rt `$rs` number of times to the left storing the result in $rd and zero extending the shifted bits", rd, rt, rs),
     mips!(),
-    mips!("srlv", "", rd, rt, rs),
-    mips!("srav", "", rd, rt, rs),
-    mips!("jr", "", rs),
-    mips!(),
-    mips!(),
-    mips!("syscall", ""),
+    mips!("srlv" : "Shift value in $rt `$rs` number of times to the right storing the result in $rd and zero extending the shifted bits", rd, rt, rs),
+    mips!("srav" : "Shift value in $rt `$rs` number of times to the right storing the result in $rd and sign extending the shifted bits", rd, rt, rs),
+    mips!("jr" : "Jump to address of $rs", rs),
     mips!(),
     mips!(),
-    mips!(),
-    mips!("mfhi", "", rd),
-    mips!("mthi", "", rs),
-    mips!("mflo", "", rd),
-    mips!("mtlo", "", rs),
+    mips!("syscall" : "Trigger exception tranfering control from user space to kernel space where the call is handled"),
     mips!(),
     mips!(),
     mips!(),
-    mips!(),
-    mips!("mult", "", rs, rt),
-    mips!("multu", "", rs, rt),
-    mips!("div", "", rs, rt),
-    mips!("divu", "", rs, rt),
+    mips!("mfhi" : "Store value from $hi (internal register used for multiplication/division) in $rd", rd),
+    mips!("mthi" : "Store value from $rs in $hi (internal register used for multiplication/division)", rs),
+    mips!("mflo" : "Store value from $lo (internal register used for multiplication/division) in $rd", rd),
+    mips!("mtlo" : "Store value from $rs in $lo (internal register used for multiplication/division)", rs),
     mips!(),
     mips!(),
     mips!(),
     mips!(),
-    mips!("add", "", rd, rs, rt),
-    mips!("addu", "", rd, rs, rt),
-    mips!("sub", "", rd, rs, rt),
-    mips!("subu", "", rd, rs, rt),
-    mips!("and", "", rd, rs, rt),
-    mips!("or", "", rd, rs, rt),
-    mips!("xor", "", rd, rs, rt),
-    mips!("nor", "", rd, rs, rt),
+    mips!("mult" : "Multiply $rs and $rt (signed) storing the result in the split between $hi and $lo (internal registers)", rs, rt),
+    mips!("multu" : "Multiply $rs and $rt (unsigned) storing the result in the split between $hi and $lo (internal registers)", rs, rt),
+    mips!("div" : "Divide $rs by $rt (signed) storing the result in the split between $hi and $lo (internal registers)", rs, rt),
+    mips!("divu" : "Divide $rs by $rt (unsigned) storing the result in the split between $hi and $lo (internal registers)", rs, rt),
     mips!(),
     mips!(),
-    mips!("slt", "", rd, rs, rt),
-    mips!("sltu", "", rd, rs, rt),
+    mips!(),
+    mips!(),
+    mips!("add" : "Add $rs to $rt storing the result in $rd (signed)", rd, rs, rt),
+    mips!("addu" : "Add $rs to $rt storing the result in $rd (unsigned)", rd, rs, rt),
+    mips!("sub" : "Subtract $rs from $rt storing the result in $rd (signed)", rd, rs, rt),
+    mips!("subu" : "Subtract $rs from $rt storing the result in $rd (unsigned)", rd, rs, rt),
+    mips!("and" : "Bitwise AND between $rs and $rt storing the result in $rd", rd, rs, rt),
+    mips!("or" : "Bitwise OR between $rs and $rt storing the result in $rd", rd, rs, rt),
+    mips!("xor" : "Bitwise XOR between $rs and $rt storing the result in $rd", rd, rs, rt),
+    mips!("nor" : "Bitwise NOR between $rs and $rt storing the result in $rd", rd, rs, rt),
+    mips!(),
+    mips!(),
+    mips!("slt" : "If $rs is less then $rt, $rd is set to 1 otherwise to 0 (signed)", rd, rs, rt),
+    mips!("sltu" : "If $rs is less then $rt, $rd is set to 1 otherwise to 0 (unsigned)", rd, rs, rt),
 ];
 
 #[rustfmt::skip]
