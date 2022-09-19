@@ -158,17 +158,14 @@ fn main() -> object::Result<()> {
             Ok(symbols)
         };
 
-        let path = std::str::from_utf8(pdb.path()).unwrap();
-        let path = std::path::Path::new(path);
-
-        if path.is_file() {
-            symbols.extend(
-                std::fs::File::open(path)
-                    .map_err(|_| pdb::Error::UnrecognizedFileFormat)
-                    .and_then(read_symbols)
-                    .unwrap_or_default(),
-            )
-        }
+        symbols.extend(
+            std::str::from_utf8(pdb.path())
+                .map_err(|_| std::io::ErrorKind::InvalidData.into())
+                .and_then(std::fs::File::open)
+                .map_err(|_| pdb::Error::UnrecognizedFileFormat)
+                .and_then(read_symbols)
+                .unwrap_or_default()
+        );
     }
 
     if args.libs {
