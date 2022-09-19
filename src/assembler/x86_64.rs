@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::{lookup, Array, BitWidth, Reader};
+use super::{lookup, Array, Reader};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -328,7 +328,7 @@ pub enum OperandType {
     DoubleRegister,
 }
 
-pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, Error> {
+pub fn asm(width: object::AddressSize, raw_bytes: &[u8]) -> Result<Instruction, Error> {
     if raw_bytes.is_empty() || raw_bytes.len() > 15 {
         return Err(Error::InvalidInputSize(raw_bytes.len()));
     }
@@ -357,7 +357,7 @@ pub fn asm(width: BitWidth, raw_bytes: &[u8]) -> Result<Instruction, Error> {
     // read optional REX prefix (1 byte).
     let mut rex_prefix = None;
     if let Some(prefix) = bytes.consume_eq(|x| (x >> 4) == 0b0100) {
-        if width == BitWidth::U64 {
+        if width == object::AddressSize::U64 {
             debug_assert_eq!(prefix >> 4, 0b0100);
 
             let is_64_operand = (prefix & 0b00001000) == 0b00001000;

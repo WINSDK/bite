@@ -1,14 +1,12 @@
 // NOTE: #[allow(dead_code)] uses exist as some attributes are not used by either AMD or intel.
 
-use super::BitWidth;
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct X86 {
     pub mnemomic: &'static str,
     pub desc: &'static str,
     pub addressing: &'static [super::x86_64::AddressingMethod],
     pub operands: &'static [super::x86_64::OperandType],
-    pub size_exclusive: Option<BitWidth>,
+    pub size_exclusive: Option<object::AddressSize>,
 }
 
 // NOTE: Operands and addressing have to be in order,
@@ -331,52 +329,52 @@ pub const X86_SINGLE: [[X86; 16]; 8] = [
     ],
     [
         x86!("push" : "Decrement stack pointer and then stores the RAX on top of the stack" =>
-             [registers![RAX], U64], BitWidth::U64
+             [registers![RAX], U64], object::AddressSize::U64
         ),
         x86!("push" : "Decrement stack pointer and then stores the RCX on top of the stack" =>
-             [registers![RCX], U64], BitWidth::U64
+             [registers![RCX], U64], object::AddressSize::U64
         ),
         x86!("push" : "Decrement stack pointer and then stores the RDX on top of the stack" =>
-             [registers![RDX], U64], BitWidth::U64
+             [registers![RDX], U64], object::AddressSize::U64
         ),
         x86!("push" : "Decrement stack pointer and then stores the RBX on top of the stack" =>
-             [registers![RBX], U64], BitWidth::U64
+             [registers![RBX], U64], object::AddressSize::U64
         ),
         x86!("push" : "Decrement stack pointer and then stores the RSP on top of the stack" =>
-             [registers![RSP], U64], BitWidth::U64
+             [registers![RSP], U64], object::AddressSize::U64
         ),
         x86!("push" : "Decrement stack pointer and then stores the RBP on top of the stack" =>
-             [registers![RBP], U64], BitWidth::U64
+             [registers![RBP], U64], object::AddressSize::U64
         ),
         x86!("push" : "Decrement stack pointer and then stores the RSI on top of the stack" =>
-             [registers![RSI], U64], BitWidth::U64
+             [registers![RSI], U64], object::AddressSize::U64
         ),
         x86!("push" : "Decrement stack pointer and then stores the RDI on top of the stack" =>
-             [registers![RDI], U64], BitWidth::U64
+             [registers![RDI], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RAX and then increments the stack pointer" =>
-             [registers![RAX], U64], BitWidth::U64
+             [registers![RAX], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RCX and then increments the stack pointer" =>
-             [registers![RCX], U64], BitWidth::U64
+             [registers![RCX], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RDX and then increments the stack pointer" =>
-             [registers![RDX], U64], BitWidth::U64
+             [registers![RDX], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RBX and then increments the stack pointer" =>
-             [registers![RBX], U64], BitWidth::U64
+             [registers![RBX], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RSP and then increments the stack pointer" =>
-             [registers![RSP], U64], BitWidth::U64
+             [registers![RSP], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RBP and then increments the stack pointer" =>
-             [registers![RBP], U64], BitWidth::U64
+             [registers![RBP], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RSI and then increments the stack pointer" =>
-             [registers![RSI], U64], BitWidth::U64
+             [registers![RSI], U64], object::AddressSize::U64
         ),
         x86!("pop" : "Loads value from top of stack into RDI and then increments the stack pointer" =>
-             [registers![RDI], U64], BitWidth::U64
+             [registers![RDI], U64], object::AddressSize::U64
         ),
     ],
     [
@@ -399,13 +397,13 @@ pub const X86_SINGLE: [[X86; 16]; 8] = [
         x86!("Operand size prefix"),
         x86!("Address size prefix"),
         x86!("push" : "Decrement stack pointer and then stores the immediate on top of the stack" =>
-             [Immediate, SingleOrDouble], BitWidth::U64
+             [Immediate, SingleOrDouble], object::AddressSize::U64
         ),
         x86!("imul" : "Second operand is multiplied by the third operand and then stored in the first operand" =>
              [Register, SingleOrDoubleOrQuad], [ModRM, SingleOrDoubleOrQuad], [Immediate, SingleOrDouble]
         ),
         x86!("push" : "Decrement stack pointer and then stores the immediate on top of the stack" =>
-             [Immediate, U8], BitWidth::U64
+             [Immediate, U8], object::AddressSize::U64
         ),
         x86!("imul" : "Second operand is multiplied by the third operand and then stored in the first operand" =>
              [Register, SingleOrDoubleOrQuad], [ModRM, SingleOrDoubleOrQuad], [Immediate, U8]

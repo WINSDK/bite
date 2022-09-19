@@ -5,11 +5,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use goblin::elf::header::EI_CLASS;
-use goblin::mach::header::MH_MAGIC_64;
-use goblin::Object;
-
 use pdb::FallibleIterator;
+
+use object::{Object, ObjectSection, ObjectSymbol, SectionKind};
 
 mod args;
 mod assembler;
@@ -41,13 +39,6 @@ macro_rules! assert_exit {
             $crate::exit!($($arg)*);
         }
     }};
-}
-
-struct GenericBinary<'a> {
-    symbols: Vec<&'a str>,
-    libs: Vec<&'a str>,
-    raw: &'a [u8],
-    width: assembler::BitWidth,
 }
 
 fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> Cow<'a, str> {
@@ -126,131 +117,79 @@ fn objdump(args: &args::Cli, config: &replace::Config) {
 }
 
 // TODO: impliment own version of `objdump`.
-fn main() -> goblin::error::Result<()> {
+fn main() -> object::Result<()> {
     let args = args::Cli::parse();
     let config = replace::Config::from_env(&args);
 
-    let object_bytes = std::fs::read(&args.path).unwrap();
-    let object = goblin::Object::parse(object_bytes.as_slice())?;
-    let object = match object {
-        Object::Mach(bin) => {
-            let bin = match bin {
-                goblin::mach::Mach::Fat(fat) => fat.get(0)?,
-                goblin::mach::Mach::Binary(bin) => bin,
-            };
+    let binary = std::fs::read(&args.path).unwrap();
+    let obj = object::File::parse(&*binary)?;
+    let mut symbols: Vec<&str> = obj.symbols().filter_map(|s| s.name().ok()).collect();
 
-            let (_section, raw) = bin
-                .segments
-                .into_iter()
-                .find(|seg| matches!(seg.name(), Ok("__TEXT")))
-                .expect("Object is missing a `text` section")
-                .sections()
-                .expect("Failed to parse section")
-                .into_iter()
-                .find(|(sec, _)| matches!(sec.name(), Ok("__text")))
-                .unwrap_or_else(|| exit!("Object looks like it's been stripped"));
+    if let Ok(Some(pdb)) = obj.pdb_info() {
+        let read_symbols = |f: std::fs::File| {
+            let mut symbols = Vec::new();
+            let mut pdb = pdb::PDB::open(f)?;
 
-            let width = if bin.header.magic == MH_MAGIC_64 {
-                assembler::BitWidth::U64
-            } else {
-                assembler::BitWidth::U32
-            };
+            // get symbol table
+            let symbol_table = pdb.global_symbols()?;
+            // leak symbols onto the heap for later use
+            let symbol_table = Box::leak(Box::new(symbol_table));
+            // iterate through symbols collected earlier
+            let mut symbol_table = symbol_table.iter();
 
-            GenericBinary {
-                symbols: bin.symbols().filter_map(|x| x.map(|y| y.0).ok()).collect(),
-                libs: bin.libs,
-                raw,
-                width,
-            }
-        }
-        Object::Elf(bin) => {
-            let raw = bin
-                .section_headers
-                .into_iter()
-                .find(|header| &bin.shdr_strtab[header.sh_name] == ".text")
-                .and_then(|header| header.file_range())
-                .map(|section_range| &object_bytes[section_range])
-                .unwrap_or_else(|| exit!("No text section found"));
+            while let Some(symbol) = symbol_table.next()? {
+                let symbol = symbol.parse()?;
 
-            let width = if bin.header.e_ident[EI_CLASS] == 0 {
-                assembler::BitWidth::U64
-            } else {
-                assembler::BitWidth::U32
-            };
+                let symbol_name = match symbol {
+                    pdb::SymbolData::Public(s) => std::str::from_utf8(s.name.as_bytes()),
+                    pdb::SymbolData::Export(s) => std::str::from_utf8(s.name.as_bytes()),
+                    _ => Ok(""),
+                };
 
-            GenericBinary { symbols: bin.strtab.to_vec()?, libs: bin.libraries, raw, width }
-        }
-        Object::PE(bin) => {
-            let read_symbols = |f: std::fs::File| {
-                let mut symbols = Vec::new();
-                let mut pdb = pdb::PDB::open(f)?;
-
-                // get symbol table
-                let symbol_table = pdb.global_symbols()?;
-                // leak symbols onto the heap for later use
-                let symbol_table = Box::leak(Box::new(symbol_table));
-                // iterate through symbols collected earlier
-                let mut symbol_table = symbol_table.iter();
-
-                while let Some(symbol) = symbol_table.next()? {
-                    let symbol = symbol.parse()?;
-
-                    let symbol_name = match symbol {
-                        pdb::SymbolData::Public(s) => std::str::from_utf8(s.name.as_bytes()),
-                        pdb::SymbolData::Export(s) => std::str::from_utf8(s.name.as_bytes()),
-                        _ => Ok(""),
-                    };
-
-                    if let Ok(symbol_name) = symbol_name {
-                        symbols.push(symbol_name);
+                if let Ok(symbol_name) = symbol_name {
+                    if symbol_name.is_empty() {
+                        continue;
                     }
+
+                    symbols.push(symbol_name);
                 }
+            }
 
-                Ok(symbols)
-            };
+            Ok(symbols)
+        };
 
-            let symbols = std::fs::File::open(args.path.with_extension("pdb"))
-                .map_err(|_| pdb::Error::UnrecognizedFileFormat)
-                .and_then(read_symbols)
-                .unwrap_or_default();
+        let path = std::str::from_utf8(pdb.path()).unwrap();
+        let path = std::path::Path::new(path);
 
-            let raw = bin
-                .sections
-                .iter()
-                .find(|section| matches!(section.name(), Ok(".text")))
-                .map(|section| {
-                    let start = section.pointer_to_raw_data as usize;
-                    let size = section.size_of_raw_data as usize;
-
-                    &object_bytes[start..][..size]
-                })
-                .unwrap();
-
-            let width = if bin.is_64 { assembler::BitWidth::U64 } else { assembler::BitWidth::U32 };
-
-            GenericBinary { symbols, libs: bin.libraries, raw, width }
+        if path.is_file() {
+            symbols.extend(
+                std::fs::File::open(path)
+                    .map_err(|_| pdb::Error::UnrecognizedFileFormat)
+                    .and_then(read_symbols)
+                    .unwrap_or_default(),
+            )
         }
-        Object::Unknown(..) => exit!("Unable to recognize the object's format"),
-        _ => todo!(),
-    };
+    }
 
     if args.libs {
         println!("{}:", args.path.display());
-        for lib in object.libs.iter().skip(1) {
-            let lib = std::path::Path::new(lib);
 
-            if let Some(name) = cfg!(target_os = "macos").then(|| lib.file_name()).flatten() {
-                println!("\t{} => {}", name.to_string_lossy(), lib.display());
-            } else {
-                println!("\t{}", lib.display());
-            }
+        for import in obj.imports()? {
+            let library = match std::str::from_utf8(import.library()) {
+                Ok(library) => library,
+                Err(_) => continue,
+            };
+
+            match std::str::from_utf8(import.name()) {
+                Ok(name) => println!("\t{library} => {name}"),
+                Err(_) => println!("\t{library}"),
+            };
         }
 
         exit!();
     }
 
     if args.names {
-        let symbols = object.symbols;
         let thread_count = std::thread::available_parallelism().unwrap_or_else(|err| {
             eprintln!("Failed to get thread_count: {err}");
             unsafe { std::num::NonZeroUsize::new_unchecked(1) }
@@ -317,6 +256,12 @@ fn main() -> goblin::error::Result<()> {
     }
 
     if args.disassemble {
+        let raw = obj
+            .sections()
+            .find(|s| s.kind() == SectionKind::Text)
+            .expect("Failed to find text section")
+            .uncompressed_data();
+
         objdump(&args, &config);
     }
 

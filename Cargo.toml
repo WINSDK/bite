@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 rustc-demangle = "0.1"
-goblin = "0.5"
+object = "0.29"
 pdb = "0.8"
 triple_accel = "0.4"
 
