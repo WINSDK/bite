@@ -132,8 +132,10 @@ fn main() -> object::Result<()> {
 
             // get symbol table
             let symbol_table = pdb.global_symbols()?;
+
             // leak symbols onto the heap for later use
             let symbol_table = Box::leak(Box::new(symbol_table));
+
             // iterate through symbols collected earlier
             let mut symbol_table = symbol_table.iter();
 
@@ -147,10 +149,6 @@ fn main() -> object::Result<()> {
                 };
 
                 if let Ok(symbol_name) = symbol_name {
-                    if symbol_name.is_empty() {
-                        continue;
-                    }
-
                     symbols.push(symbol_name);
                 }
             }
