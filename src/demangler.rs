@@ -565,7 +565,7 @@ impl<'p> Symbol<'p> {
             }
             b'E' => {}
             #[cfg(debug_assertions)]
-            c => panic!("char: {}\n{:#?}", c as char, &self.ast),
+            _ => panic!("\n{}\n{:#?}", std::str::from_utf8(self.source.buf).unwrap(), &self.ast),
             #[cfg(not(debug_assertions))]
             _ => return Err(Error::Invalid),
         }

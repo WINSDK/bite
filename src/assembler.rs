@@ -10,12 +10,6 @@ pub mod x86_64;
 
 mod lookup;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum BitWidth {
-    U64,
-    U32,
-}
-
 pub struct Array<T, const S: usize> {
     bytes: [MaybeUninit<T>; S],
     len: usize,
