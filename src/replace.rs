@@ -220,30 +220,17 @@ mod tests {
 
     #[test]
     fn cfg_generate() {
-        let example = r#"
+        let text = r#"
             use        std::path::Path
                                                 use std::mem::*
             use     std::mem::transmute          as       rename D:
         "#;
 
-        let mut conf1 = Config::from_string(example.to_string());
-        dbg!(&conf1.includes);
+        let conf = Config::from_string(text.to_string());
+        let conf = conf.includes;
 
-        let example = r#"
-            use        std::troll
-                                                use std::compare
-            use     std::mem::transmute
-        "#;
-
-        let mut conf2 = Config::from_string(example.to_string());
-        dbg!(&conf2.includes);
-
-        let (fmt1, fmt2) = (format!("{:?}", &conf1.includes), format!("{:?}", &conf2.includes));
-        std::mem::swap(&mut conf1, &mut conf2);
-        let (fmt3, fmt4) = (format!("{:?}", &conf1.includes), format!("{:?}", &conf2.includes));
-
-        // Assert that the swap correctly references to the internal `Statement`s.
-        assert_eq!(fmt1, fmt4);
-        assert_eq!(fmt2, fmt3);
+        assert!(conf.contains(&Statement::Path(vec!["std", "path", "Path"])));
+        assert!(conf.contains(&Statement::Include(vec!["std", "mem"])));
+        assert!(conf.contains(&Statement::Rename(vec!["std", "mem", "transmute"], "rename")));
     }
 }

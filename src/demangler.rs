@@ -819,6 +819,7 @@ struct Const {
     data: (usize, usize),
 }
 
+// TODO: make enum fit in cache line
 #[derive(Debug, PartialEq, Clone)]
 enum Path<'p> {
     /// [disambiguator] <ident>
@@ -954,7 +955,6 @@ fn basic_types(tag: u8) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Path, Type};
     use crate::replace::Config;
 
     lazy_static::lazy_static! {
@@ -1078,14 +1078,6 @@ mod tests {
     fn type_compression() {
         fmt!("_RINvNtCs9ltgdHTiPiY_4core3ptr13drop_in_placeNtCs1GtwyVVVJ4z_6goblin6ObjectECsjO9TEQ1PNLx_8rustdump" =>
              "core::ptr::drop_in_place::<goblin::Object>");
-    }
-
-    // TODO: decrease size of enums
-    #[should_panic]
-    #[test]
-    fn cache_lines() {
-        assert!(dbg!(std::mem::size_of::<Path>()) <= 64);
-        assert!(dbg!(std::mem::size_of::<Type>()) <= 64);
     }
 
     #[test]
