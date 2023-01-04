@@ -450,7 +450,7 @@ mod tests {
         ($bitness:tt, [$($bytes:tt),+] => $repr:expr) => {
             assert_eq!(
                 $crate::assembler::x86_64::asm(
-                    $crate::assembler::BitWidth::$bitness,
+                    object::AddressSize::$bitness,
                     &[$($bytes),+]
                 ).map(|x| x.to_string()).as_deref(),
                 Ok($repr)

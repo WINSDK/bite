@@ -29,7 +29,7 @@ const MAX_DEPTH: usize = 100;
 
 pub struct Symbol<'p> {
     ast: Stack<'p>,
-    source: Reader<'p>,
+    source: Reader<'p, u8>,
     depth: usize,
     formatter: Option<&'p Config>,
 }
@@ -565,7 +565,7 @@ impl<'p> Symbol<'p> {
             }
             b'E' => {}
             #[cfg(debug_assertions)]
-            _ => panic!("\n{}\n{:#?}", std::str::from_utf8(self.source.buf).unwrap(), &self.ast),
+            _ => panic!("\n{}", String::from_utf8_lossy(self.source.buf)),
             #[cfg(not(debug_assertions))]
             _ => return Err(Error::Invalid),
         }
@@ -796,7 +796,7 @@ impl Lifetime {
         ];
 
         if self.0 != 0 {
-            return CHARS.get(self.0 as usize - 1).copied();
+            return CHARS.get(self.0 - 1).copied();
         }
 
         None

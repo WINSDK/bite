@@ -1,13 +1,11 @@
 use std::borrow::Cow;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use pdb::FallibleIterator;
 
 use object::{Object, ObjectSection, ObjectSymbol, SectionKind};
+use rayon::prelude::*;
 
 mod args;
 mod assembler;
@@ -16,13 +14,13 @@ mod replace;
 
 #[macro_export]
 macro_rules! exit {
-    () => {{
+    () => {
         std::process::exit(0);
-    }};
+    };
 
     ($($arg:tt)*) => {{
         eprintln!($($arg)*);
-        std::process::exit(1);
+        std::process::exit(0);
     }};
 }
 
@@ -162,7 +160,7 @@ fn main() -> object::Result<()> {
                 .and_then(std::fs::File::open)
                 .map_err(|_| pdb::Error::UnrecognizedFileFormat)
                 .and_then(read_symbols)
-                .unwrap_or_default()
+                .unwrap_or_default(),
         );
     }
 
@@ -185,79 +183,54 @@ fn main() -> object::Result<()> {
     }
 
     if args.names {
-        let thread_count = std::thread::available_parallelism().unwrap_or_else(|err| {
-            eprintln!("Failed to get thread_count: {err}");
-            unsafe { std::num::NonZeroUsize::new_unchecked(1) }
-        });
-
         if symbols.is_empty() {
-            println!("no symbols found: '{}'", args.path.display());
-            return Ok(());
+            exit!("no symbols found: '{}'", args.path.display());
         }
 
-        let symbols_per_thread = (symbols.len() + (thread_count.get() - 1)) / thread_count;
+        let demangled_symbols: std::collections::BTreeSet<String> = symbols
+            .par_iter()
+            .filter(|symbol| !symbol.starts_with("GCC_except_table") && !symbol.contains("cgu"))
+            .map(|symbol| match demangler::Symbol::parse(symbol) {
+                Ok(sym) => sym.display() + "\n",
+                Err(..) => format!("{:#}\n", rustc_demangle::demangle(symbol)),
+            })
+            .collect();
 
-        std::thread::scope(|s| {
-            let demangled = Arc::new(Mutex::new(Vec::with_capacity(symbols.len())));
-            let threads_working = Arc::new(AtomicUsize::new(0));
-
-            for symbols_chunk in symbols.chunks(symbols_per_thread) {
-                let demangled = Arc::clone(&demangled);
-                let threads_working = Arc::clone(&threads_working);
-
-                // notify that a thread has started working
-                threads_working.fetch_add(1, Ordering::AcqRel);
-
-                s.spawn(move || {
-                    for symbol in symbols_chunk {
-                        if symbol.starts_with("GCC_except_table") || symbol.contains("cgu") {
-                            continue;
-                        }
-
-                        let demangled_name = match demangler::Symbol::parse(symbol) {
-                            Ok(sym) => sym.display(),
-                            Err(..) => format!("{:#}", rustc_demangle::demangle(symbol)),
-                        };
-
-                        demangled.lock().unwrap().push(demangled_name)
-                    }
-
-                    // notify that a thread has finished working
-                    threads_working.fetch_sub(1, Ordering::AcqRel);
-                });
-            }
-
-            // wait till all threads are finished working
-            //
-            // NOTE: could technically be replaced by in-place sorting
-            //       whilst values are being yielded amongst threads
-            while threads_working.load(Ordering::Relaxed) != 0 {
-                std::thread::yield_now();
-            }
-
-            let mut demangled = demangled.lock().unwrap();
-
-            demangled.sort_unstable();
-            demangled.dedup();
-
-            let mut stdout = std::io::stdout();
-            for name in demangled.iter_mut() {
-                *name += "\n";
-                stdout.write_all(name.as_bytes()).unwrap();
-            }
-
-            stdout.flush().unwrap();
-        });
+        println!("{}", String::from_iter(demangled_symbols.into_iter()));
     }
 
     if args.disassemble {
-        let raw = obj
-            .sections()
-            .find(|s| s.kind() == SectionKind::Text)
-            .expect("Failed to find text section")
-            .uncompressed_data();
+        let text_sections = obj.sections().filter(|s| s.kind() == SectionKind::Text);
 
-        objdump(&args, &config);
+        for text in text_sections {
+            if text.name() != Ok(".init") {
+                continue;
+            }
+
+            if let Ok(raw) = text.uncompressed_data() {
+                use object::Architecture::*;
+
+                println!("Disassembly of section {}:\n", text.name().unwrap_or("???"));
+                println!("{:x?}", raw);
+                println!();
+
+                let Some(size) = obj.architecture().address_size() else {
+                    exit!("unknown target architecture");
+                };
+
+                let instruction = match obj.architecture() {
+                    Aarch64 | Arm => assembler::arm::asm().to_string(),
+                    X86_64 | X86_64_X32 => assembler::x86_64::asm(size, &raw).unwrap().to_string(),
+                    Mips | Mips64 => assembler::mips::asm(&raw).unwrap().to_string(),
+                    Riscv32 | Riscv64 => assembler::riscv::asm(&raw).to_string(),
+                    _ => todo!(),
+                };
+
+                println!("{instruction}");
+            }
+        }
+
+        // objdump(&args, &config);
     }
 
     Ok(())
