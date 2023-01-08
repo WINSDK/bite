@@ -47,9 +47,10 @@ impl<'a> InstructionStream<'a> {
             _ => todo!(),
         };
 
-        let Some(addr_size) = arch.address_size().map(|size| size.bytes() as usize * 8) else {
-            crate::exit!(fail, "unknown target architecture");
-        };
+        let addr_size = arch
+            .address_size()
+            .map(|size| size.bytes() as usize * 8)
+            .expect("unknown target architecture");
 
         Self { bytes, interpreter, addr_size, start: 0, end: 0 }
     }
@@ -91,7 +92,9 @@ impl Iterator for InstructionStream<'_> {
                     return None;
                 }
 
-                crate::exit!(fail, "{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
+                crate::exit!(
+                    fail,
+                    "{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
                     self.bytes[self.start],
                     self.bytes[self.start + 1],
                     self.bytes[self.start + 2],
