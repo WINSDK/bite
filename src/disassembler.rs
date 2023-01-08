@@ -75,9 +75,9 @@ impl Iterator for InstructionStream<'_> {
 
                 for idx in 0..inst.operand_count {
                     if idx == inst.operand_count - 1 {
-                        fmt.push_str(&format!("{:}", inst.operands[idx]));
+                        fmt += &format!("{:}", inst.operands[idx]);
                     } else {
-                        fmt.push_str(&format!("{:}, ", inst.operands[idx]));
+                        fmt += &format!("{:}, ", inst.operands[idx]);
                     }
                 }
 

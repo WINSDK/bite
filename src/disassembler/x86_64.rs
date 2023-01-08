@@ -443,7 +443,7 @@ mod tests {
             );
 
             assert_eq!(
-                $crate::disassembler::x86_64::asm(&mut stream).as_deref(),
+                $crate::disassembler::x86_64::next(&mut stream).as_deref(),
                 Ok($repr)
             )
         }};

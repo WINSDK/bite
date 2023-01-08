@@ -1,8 +1,10 @@
 #!/bin/sh
 
-TARGET="mips-unknown-none"
+fname=$(basename $BASH_SOURCE)
+fname="${fname%%.*}"
+fname="target/$fname-$TARGET"
 
-cat <<EOF | clang -Oz -o target/test -target $TARGET -c -xc -
+cat <<EOF | clang -Oz -o $fname -target $TARGET -c -xc -
 /*********************************************************************
 * Author:     Brad Conte (brad AT bradconte.com)
 * Copyright:
@@ -180,3 +182,5 @@ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
 	}
 }
 EOF
+
+cargo run --quiet -- -D $fname > /dev/null

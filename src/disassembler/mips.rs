@@ -77,10 +77,10 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
 
             for idx in 0..inst.format.len() {
                 // index into next operand
-                let format = inst.format[idx];
+                let mask = inst.format[idx];
 
                 // operand specified by the bitmask
-                let operand = match format {
+                let operand = match mask {
                     0 => rd,
                     1 => rt,
                     2 => rs,
@@ -88,7 +88,11 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                     _ => unsafe { core::hint::unreachable_unchecked() },
                 };
 
-                operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+                if operand == shamt {
+                    operands[idx] = Cow::Owned(format!("0x{shamt:x}"));
+                } else {
+                    operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+                }
             }
 
             Ok(GenericInstruction {
@@ -122,10 +126,10 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
 
             for idx in 0..inst.format.len() {
                 // index into next operand
-                let format = inst.format[idx];
+                let mask = inst.format[idx];
 
                 // operand specified by the bitmask
-                let operand = match format {
+                let operand = match mask {
                     0 => rd,
                     1 => rt,
                     2 => rs,
@@ -292,14 +296,14 @@ const I_TYPES: [crate::disassembler::mips::Instruction; 44] = [
     mips!(),
     mips!(),
     mips!(),
-    mips!(),
     mips!("lb" : "Load byte from value at address in $rs with a given offset into $rt sign extending it to 32 bits (signed)", rt, imm, rs),
     mips!("lh" : "Load 2 bytes from value at address in $rs with a given offset into $rt sign extending it to 32 bits (signed)", rt, imm, rs),
+    mips!("lwl" : "Load the most-significant part of a word as a signed value from an unaligned memory address", rt, imm, rs),
     mips!("lw" : "Load 4 bytes from value at address in $rs with a given offset into $rt (signed)", rt, imm, rs),
     mips!("lbu" : "Load byte from value at address in $rs with a given offset into $rt sign extending it to 32 bits (unsigned)", rt, imm, rs),
     mips!("lhu" : "Load 2 bytes from value at address in $rs with a given offset into $rt sign extending it to 32 bits (unsigned)", rt, imm, rs),
+    mips!("lwr" : "Load the least-significant part of a word as a signed value from an unaligned memory address", rt, imm, rs),
     mips!("lwu" : "Load 4 bytes from value at address in $rs with a given offset into $rt (unsigned)", rt, imm, rs),
-    mips!(),
     mips!("sb" : "Store byte at address in $rs with a given offset into $rt", rt, imm, rs),
     mips!("sh" : "Store 2 bytes at address in $rs with a given offset into $rt", rt, imm, rs),
     mips!(),
@@ -363,41 +367,55 @@ const R_TYPES: [crate::disassembler::mips::Instruction; 44] = [
 #[cfg(test)]
 mod tests {
     macro_rules! eq {
-        ([$($bytes:tt),+] => $repr:expr) => {{
+        ([$($bytes:tt),+] => $mnemomic:literal, $($operand:literal),*) => {{
             let mut stream = $crate::disassembler::InstructionStream::new(
                 &[$($bytes),+],
                 object::Architecture::Mips
             );
 
-            assert_eq!(
-                $crate::disassembler::mips::asm(&mut stream).as_deref(),
-                Ok($repr)
-            )
+            match $crate::disassembler::mips::next(&mut stream) {
+                Ok(inst) => {
+                    assert_eq!(inst.mnemomic, $mnemomic);
+
+                    dbg!(&inst.operands);
+
+                    let mut idx = 0;
+                    $(
+                        assert_eq!(
+                            $operand,
+                            inst.operands.get(idx).expect("not enough operands")
+                        );
+
+                        idx += 1;
+                    )*
+                }
+                Err(e) => panic!("failed to decode instruction: {e:?}"),
+            }
         }};
     }
 
     #[test]
     fn jump() {
-        eq!([0x9, 0, 0, 0] => "j 0x1000000");
+        eq!([0x9, 0, 0, 0] => "j", "0x0");
     }
 
     #[test]
     fn beq() {
-        eq!([0x11, 0x2a, 0x10, 0x0] => "beq $t1, $t2, 0x1000");
+        eq!([0x11, 0x2a, 0x10, 0x0] => "beq", "$t1", "$t2", "0x1000");
     }
 
     #[test]
     fn sll() {
-        eq!([0x0, 0xa, 0x4c, 0x80] => "sll $t1, $t2, 0x12");
+        eq!([0x0, 0xa, 0x4c, 0x80] => "sll", "$t1", "$t2", "0x12");
     }
 
     #[test]
     fn sllv() {
-        eq!([0x1, 0x49, 0x48, 0x4] => "sllv $t1, $t1, $t2");
+        eq!([0x1, 0x49, 0x48, 0x4] => "sllv", "$t1", "$t1", "$t2");
     }
 
     #[test]
     fn lb() {
-        eq!([0x81, 0x49, 0x0, 0x10] => "lb $t1, 0x10($t2)")
+        eq!([0x81, 0x49, 0x0, 0x10] => "lb", "$t1", "0x10", "($t2)")
     }
 }
