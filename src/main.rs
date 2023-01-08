@@ -138,7 +138,6 @@ fn set_panic_handler() {
     }));
 }
 
-// TODO: impliment own version of `objdump`.
 fn main() {
     set_panic_handler();
 
@@ -194,7 +193,7 @@ fn main() {
     if args.libs {
         println!("{}:", args.path.display());
 
-        for import in obj.imports().unwrap() {
+        for import in obj.imports().expect("failed to resolve any symbols") {
             let library = match std::str::from_utf8(import.library()) {
                 Ok(library) => library,
                 Err(_) => continue,
@@ -205,13 +204,11 @@ fn main() {
                 Err(_) => println!("\t{library}"),
             };
         }
-
-        exit!();
     }
 
     if args.names {
         if symbols.is_empty() {
-            exit!("no symbols found: '{}'", args.path.display());
+            exit!(fail, "no symbols found: '{}'", args.path.display());
         }
 
         let demangled_symbols: std::collections::BTreeSet<String> = symbols
@@ -232,8 +229,6 @@ fn main() {
             .filter(|s| s.kind() == SectionKind::Text)
             .find(|t| t.name() == Ok(".text"))
             .expect("failed to find `.text` section");
-            // .find(|t| t.name() == Ok(".init"))
-            // .expect("failed to find `.init` section");
 
         if let Ok(raw) = section.uncompressed_data() {
             // println!("Disassembly of section {}:\n", section.name().unwrap_or("???"));
