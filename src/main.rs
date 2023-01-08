@@ -211,16 +211,20 @@ fn main() {
             exit!(fail, "no symbols found: '{}'", args.path.display());
         }
 
+        fn valid_symbols<'a>(symbol: &'a &&str) -> bool {
+            !symbol.starts_with("GCC_except_table") && !symbol.contains("cgu") && !symbol.is_empty()
+        }
+
         let demangled_symbols: std::collections::BTreeSet<String> = symbols
             .par_iter()
-            .filter(|symbol| !symbol.starts_with("GCC_except_table") && !symbol.contains("cgu"))
+            .filter(valid_symbols)
             .map(|symbol| match demangler::Symbol::parse(symbol) {
                 Ok(sym) => sym.display() + "\n",
                 Err(..) => format!("{:#}\n", rustc_demangle::demangle(symbol)),
             })
             .collect();
 
-        println!("{}", String::from_iter(demangled_symbols.into_iter()));
+        print!("{}", String::from_iter(demangled_symbols.into_iter()));
     }
 
     if args.disassemble {
