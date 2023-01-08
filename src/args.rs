@@ -56,7 +56,7 @@ impl Cli {
             }
 
             match arg.as_str() {
-                "-H" | "--help" => exit!("{HELP}"),
+                "-H" | "--help" => exit!(fail, "{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
                 "-N" | "--names" => cli.names = true,
                 "-L" | "--libs" => cli.libs = true,
@@ -65,23 +65,23 @@ impl Cli {
 
                     if let Some(path) = args.next().as_deref() {
                         if NAMES.contains(&path) || SHORT.contains(&path) {
-                            exit!("Must specify path to object");
+                            exit!(fail, "Must specify path to object");
                         }
 
                         cli.path = PathBuf::from(path);
                     } else {
-                        exit!("Must specify path to object");
+                        exit!(fail, "Must specify path to object");
                     }
                 }
                 "-C" | "--config" => {
                     if let Some(path) = args.next().as_deref() {
                         if NAMES.contains(&path) || SHORT.contains(&path) {
-                            exit!("Must specify path to object");
+                            exit!(fail, "Must specify path to object");
                         }
 
                         cli.config = Some(PathBuf::from(path));
                     } else {
-                        exit!("Must specify path to object");
+                        exit!(fail, "Must specify path to object");
                     }
                 }
                 unknown => {
@@ -97,9 +97,9 @@ impl Cli {
 
                     // A guess that's less than 3 `steps` away from a correct arg.
                     if distance < 4 {
-                        exit!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
+                        exit!(fail, "Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
                     } else {
-                        exit!("Unknown cmd arg '{unknown}' was entered.");
+                        exit!(fail, "Unknown cmd arg '{unknown}' was entered.");
                     }
                 }
             }

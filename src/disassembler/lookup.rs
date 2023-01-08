@@ -39,11 +39,11 @@ macro_rules! x86 {
 
     ($mnemomic:literal : $desc:literal => $([$addressing:expr, $operands:ident]),*) => {{
         #[allow(unused_imports)]
-        use $crate::assembler::x86_64::AddressingMethod::*;
+        use $crate::disassembler::x86_64::AddressingMethod::*;
 
         let (addressing, operands) = (
             &[$($addressing),*],
-            &[$($crate::assembler::x86_64::OperandType::$operands),*],
+            &[$($crate::disassembler::x86_64::OperandType::$operands),*],
         );
 
         X86 {
@@ -57,11 +57,11 @@ macro_rules! x86 {
 
     ($mnemomic:literal : $desc:literal => $([$addressing:expr, $operands:ident]),*, $bitwidth:expr) => {{
         #[allow(unused_imports)]
-        use $crate::assembler::x86_64::AddressingMethod::*;
+        use $crate::disassembler::x86_64::AddressingMethod::*;
 
         let (addressing, operands) = (
             &[$($addressing),*],
-            &[$($crate::assembler::x86_64::OperandType::$operands),*],
+            &[$($crate::disassembler::x86_64::OperandType::$operands),*],
         );
 
         X86 {
@@ -77,11 +77,11 @@ macro_rules! x86 {
 // Can and should only be used inside `x86` macro
 macro_rules! registers {
     ($reg:ident) => {
-        FixedRegister($crate::assembler::x86_64::Register::$reg)
+        FixedRegister($crate::disassembler::x86_64::Register::$reg)
     };
     ($($reg:ident),+) => {{
         FixedRegisters(
-            &[$($crate::assembler::x86_64::Register::$reg),+]
+            &[$($crate::disassembler::x86_64::Register::$reg),+]
         )
     }}
 }
@@ -89,7 +89,7 @@ macro_rules! registers {
 // Can and should only be used inside `x86` macro
 macro_rules! segment {
     ($seg:ident) => {
-        FixedSegment($crate::assembler::x86_64::Segment::$seg)
+        FixedSegment($crate::disassembler::x86_64::Segment::$seg)
     };
 }
 

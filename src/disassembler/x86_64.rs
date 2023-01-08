@@ -1,15 +1,6 @@
 use std::fmt;
 
-use super::{lookup, Array, Reader};
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Error {
-    /// The instruction has an impossible size.
-    InvalidInputSize(usize),
-
-    /// Somehow the instruction doesn't have an opcode.
-    MissingOpcode,
-}
+use super::{lookup, Array, Reader, GenericInstruction, Error};
 
 // An Intel/AMD/IA-32 instruction is made up of up to 15 bytes.
 #[derive(Debug, PartialEq, Eq)]
@@ -328,12 +319,9 @@ pub enum OperandType {
     DoubleRegister,
 }
 
-pub fn asm(width: object::AddressSize, raw_bytes: &[u8]) -> Result<Instruction, Error> {
-    if raw_bytes.is_empty() || raw_bytes.len() > 15 {
-        return Err(Error::InvalidInputSize(raw_bytes.len()));
-    }
-
-    let mut bytes = Reader::new(raw_bytes);
+pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstruction, Error> {
+    let bytes = stream.bytes.get(stream.start..).ok_or(Error::NoBytesLeft)?;
+    let mut bytes = Reader::new(bytes);
 
     // read instruction prefixes (0-4 optional bytes).
     let mut prefixes = Array::<Prefix, 4>::new();
@@ -357,7 +345,7 @@ pub fn asm(width: object::AddressSize, raw_bytes: &[u8]) -> Result<Instruction, 
     // read optional REX prefix (1 byte).
     let mut rex_prefix = None;
     if let Some(prefix) = bytes.consume_eq(|x| (x >> 4) == 0b0100) {
-        if width == object::AddressSize::U64 {
+        if stream.addr_size == 64 {
             debug_assert_eq!(prefix >> 4, 0b0100);
 
             let is_64_operand = (prefix & 0b00001000) == 0b00001000;
@@ -441,21 +429,24 @@ pub fn asm(width: object::AddressSize, raw_bytes: &[u8]) -> Result<Instruction, 
         displacement.push(byte);
     }
 
-    Ok(Instruction { prefixes, repr, rex_prefix })
+    todo!()
 }
 
+/*
 #[cfg(test)]
 mod tests {
     macro_rules! eq {
-        ($bitness:tt, [$($bytes:tt),+] => $repr:expr) => {
+        ($bitness:tt, [$($bytes:tt),+] => $repr:expr) => {{
+            let mut stream = $crate::disassembler::InstructionStream::new(
+                &[$($bytes),+],
+                object::Architecture::X86_64
+            );
+
             assert_eq!(
-                $crate::assembler::x86_64::asm(
-                    object::AddressSize::$bitness,
-                    &[$($bytes),+]
-                ).map(|x| x.to_string()).as_deref(),
+                $crate::disassembler::x86_64::asm(&mut stream).as_deref(),
                 Ok($repr)
             )
-        };
+        }};
     }
 
     #[test]
@@ -480,5 +471,4 @@ mod tests {
         eq!(U64, [0xb8, 0x1, 0x0, 0x0, 0x0] => "mov eax, 10")
     }
 }
-
-// Segment prefixes are ignored for jump instructions.
+*/

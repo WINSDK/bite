@@ -1,250 +1,266 @@
-//! MIPS V assembler
+//! MIPS V disdisassembler
 
-use std::fmt;
+use super::{Error, GenericInstruction};
+use std::borrow::Cow;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Error {
-    ImpossibleInputSize,
-    InvalidInstruction,
-    UnknownRegister,
-    UnknownOpcode,
+const EMPTY_OPERAND: Cow<'static, str> = Cow::Borrowed("");
+
+#[rustfmt::skip]
+pub const REGISTERS: [&str; 32] = [
+    "$zero", "$at",
+    "$v0", "$v1",
+    "$a0", "$a1", "$a2", "$a3",
+    "$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7",
+    "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
+    "$t8", "$t9",
+    "$k0", "$k1", 
+    "$gp", "$sp", "$fp", "$ra",
+];
+
+enum Format {
+    R,
+    I,
+    J,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Instruction {
+struct Instruction {
     pub mnemomic: &'static str,
+    #[allow(dead_code)]
     pub desc: &'static str,
-    pub operands: [usize; 4],
     pub format: &'static [usize],
 }
 
-impl fmt::Display for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use std::fmt::Write;
+pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstruction, Error> {
+    let dword = stream
+        .bytes
+        .get(stream.start..stream.start + 4)
+        .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+        .ok_or(Error::NoBytesLeft)? as usize;
 
-        f.write_str(self.mnemomic)?;
-        f.write_char(' ')?;
+    let mut operands = [EMPTY_OPERAND; 5];
 
-        // check if the instruction uses an offset (load/store instructions)
-        if self.format == [1, 3, 2] {
-            f.write_str(unsafe { REGISTERS.get_unchecked(self.operands[1]) })?;
-            f.write_str(", ")?;
-            f.write_str(&format!("0x{:x}", self.operands[3]))?;
-            f.write_char('(')?;
-            f.write_str(unsafe { REGISTERS.get_unchecked(self.operands[2]) })?;
-            f.write_char(')')?;
-
-            return Ok(());
-        }
-
-        for idx in 0..self.format.len() {
-            // index into next operand
-            let format = self.format[idx];
-
-            // operand specified by the bitmask
-            let operand = self.operands[format];
-
-            // check if we are formatting an immediate
-            if format == 3 {
-                f.write_str(&format!("0x{operand:x}"))?;
-            } else {
-                f.write_str(unsafe { REGISTERS.get_unchecked(operand) })?;
-            }
-
-            // check if we've reached the last operand
-            if idx != self.format.len() - 1 {
-                f.write_str(", ")?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
-#[allow(dead_code)]
-pub fn asm(raw: &[u8]) -> Result<Instruction, Error> {
-    if raw.len() != 4 {
-        return Err(Error::ImpossibleInputSize);
+    // nop instruction isn't included in any MIPS spec
+    if dword == 0b00000000_00000000_00000000_00000000 {
+        return Ok(GenericInstruction { width: 4, mnemomic: "nop", operands, operand_count: 0 });
     }
 
-    let opcode = raw[0] >> 2;
-    let funct = raw[3] & 0b111111;
+    // break instruction has a unique instruction format
+    if dword & 0b111111 == 0b001101 {
+        return Ok(GenericInstruction { width: 4, mnemomic: "break", operands, operand_count: 0 });
+    }
 
-    let mut inst = *match opcode {
-        0 => R_TYPES.get(funct as usize).ok_or(Error::UnknownOpcode)?,
-        2 | 3 => J_TYPES.get(opcode as usize).ok_or(Error::UnknownOpcode)?,
-        _ => I_TYPES.get(opcode as usize).ok_or(Error::UnknownOpcode)?,
+    let opcode = dword >> 26;
+    let funct = dword & 0b111111;
+
+    let (format, inst) = match opcode {
+        0 => (Format::R, R_TYPES.get(funct).ok_or(Error::UnknownOpcode)?),
+        2 | 3 => (Format::J, J_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
+        _ => (Format::I, I_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
     };
 
-    let [ref mut rd, ref mut rt, ref mut rs, ref mut imm] = inst.operands;
-
-    *rs = ((raw[0] & 0b11) << 3 | raw[1] >> 5) as usize;
-    *rt = (raw[1] & 0b11111) as usize;
-    *rd = (raw[2] >> 3) as usize;
-
-    if opcode == 2 || opcode == 3 {
-        *imm = u32::from_be_bytes([raw[0] & 0b11, raw[1], raw[2], raw[3]]) as usize;
-    }
-
-    if opcode == 0 && (funct == 0 || funct == 2 || funct == 3) {
-        *imm = ((raw[2] & 0b111) << 2 | (raw[3] >> 6)) as usize;
-    }
-
-    if opcode > 3 {
-        *imm = u16::from_be_bytes([raw[2], raw[3]]) as usize
-    }
-
-    if REGISTERS.get(*rs).and(REGISTERS.get(*rt)).and(REGISTERS.get(*rd)).is_none() {
-        return Err(Error::UnknownRegister);
-    }
+    let rs = dword >> 21 & 0b11111;
+    let rt = dword >> 16 & 0b11111;
+    let rd = dword >> 11 & 0b11111;
 
     if inst.mnemomic.is_empty() {
         return Err(Error::InvalidInstruction);
     }
 
-    Ok(inst)
+    match format {
+        Format::R => {
+            match (REGISTERS.get(rs), REGISTERS.get(rt), REGISTERS.get(rd)) {
+                (Some(_), Some(_), Some(_)) => {}
+                _ => return Err(Error::UnknownRegister),
+            }
+
+            let shamt = dword >> 6 & 0b11111;
+
+            for idx in 0..inst.format.len() {
+                // index into next operand
+                let format = inst.format[idx];
+
+                // operand specified by the bitmask
+                let operand = match format {
+                    0 => rd,
+                    1 => rt,
+                    2 => rs,
+                    3 => shamt,
+                    _ => unsafe { core::hint::unreachable_unchecked() },
+                };
+
+                operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+            }
+
+            Ok(GenericInstruction {
+                width: 4,
+                mnemomic: inst.mnemomic,
+                operands,
+                operand_count: inst.format.len(),
+            })
+        }
+        Format::I => {
+            match (REGISTERS.get(rs), REGISTERS.get(rt)) {
+                (Some(_), Some(_)) => {}
+                _ => return Err(Error::UnknownRegister),
+            }
+
+            let immediate = dword & 0b11111111_11111111;
+
+            // check if the instruction uses an offset (load/store instructions)
+            if inst.format == [1, 3, 2] {
+                operands[0] = Cow::Borrowed(REGISTERS[rt]);
+                operands[1] = Cow::Owned(format!("0x{immediate:x}"));
+                operands[2] = Cow::Owned(format!("({})", REGISTERS[rs]));
+
+                return Ok(GenericInstruction {
+                    width: 4,
+                    mnemomic: inst.mnemomic,
+                    operands,
+                    operand_count: 3,
+                });
+            }
+
+            for idx in 0..inst.format.len() {
+                // index into next operand
+                let format = inst.format[idx];
+
+                // operand specified by the bitmask
+                let operand = match format {
+                    0 => rd,
+                    1 => rt,
+                    2 => rs,
+                    3 => immediate,
+                    _ => unsafe { core::hint::unreachable_unchecked() },
+                };
+
+                if operand == immediate {
+                    operands[idx] = Cow::Owned(format!("0x{immediate:x}"));
+                } else {
+                    operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+                }
+            }
+
+            Ok(GenericInstruction {
+                width: 4,
+                mnemomic: inst.mnemomic,
+                operands,
+                operand_count: inst.format.len(),
+            })
+        }
+        Format::J => {
+            let immediate = dword & 0b11111111_11111111_11111111;
+            operands[0] = Cow::Owned(format!("0x{immediate:x}"));
+
+            Ok(GenericInstruction { width: 4, mnemomic: inst.mnemomic, operands, operand_count: 1 })
+        }
+    }
 }
 
 /// Bitmask for order of operands [rd, rt, rs, imm].
 macro_rules! mips {
     () => {
-        $crate::assembler::mips::Instruction {
-            mnemomic: "",
-            desc: "",
-            operands: [0, 0, 0, 0],
-            format: &[],
-        }
+        $crate::disassembler::mips::Instruction { mnemomic: "", desc: "", format: &[] }
     };
 
     ($mnemomic:literal : $desc:literal, rd, rt, imm) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[0, 1, 3],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rt, rs, imm) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[1, 2, 3],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rs, rt, imm) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[2, 1, 3],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rd, rt, rs) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[0, 1, 2],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rd, rs, rt) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[0, 2, 1],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rt, imm, rs) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[1, 3, 2],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rs, imm) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[2, 3],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rt, imm) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[1, 3],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rd, rs) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[0, 2],
         }
     };
 
     ($mnemomic:literal : $desc:literal, rs, rt) => {
-        $crate::assembler::mips::Instruction {
+        $crate::disassembler::mips::Instruction {
             mnemomic: $mnemomic,
             desc: $desc,
-            operands: [0, 0, 0, 0],
             format: &[2, 1],
         }
     };
 
     ($mnemomic:literal : $desc:literal, imm) => {
-        $crate::assembler::mips::Instruction {
-            mnemomic: $mnemomic,
-            desc: $desc,
-            operands: [0, 0, 0, 0],
-            format: &[3],
-        }
+        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[3] }
     };
 
     ($mnemomic:literal : $desc:literal, rs) => {
-        $crate::assembler::mips::Instruction {
-            mnemomic: $mnemomic,
-            desc: $desc,
-            operands: [0, 0, 0, 0],
-            format: &[2],
-        }
+        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[2] }
     };
 
     ($mnemomic:literal : $desc:literal, rd) => {
-        $crate::assembler::mips::Instruction {
-            mnemomic: $mnemomic,
-            desc: $desc,
-            operands: [0, 0, 0, 0],
-            format: &[0],
-        }
+        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[0] }
     };
 
     ($mnemomic:literal : $desc:literal) => {
-        $crate::assembler::mips::Instruction {
-            mnemomic: $mnemomic,
-            desc: $desc,
-            operands: [0, 0, 0, 0],
-            format: &[],
-        }
+        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[] }
     };
 }
 
-pub const I_TYPES: [crate::assembler::mips::Instruction; 44] = [
-    mips!(),
+const I_TYPES: [crate::disassembler::mips::Instruction; 44] = [
+    mips!("bgez" : "Branch to immediate if value of $rs is greater than or equal to zero", rs, imm),
     mips!(),
     mips!(),
     mips!(),
@@ -276,10 +292,10 @@ pub const I_TYPES: [crate::assembler::mips::Instruction; 44] = [
     mips!(),
     mips!(),
     mips!(),
+    mips!(),
     mips!("lb" : "Load byte from value at address in $rs with a given offset into $rt sign extending it to 32 bits (signed)", rt, imm, rs),
     mips!("lh" : "Load 2 bytes from value at address in $rs with a given offset into $rt sign extending it to 32 bits (signed)", rt, imm, rs),
     mips!("lw" : "Load 4 bytes from value at address in $rs with a given offset into $rt (signed)", rt, imm, rs),
-    mips!(),
     mips!("lbu" : "Load byte from value at address in $rs with a given offset into $rt sign extending it to 32 bits (unsigned)", rt, imm, rs),
     mips!("lhu" : "Load 2 bytes from value at address in $rs with a given offset into $rt sign extending it to 32 bits (unsigned)", rt, imm, rs),
     mips!("lwu" : "Load 4 bytes from value at address in $rs with a given offset into $rt (unsigned)", rt, imm, rs),
@@ -290,14 +306,14 @@ pub const I_TYPES: [crate::assembler::mips::Instruction; 44] = [
     mips!("sw" : "Store 4 bytes at address in $rs with a given offset into $rt", rt, imm, rs),
 ];
 
-pub const J_TYPES: [crate::assembler::mips::Instruction; 4] = [
+const J_TYPES: [crate::disassembler::mips::Instruction; 4] = [
     mips!(),
     mips!(),
     mips!("j" : "Jump to target address", imm),
     mips!("jr" : "Call the target address and save return addr in $ra", imm),
 ];
 
-pub const R_TYPES: [crate::assembler::mips::Instruction; 43] = [
+const R_TYPES: [crate::disassembler::mips::Instruction; 44] = [
     mips!("sll" : "Shift value in $rt `immediate` number of times to the left storing the result in $rd and zero extending the shifted bits", rd, rt, imm),
     mips!(),
     mips!("srl" : "Shift value in $rt `immediate` number of times to the right storing the result in $rd and zero extending the shifted bits", rd, rt, imm),
@@ -329,6 +345,7 @@ pub const R_TYPES: [crate::assembler::mips::Instruction; 43] = [
     mips!(),
     mips!(),
     mips!(),
+    mips!(),
     mips!("add" : "Add $rs to $rt storing the result in $rd (signed)", rd, rs, rt),
     mips!("addu" : "Add $rs to $rt storing the result in $rd (unsigned)", rd, rs, rt),
     mips!("sub" : "Subtract $rs from $rt storing the result in $rd (signed)", rd, rs, rt),
@@ -343,29 +360,20 @@ pub const R_TYPES: [crate::assembler::mips::Instruction; 43] = [
     mips!("sltu" : "If $rs is less then $rt, $rd is set to 1 otherwise to 0 (unsigned)", rd, rs, rt),
 ];
 
-#[rustfmt::skip]
-pub const REGISTERS: [&str; 32] = [
-    "$zero", "$at",
-    "$v0", "$v1",
-    "$a0", "$a1", "$a2", "$a3",
-    "$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7",
-    "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
-    "$t8", "$t9",
-    "$k0", "$k1", 
-    "$gp", "$sp", "$fp", "$ra",
-];
-
 #[cfg(test)]
 mod tests {
     macro_rules! eq {
-        ([$($bytes:tt),+] => $repr:expr) => {
+        ([$($bytes:tt),+] => $repr:expr) => {{
+            let mut stream = $crate::disassembler::InstructionStream::new(
+                &[$($bytes),+],
+                object::Architecture::Mips
+            );
+
             assert_eq!(
-                $crate::assembler::mips::asm(&[$($bytes),+])
-                    .map(|x| x.to_string())
-                    .as_deref(),
+                $crate::disassembler::mips::asm(&mut stream).as_deref(),
                 Ok($repr)
             )
-        };
+        }};
     }
 
     #[test]

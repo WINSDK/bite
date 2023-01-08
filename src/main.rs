@@ -8,8 +8,8 @@ use object::{Object, ObjectSection, ObjectSymbol, SectionKind};
 use rayon::prelude::*;
 
 mod args;
-mod assembler;
 mod demangler;
+mod disassembler;
 mod replace;
 
 #[macro_export]
@@ -17,6 +17,15 @@ macro_rules! exit {
     () => {
         std::process::exit(0);
     };
+
+    (fail) => {
+        std::process::exit(1);
+    };
+
+    (fail, $($arg:tt)*) => {{
+        eprintln!($($arg)*);
+        std::process::exit(1);
+    }};
 
     ($($arg:tt)*) => {{
         eprintln!($($arg)*);
@@ -28,7 +37,7 @@ macro_rules! exit {
 macro_rules! assert_exit {
     ($cond:expr $(,)?) => {{
         if !($cond) {
-            $crate::exit!();
+            $crate::exit!(fail);
         }
     }};
 
@@ -114,13 +123,31 @@ fn objdump(args: &args::Cli, config: &replace::Config) {
     }
 }
 
+fn set_panic_handler() {
+    #[cfg(not(debug_assertions))]
+    std::panic::set_hook(Box::new(|details| {
+        if let Some(msg) = details.payload().downcast_ref::<String>() {
+            return println!("{msg}");
+        }
+
+        if let Some(msg) = details.payload().downcast_ref::<&str>() {
+            return println!("{msg}");
+        }
+
+        println!("panic occurred")
+    }));
+}
+
 // TODO: impliment own version of `objdump`.
-fn main() -> object::Result<()> {
+fn main() {
+    set_panic_handler();
+
     let args = args::Cli::parse();
     let config = replace::Config::from_env(&args);
 
-    let binary = std::fs::read(&args.path).unwrap();
-    let obj = object::File::parse(&*binary)?;
+    let binary = std::fs::read(&args.path).expect("unexpected read of binary failed");
+    let obj = object::File::parse(&*binary).expect("failed to parse binary");
+
     let mut symbols: Vec<&str> = obj.symbols().filter_map(|s| s.name().ok()).collect();
 
     if let Ok(Some(pdb)) = obj.pdb_info() {
@@ -167,7 +194,7 @@ fn main() -> object::Result<()> {
     if args.libs {
         println!("{}:", args.path.display());
 
-        for import in obj.imports()? {
+        for import in obj.imports().unwrap() {
             let library = match std::str::from_utf8(import.library()) {
                 Ok(library) => library,
                 Err(_) => continue,
@@ -200,38 +227,25 @@ fn main() -> object::Result<()> {
     }
 
     if args.disassemble {
-        let text_sections = obj.sections().filter(|s| s.kind() == SectionKind::Text);
+        let section = obj
+            .sections()
+            .filter(|s| s.kind() == SectionKind::Text)
+            .find(|t| t.name() == Ok(".text"))
+            .expect("failed to find `.text` section");
+            // .find(|t| t.name() == Ok(".init"))
+            // .expect("failed to find `.init` section");
 
-        for text in text_sections {
-            if text.name() != Ok(".init") {
-                continue;
-            }
+        if let Ok(raw) = section.uncompressed_data() {
+            // println!("Disassembly of section {}:\n", section.name().unwrap_or("???"));
+            // println!("{:02x?}\n", raw);
 
-            if let Ok(raw) = text.uncompressed_data() {
-                use object::Architecture::*;
+            let stream = disassembler::InstructionStream::new(&raw, obj.architecture());
 
-                println!("Disassembly of section {}:\n", text.name().unwrap_or("???"));
-                println!("{:x?}", raw);
-                println!();
-
-                let Some(size) = obj.architecture().address_size() else {
-                    exit!("unknown target architecture");
-                };
-
-                let instruction = match obj.architecture() {
-                    Aarch64 | Arm => assembler::arm::asm().to_string(),
-                    X86_64 | X86_64_X32 => assembler::x86_64::asm(size, &raw).unwrap().to_string(),
-                    Mips | Mips64 => assembler::mips::asm(&raw).unwrap().to_string(),
-                    Riscv32 | Riscv64 => assembler::riscv::asm(&raw).to_string(),
-                    _ => todo!(),
-                };
-
+            for instruction in stream {
                 println!("{instruction}");
             }
         }
 
         // objdump(&args, &config);
     }
-
-    Ok(())
 }

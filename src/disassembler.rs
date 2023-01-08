@@ -1,14 +1,106 @@
 use std::fmt;
 use std::mem::MaybeUninit;
 
-pub mod arm;
-pub mod mips;
-pub mod riscv;
+use object::Architecture;
 
-#[allow(dead_code, unused_variables, unused_assignments)]
-pub mod x86_64;
+mod arm;
+mod mips;
+mod riscv;
 
 mod lookup;
+#[allow(dead_code, unused_variables, unused_assignments)]
+mod x86_64;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Error {
+    /// Instruction stream is empty.
+    NoBytesLeft,
+
+    /// Somehow the instruction doesn't have an opcode.
+    MissingOpcode,
+
+    InvalidInstruction,
+    UnknownRegister,
+    UnknownOpcode,
+}
+
+struct GenericInstruction {
+    width: usize,
+    mnemomic: &'static str,
+    operands: [std::borrow::Cow<'static, str>; 5],
+    operand_count: usize,
+}
+
+pub struct InstructionStream<'a> {
+    bytes: &'a [u8],
+    interpreter: fn(&mut Self) -> Result<GenericInstruction, Error>,
+    addr_size: usize,
+    start: usize,
+    end: usize,
+}
+
+impl<'a> InstructionStream<'a> {
+    pub fn new(bytes: &'a [u8], arch: Architecture) -> Self {
+        let interpreter = match arch {
+            Architecture::Mips | Architecture::Mips64 => mips::next,
+            Architecture::X86_64 | Architecture::X86_64_X32 => x86_64::next,
+            _ => todo!(),
+        };
+
+        let Some(addr_size) = arch.address_size().map(|size| size.bytes() as usize * 8) else {
+            crate::exit!(fail, "unknown target architecture");
+        };
+
+        Self { bytes, interpreter, addr_size, start: 0, end: 0 }
+    }
+}
+
+impl Iterator for InstructionStream<'_> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.interpreter)(self) {
+            Ok(inst) => {
+                let mut fmt = String::new();
+
+                fmt += &format!(
+                    "{:02x} {:02x} {:02x} {:02x}  {:<6}  ",
+                    self.bytes[self.start],
+                    self.bytes[self.start + 1],
+                    self.bytes[self.start + 2],
+                    self.bytes[self.start + 3],
+                    inst.mnemomic,
+                );
+
+                for idx in 0..inst.operand_count {
+                    if idx == inst.operand_count - 1 {
+                        fmt.push_str(&format!("{:}", inst.operands[idx]));
+                    } else {
+                        fmt.push_str(&format!("{:}, ", inst.operands[idx]));
+                    }
+                }
+
+                self.start += inst.width;
+                self.end += inst.width;
+                self.end += inst.width * (self.end != 0) as usize;
+
+                Some(fmt)
+            }
+            Err(err) => {
+                if err == Error::NoBytesLeft {
+                    return None;
+                }
+
+                crate::exit!(fail, "{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
+                    self.bytes[self.start],
+                    self.bytes[self.start + 1],
+                    self.bytes[self.start + 2],
+                    self.bytes[self.start + 3],
+                );
+            }
+        }
+    }
+}
 
 pub struct Array<T, const S: usize> {
     values: [MaybeUninit<T>; S],
