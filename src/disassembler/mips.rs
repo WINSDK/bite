@@ -3,8 +3,6 @@
 use super::{Error, GenericInstruction};
 use std::borrow::Cow;
 
-const EMPTY_OPERAND: Cow<'static, str> = Cow::Borrowed("");
-
 #[rustfmt::skip]
 pub const REGISTERS: [&str; 32] = [
     "$zero", "$at",
@@ -24,10 +22,10 @@ enum Format {
 }
 
 struct Instruction {
-    pub mnemomic: &'static str,
+    mnemomic: &'static str,
     #[allow(dead_code)]
-    pub desc: &'static str,
-    pub format: &'static [usize],
+    desc: &'static str,
+    format: &'static [usize],
 }
 
 pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstruction, Error> {
@@ -37,7 +35,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
         .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
         .ok_or(Error::NoBytesLeft)? as usize;
 
-    let mut operands = [EMPTY_OPERAND; 5];
+    let mut operands = [super::EMPTY_OPERAND; 5];
 
     // nop instruction isn't included in any MIPS spec
     if dword == 0b00000000_00000000_00000000_00000000 {
@@ -263,7 +261,7 @@ macro_rules! mips {
     };
 }
 
-const I_TYPES: [crate::disassembler::mips::Instruction; 44] = [
+const I_TYPES: [Instruction; 44] = [
     mips!("bgez" : "Branch to immediate if value of $rs is greater than or equal to zero", rs, imm),
     mips!(),
     mips!(),
@@ -310,14 +308,14 @@ const I_TYPES: [crate::disassembler::mips::Instruction; 44] = [
     mips!("sw" : "Store 4 bytes at address in $rs with a given offset into $rt", rt, imm, rs),
 ];
 
-const J_TYPES: [crate::disassembler::mips::Instruction; 4] = [
+const J_TYPES: [Instruction; 4] = [
     mips!(),
     mips!(),
     mips!("j" : "Jump to target address", imm),
     mips!("jr" : "Call the target address and save return addr in $ra", imm),
 ];
 
-const R_TYPES: [crate::disassembler::mips::Instruction; 44] = [
+const R_TYPES: [Instruction; 44] = [
     mips!("sll" : "Shift value in $rt `immediate` number of times to the left storing the result in $rd and zero extending the shifted bits", rd, rt, imm),
     mips!(),
     mips!("srl" : "Shift value in $rt `immediate` number of times to the right storing the result in $rd and zero extending the shifted bits", rd, rt, imm),

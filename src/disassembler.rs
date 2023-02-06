@@ -24,6 +24,7 @@ pub enum Error {
     UnknownOpcode,
 }
 
+#[derive(Debug)]
 struct GenericInstruction {
     width: usize,
     mnemomic: &'static str,
@@ -37,6 +38,7 @@ pub struct InstructionStream<'a> {
     addr_size: usize,
     start: usize,
     end: usize,
+    arch: Architecture
 }
 
 impl<'a> InstructionStream<'a> {
@@ -44,6 +46,7 @@ impl<'a> InstructionStream<'a> {
         let interpreter = match arch {
             Architecture::Mips | Architecture::Mips64 => mips::next,
             Architecture::X86_64 | Architecture::X86_64_X32 => x86_64::next,
+            Architecture::Riscv32 | Architecture::Riscv64 => riscv::next,
             _ => todo!(),
         };
 
@@ -52,32 +55,35 @@ impl<'a> InstructionStream<'a> {
             .map(|size| size.bytes() as usize * 8)
             .expect("unknown target architecture");
 
-        Self { bytes, interpreter, addr_size, start: 0, end: 0 }
+        Self { bytes, interpreter, addr_size, start: 0, end: 0, arch }
     }
 }
 
 impl Iterator for InstructionStream<'_> {
-    type Item = String;
+    type Item = (usize, String);
 
     fn next(&mut self) -> Option<Self::Item> {
         match (self.interpreter)(self) {
             Ok(inst) => {
                 let mut fmt = String::new();
 
+                let bytes: Vec<String> = (0..inst.width)
+                    .map(|off| self.bytes[self.start + off])
+                    .map(|byte| format!("{:02x}", byte))
+                    .collect();
+
+                let bytes = bytes.join(" ");
+
                 fmt += &format!(
-                    "{:02x} {:02x} {:02x} {:02x}  {:<6}  ",
-                    self.bytes[self.start],
-                    self.bytes[self.start + 1],
-                    self.bytes[self.start + 2],
-                    self.bytes[self.start + 3],
+                    "{bytes:11}  {:8} ",
                     inst.mnemomic,
                 );
 
                 for idx in 0..inst.operand_count {
                     if idx == inst.operand_count - 1 {
-                        fmt += &format!("{:}", inst.operands[idx]);
+                        fmt += &format!("{}", inst.operands[idx]);
                     } else {
-                        fmt += &format!("{:}, ", inst.operands[idx]);
+                        fmt += &format!("{}, ", inst.operands[idx]);
                     }
                 }
 
@@ -85,21 +91,37 @@ impl Iterator for InstructionStream<'_> {
                 self.end += inst.width;
                 self.end += inst.width * (self.end != 0) as usize;
 
-                Some(fmt)
+                Some((self.start - inst.width, fmt))
             }
             Err(err) => {
                 if err == Error::NoBytesLeft {
                     return None;
                 }
 
-                crate::exit!(
-                    fail,
-                    "{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
-                    self.bytes[self.start],
-                    self.bytes[self.start + 1],
-                    self.bytes[self.start + 2],
-                    self.bytes[self.start + 3],
-                );
+                if cfg!(debug_assertions) {
+                    crate::exit!(
+                        fail,
+                        "{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
+                        self.bytes[self.start],
+                        self.bytes[self.start + 1],
+                        self.bytes[self.start + 2],
+                        self.bytes[self.start + 3],
+                    );
+                } else {
+                    let fmt = format!(
+                        "{:02x} {:02x} {:02x} {:02x}  <{err:?}>",
+                        self.bytes[self.start],
+                        self.bytes[self.start + 1],
+                        self.bytes[self.start + 2],
+                        self.bytes[self.start + 3],
+                    );
+
+                    self.start += 4;
+                    self.end += 4;
+                    self.end += 4 * (self.end != 0) as usize;
+
+                    Some((self.start - 4, fmt)) 
+                }
             }
         }
     }
@@ -271,3 +293,5 @@ impl<'a, T> Reader<'a, T> {
         })
     }
 }
+
+const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");

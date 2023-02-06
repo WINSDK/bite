@@ -17,7 +17,7 @@ if [ $? -ne 0 ]; then
     exit $?
 fi
 
-objdump -M intel \
+llvm-objdump -M intel \
     --section=.text.asm \
     -D target/asm \
     | grep -E "\s{3}0:" \

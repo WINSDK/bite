@@ -1,6 +1,5 @@
 use std::borrow::Cow;
-use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::collections::BTreeMap;
 
 use pdb::FallibleIterator;
 
@@ -96,33 +95,6 @@ fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> 
     Cow::Owned(format!("{}{}{}", &s[..=left], demangled, &s[right..]))
 }
 
-fn objdump(args: &args::Cli, config: &replace::Config) {
-    let syntax = "-Mintel";
-
-    #[cfg(target_os = "macos")]
-    let syntax = "-x86-asm-syntax=intel";
-
-    let objdump = Command::new("objdump")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .stdin(Stdio::null())
-        .arg(syntax)
-        .arg("-D")
-        .arg(&args.path)
-        .spawn()
-        .unwrap();
-
-    let mut stdout = BufReader::new(objdump.stdout.unwrap());
-    for line in (&mut stdout).lines() {
-        let line = match line {
-            Ok(ref line) => demangle_line(args, line, config),
-            Err(_) => Cow::Borrowed("???????????"),
-        };
-
-        println!("{line}");
-    }
-}
-
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
     std::panic::set_hook(Box::new(|details| {
@@ -144,10 +116,13 @@ fn main() {
     let args = args::Cli::parse();
     let config = replace::Config::from_env(&args);
 
-    let binary = std::fs::read(&args.path).expect("unexpected read of binary failed");
+    let binary = std::fs::read(&args.path).expect("unexpected read of binary failed").leak();
     let obj = object::File::parse(&*binary).expect("failed to parse binary");
 
-    let mut symbols: Vec<&str> = obj.symbols().filter_map(|s| s.name().ok()).collect();
+    let mut symbols: BTreeMap<usize, Cow<'static, str>> = obj
+        .symbols()
+        .filter_map(|s| s.name().map(|name| (s.address() as usize, Cow::Borrowed(name))).ok())
+        .collect();
 
     if let Ok(Some(pdb)) = obj.pdb_info() {
         let read_symbols = |f: std::fs::File| {
@@ -163,17 +138,21 @@ fn main() {
             // iterate through symbols collected earlier
             let mut symbol_table = symbol_table.iter();
 
+            // retrieve addresses of symbols
+            let address_map = pdb.address_map()?;
+
             while let Some(symbol) = symbol_table.next()? {
                 let symbol = symbol.parse()?;
 
-                let symbol_name = match symbol {
-                    pdb::SymbolData::Public(s) => std::str::from_utf8(s.name.as_bytes()),
-                    pdb::SymbolData::Export(s) => std::str::from_utf8(s.name.as_bytes()),
-                    _ => Ok(""),
+                let symbol = match symbol {
+                    pdb::SymbolData::Public(symbol) if symbol.function => symbol,
+                    _ => continue,
                 };
 
-                if let Ok(symbol_name) = symbol_name {
-                    symbols.push(symbol_name);
+                if let Some(addr) = symbol.offset.to_rva(&address_map) {
+                    if let Ok(name) = std::str::from_utf8(symbol.name.as_bytes()) {
+                        symbols.push((addr.0 as usize, Cow::Borrowed(name)));
+                    }
                 }
             }
 
@@ -211,20 +190,18 @@ fn main() {
             exit!(fail, "no symbols found: '{}'", args.path.display());
         }
 
-        fn valid_symbols<'a>(symbol: &'a &&str) -> bool {
-            !symbol.starts_with("GCC_except_table") && !symbol.contains("cgu") && !symbol.is_empty()
+        fn valid_symbol(symbol: &(&usize, &mut Cow<'static, str>)) -> bool {
+            !symbol.1.starts_with("GCC_except_table")
+                && !symbol.1.contains("cgu")
+                && !symbol.1.is_empty()
         }
 
-        let demangled_symbols: std::collections::BTreeSet<String> = symbols
-            .par_iter()
-            .filter(valid_symbols)
-            .map(|symbol| match demangler::Symbol::parse(symbol) {
-                Ok(sym) => sym.display() + "\n",
-                Err(..) => format!("{:#}\n", rustc_demangle::demangle(symbol)),
-            })
-            .collect();
-
-        print!("{}", String::from_iter(demangled_symbols.into_iter()));
+        symbols.par_iter_mut().filter(valid_symbol).for_each(|(_, symbol)| {
+            match demangler::Symbol::parse(symbol) {
+                Ok(sym) => println!("{}", sym.display()),
+                Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
+            }
+        });
     }
 
     if args.disassemble {
@@ -235,16 +212,20 @@ fn main() {
             .expect("failed to find `.text` section");
 
         if let Ok(raw) = section.uncompressed_data() {
-            // println!("Disassembly of section {}:\n", section.name().unwrap_or("???"));
+            println!("Disassembly of section {}:", section.name().unwrap_or("???"));
             // println!("{:02x?}\n", raw);
 
             let stream = disassembler::InstructionStream::new(&raw, obj.architecture());
 
-            for instruction in stream {
-                println!("{instruction}");
+            for (off, instruction) in stream {
+                if off != 0 {
+                    if let Some(label) = symbols.get(&off) {
+                        println!("\n{off:#018} <{label}>:")
+                    }
+                }
+
+                println!("\t{instruction}");
             }
         }
-
-        // objdump(&args, &config);
     }
 }
