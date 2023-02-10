@@ -24,12 +24,31 @@ pub enum Error {
     UnknownOpcode,
 }
 
-#[derive(Debug)]
 struct GenericInstruction {
     width: usize,
     mnemomic: &'static str,
     operands: [std::borrow::Cow<'static, str>; 5],
     operand_count: usize,
+}
+
+impl GenericInstruction {
+    fn decode(&self) -> String {
+        let mut repr = self.mnemomic.to_string();
+
+        if self.operand_count > 0 {
+            repr += " ";
+        }
+
+        for idx in 0..self.operand_count {
+            if idx == self.operand_count - 1 {
+                repr += &format!("{}", self.operands[idx]);
+            } else {
+                repr += &format!("{}, ", self.operands[idx]);
+            }
+        }
+
+        repr
+    }
 }
 
 pub struct InstructionStream<'a> {
@@ -75,17 +94,9 @@ impl Iterator for InstructionStream<'_> {
                 let bytes = bytes.join(" ");
 
                 fmt += &format!(
-                    "{bytes:11}  {:8} ",
-                    inst.mnemomic,
+                    "{bytes:11}  {} ",
+                    inst.decode(),
                 );
-
-                for idx in 0..inst.operand_count {
-                    if idx == inst.operand_count - 1 {
-                        fmt += &format!("{}", inst.operands[idx]);
-                    } else {
-                        fmt += &format!("{}, ", inst.operands[idx]);
-                    }
-                }
 
                 self.start += inst.width;
                 self.end += inst.width;
@@ -101,7 +112,7 @@ impl Iterator for InstructionStream<'_> {
                 if cfg!(debug_assertions) {
                     crate::exit!(
                         fail,
-                        "{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
+                        "\t{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
                         self.bytes[self.start],
                         self.bytes[self.start + 1],
                         self.bytes[self.start + 2],
@@ -109,7 +120,7 @@ impl Iterator for InstructionStream<'_> {
                     );
                 } else {
                     let fmt = format!(
-                        "{:02x} {:02x} {:02x} {:02x}  <{err:?}>",
+                        "\t{:02x} {:02x} {:02x} {:02x}  <{err:?}>",
                         self.bytes[self.start],
                         self.bytes[self.start + 1],
                         self.bytes[self.start + 2],

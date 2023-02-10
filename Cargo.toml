@@ -11,6 +11,7 @@ object = "0.29"
 pdb = "0.8"
 triple_accel = "0.4"
 rayon = "1.6.1"
+phf = { version = "0.11", features = ["macros"] }
 
 [dev-dependencies]
 lazy_static = "1.4"

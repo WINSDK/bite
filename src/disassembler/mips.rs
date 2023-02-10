@@ -377,14 +377,14 @@ mod tests {
 
                     dbg!(&inst.operands);
 
-                    let mut idx = 0;
+                    let mut idx = -1;
                     $(
+                        idx += 1;
+
                         assert_eq!(
                             $operand,
-                            inst.operands.get(idx).expect("not enough operands")
+                            inst.operands.get(idx as usize).expect("not enough operands")
                         );
-
-                        idx += 1;
                     )*
                 }
                 Err(e) => panic!("failed to decode instruction: {e:?}"),

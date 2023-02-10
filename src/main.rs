@@ -14,11 +14,11 @@ mod replace;
 #[macro_export]
 macro_rules! exit {
     () => {
-        std::process::exit(0);
+        std::process::exit(0)
     };
 
     (fail) => {
-        std::process::exit(1);
+        std::process::exit(1)
     };
 
     (fail, $($arg:tt)*) => {{
@@ -43,6 +43,23 @@ macro_rules! assert_exit {
     ($cond:expr, $($arg:tt)+) => {{
         if !($cond) {
             $crate::exit!($($arg)*);
+        }
+    }};
+}
+
+macro_rules! unchecked_println {
+    ($($arg:tt)*) => {{
+        use std::io::Write;
+
+        let mut stdout = std::io::stdout();
+        match stdout.write_fmt(format_args!($($arg)*)) {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => exit!(),
+            _ => {}
+        }
+
+        match stdout.write(b"\n") {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => exit!(),
+            _ => {}
         }
     }};
 }
@@ -99,18 +116,18 @@ fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
     std::panic::set_hook(Box::new(|details| {
         if let Some(msg) = details.payload().downcast_ref::<String>() {
-            return println!("{msg}");
+            return unchecked_println!("{msg}");
         }
 
         if let Some(msg) = details.payload().downcast_ref::<&str>() {
-            return println!("{msg}");
+            return unchecked_println!("{msg}");
         }
 
-        println!("panic occurred")
+        unchecked_println!("panic occurred")
     }));
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
     let args = args::Cli::parse();
@@ -212,20 +229,21 @@ fn main() {
             .expect("failed to find `.text` section");
 
         if let Ok(raw) = section.uncompressed_data() {
-            println!("Disassembly of section {}:", section.name().unwrap_or("???"));
-            // println!("{:02x?}\n", raw);
+            unchecked_println!("Disassembly of section {}:", section.name().unwrap_or("???"));
 
             let stream = disassembler::InstructionStream::new(&raw, obj.architecture());
 
             for (off, instruction) in stream {
                 if off != 0 {
                     if let Some(label) = symbols.get(&off) {
-                        println!("\n{off:#018} <{label}>:")
+                        unchecked_println!("\n{off:018} <{label}>:");
                     }
                 }
 
-                println!("\t{instruction}");
+                unchecked_println!("\t{instruction}");
             }
         }
     }
+
+    Ok(())
 }
