@@ -35,6 +35,7 @@ pub const ABI_REGISTERS: [&str; 63] = [
 pub const INT_COMP_REGISTERS: [&str; 8] = ["s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5"];
 pub const FP_COMP_REGISTERS: [&str; 8] = ["fs0", "fs1", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5"];
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 enum Format {
     Unique,
@@ -664,20 +665,16 @@ mod tests {
     use std::process::Stdio;
 
     macro_rules! decode_instructions {
-        ($test:expr, $code:literal) => {{
-            let mut output_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-
-            output_path.push("target");
-            output_path.push(module_path!().replace("::", "_") + "_" + $test);
-
+        ($code:literal) => {{
             let mut cc = std::process::Command::new("clang")
                 .arg("-Oz")
                 .arg("-g3")
                 .arg("-nostdlib")
                 .arg("-ffreestanding")
                 .arg("-fuse-ld=lld")
-                .arg(format!("--output={}", output_path.display()))
+                .arg("--output=/dev/stdout")
                 .arg("--target=riscv64-gc-unknown")
+                .arg("-Werror")
                 .arg("-xc")
                 .arg("-")
                 .stdout(Stdio::piped())
@@ -689,10 +686,6 @@ mod tests {
 
             let cc = cc.wait_with_output()?;
 
-            if !cc.stdout.is_empty() {
-                println!("{}", String::from_utf8_lossy(&cc.stdout[..]));
-            }
-
             if !cc.stderr.is_empty() {
                 eprintln!("{}", String::from_utf8_lossy(&cc.stderr[..]));
             }
@@ -701,8 +694,7 @@ mod tests {
                 return Err(format!("clang failed with exit code: {}", cc.status).into());
             }
 
-            let binary = std::fs::read(&output_path)?;
-            let binary = object::File::parse(&*binary)?;
+            let binary = object::File::parse(&cc.stdout[..])?;
             let binary = binary
                 .sections()
                 .filter(|s| s.kind() == SectionKind::Text)
@@ -739,16 +731,13 @@ mod tests {
 
     #[test]
     fn deref() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(
-            "deref",
-            r#"
+        let decoded = decode_instructions!(r#"
             int _start() {
                 *(int *)0x1000000 = 12;
 
                 return 0;
             }
-       "#
-        );
+       "#);
 
         assert_eq!(decoded, ["lui a0, 4096", "li a1, 12", "sw a1, a0, 0", "li a0, 0", "ret"]);
 
@@ -757,16 +746,13 @@ mod tests {
 
     #[test]
     fn jump() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(
-            "jump",
-            r#"
+        let decoded = decode_instructions!(r#"
             int _start() {
                 __asm__("j -0x12");
             
                 return -32;
             }
-       "#
-        );
+       "#);
 
         assert_eq!(decoded, ["li a0, -32", "j -0x12", "ret"]);
         Ok(())
@@ -774,9 +760,7 @@ mod tests {
 
     #[test]
     fn sha256() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(
-            "sha256",
-            r#"
+        let decoded = decode_instructions!(r#"
             /*********************************************************************
             * Author:     Brad Conte (brad AT bradconte.com)
             * Copyright:
@@ -971,11 +955,9 @@ mod tests {
                 sha256_update(&ctx, (BYTE*)0x1000, 1024);
                 sha256_final(&ctx, (BYTE*)0x2000);
             }
-       "#
-        );
+       "#);
 
         assert_eq!(decoded, ["j 0x100", "ret",]);
-
         Ok(())
     }
 }

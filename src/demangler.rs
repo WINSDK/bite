@@ -58,6 +58,7 @@ impl<'p> Symbol<'p> {
         Ok(sym)
     }
 
+    /// Demangle's a symbol using a provided [`Config`](crate::replace::Config).
     pub fn parse_with_config(s: &'p str, config: &'p Config) -> Result<Self> {
         if s.is_empty() {
             return Err(Error::SymbolTooSmall);

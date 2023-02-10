@@ -57,7 +57,7 @@ pub struct InstructionStream<'a> {
     addr_size: usize,
     start: usize,
     end: usize,
-    arch: Architecture
+    arch: Architecture,
 }
 
 impl<'a> InstructionStream<'a> {
@@ -93,10 +93,7 @@ impl Iterator for InstructionStream<'_> {
 
                 let bytes = bytes.join(" ");
 
-                fmt += &format!(
-                    "{bytes:11}  {} ",
-                    inst.decode(),
-                );
+                fmt += &format!("{bytes:11}  {} ", inst.decode());
 
                 self.start += inst.width;
                 self.end += inst.width;
@@ -131,7 +128,7 @@ impl Iterator for InstructionStream<'_> {
                     self.end += 4;
                     self.end += 4 * (self.end != 0) as usize;
 
-                    Some((self.start - 4, fmt)) 
+                    Some((self.start - 4, fmt))
                 }
             }
         }

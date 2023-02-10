@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::{lookup, Array, Reader, GenericInstruction, Error};
+use super::{lookup, Array, Error, GenericInstruction, Reader};
 
 // An Intel/AMD/IA-32 instruction is made up of up to 15 bytes.
 #[derive(Debug, PartialEq, Eq)]
