@@ -10,8 +10,9 @@ OPTIONS:
   -H, --help          Print usage information
   -L, --libs          Print linked shared libraries 
   -N, --names         Print all symbols exposed by object
+  -S, --simplify      Replace common types with shortened paths
   -D, --dissasembly   Path to object you're disassembling
-  -S, --simplify      Replace common types with shortened paths";
+  -G, --gui           Launch a GUI to explore a give object";
 
 const SHORT: &[&str] = &["-H", "-L", "-N", "-D", "-S", "-C"];
 const NAMES: &[&str] = &["--help", "--libs", "--names", "--dissasembly", "--simplify", "--config"];
@@ -30,6 +31,9 @@ pub struct Cli {
     /// Disassemble object into `readable` assembly,
     pub disassemble: bool,
 
+    /// Launch a GUI to explore a give object.
+    pub gui: bool,
+
     /// Path to symbol being disassembled.
     pub path: PathBuf,
 
@@ -44,6 +48,7 @@ impl Cli {
             names: false,
             simplify: false,
             disassemble: false,
+            gui: false,
             config: None,
             path: PathBuf::new(),
         };
@@ -73,6 +78,7 @@ impl Cli {
                         exit!(fail, "Must specify path to object");
                     }
                 }
+                "-G" | "--gui" => cli.gui = true,
                 "-C" | "--config" => {
                     if let Some(path) = args.next().as_deref() {
                         if NAMES.contains(&path) || SHORT.contains(&path) {

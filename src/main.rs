@@ -64,54 +64,6 @@ macro_rules! unchecked_println {
     }};
 }
 
-fn demangle_line<'a>(args: &args::Cli, s: &'a str, config: &replace::Config) -> Cow<'a, str> {
-    let mut left = 0;
-    for idx in 0..s.len() {
-        if s.as_bytes()[idx] == b'<' {
-            left = idx;
-            break;
-        }
-    }
-
-    let mut right = 0;
-    for idx in 0..s.len() {
-        if s[left..].as_bytes()[idx] == b'>' {
-            right = left + idx;
-            break;
-        }
-    }
-
-    for idx in left..right {
-        if s.as_bytes()[idx] == b'+' {
-            right = idx;
-            break;
-        }
-    }
-
-    if left == 0 || right == 0 {
-        return Cow::Borrowed(s);
-    }
-
-    let m = &s[left + 1..=right - 1];
-
-    let demangled: Cow<str> = if m.starts_with("__Z") | m.starts_with("_Z") | m.starts_with('Z') {
-        Cow::Owned(format!("{:#}", rustc_demangle::demangle(m)))
-    } else {
-        let demangle_attempt = if args.simplify {
-            demangler::Symbol::parse_with_config(m, config)
-        } else {
-            demangler::Symbol::parse(m)
-        };
-
-        match demangle_attempt {
-            Ok(demangled) => Cow::Owned(demangled.display()),
-            Err(..) => return Cow::Borrowed(s),
-        }
-    };
-
-    Cow::Owned(format!("{}{}{}", &s[..=left], demangled, &s[right..]))
-}
-
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
     std::panic::set_hook(Box::new(|details| {
@@ -139,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut symbols: BTreeMap<usize, Cow<'static, str>> = obj
         .symbols()
         .filter_map(|s| s.name().map(|name| (s.address() as usize, Cow::Borrowed(name))).ok())
+        .filter(|(_, name)| !name.is_empty())
         .collect();
 
     if let Ok(Some(pdb)) = obj.pdb_info() {
@@ -214,30 +167,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         symbols.par_iter_mut().filter(valid_symbol).for_each(|(_, symbol)| {
-            match demangler::Symbol::parse(symbol) {
+            match demangler::Symbol::parse_with_config(symbol, &config) {
                 Ok(sym) => println!("{}", sym.display()),
                 Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
             }
         });
     }
 
-    if args.disassemble {
+    if !args.gui && args.disassemble {
         let section = obj
             .sections()
             .filter(|s| s.kind() == SectionKind::Text)
             .find(|t| t.name() == Ok(".text"))
             .expect("failed to find `.text` section");
 
+        dbg!(section.address());
+        dbg!(&symbols);
+
         if let Ok(raw) = section.uncompressed_data() {
             unchecked_println!("Disassembly of section {}:", section.name().unwrap_or("???"));
 
+            let base = section.address() as usize;
             let stream = disassembler::InstructionStream::new(&raw, obj.architecture());
 
             for (off, instruction) in stream {
-                if off != 0 {
-                    if let Some(label) = symbols.get(&off) {
-                        unchecked_println!("\n{off:018} <{label}>:");
-                    }
+                if let Some(label) = symbols.get(&(base + off)) {
+                    unchecked_println!("\n{off:012} <{label}>:");
                 }
 
                 unchecked_println!("\t{instruction}");

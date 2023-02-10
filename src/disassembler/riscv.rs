@@ -20,7 +20,7 @@ macro_rules! riscv {
 
 // NOTE: registers starting with f have to be floating-point whilst all other are integers
 #[rustfmt::skip]
-pub const REGISTERS: [&str; 63] = [
+pub const ABI_REGISTERS: [&str; 63] = [
     "zero", "ra", "sp", "gp", "tp",
     "t0", "t2", "t3",
     "s0", "s1",
@@ -32,7 +32,10 @@ pub const REGISTERS: [&str; 63] = [
     "f29", "f30", "f31"
 ];
 
-#[derive(Debug, Clone, Copy)]
+pub const INT_COMP_REGISTERS: [&str; 8] = ["s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5"];
+pub const FP_COMP_REGISTERS: [&str; 8] = ["fs0", "fs1", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5"];
+
+#[derive(Clone, Copy)]
 enum Format {
     Unique,
     R,
@@ -46,14 +49,13 @@ enum Format {
     CI,
     CSS,
     CIW,
-    CL,
     CS,
     CA,
     CB,
     CJ,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 struct Instruction {
     mnemomic: &'static str,
     format: Format,
@@ -186,6 +188,7 @@ static PSUEDOS: phf::Map<&str, fn(&mut GenericInstruction)> = phf::phf_map! {
             inst.operands.swap(0, 1);
             inst.operands.swap(1, 2);
             inst.operand_count = 2;
+            return;
         }
 
         if inst.operands[1] == "zero" {
@@ -199,6 +202,7 @@ static PSUEDOS: phf::Map<&str, fn(&mut GenericInstruction)> = phf::phf_map! {
             inst.mnemomic = "bltz";
             inst.operands.swap(1, 2);
             inst.operand_count = 2;
+            return;
         }
 
         if inst.operands[0] == "zero" {
@@ -206,6 +210,20 @@ static PSUEDOS: phf::Map<&str, fn(&mut GenericInstruction)> = phf::phf_map! {
             inst.operands.swap(0, 1);
             inst.operands.swap(1, 2);
             inst.operand_count = 2;
+        }
+    },
+    "jal" => |inst| {
+        if inst.operands[0] == "zero" {
+            inst.mnemomic = "j";
+            inst.operands.swap(0, 1);
+            inst.operand_count = 1;
+            return;
+        }
+
+        if inst.operands[0] == "ra" {
+            inst.mnemomic = "jal";
+            inst.operands.swap(0, 1);
+            inst.operand_count = 1;
         }
     },
     "jalr" => |inst| {
@@ -263,30 +281,33 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
 
         let mut inst = match opcode {
             0b00 => {
-                let f1 = bytes >> 7 & 0b111;
-                let f2 = bytes >> 2 & 0b111;
-                let imm = bytes >> 5 & 0b11 + ((bytes >> 10 & 0b111) << 3);
-
                 let inst = match jump3 {
                     0b000 => riscv!("addi4spn", Format::Unique),
-                    0b001 => riscv!("fld", Format::CL),
-                    0b010 => riscv!("lw", Format::CL),
-                    0b011 if stream.arch == Arch::Riscv32 => riscv!("flw", Format::CL),
-                    0b011 if stream.arch == Arch::Riscv64 => riscv!("ld", Format::CL),
-                    0b101 => riscv!("fsd", Format::CL),
-                    0b110 => riscv!("sw", Format::CL),
-                    0b111 if stream.arch == Arch::Riscv32 => riscv!("fsw", Format::CL),
-                    0b111 if stream.arch == Arch::Riscv64 => riscv!("sd", Format::CL),
+                    0b001 => riscv!("fld", Format::CS),
+                    0b010 => riscv!("lw", Format::CS),
+                    0b011 if stream.arch == Arch::Riscv32 => riscv!("flw", Format::CS),
+                    0b011 if stream.arch == Arch::Riscv64 => riscv!("ld", Format::CS),
+                    0b101 => riscv!("fsd", Format::CS),
+                    0b110 => riscv!("sw", Format::CS),
+                    0b111 if stream.arch == Arch::Riscv32 => riscv!("fsw", Format::CS),
+                    0b111 if stream.arch == Arch::Riscv64 => riscv!("sd", Format::CS),
                     _ => return Err(Error::UnknownOpcode),
                 };
 
                 let operand_count = match inst.format {
                     Format::Unique => 0,
-                    Format::CL => {
-                        let rs1 = REGISTERS.get(f1 as usize).ok_or(Error::UnknownRegister)?;
-                        let rd = REGISTERS.get(f2 as usize).ok_or(Error::UnknownRegister)?;
+                    Format::CS => {
+                        let rs1 = INT_COMP_REGISTERS
+                            .get((bytes >> 7 & 0b111) as usize)
+                            .ok_or(Error::UnknownRegister)?;
 
-                        operands[0] = Cow::Borrowed(rd);
+                        let rs2 = INT_COMP_REGISTERS
+                            .get((bytes >> 2 & 0b111) as usize)
+                            .ok_or(Error::UnknownRegister)?;
+
+                        let imm = bytes >> 5 & 0b11 + ((bytes >> 10 & 0b111) << 3);
+
+                        operands[0] = Cow::Borrowed(rs2);
                         operands[1] = Cow::Borrowed(rs1);
                         operands[2] = Cow::Owned(imm.to_string());
 
@@ -298,21 +319,18 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                 GenericInstruction { width: 2, mnemomic: inst.mnemomic, operands, operand_count }
             }
             0b01 => {
-                let f2 = bytes >> 7 & 0b11111;
-                let f3 = bytes >> 2 & 0b11111;
-
                 let inst = match jump3 {
-                    0b000 if f2 == 0 => riscv!("nop", Format::Unique),
-                    0b000 if f2 != 0 => riscv!("addi", Format::CI),
+                    0b000 if bytes >> 7 & 0b11111 == 0 => riscv!("nop", Format::Unique),
+                    0b000 if bytes >> 7 & 0b11111 != 0 => riscv!("addi", Format::CI),
                     0b001 if stream.arch == Arch::Riscv32 => riscv!("jal", Format::CJ),
                     0b001 if stream.arch == Arch::Riscv64 => riscv!("addiw", Format::CI),
                     0b010 => riscv!("li", Format::CI),
-                    0b011 if f2 == 2 => riscv!("addi16sp", Format::CI),
-                    0b011 if f2 != 2 => riscv!("lui", Format::CI),
-                    0b100 => match f2 >> 10 & 0b11 {
+                    0b011 if bytes >> 7 & 0b11111 == 2 => riscv!("addi16sp", Format::CI),
+                    0b011 if bytes >> 7 & 0b11111 != 2 => riscv!("lui", Format::CI),
+                    0b100 => match bytes >> 10 & 0b11 {
                         0b00 => riscv!("srli", Format::CI),
                         0b01 => riscv!("srai", Format::CI),
-                        0b11 => match f2 >> 5 & 0b11 {
+                        0b11 => match bytes >> 5 & 0b11 {
                             0b00 if stream.arch == Arch::Riscv32 => riscv!("sub", Format::CA),
                             0b00 if stream.arch == Arch::Riscv64 => riscv!("subw", Format::CA),
                             0b01 if stream.arch == Arch::Riscv64 => riscv!("addw", Format::CA),
@@ -323,7 +341,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                         },
                         _ => return Err(Error::UnknownOpcode),
                     },
-                    0b101 => riscv!("jal", Format::CJ),
+                    0b101 => riscv!("j", Format::CJ),
                     0b110 => riscv!("beqz", Format::CB),
                     0b111 => riscv!("bnez", Format::CB),
                     _ => return Err(Error::UnknownOpcode),
@@ -332,12 +350,12 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                 let operand_count = match inst.format {
                     Format::Unique => 0,
                     Format::CI => {
-                        let rs1 = REGISTERS.get(f2 as usize).ok_or(Error::UnknownRegister)?;
+                        let rs1 = ABI_REGISTERS
+                            .get((bytes >> 7 & 0b11111) as usize)
+                            .ok_or(Error::UnknownRegister)?;
 
-                        let imm = 0;
-                        // let imm = (bytes & 0b1111100) << 1 + ((bytes >> 12 & 1) << 9);
-                        // let imm = ((imm ^ 0xFF) << 7) >> 7;
-                        // let imm = imm as i16 as isize;
+                        let imm = (bytes >> 2 & 0b1111) | (bytes >> 8 & 0b10000);
+                        let imm = ((imm << 3) as i8) >> 2;
 
                         operands[0] = Cow::Borrowed(rs1);
                         operands[1] = Cow::Borrowed(rs1);
@@ -346,27 +364,32 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                         3
                     }
                     Format::CJ => {
-                        let imm = bytes >> 1 & 0b11111111111;
-                        operands[0] = Cow::Owned(format!("0x{imm:x}"));
+                        let imm = bytes >> 2 & 0b1111111111;
+                        operands[0] = Cow::Owned(format!("{imm}"));
 
                         1
                     }
                     Format::CA => {
-                        let rs1 =
-                            REGISTERS.get(f2 as usize & 0b111).ok_or(Error::UnknownRegister)?;
-                        let rs2 =
-                            REGISTERS.get(f3 as usize & 0b111).ok_or(Error::UnknownRegister)?;
+                        let rs1 = INT_COMP_REGISTERS
+                            .get((bytes >> 7 & 0b111) as usize)
+                            .ok_or(Error::UnknownRegister)?;
 
-                        operands[0] = Cow::Borrowed(rs1);
+                        let rs2 = INT_COMP_REGISTERS
+                            .get((bytes >> 2 & 0b111) as usize)
+                            .ok_or(Error::UnknownRegister)?;
+
+                        operands[0] = Cow::Borrowed(rs2);
                         operands[1] = Cow::Borrowed(rs1);
-                        operands[2] = Cow::Borrowed(rs2);
+                        operands[2] = Cow::Borrowed(rs1);
 
                         3
                     }
                     Format::CB => {
                         let imm = bytes >> 2 & 0b11111 + ((bytes >> 10 & 0b111) << 6);
-                        let rs1 =
-                            REGISTERS.get(f2 as usize & 0b111).ok_or(Error::UnknownRegister)?;
+
+                        let rs1 = INT_COMP_REGISTERS
+                            .get((bytes >> 7 & 0b111) as usize)
+                            .ok_or(Error::UnknownRegister)?;
 
                         operands[0] = Cow::Borrowed(rs1);
                         operands[1] = Cow::Borrowed(rs1);
@@ -405,7 +428,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                 let operand_count = match inst.format {
                     Format::CI => {
                         let shamt = bytes >> 2 & 0b11111 + ((bytes >> 12 & 0b1) << 5);
-                        let rs1 = REGISTERS.get(f2 as usize).ok_or(Error::UnknownRegister)?;
+                        let rs1 = ABI_REGISTERS.get(f2 as usize).ok_or(Error::UnknownRegister)?;
 
                         operands[0] = Cow::Borrowed(rs1);
                         operands[1] = Cow::Borrowed(rs1);
@@ -415,7 +438,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                     }
                     Format::CSS => {
                         let imm = ((bytes >> 7) & 0b11111) * 8;
-                        let rs1 = REGISTERS.get(f3 as usize).ok_or(Error::UnknownRegister)?;
+                        let rs1 = ABI_REGISTERS.get(f3 as usize).ok_or(Error::UnknownRegister)?;
 
                         operands[0] = Cow::Borrowed(rs1);
                         operands[1] = Cow::Owned(imm.to_string());
@@ -485,9 +508,8 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
             0b110 => riscv!("ori", Format::I),
             0b111 => riscv!("andi", Format::I),
             0b001 => riscv!("slli", Format::A),
-            0b101 if bytes >> 25 == 0b0000000 => riscv!("srli", Format::A),
-            0b101 if bytes >> 25 == 0b0100000 => riscv!("srai", Format::A),
-            // 0b101 => panic!("{:015b}", bytes >> 25),
+            0b101 if bytes >> 26 == 0b0000001 => riscv!("srli", Format::A),
+            0b101 if bytes >> 26 == 0b0000000 => riscv!("srai", Format::A),
             _ => return Err(Error::UnknownOpcode),
         },
         0b0011011 => match bytes >> 12 & 0b111 {
@@ -538,9 +560,9 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
     let operand_count = match inst.format {
         Format::Unique => 0,
         Format::R => {
-            let rd = REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
-            let rs1 = REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
-            let rs2 = REGISTERS.get(bytes >> 20 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rd = ABI_REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rs1 = ABI_REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rs2 = ABI_REGISTERS.get(bytes >> 20 & 0b1111).ok_or(Error::UnknownRegister)?;
 
             operands[0] = Cow::Borrowed(rd);
             operands[1] = Cow::Borrowed(rs1);
@@ -549,8 +571,8 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
             3
         }
         Format::I => {
-            let rd = REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
-            let rs1 = REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rd = ABI_REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rs1 = ABI_REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
             let imm = bytes >> 20;
 
             operands[0] = Cow::Borrowed(rd);
@@ -560,9 +582,9 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
             3
         }
         Format::S => {
-            let imm = bytes >> 7 & 0b1111 + bytes >> 20 << 5;
-            let rs1 = REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
-            let rs2 = REGISTERS.get(bytes >> 20 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let imm = bytes >> 7 & 0b1111 + bytes >> 25 << 5;
+            let rs1 = ABI_REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rs2 = ABI_REGISTERS.get(bytes >> 20 & 0b1111).ok_or(Error::UnknownRegister)?;
 
             operands[0] = Cow::Borrowed(rs1);
             operands[1] = Cow::Borrowed(rs2);
@@ -572,8 +594,8 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
         }
         Format::B => {
             let imm = bytes >> 7 & 0b1111 + bytes >> 20 << 5;
-            let rs1 = REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
-            let rs2 = REGISTERS.get(bytes >> 20 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rs1 = ABI_REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rs2 = ABI_REGISTERS.get(bytes >> 20 & 0b1111).ok_or(Error::UnknownRegister)?;
 
             operands[0] = Cow::Borrowed(rs1);
             operands[1] = Cow::Borrowed(rs2);
@@ -583,7 +605,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
         }
         Format::U => {
             let imm = bytes >> 12;
-            let rd = REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rd = ABI_REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
 
             operands[0] = Cow::Borrowed(rd);
             operands[1] = Cow::Owned(imm.to_string());
@@ -601,13 +623,13 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
             imm += bytes & 0b00000000000111111100000000000000; // 7 bits
             imm >>= 14;
 
-            operands[0] = Cow::Borrowed(REGISTERS.get(rd).ok_or(Error::UnknownRegister)?);
+            operands[0] = Cow::Borrowed(ABI_REGISTERS.get(rd).ok_or(Error::UnknownRegister)?);
             operands[1] = Cow::Owned(format!("0x{imm:x}"));
             2
         }
         Format::A => {
-            let rd = REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
-            let rs1 = REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rd = ABI_REGISTERS.get(bytes >> 7 & 0b1111).ok_or(Error::UnknownRegister)?;
+            let rs1 = ABI_REGISTERS.get(bytes >> 15 & 0b1111).ok_or(Error::UnknownRegister)?;
 
             operands[0] = Cow::Borrowed(rd);
             operands[1] = Cow::Borrowed(rs1);
@@ -650,6 +672,7 @@ mod tests {
 
             let mut cc = std::process::Command::new("clang")
                 .arg("-Oz")
+                .arg("-g3")
                 .arg("-nostdlib")
                 .arg("-ffreestanding")
                 .arg("-fuse-ld=lld")
@@ -690,12 +713,24 @@ mod tests {
             let mut stream = InstructionStream::new(&binary, object::Architecture::Riscv64);
             let mut decoded = Vec::new();
 
-            while let Ok(inst) = (stream.interpreter)(&mut stream) {
-                decoded.push(inst.decode());
+            loop {
+                match (stream.interpreter)(&mut stream) {
+                    Ok(inst) => {
+                        decoded.push(inst.decode());
 
-                stream.start += inst.width;
-                stream.end += inst.width;
-                stream.end += inst.width * (stream.end != 0) as usize;
+                        stream.start += inst.width;
+                        stream.end += inst.width;
+                        stream.end += inst.width * (stream.end != 0) as usize;
+                    }
+                    Err($crate::disassembler::Error::NoBytesLeft) => break,
+                    Err(..) => {
+                        decoded.push("????".to_string());
+
+                        stream.start += 4;
+                        stream.end += 4;
+                        stream.end += 4 * (stream.end != 0) as usize;
+                    }
+                }
             }
 
             decoded
@@ -708,14 +743,14 @@ mod tests {
             "deref",
             r#"
             int _start() {
-                *(int *)0x1000000 = 0;
+                *(int *)0x1000000 = 12;
 
                 return 0;
             }
        "#
         );
 
-        assert_eq!(decoded, ["lui a0, 4096", "sw zero, 0(a0)", "li a0, 0", "ret"]);
+        assert_eq!(decoded, ["lui a0, 4096", "li a1, 12", "sw a1, a0, 0", "li a0, 0", "ret"]);
 
         Ok(())
     }
@@ -726,15 +761,14 @@ mod tests {
             "jump",
             r#"
             int _start() {
-                __asm__("j 0x100");
+                __asm__("j -0x12");
             
-                return 1;
+                return -32;
             }
        "#
         );
 
-        assert_eq!(decoded, ["j 0x100", "ret",]);
-
+        assert_eq!(decoded, ["li a0, -32", "j -0x12", "ret"]);
         Ok(())
     }
 
