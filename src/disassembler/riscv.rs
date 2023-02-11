@@ -342,12 +342,12 @@ fn decode_comp_arith(
     bytes: usize,
     mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
-    let rs1 = INT_REGISTERS.get(bytes >> 7 & 0b111).ok_or(Error::UnknownRegister)?;
-    let rs2 = INT_REGISTERS.get(bytes >> 2 & 0b111).ok_or(Error::UnknownRegister)?;
+    let rd = INT_REGISTERS.get(bytes >> 7 & 0b111).ok_or(Error::UnknownRegister)?;
+    let rs = INT_REGISTERS.get(bytes >> 2 & 0b111).ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rs2);
-    operands[1] = Cow::Borrowed(rs1);
-    operands[2] = Cow::Borrowed(rs1);
+    operands[0] = Cow::Borrowed(rd);
+    operands[1] = Cow::Borrowed(rd);
+    operands[2] = Cow::Borrowed(rs);
 
     Ok(GenericInstruction { width: 2, mnemomic, operands, operand_count: 3 })
 }
@@ -679,7 +679,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                 let f3 = bytes >> 2 & 0b11111;
 
                 match jump3 {
-                    0b000 => decode_comp_arith("slli", bytes, operands),
+                    0b000 => decode_comp_shift("slli", bytes, operands),
                     0b001 => decode_comp_ldsp("fldsp", bytes, operands),
                     0b010 => decode_comp_lwsp("lwsp", bytes, operands),
                     0b011 if !stream.is_64() => decode_comp_lwsp("flwsp", bytes, operands),
