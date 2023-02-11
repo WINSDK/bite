@@ -368,7 +368,8 @@ mod tests {
         ([$($bytes:tt),+] => $mnemomic:literal, $($operand:literal),*) => {{
             let mut stream = $crate::disassembler::InstructionStream::new(
                 &[$($bytes),+],
-                object::Architecture::Mips
+                object::Architecture::Mips,
+                0
             );
 
             match $crate::disassembler::mips::next(&mut stream) {

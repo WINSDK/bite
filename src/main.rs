@@ -188,7 +188,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             unchecked_println!("Disassembly of section {}:", section.name().unwrap_or("???"));
 
             let base = section.address() as usize;
-            let stream = disassembler::InstructionStream::new(&raw, obj.architecture());
+            let stream = disassembler::InstructionStream::new(
+                &raw,
+                obj.architecture(),
+                base,
+            );
 
             for (off, instruction) in stream {
                 if let Some(label) = symbols.get(&(base + off)) {

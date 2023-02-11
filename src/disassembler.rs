@@ -57,11 +57,12 @@ pub struct InstructionStream<'a> {
     addr_size: usize,
     start: usize,
     end: usize,
+    pub section_base: usize,
     arch: Architecture,
 }
 
 impl<'a> InstructionStream<'a> {
-    pub fn new(bytes: &'a [u8], arch: Architecture) -> Self {
+    pub fn new(bytes: &'a [u8], arch: Architecture, section_offset: usize) -> Self {
         let interpreter = match arch {
             Architecture::Mips | Architecture::Mips64 => mips::next,
             Architecture::X86_64 | Architecture::X86_64_X32 => x86_64::next,
@@ -74,7 +75,34 @@ impl<'a> InstructionStream<'a> {
             .map(|size| size.bytes() as usize * 8)
             .expect("unknown target architecture");
 
-        Self { bytes, interpreter, addr_size, start: 0, end: 0, arch }
+        Self { bytes, interpreter, addr_size, start: 0, end: 0, section_base: section_offset, arch }
+    }
+
+    #[inline(always)]
+    fn is_64(&self) -> bool {
+        match self.arch {
+            Architecture::Unknown => false,
+            Architecture::Aarch64 => true,
+            Architecture::Arm => false,
+            Architecture::Avr => false,
+            Architecture::Bpf => true,
+            Architecture::I386 => false,
+            Architecture::X86_64 => true,
+            Architecture::X86_64_X32 => false,
+            Architecture::Hexagon => false,
+            Architecture::LoongArch64 => true,
+            Architecture::Mips => false,
+            Architecture::Mips64 => true,
+            Architecture::Msp430 => false,
+            Architecture::PowerPc => false,
+            Architecture::PowerPc64 => true,
+            Architecture::Riscv32 => false,
+            Architecture::Riscv64 => true,
+            Architecture::S390x => true,
+            Architecture::Sparc64 => true,
+            Architecture::Wasm32 => false,
+            _ => unsafe { core::hint::unreachable_unchecked() }
+        }
     }
 }
 
@@ -302,4 +330,6 @@ impl<'a, T> Reader<'a, T> {
     }
 }
 
-const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");
+type Operand = std::borrow::Cow<'static, str>;
+
+const EMPTY_OPERAND: Operand = std::borrow::Cow::Borrowed("");
