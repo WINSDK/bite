@@ -276,7 +276,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
 
     // the instruction is compressed
     if bytes as u16 & 0b11 != 0b11 {
-        let bytes = bytes as u16;
+        let bytes = bytes as u16 as usize;
         let opcode = bytes & 0b11;
         let jump3 = bytes >> 13 & 0b111;
 
@@ -299,11 +299,11 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                     Format::Unique => 0,
                     Format::CS => {
                         let rs1 = INT_COMP_REGISTERS
-                            .get((bytes >> 7 & 0b111) as usize)
+                            .get(bytes >> 7 & 0b111)
                             .ok_or(Error::UnknownRegister)?;
 
                         let rs2 = INT_COMP_REGISTERS
-                            .get((bytes >> 2 & 0b111) as usize)
+                            .get(bytes >> 2 & 0b111)
                             .ok_or(Error::UnknownRegister)?;
 
                         let imm = bytes >> 5 & 0b11 + ((bytes >> 10 & 0b111) << 3);
@@ -352,11 +352,14 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                     Format::Unique => 0,
                     Format::CI => {
                         let rs1 = ABI_REGISTERS
-                            .get((bytes >> 7 & 0b11111) as usize)
+                            .get(bytes >> 7 & 0b11111)
                             .ok_or(Error::UnknownRegister)?;
 
-                        let imm = (bytes >> 2 & 0b1111) | (bytes >> 8 & 0b10000);
-                        let imm = ((imm << 3) as i8) >> 2;
+                        let mut imm = (((bytes >> 7) & 0b100000) | ((bytes >> 2) & 0b11111)) as i16;
+
+                        if imm & 0b100000 != 0 {
+                            imm = (imm | 0b11000000) as i8 as i16;
+                        }
 
                         operands[0] = Cow::Borrowed(rs1);
                         operands[1] = Cow::Borrowed(rs1);
@@ -365,18 +368,38 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                         3
                     }
                     Format::CJ => {
-                        let imm = bytes >> 2 & 0b1111111111;
-                        operands[0] = Cow::Owned(format!("{imm}"));
+                        let mut imm = 0;
+
+                        imm |= (bytes >> 1) & 0b100000000000;
+                        imm |= (bytes << 2) & 0b010000000000;
+                        imm |= (bytes >> 1) & 0b001100000000;
+                        imm |= (bytes << 1) & 0b000010000000;
+                        imm |= (bytes >> 1) & 0b000001000000;
+                        imm |= (bytes << 3) & 0b000000100000;
+                        imm |= (bytes >> 7) & 0b000000010000;
+                        imm |= (bytes >> 2) & 0b000000001110;
+
+                        // cast to i32 to prevent rust overflowing literal complaints
+                        let mut imm = imm as i32;
+
+                        if imm & 0b100000000000 != 0 {
+                            imm |= (imm | 0b100000000000) as i8 as i32;
+                        }
+
+                        operands[0] = Cow::Owned(match imm {
+                            i32::MIN..=-1 => format!("-{:#x}", imm.abs()),
+                            0..=i32::MAX => format!("{:#x}", imm)
+                        });
 
                         1
                     }
                     Format::CA => {
                         let rs1 = INT_COMP_REGISTERS
-                            .get((bytes >> 7 & 0b111) as usize)
+                            .get(bytes >> 7 & 0b111)
                             .ok_or(Error::UnknownRegister)?;
 
                         let rs2 = INT_COMP_REGISTERS
-                            .get((bytes >> 2 & 0b111) as usize)
+                            .get(bytes >> 2 & 0b111)
                             .ok_or(Error::UnknownRegister)?;
 
                         operands[0] = Cow::Borrowed(rs2);
@@ -389,7 +412,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                         let imm = bytes >> 2 & 0b11111 + ((bytes >> 10 & 0b111) << 6);
 
                         let rs1 = INT_COMP_REGISTERS
-                            .get((bytes >> 7 & 0b111) as usize)
+                            .get(bytes >> 7 & 0b111)
                             .ok_or(Error::UnknownRegister)?;
 
                         operands[0] = Cow::Borrowed(rs1);
@@ -429,7 +452,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                 let operand_count = match inst.format {
                     Format::CI => {
                         let shamt = bytes >> 2 & 0b11111 + ((bytes >> 12 & 0b1) << 5);
-                        let rs1 = ABI_REGISTERS.get(f2 as usize).ok_or(Error::UnknownRegister)?;
+                        let rs1 = ABI_REGISTERS.get(f2).ok_or(Error::UnknownRegister)?;
 
                         operands[0] = Cow::Borrowed(rs1);
                         operands[1] = Cow::Borrowed(rs1);
@@ -439,7 +462,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
                     }
                     Format::CSS => {
                         let imm = ((bytes >> 7) & 0b11111) * 8;
-                        let rs1 = ABI_REGISTERS.get(f3 as usize).ok_or(Error::UnknownRegister)?;
+                        let rs1 = ABI_REGISTERS.get(f3).ok_or(Error::UnknownRegister)?;
 
                         operands[0] = Cow::Borrowed(rs1);
                         operands[1] = Cow::Owned(imm.to_string());
@@ -625,7 +648,7 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
             imm >>= 14;
 
             operands[0] = Cow::Borrowed(ABI_REGISTERS.get(rd).ok_or(Error::UnknownRegister)?);
-            operands[1] = Cow::Owned(format!("0x{imm:x}"));
+            operands[1] = Cow::Owned(format!("{imm:#x}"));
             2
         }
         Format::A => {
@@ -731,36 +754,50 @@ mod tests {
 
     #[test]
     fn deref() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(r#"
+        let decoded = decode_instructions!(
+            r#"
             int _start() {
                 *(int *)0x1000000 = 12;
 
                 return 0;
             }
-       "#);
+       "#
+        );
 
-        assert_eq!(decoded, ["lui a0, 4096", "li a1, 12", "sw a1, a0, 0", "li a0, 0", "ret"]);
+        let test = ["lui a0, 4096", "li a1, 12", "sw a1, a0, 0", "li a0, 0", "ret"];
+
+        for (test, decoded) in test.iter().zip(decoded) {
+            assert_eq!(test, &decoded);
+        }
 
         Ok(())
     }
 
     #[test]
     fn jump() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(r#"
+        let decoded = decode_instructions!(
+            r#"
             int _start() {
                 __asm__("j -0x12");
             
                 return -32;
             }
-       "#);
+       "#
+        );
 
-        assert_eq!(decoded, ["li a0, -32", "j -0x12", "ret"]);
+        let test = ["li a0, -32", "j -0x12", "ret"];
+
+        for (test, decoded) in test.iter().zip(decoded) {
+            assert_eq!(test, &decoded);
+        }
+
         Ok(())
     }
 
     #[test]
     fn sha256() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(r#"
+        let decoded = decode_instructions!(
+            r#"
             /*********************************************************************
             * Author:     Brad Conte (brad AT bradconte.com)
             * Copyright:
@@ -955,9 +992,374 @@ mod tests {
                 sha256_update(&ctx, (BYTE*)0x1000, 1024);
                 sha256_final(&ctx, (BYTE*)0x2000);
             }
-       "#);
+       "#
+        );
 
-        assert_eq!(decoded, ["j 0x100", "ret",]);
+       let test = [
+            "li a3, 0",
+            "beq a2, a3, 0x1126c",
+            "add a4, a0, a3",
+            "sb a1, a4, 0",
+            "addi a3, a3, 1",
+            "bne a2, a3, 0x1125e",
+            "ret",
+            "addi sp, sp, -352",
+            "sd s0, sp, 344",
+            "sd s1, sp, 336",
+            "sd s2, sp, 328",
+            "sd s3, sp, 320",
+            "sd s4, sp, 312",
+            "sd s5, sp, 304",
+            "sd s6, sp, 296",
+            "sd s7, sp, 288",
+            "sd s8, sp, 280",
+            "sd s9, sp, 272",
+            "sd s10, sp, 264",
+            "sd s11, sp, 256",
+            "li a2, 0",
+            "li a3, 64",
+            "mv a6, sp",
+            "beq a2, a3, 0x112c0",
+            "add a5, a1, a2",
+            "lb s1, a5, 0",
+            "lbu s0, a5, 1",
+            "slli s1, s1, 24",
+            "lbu a4, a5, 2",
+            "slli s0, s0, 16",
+            "lbu a5, a5, 3",
+            "or s1, s1, s0",
+            "slli a4, a4, 8",
+            "or a4, a4, s1",
+            "or a4, a4, a5",
+            "add a5, a6, a2",
+            "sw a4, a5, 0",
+            "addi a2, a2, 4",
+            "bne a2, a3, 0x11294",
+            "li a1, 0",
+            "li a7, 192",
+            "mv a6, sp",
+            "beq a1, a7, 0x11320",
+            "add a4, a6, a1",
+            "lwu a5, a4, 56",
+            "srli s1, a5, 17",
+            "slliw s0, a5, 15",
+            "or s1, s1, s0",
+            "srli s0, a5, 19",
+            "slliw a3, a5, 13",
+            "or a3, a3, s0",
+            "xor a3, a3, s1",
+            "lw s1, a4, 36",
+            "lwu s0, a4, 4",
+            "srli a5, a5, 10",
+            "xor a3, a3, a5",
+            "addw a3, a3, s1",
+            "srli a5, s0, 7",
+            "slli s1, s0, 25",
+            "or a5, a5, s1",
+            "srli s1, s0, 18",
+            "slli a2, s0, 14",
+            "or a2, a2, s1",
+            "lw s1, a4, 0",
+            "xor a2, a2, a5",
+            "srli a5, s0, 3",
+            "xor a2, a2, a5",
+            "addw a3, a3, s1",
+            "addw a2, a2, a3",
+            "sw a2, a4, 64",
+            "addi a1, a1, 4",
+            "bne a1, a7, 0x112cc",
+            "li s9, 0",
+            "lw t5, a0, 80",
+            "lw t4, a0, 84",
+            "lw t3, a0, 88",
+            "lw t2, a0, 92",
+            "lw t1, a0, 96",
+            "lw t0, a0, 100",
+            "lw a7, a0, 104",
+            "lw a6, a0, 108",
+            "li t6, 256",
+            "lui a2, 16",
+            "addi s3, a2, 344",
+            "mv s2, sp",
+            "mv s7, t3",
+            "mv s4, t2",
+            "mv s6, t1",
+            "mv a3, t0",
+            "mv s10, a7",
+            "mv s5, a6",
+            "mv s8, t4",
+            "mv s0, t5",
+            "mv s11, s10",
+            "mv s10, a3",
+            "mv a3, s6",
+            "mv s1, s7",
+            "beq s9, t6, 0x113fa",
+            "srliw a4, a3, 6",
+            "slliw a1, a3, 26",
+            "or a1, a1, a4",
+            "srliw a4, a3, 11",
+            "slliw a2, a3, 21",
+            "or a2, a2, a4",
+            "xor a1, a1, a2",
+            "srliw a2, a3, 25",
+            "slliw a4, a3, 7",
+            "or a2, a2, a4",
+            "xor s6, a1, a2",
+            "and a2, s10, a3",
+            "not a4, a3",
+            "and a4, s11, a4",
+            "add a5, s3, s9",
+            "lw a5, a5, 0",
+            "add a1, s2, s9",
+            "lw a1, a1, 0",
+            "addw a2, s6, a2",
+            "addw a2, a2, s5",
+            "addw a2, a2, a4",
+            "addw a2, a2, a5",
+            "addw a1, a1, a2",
+            "srliw a2, s0, 2",
+            "slliw a4, s0, 30",
+            "or a2, a2, a4",
+            "srliw a4, s0, 13",
+            "slliw a5, s0, 19",
+            "or a4, a4, a5",
+            "xor a2, a2, a4",
+            "srliw a4, s0, 22",
+            "slli a5, s0, 10",
+            "or a4, a4, a5",
+            "xor a2, a2, a4",
+            "xor a4, s8, s1",
+            "and a4, a4, s0",
+            "and a5, s8, s1",
+            "xor a4, a4, a5",
+            "addw a2, a2, a4",
+            "addw s6, a1, s4",
+            "mv s7, s8",
+            "mv s8, s0",
+            "addw s0, a2, a1",
+            "addi s9, s9, 4",
+            "mv s4, s1",
+            "mv s5, s11",
+            "j 0x11360",
+            "addw a1, s0, t5",
+            "sw a1, a0, 80",
+            "addw a1, s8, t4",
+            "sw a1, a0, 84",
+            "addw a1, s1, t3",
+            "sw a1, a0, 88",
+            "addw a1, s4, t2",
+            "sw a1, a0, 92",
+            "addw a1, a3, t1",
+            "sw a1, a0 96",
+            "addw a1, s10, t0",
+            "sw a1, a0, 100",
+            "addw a1, s11, a7",
+            "sw a1, a0, 104",
+            "addw a1, s5, a6",
+            "sw a1, a0, 108",
+            "ld s0, sp, 344",
+            "ld s1, sp, 336",
+            "ld s2, sp, 328",
+            "ld s3, sp, 320",
+            "ld s4, sp, 312",
+            "ld s5, sp, 304",
+            "ld s6, sp, 296",
+            "ld s7, sp, 288",
+            "ld s8, sp, 280",
+            "ld s9, sp, 272",
+            "ld s10, sp, 26",
+            "ld s11, sp, 256",
+            "addi sp, sp, 352",
+            "ret",
+            "lui a1, 18",
+            "ld a1, a1, 1640",
+            "lui a2, 18",
+            "ld a2, a2, 1648",
+            "sd a1, a0, 80",
+            "lui a1, 18",
+            "ld a1, a1, 1656",
+            "sd a2, a0, 88",
+            "lui a2, 18",
+            "ld a2, a2, 1664",
+            "sd a1, a0, 96",
+            "li a1, 0",
+            "sw a1, a0, 64",
+            "sd a1, a0, 72",
+            "sd a2, a0, 104",
+            "ret",
+            "addi sp, sp, -48",
+            "sd ra, sp, 40",
+            "sd s0, sp, 32",
+            "sd s1, sp, 24",
+            "sd s2, sp, 16",
+            "sd s3, sp, 8",
+            "sd s4, sp, 0",
+            "mv s3, a2",
+            "mv s2, a1",
+            "mv s1, a0",
+            "li s0, 0",
+            "li s4, 64",
+            "slli a0, s0, 32",
+            "srli a0, a0, 32",
+            "bgeu a0, s3, 0x114cc",
+            "add a0, a0, s2",
+            "lwu a1, s1, 64",
+            "lb a0, a0, 0",
+            "add a1, a1, s1",
+            "sb a0, a1, 0",
+            "lw a0, s1, 64",
+            "addiw a0, a0, 1",
+            "sw a0, s1, 64",
+            "bne a0, s4, 0x114c8",
+            "mv a0, s1",
+            "mv a1, s1",
+            "jal 0x1126e",
+            "ld a0, s1, 72",
+            "addi a0, a0, 512",
+            "sd a0, s1, 72",
+            "sw zero, s1, 64",
+            "addiw s0, s0, 1",
+            "j 0x11490",
+            "ld ra, sp, 40",
+            "ld s0, sp, 32",
+            "ld s1, sp, 24",
+            "ld s2, sp, 16",
+            "ld s3, sp, 8",
+            "ld s4, sp, 0",
+            "addi sp, sp, 48",
+            "ret",
+            "addi sp, sp, -32",
+            "sd ra, sp, 24",
+            "sd s0, sp, 16",
+            "sd s1, sp, 8",
+            "mv s0, a0",
+            "lwu a0, a0, 64",
+            "mv s1, a1",
+            "sext.w a1, a0",
+            "add a2, s0, a0",
+            "li a3, 128",
+            "li a4, 56",
+            "sb a3, a2, 0",
+            "bgeu a1, a4, 0x115e6",
+            "addi a1, s0, 1",
+            "li a2, 55",
+            "beq a0, a2, 0x1151e",
+            "add a3, a1, a0",
+            "addi a0, a0, 1",
+            "sb zero, a3, 0",
+            "bne a0, a2, 0x11510",
+            "lw a0, s0, 64",
+            "ld a1, s0, 72",
+            "slli a0, a0, 35",
+            "srli a0, a0, 32",
+            "add a0, a0, a1",
+            "sd a0, s0, 72",
+            "sb a0, s0, 63",
+            "srli a1, a0, 8",
+            "sb a1, s0, 62",
+            "srli a1, a0, 16",
+            "sb a1, s0, 61",
+            "srli a1, a0, 24",
+            "sb a1, s0, 60",
+            "srli a1, a0, 32",
+            "sb a1, s0, 59",
+            "srli a1, a0, 40",
+            "sb a1, s0, 58",
+            "srli a1, a0, 48",
+            "sb a1, s0, 57",
+            "srli a0, a0, 56",
+            "sb a0, s0, 56",
+            "mv a0, s0",
+            "mv a1, s0",
+            "jal 0x1126e",
+            "li a0, 0",
+            "addi a1, s1, 16",
+            "li a2, 4",
+            "li a3, 24",
+            "beq a0, a2, 0x115dc",
+            "lw a4, s0, 80",
+            "slliw a5, a0, 3",
+            "subw a5, a3, a5",
+            "srlw a4, a4, a5",
+            "add s1, a1, a0",
+            "sb a4, s1, -16",
+            "lw a4, s0, 84",
+            "srlw a4, a4, a5",
+            "sb a4, s1, -12",
+            "lw a4, s0, 88",
+            "srlw a4, a4, a5",
+            "sb a4, s1, -8",
+            "lw a4, s0, 92",
+            "srlw a4, a4, a5",
+            "sb a4, s1, -4",
+            "lw a4, s0, 96",
+            "srlw a4, a4, a5",
+            "sb a4, s1, 0",
+            "lw a4, s0, 100",
+            "srlw a4, a4, a5",
+            "sb a4, s1, 4",
+            "lw a4, s0, 104",
+            "srlw a4, a4, a5",
+            "sb a4, s1, 8",
+            "lw a4, s0, 108",
+            "srlw a4, a4, a5",
+            "sb a4, s1, 12",
+            "addi a0, a0, 1",
+            "bne a0, a2, 0x1157a",
+            "ld ra, sp, 24",
+            "ld s0, sp, 16",
+            "ld s1, sp, 8",
+            "addi sp, sp, 32",
+            "ret",
+            "li a1, 63",
+            "addiw a0, a0, 1",
+            "bltu a1, a0, 0x115fa",
+            "add a2, s0, a0",
+            "sb zero, a2, 0",
+            "j 0x115ea",
+            "mv a0, s0",
+            "mv a1, s0",
+            "jal 0x1126e",
+            "li a0, 0",
+            "li a1, 56",
+            "beq a0, a1, 0x1151e",
+            "add a2, s0, a0",
+            "sb zero, a2, 0",
+            "addi a0, a0, 1",
+            "bne a0, a1, 0x1160c",
+            "j 0x1151e",
+            "addi sp, sp, -128",
+            "sd ra, sp, 120",
+            "sw zero, sp, 72",
+            "sd zero, sp, 80",
+            "lui a0, 18",
+            "ld a0, a0, 1672",
+            "lui a1, 18",
+            "ld a1, a1, 1680",
+            "lui a2, 18",
+            "ld a2, a2, 1688",
+            "lui a3, 18",
+            "ld a3, a3, 1696",
+            "sd a0, sp, 88",
+            "sd a1, sp, 96",
+            "sd a2, sp, 104",
+            "sd a3, sp, 112",
+            "addi a0, sp, 8",
+            "lui a1, 1",
+            "li a2, 1024",
+            "jal 0x11476",
+            "addi a0, sp, 8",
+            "lui a1, 2",
+            "jal 0x114dc",
+            "ld ra, sp, 120",
+            "addi sp, sp, 128",
+            "ret"
+        ];
+
+        for (test, decoded) in test.iter().zip(decoded) {
+            assert_eq!(test, &decoded);
+        }
+
         Ok(())
     }
 }

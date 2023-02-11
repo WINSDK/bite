@@ -2,7 +2,7 @@
 
 read -p "Input assembly instruction: " -r asm
 
-cat << EOF | rustc -o target/asm --target riscv64gc-unknown-none-elf --crate-type lib - 
+cat << EOF | rustc +nightly -o target/asm --target riscv64gc-unknown-none-elf --crate-type lib -
 #![feature(naked_functions)]
 #![no_std]
 
