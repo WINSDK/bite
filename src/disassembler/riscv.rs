@@ -219,10 +219,23 @@ static PSUEDOS: phf::Map<&str, fn(&mut GenericInstruction)> = phf::phf_map! {
     // TODO: table p2
 };
 
+macro_rules! operands {
+    [] => {([super::EMPTY_OPERAND; 5], 0)};
+    [$($x:expr),+ $(,)?] => {{
+        let mut operands = [super::EMPTY_OPERAND; 5];
+        let mut idx = 0;
+        $(
+            idx += 1;
+            operands[idx - 1] = $x;
+        )*
+
+        (operands, idx)
+    }};
+}
+
 fn decode_comp_branch(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
     stream: &super::InstructionStream,
 ) -> Result<GenericInstruction, Error> {
     let rs = INT_REGISTERS
@@ -245,25 +258,26 @@ fn decode_comp_branch(
 
     imm += (stream.section_base + stream.start) as i64;
 
-    operands[0] = Cow::Borrowed(rs);
-    operands[1] = Cow::Borrowed(rs);
-    operands[2] = Cow::Owned(match imm {
-        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-        0..=i64::MAX => format!("{:#x}", imm),
-    });
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs),
+        Cow::Borrowed(rs),
+        Cow::Owned(match imm {
+            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
+            0..=i64::MAX => format!("{:#x}", imm),
+        })
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count,
     })
 }
 
 fn decode_comp_jump(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
     stream: &super::InstructionStream,
 ) -> Result<GenericInstruction, Error> {
     let mut imm = 0;
@@ -286,43 +300,45 @@ fn decode_comp_jump(
 
     imm += (stream.section_base + stream.start) as i64;
 
-    operands[0] = Cow::Owned(match imm {
-        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-        0..=i64::MAX => format!("{:#x}", imm),
-    });
+    let (operands, operand_count) = operands![
+        Cow::Owned(match imm {
+            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
+            0..=i64::MAX => format!("{:#x}", imm),
+        })
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 1,
+        operand_count,
     })
 }
 
 fn decode_comp_jumpr(
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rs = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed("ra");
-    operands[1] = Cow::Borrowed(rs);
-    operands[2] = Cow::Borrowed("0");
+    let (operands, operand_count) = operands![
+        Cow::Borrowed("ra"),
+        Cow::Borrowed(rs),
+        Cow::Borrowed("0"),
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic: "jalr",
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_arith(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = INT_REGISTERS
         .get(bytes >> 7 & 0b111)
@@ -331,44 +347,46 @@ fn decode_comp_arith(
         .get(bytes >> 2 & 0b111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rd);
-    operands[2] = Cow::Borrowed(rs);
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rs),
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_shift(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = INT_REGISTERS
         .get(bytes >> 7 & 0b111)
         .ok_or(Error::UnknownRegister)?;
     let shamt = (bytes >> 7 & 0b100000) | (bytes >> 2 & 0b11111);
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rd);
-    operands[2] = Cow::Owned(shamt.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rd),
+        Cow::Owned(shamt.to_string()),
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_addi(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -379,21 +397,22 @@ fn decode_comp_addi(
         imm = (imm | 0b11000000) as i8 as i16;
     }
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rd);
-    operands[2] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rd),
+        Cow::Owned(imm.to_string()),
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_addi16sp(
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let mut imm = 0;
 
@@ -409,19 +428,20 @@ fn decode_addi16sp(
         imm = (imm | 0b1111110000000000) as i16 as i32;
     }
 
-    operands[0] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Owned(imm.to_string()),
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic: "addi16sp",
         operands,
-        operand_count: 1,
+        operand_count
     })
 }
 
 fn decode_addi4spn(
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = INT_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -433,20 +453,21 @@ fn decode_addi4spn(
     imm |= bytes >> 2 & 0b0000001000;
     imm |= bytes >> 4 & 0b0000000100;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic: "addi4spn",
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_comp_add(
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -455,22 +476,23 @@ fn decode_comp_add(
         .get(bytes >> 2 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rd);
-    operands[2] = Cow::Borrowed(rs);
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rs),
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic: "add",
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_li(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let mut imm = (((bytes >> 7) & 0b100000) | ((bytes >> 2) & 0b11111)) as i16;
     let rs = ABI_REGISTERS
@@ -481,105 +503,110 @@ fn decode_comp_li(
         imm = (imm | 0b11000000) as i8 as i16;
     }
 
-    operands[0] = Cow::Borrowed(rs);
-    operands[1] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_comp_swsp(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 2 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes >> 1 & 0b11000000) | (bytes >> 7 & 0b111100);
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_comp_sdsp(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 2 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes >> 1 & 0b111000000) | (bytes >> 7 & 0b111000);
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_comp_lwsp(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes << 4 & 0b11000000) | (bytes >> 7 & 0b100000) | (bytes >> 2 & 0b11100);
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_comp_ldsp(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes << 4 & 0b111000000) | (bytes >> 7 & 0b100000) | (bytes >> 2 & 0b11000);
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_comp_slw(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rs1 = INT_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -589,22 +616,23 @@ fn decode_comp_slw(
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes << 1 & 0b1000000) | (bytes >> 7 & 0b111000) | (bytes >> 4 & 0b100);
 
-    operands[0] = Cow::Borrowed(rs1);
-    operands[1] = Cow::Borrowed(rs2);
-    operands[2] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs1),
+        Cow::Borrowed(rs2),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_sld(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rs1 = INT_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -614,22 +642,23 @@ fn decode_comp_sld(
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes << 1 & 0b11000000) | (bytes >> 7 & 0b111000);
 
-    operands[0] = Cow::Borrowed(rs1);
-    operands[1] = Cow::Borrowed(rs2);
-    operands[2] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs1),
+        Cow::Borrowed(rs2),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_fslw(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rs1 = FP_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -639,22 +668,23 @@ fn decode_comp_fslw(
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes << 1 & 0b1000000) | (bytes >> 7 & 0b111000) | (bytes >> 4 & 0b100);
 
-    operands[0] = Cow::Borrowed(rs1);
-    operands[1] = Cow::Borrowed(rs2);
-    operands[2] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs1),
+        Cow::Borrowed(rs2),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_fsld(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rs1 = FP_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -664,21 +694,22 @@ fn decode_comp_fsld(
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes << 1 & 0b11000000) | (bytes >> 7 & 0b111000);
 
-    operands[0] = Cow::Borrowed(rs1);
-    operands[1] = Cow::Borrowed(rs2);
-    operands[2] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs1),
+        Cow::Borrowed(rs2),
+        Cow::Owned(imm.to_string())
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_comp_mv(
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rs = ABI_REGISTERS
         .get(bytes >> 2 & 0b11111)
@@ -687,45 +718,48 @@ fn decode_comp_mv(
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rs);
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rs),
+    ];
 
     Ok(GenericInstruction {
         width: 2,
         mnemomic: "mv",
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_comp_unique(
     mnemomic: &'static str,
-    operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
+    let (operands, operand_count) = operands![];
+
     Ok(GenericInstruction {
         width: 2,
         mnemomic,
         operands,
-        operand_count: 0,
+        operand_count
     })
 }
 
 fn decode_unique(
     mnemomic: &'static str,
-    operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
+    let (operands, operand_count) = operands![];
+
     Ok(GenericInstruction {
         width: 4,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_store(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let mut imm = 0;
 
@@ -741,22 +775,23 @@ fn decode_store(
         .get(bytes >> 20 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rs2);
-    operands[1] = Cow::Borrowed(rs1);
-    operands[2] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs2),
+        Cow::Borrowed(rs1),
+        Cow::Owned(imm.to_string()),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_branch(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
     stream: &super::InstructionStream,
 ) -> Result<GenericInstruction, Error> {
     let rs1 = ABI_REGISTERS
@@ -775,24 +810,25 @@ fn decode_branch(
 
     let imm = imm as i64 + (stream.section_base + stream.start) as i64;
 
-    operands[0] = Cow::Borrowed(rs1);
-    operands[1] = Cow::Borrowed(rs2);
-    operands[2] = Cow::Owned(match imm {
-        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-        0..=i64::MAX => format!("{:#x}", imm),
-    });
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rs1),
+        Cow::Borrowed(rs2),
+        Cow::Owned(match imm {
+            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
+            0..=i64::MAX => format!("{:#x}", imm),
+        }),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_jump(
     bytes: usize,
-    mut operands: [super::Operand; 5],
     stream: &super::InstructionStream,
 ) -> Result<GenericInstruction, Error> {
     let mut imm = 0;
@@ -808,23 +844,24 @@ fn decode_jump(
 
     let imm = imm as i64 + (stream.section_base + stream.start) as i64;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(match imm {
-        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-        0..=i64::MAX => format!("{:#x}", imm),
-    });
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(match imm {
+            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
+            0..=i64::MAX => format!("{:#x}", imm),
+        }),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic: "jal",
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_jumpr(
     bytes: usize,
-    mut operands: [super::Operand; 5],
     stream: &super::InstructionStream,
 ) -> Result<GenericInstruction, Error> {
     let mut imm = (bytes as i32 >> 20) as i64;
@@ -834,24 +871,25 @@ fn decode_jumpr(
 
     imm += (stream.section_base + stream.start) as i64;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(match imm {
-        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-        0..=i64::MAX => format!("{:#x}", imm),
-    });
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(match imm {
+            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
+            0..=i64::MAX => format!("{:#x}", imm),
+        }),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic: "jalr",
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
 fn decode_immediate(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -861,22 +899,23 @@ fn decode_immediate(
         .ok_or(Error::UnknownRegister)?;
     let imm = (bytes as i32) >> 20;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rs);
-    operands[2] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rs),
+        Cow::Owned(imm.to_string()),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_arith(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
     stream: &super::InstructionStream,
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
@@ -886,31 +925,29 @@ fn decode_arith(
         .get(bytes >> 15 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rs);
+    let shamt = if stream.is_64() {
+        bytes >> 20 & 0b111111
+    } else {
+        bytes >> 20 & 0b11111
+    };
 
-    if stream.is_64() {
-        let shamt = bytes >> 20 & 0b111111;
-        operands[2] = Cow::Owned(shamt.to_string());
-    }
-
-    if !stream.is_64() {
-        let shamt = bytes >> 20 & 0b11111;
-        operands[2] = Cow::Owned(shamt.to_string());
-    }
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rs),
+        Cow::Owned(shamt.to_string()),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count
     })
 }
 
 fn decode_reg_triplet(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -922,36 +959,39 @@ fn decode_reg_triplet(
         .get(bytes >> 20 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Borrowed(rs1);
-    operands[2] = Cow::Borrowed(rs2);
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Borrowed(rs1),
+        Cow::Borrowed(rs2),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic,
         operands,
-        operand_count: 3,
+        operand_count,
     })
 }
 
 fn decode_imm_reg(
     mnemomic: &'static str,
     bytes: usize,
-    mut operands: [super::Operand; 5],
 ) -> Result<GenericInstruction, Error> {
     let imm = bytes >> 12;
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    operands[0] = Cow::Borrowed(rd);
-    operands[1] = Cow::Owned(imm.to_string());
+    let (operands, operand_count) = operands![
+        Cow::Borrowed(rd),
+        Cow::Owned(imm.to_string()),
+    ];
 
     Ok(GenericInstruction {
         width: 4,
         mnemomic,
         operands,
-        operand_count: 2,
+        operand_count
     })
 }
 
@@ -972,7 +1012,6 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
     };
 
     let opcode = bytes & 0b1111111;
-    let operands = [super::EMPTY_OPERAND; 5];
 
     // the instruction is compressed
     if bytes as u16 & 0b11 != 0b11 {
@@ -982,61 +1021,61 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
 
         let decoded_inst = match opcode {
             0b00 => match jump3 {
-                0b000 => decode_addi4spn(bytes, operands),
-                0b001 => decode_comp_fsld("fld", bytes, operands),
-                0b010 => decode_comp_slw("lw", bytes, operands),
-                0b011 if !stream.is_64() => decode_comp_fslw("flw", bytes, operands),
-                0b011 if stream.is_64() => decode_comp_sld("ld", bytes, operands),
-                0b101 => decode_comp_fsld("fsd", bytes, operands),
-                0b110 => decode_comp_slw("sw", bytes, operands),
-                0b111 if !stream.is_64() => decode_comp_fslw("fsw", bytes, operands),
-                0b111 if stream.is_64() => decode_comp_sld("sd", bytes, operands),
+                0b000 => decode_addi4spn(bytes),
+                0b001 => decode_comp_fsld("fld", bytes),
+                0b010 => decode_comp_slw("lw", bytes),
+                0b011 if !stream.is_64() => decode_comp_fslw("flw", bytes),
+                0b011 if stream.is_64() => decode_comp_sld("ld", bytes),
+                0b101 => decode_comp_fsld("fsd", bytes),
+                0b110 => decode_comp_slw("sw", bytes),
+                0b111 if !stream.is_64() => decode_comp_fslw("fsw", bytes),
+                0b111 if stream.is_64() => decode_comp_sld("sd", bytes),
                 _ => Err(Error::UnknownOpcode),
             },
             0b01 => match jump3 {
-                0b000 if bytes >> 7 & 0b11111 == 0 => decode_comp_unique("nop", operands),
-                0b000 if bytes >> 7 & 0b11111 != 0 => decode_comp_addi("addi", bytes, operands),
-                0b001 if !stream.is_64() => decode_comp_jump("jal", bytes, operands, &stream),
-                0b001 if stream.is_64() => decode_comp_addi("addiw", bytes, operands),
-                0b010 => decode_comp_li("li", bytes, operands),
-                0b011 if bytes >> 7 & 0b11111 == 2 => decode_addi16sp(bytes, operands),
-                0b011 if bytes >> 7 & 0b11111 != 2 => decode_comp_li("lui", bytes, operands),
+                0b000 if bytes >> 7 & 0b11111 == 0 => decode_comp_unique("nop"),
+                0b000 if bytes >> 7 & 0b11111 != 0 => decode_comp_addi("addi", bytes),
+                0b001 if !stream.is_64() => decode_comp_jump("jal", bytes, &stream),
+                0b001 if stream.is_64() => decode_comp_addi("addiw", bytes),
+                0b010 => decode_comp_li("li", bytes),
+                0b011 if bytes >> 7 & 0b11111 == 2 => decode_addi16sp(bytes),
+                0b011 if bytes >> 7 & 0b11111 != 2 => decode_comp_li("lui", bytes),
                 0b100 => match bytes >> 10 & 0b11 {
-                    0b00 => decode_comp_shift("srli", bytes, operands),
-                    0b01 => decode_comp_shift("srai", bytes, operands),
+                    0b00 => decode_comp_shift("srli", bytes),
+                    0b01 => decode_comp_shift("srai", bytes),
                     0b11 => match (bytes >> 5 & 0b11, bytes >> 12 & 0b1) {
-                        (0b00, 0b0) if !stream.is_64() => decode_comp_arith("sub", bytes, operands),
-                        (0b01, 0b0) => decode_comp_arith("xor", bytes, operands),
-                        (0b10, 0b0) => decode_comp_arith("or", bytes, operands),
-                        (0b11, 0b0) => decode_comp_arith("and", bytes, operands),
-                        (0b00, 0b1) if stream.is_64() => decode_comp_arith("subw", bytes, operands),
-                        (0b01, 0b1) if stream.is_64() => decode_comp_arith("addw", bytes, operands),
+                        (0b00, 0b0) if !stream.is_64() => decode_comp_arith("sub", bytes),
+                        (0b01, 0b0) => decode_comp_arith("xor", bytes),
+                        (0b10, 0b0) => decode_comp_arith("or", bytes),
+                        (0b11, 0b0) => decode_comp_arith("and", bytes),
+                        (0b00, 0b1) if stream.is_64() => decode_comp_arith("subw", bytes),
+                        (0b01, 0b1) if stream.is_64() => decode_comp_arith("addw", bytes),
                         _ => Err(Error::UnknownOpcode),
                     },
                     _ => Err(Error::UnknownOpcode),
                 },
-                0b101 => decode_comp_jump("j", bytes, operands, &stream),
-                0b110 => decode_comp_branch("beq", bytes, operands, &stream),
-                0b111 => decode_comp_branch("bne", bytes, operands, &stream),
+                0b101 => decode_comp_jump("j", bytes, &stream),
+                0b110 => decode_comp_branch("beq", bytes, &stream),
+                0b111 => decode_comp_branch("bne", bytes, &stream),
                 _ => Err(Error::UnknownOpcode),
             },
             0b10 => match jump3 {
-                0b000 => decode_comp_shift("slli", bytes, operands),
-                0b001 => decode_comp_ldsp("fldsp", bytes, operands),
-                0b010 => decode_comp_lwsp("lwsp", bytes, operands),
-                0b011 if !stream.is_64() => decode_comp_lwsp("flwsp", bytes, operands),
-                0b011 if stream.is_64() => decode_comp_ldsp("ldsp", bytes, operands),
+                0b000 => decode_comp_shift("slli", bytes),
+                0b001 => decode_comp_ldsp("fldsp", bytes),
+                0b010 => decode_comp_lwsp("lwsp", bytes),
+                0b011 if !stream.is_64() => decode_comp_lwsp("flwsp", bytes),
+                0b011 if stream.is_64() => decode_comp_ldsp("ldsp", bytes),
                 0b100 => match (bytes >> 12 & 0b1, bytes >> 2 & 0b11111) {
-                    (0b0, 0b0) => decode_comp_jumpr(bytes, operands),
-                    (0b0, _) => decode_comp_mv(bytes, operands),
-                    (0b1, 0b0) => decode_comp_unique("ebreak", operands),
-                    (0b1, _) => decode_comp_add(bytes, operands),
+                    (0b0, 0b0) => decode_comp_jumpr(bytes),
+                    (0b0, _) => decode_comp_mv(bytes),
+                    (0b1, 0b0) => decode_comp_unique("ebreak"),
+                    (0b1, _) => decode_comp_add(bytes),
                     _ => Err(Error::UnknownOpcode),
                 },
-                0b101 => decode_comp_sdsp("fsdsp", bytes, operands),
-                0b110 => decode_comp_swsp("swsp", bytes, operands),
-                0b111 if !stream.is_64() => decode_comp_swsp("fswsp", bytes, operands),
-                0b111 if stream.is_64() => decode_comp_sdsp("sdsp", bytes, operands),
+                0b101 => decode_comp_sdsp("fsdsp", bytes),
+                0b110 => decode_comp_swsp("swsp", bytes),
+                0b111 if !stream.is_64() => decode_comp_swsp("fswsp", bytes),
+                0b111 if stream.is_64() => decode_comp_sdsp("sdsp", bytes),
                 _ => Err(Error::UnknownOpcode),
             },
             _ => Err(Error::UnknownOpcode),
@@ -1052,83 +1091,83 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
     }
 
     if opcode == 0b0001111 {
-        return decode_unique("fence", operands);
+        return decode_unique("fence");
     }
 
     if bytes == 0b000000000000_00000_000_00000_1110011 {
-        return decode_unique("ecall", operands);
+        return decode_unique("ecall");
     }
 
     if bytes == 0b000000000001_00000_000_00000_1110011 {
-        return decode_unique("ebreak", operands);
+        return decode_unique("ebreak");
     }
 
     let decoded_inst = match opcode {
-        0b0110111 => decode_imm_reg("lui", bytes, operands),
-        0b0010111 => decode_imm_reg("auipc", bytes, operands),
-        0b1101111 => decode_jump(bytes, operands, &stream),
-        0b1100111 => decode_jumpr(bytes, operands, &stream),
+        0b0110111 => decode_imm_reg("lui", bytes),
+        0b0010111 => decode_imm_reg("auipc", bytes),
+        0b1101111 => decode_jump(bytes, &stream),
+        0b1100111 => decode_jumpr(bytes, &stream),
         0b1100011 => match bytes >> 12 & 0b111 {
-            0b000 => decode_branch("beq", bytes, operands, &stream),
-            0b001 => decode_branch("bne", bytes, operands, &stream),
-            0b100 => decode_branch("blt", bytes, operands, &stream),
-            0b101 => decode_branch("bge", bytes, operands, &stream),
-            0b110 => decode_branch("bltu", bytes, operands, &stream),
-            0b111 => decode_branch("bgeu", bytes, operands, &stream),
+            0b000 => decode_branch("beq", bytes, &stream),
+            0b001 => decode_branch("bne", bytes, &stream),
+            0b100 => decode_branch("blt", bytes, &stream),
+            0b101 => decode_branch("bge", bytes, &stream),
+            0b110 => decode_branch("bltu", bytes, &stream),
+            0b111 => decode_branch("bgeu", bytes, &stream),
             _ => Err(Error::UnknownOpcode),
         },
         0b0000011 => match bytes >> 12 & 0b111 {
-            0b000 => decode_immediate("lb", bytes, operands),
-            0b001 => decode_immediate("lh", bytes, operands),
-            0b010 => decode_immediate("lw", bytes, operands),
-            0b011 if stream.is_64() => decode_immediate("ld", bytes, operands),
-            0b100 => decode_immediate("lbu", bytes, operands),
-            0b101 => decode_immediate("lhu", bytes, operands),
-            0b110 if stream.is_64() => decode_immediate("lwu", bytes, operands),
+            0b000 => decode_immediate("lb", bytes),
+            0b001 => decode_immediate("lh", bytes),
+            0b010 => decode_immediate("lw", bytes),
+            0b011 if stream.is_64() => decode_immediate("ld", bytes),
+            0b100 => decode_immediate("lbu", bytes),
+            0b101 => decode_immediate("lhu", bytes),
+            0b110 if stream.is_64() => decode_immediate("lwu", bytes),
             _ => Err(Error::UnknownOpcode),
         },
         0b0100011 => match bytes >> 12 & 0b111 {
-            0b000 => decode_store("sb", bytes, operands),
-            0b001 => decode_store("sh", bytes, operands),
-            0b010 => decode_store("sw", bytes, operands),
-            0b011 if stream.is_64() => decode_store("sd", bytes, operands),
+            0b000 => decode_store("sb", bytes),
+            0b001 => decode_store("sh", bytes),
+            0b010 => decode_store("sw", bytes),
+            0b011 if stream.is_64() => decode_store("sd", bytes),
             _ => Err(Error::UnknownOpcode),
         },
         0b0010011 => match bytes >> 12 & 0b111 {
-            0b000 => decode_immediate("addi", bytes, operands),
-            0b010 => decode_immediate("alti", bytes, operands),
-            0b011 => decode_immediate("altiu", bytes, operands),
-            0b100 => decode_immediate("xori", bytes, operands),
-            0b110 => decode_immediate("ori", bytes, operands),
-            0b111 => decode_immediate("andi", bytes, operands),
-            0b001 => decode_arith("slli", bytes, operands, &stream),
-            0b101 if bytes >> 26 == 0b0000001 => decode_arith("srai", bytes, operands, &stream),
-            0b101 if bytes >> 26 == 0b0000000 => decode_arith("srli", bytes, operands, &stream),
+            0b000 => decode_immediate("addi", bytes),
+            0b010 => decode_immediate("alti", bytes),
+            0b011 => decode_immediate("altiu", bytes),
+            0b100 => decode_immediate("xori", bytes),
+            0b110 => decode_immediate("ori", bytes),
+            0b111 => decode_immediate("andi", bytes),
+            0b001 => decode_arith("slli", bytes, &stream),
+            0b101 if bytes >> 26 == 0b0000001 => decode_arith("srai", bytes, &stream),
+            0b101 if bytes >> 26 == 0b0000000 => decode_arith("srli", bytes, &stream),
             _ => Err(Error::UnknownOpcode),
         },
         0b0011011 => match bytes >> 12 & 0b111 {
             _ if !stream.is_64() => Err(Error::UnknownOpcode),
-            0b000 => decode_immediate("addiw", bytes, operands),
-            0b001 => decode_arith("slliw", bytes, operands, &stream),
-            0b101 if bytes >> 25 == 0b0000000 => decode_arith("srliw", bytes, operands, &stream),
-            0b101 if bytes >> 25 == 0b0100000 => decode_arith("sraiw", bytes, operands, &stream),
+            0b000 => decode_immediate("addiw", bytes),
+            0b001 => decode_arith("slliw", bytes, &stream),
+            0b101 if bytes >> 25 == 0b0000000 => decode_arith("srliw", bytes, &stream),
+            0b101 if bytes >> 25 == 0b0100000 => decode_arith("sraiw", bytes, &stream),
             _ => Err(Error::UnknownOpcode),
         },
         0b0110011 => match bytes >> 25 {
             0b0000000 => match bytes >> 12 & 0b111 {
-                0b000 => decode_reg_triplet("add", bytes, operands),
-                0b001 => decode_reg_triplet("sll", bytes, operands),
-                0b010 => decode_reg_triplet("slt", bytes, operands),
-                0b011 => decode_reg_triplet("sltu", bytes, operands),
-                0b100 => decode_reg_triplet("xor", bytes, operands),
-                0b101 => decode_reg_triplet("srl", bytes, operands),
-                0b110 => decode_reg_triplet("or", bytes, operands),
-                0b111 => decode_reg_triplet("and", bytes, operands),
+                0b000 => decode_reg_triplet("add", bytes),
+                0b001 => decode_reg_triplet("sll", bytes),
+                0b010 => decode_reg_triplet("slt", bytes),
+                0b011 => decode_reg_triplet("sltu", bytes),
+                0b100 => decode_reg_triplet("xor", bytes),
+                0b101 => decode_reg_triplet("srl", bytes),
+                0b110 => decode_reg_triplet("or", bytes),
+                0b111 => decode_reg_triplet("and", bytes),
                 _ => Err(Error::UnknownOpcode),
             },
             0b0100000 => match bytes >> 12 & 0b111 {
-                0b000 => decode_reg_triplet("sub", bytes, operands),
-                0b101 => decode_reg_triplet("sra", bytes, operands),
+                0b000 => decode_reg_triplet("sub", bytes),
+                0b101 => decode_reg_triplet("sra", bytes),
                 _ => Err(Error::UnknownOpcode),
             },
             _ => Err(Error::UnknownOpcode),
@@ -1136,14 +1175,14 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
         0b0111011 => match bytes >> 25 {
             _ if !stream.is_64() => return Err(Error::UnknownOpcode),
             0b0000000 => match bytes >> 12 & 0b111 {
-                0b000 => decode_reg_triplet("addw", bytes, operands),
-                0b001 => decode_reg_triplet("sllw", bytes, operands),
-                0b101 => decode_reg_triplet("srlw", bytes, operands),
+                0b000 => decode_reg_triplet("addw", bytes),
+                0b001 => decode_reg_triplet("sllw", bytes),
+                0b101 => decode_reg_triplet("srlw", bytes),
                 _ => Err(Error::UnknownOpcode),
             },
             0b0100000 => match bytes >> 12 & 0b111 {
-                0b000 => decode_reg_triplet("subw", bytes, operands),
-                0b101 => decode_reg_triplet("sraw", bytes, operands),
+                0b000 => decode_reg_triplet("subw", bytes),
+                0b101 => decode_reg_triplet("sraw", bytes),
                 _ => Err(Error::UnknownOpcode),
             },
             _ => Err(Error::UnknownOpcode),
