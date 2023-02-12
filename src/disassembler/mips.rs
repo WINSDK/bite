@@ -1,7 +1,21 @@
 //! MIPS V disdisassembler
 
-use super::{Error, GenericInstruction};
+use super::{Error, DecodableInstruction};
 use std::borrow::Cow;
+
+macro_rules! operands {
+    [] => {([super::EMPTY_OPERAND; 3], 0)};
+    [$($x:expr),+ $(,)?] => {{
+        let mut operands = [super::EMPTY_OPERAND; 3];
+        let mut idx = 0;
+        $(
+            idx += 1;
+            operands[idx - 1] = $x;
+        )*
+
+        (operands, idx)
+    }};
+}
 
 #[rustfmt::skip]
 pub const REGISTERS: [&str; 32] = [
@@ -21,139 +35,215 @@ enum Format {
     J,
 }
 
-struct Instruction {
+pub(super) struct Stream<'data> {
+    pub bytes: &'data [u8],
+    pub offset: usize,
+}
+
+pub(super) struct Instruction {
+    mnemomic: &'static str,
+    operands: [std::borrow::Cow<'static, str>; 3],
+    operand_count: usize,
+}
+
+struct TableInstruction {
     mnemomic: &'static str,
     #[allow(dead_code)]
     desc: &'static str,
     format: &'static [usize],
 }
 
-pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstruction, Error> {
-    let dword = stream
-        .bytes
-        .get(stream.start..stream.start + 4)
-        .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
-        .ok_or(Error::NoBytesLeft)? as usize;
+impl super::DecodableInstruction for Instruction {
+    fn decode(&self) -> String {
+        let mut repr = self.mnemomic.to_string();
+        let operands = self.operands();
 
-    let mut operands = [super::EMPTY_OPERAND; 5];
-
-    // nop instruction isn't included in any MIPS spec
-    if dword == 0b00000000_00000000_00000000_00000000 {
-        return Ok(GenericInstruction { width: 4, mnemomic: "nop", operands, operand_count: 0 });
-    }
-
-    // break instruction has a unique instruction format
-    if dword & 0b111111 == 0b001101 {
-        return Ok(GenericInstruction { width: 4, mnemomic: "break", operands, operand_count: 0 });
-    }
-
-    let opcode = dword >> 26;
-    let funct = dword & 0b111111;
-
-    let (format, inst) = match opcode {
-        0 => (Format::R, R_TYPES.get(funct).ok_or(Error::UnknownOpcode)?),
-        2 | 3 => (Format::J, J_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
-        _ => (Format::I, I_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
-    };
-
-    let rs = dword >> 21 & 0b11111;
-    let rt = dword >> 16 & 0b11111;
-    let rd = dword >> 11 & 0b11111;
-
-    if inst.mnemomic.is_empty() {
-        return Err(Error::InvalidInstruction);
-    }
-
-    match format {
-        Format::R => {
-            match (REGISTERS.get(rs), REGISTERS.get(rt), REGISTERS.get(rd)) {
-                (Some(_), Some(_), Some(_)) => {}
-                _ => return Err(Error::UnknownRegister),
-            }
-
-            let shamt = dword >> 6 & 0b11111;
-
-            for idx in 0..inst.format.len() {
-                // index into next operand
-                let mask = inst.format[idx];
-
-                // operand specified by the bitmask
-                let operand = match mask {
-                    0 => rd,
-                    1 => rt,
-                    2 => rs,
-                    3 => shamt,
-                    _ => unsafe { core::hint::unreachable_unchecked() },
-                };
-
-                if operand == shamt {
-                    operands[idx] = Cow::Owned(format!("0x{shamt:x}"));
-                } else {
-                    operands[idx] = Cow::Borrowed(REGISTERS[operand]);
-                }
-            }
-
-            Ok(GenericInstruction {
-                width: 4,
-                mnemomic: inst.mnemomic,
-                operands,
-                operand_count: inst.format.len(),
-            })
+        if operands.len() > 0 {
+            repr += " ";
         }
-        Format::I => {
-            match (REGISTERS.get(rs), REGISTERS.get(rt)) {
-                (Some(_), Some(_)) => {}
-                _ => return Err(Error::UnknownRegister),
+
+        if operands.len() > 1 {
+            for operand in &operands[..operands.len() - 1] {
+                repr += operand;
+                repr += ", ";
             }
+        }
 
-            let immediate = dword & 0b11111111_11111111;
+        repr += &operands[operands.len() - 1];
+        repr
+    }
 
-            // check if the instruction uses an offset (load/store instructions)
-            if inst.format == [1, 3, 2] {
-                operands[0] = Cow::Borrowed(REGISTERS[rt]);
-                operands[1] = Cow::Owned(format!("0x{immediate:x}"));
-                operands[2] = Cow::Owned(format!("({})", REGISTERS[rs]));
+    fn operands(&self) -> &[std::borrow::Cow<'static, str>] {
+        &self.operands[..self.operand_count]
+    }
+}
 
-                return Ok(GenericInstruction {
-                    width: 4,
+impl super::Streamable for Stream<'_> {
+    type Item = Instruction;
+    type Error = super::Error;
+
+    fn next(&mut self) -> Result<Self::Item, Error> {
+        let dword = self
+            .bytes
+            .get(self.offset..self.offset + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+            .ok_or(Error::NoBytesLeft)? as usize;
+
+        // nop instruction isn't included in any MIPS spec
+        if dword == 0b00000000_00000000_00000000_00000000 {
+            let (operands, operand_count) = operands![];
+            return Ok(Instruction { mnemomic: "nop", operands, operand_count });
+        }
+
+        // break instruction has a unique instruction format
+        if dword & 0b111111 == 0b001101 {
+            let (operands, operand_count) = operands![];
+            return Ok(Instruction { mnemomic: "break", operands, operand_count });
+        }
+
+        let mut operands = [super::EMPTY_OPERAND; 3];
+        let opcode = dword >> 26;
+        let funct = dword & 0b111111;
+
+        let (format, inst) = match opcode {
+            0 => (Format::R, R_TYPES.get(funct).ok_or(Error::UnknownOpcode)?),
+            2 | 3 => (Format::J, J_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
+            _ => (Format::I, I_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
+        };
+
+        let rs = dword >> 21 & 0b11111;
+        let rt = dword >> 16 & 0b11111;
+        let rd = dword >> 11 & 0b11111;
+
+        if inst.mnemomic.is_empty() {
+            return Err(Error::InvalidInstruction);
+        }
+
+        self.offset += 4;
+
+        match format {
+            Format::R => {
+                match (REGISTERS.get(rs), REGISTERS.get(rt), REGISTERS.get(rd)) {
+                    (Some(_), Some(_), Some(_)) => {}
+                    _ => return Err(Error::UnknownRegister),
+                }
+
+                let shamt = dword >> 6 & 0b11111;
+
+                for idx in 0..inst.format.len() {
+                    // index into next operand
+                    let mask = inst.format[idx];
+
+                    // operand specified by the bitmask
+                    let operand = match mask {
+                        0 => rd,
+                        1 => rt,
+                        2 => rs,
+                        3 => shamt,
+                        _ => unsafe { core::hint::unreachable_unchecked() },
+                    };
+
+                    if operand == shamt {
+                        operands[idx] = Cow::Owned(format!("0x{shamt:x}"));
+                    } else {
+                        operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+                    }
+                }
+
+                Ok(Instruction {
                     mnemomic: inst.mnemomic,
                     operands,
-                    operand_count: 3,
-                });
+                    operand_count: inst.format.len(),
+                })
             }
-
-            for idx in 0..inst.format.len() {
-                // index into next operand
-                let mask = inst.format[idx];
-
-                // operand specified by the bitmask
-                let operand = match mask {
-                    0 => rd,
-                    1 => rt,
-                    2 => rs,
-                    3 => immediate,
-                    _ => unsafe { core::hint::unreachable_unchecked() },
-                };
-
-                if operand == immediate {
-                    operands[idx] = Cow::Owned(format!("0x{immediate:x}"));
-                } else {
-                    operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+            Format::I => {
+                match (REGISTERS.get(rs), REGISTERS.get(rt)) {
+                    (Some(_), Some(_)) => {}
+                    _ => return Err(Error::UnknownRegister),
                 }
+
+                let immediate = dword & 0b11111111_11111111;
+
+                // check if the instruction uses an offset (load/store instructions)
+                if inst.format == [1, 3, 2] {
+                    let (operands, operand_count) = operands![
+                        Cow::Borrowed(REGISTERS[rt]),
+                        Cow::Owned(format!("{immediate:#x}")),
+                        Cow::Owned(format!("({})", REGISTERS[rs]))
+                    ];
+
+                    return Ok(Instruction {
+                        mnemomic: inst.mnemomic,
+                        operands,
+                        operand_count
+                    });
+                }
+
+                for idx in 0..inst.format.len() {
+                    // index into next operand
+                    let mask = inst.format[idx];
+
+                    // operand specified by the bitmask
+                    let operand = match mask {
+                        0 => rd,
+                        1 => rt,
+                        2 => rs,
+                        3 => immediate,
+                        _ => unsafe { core::hint::unreachable_unchecked() },
+                    };
+
+                    if operand == immediate {
+                        operands[idx] = Cow::Owned(format!("0x{immediate:x}"));
+                    } else {
+                        operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+                    }
+                }
+
+                Ok(Instruction {
+                    mnemomic: inst.mnemomic,
+                    operands,
+                    operand_count: inst.format.len(),
+                })
             }
+            Format::J => {
+                let immediate = dword & 0b11111111_11111111_11111111;
+                let (operands, operand_count) = operands![Cow::Owned(format!("0x{immediate:x}"))];
 
-            Ok(GenericInstruction {
-                width: 4,
-                mnemomic: inst.mnemomic,
-                operands,
-                operand_count: inst.format.len(),
-            })
+                Ok(Instruction { mnemomic: inst.mnemomic, operands, operand_count })
+            }
         }
-        Format::J => {
-            let immediate = dword & 0b11111111_11111111_11111111;
-            operands[0] = Cow::Owned(format!("0x{immediate:x}"));
+    }
 
-            Ok(GenericInstruction { width: 4, mnemomic: inst.mnemomic, operands, operand_count: 1 })
+    fn format(&self, next: Result<Self::Item, Error>) -> Option<String> {
+        match next {
+            Err(Error::NoBytesLeft) => None,
+            Err(err) => {
+                let mut fmt = String::new();
+
+                let bytes = &self.bytes[self.offset - 4..][..4];
+                let bytes: Vec<String> =
+                    bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+
+                let bytes = bytes.join(" ");
+
+                fmt += &format!("{bytes:11}  <{err:?}>");
+
+                Some(fmt)
+            }
+            Ok(mut inst) => {
+                let mut fmt = String::new();
+
+                let bytes = &self.bytes[self.offset - 4..][..4];
+                let bytes: Vec<String> =
+                    bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+
+                let bytes = bytes.join(" ");
+
+                fmt += &format!("{bytes:11}  {}", inst.psuedo_decode());
+                Some(fmt)
+
+                // Some(self.section_base + self.offset, fmt))
+            }
         }
     }
 }
@@ -161,11 +251,11 @@ pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstr
 /// Bitmask for order of operands [rd, rt, rs, imm].
 macro_rules! mips {
     () => {
-        $crate::disassembler::mips::Instruction { mnemomic: "", desc: "", format: &[] }
+        $crate::disassembler::mips::TableInstruction { mnemomic: "", desc: "", format: &[] }
     };
 
     ($mnemomic:literal : $desc:literal, rd, rt, imm) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 1, 3],
@@ -173,7 +263,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rt, rs, imm) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[1, 2, 3],
@@ -181,7 +271,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rs, rt, imm) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[2, 1, 3],
@@ -189,7 +279,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd, rt, rs) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 1, 2],
@@ -197,7 +287,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd, rs, rt) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 2, 1],
@@ -205,7 +295,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rt, imm, rs) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[1, 3, 2],
@@ -213,7 +303,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rs, imm) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[2, 3],
@@ -221,7 +311,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rt, imm) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[1, 3],
@@ -229,7 +319,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd, rs) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 2],
@@ -237,7 +327,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rs, rt) => {
-        $crate::disassembler::mips::Instruction {
+        $crate::disassembler::mips::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[2, 1],
@@ -245,23 +335,23 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, imm) => {
-        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[3] }
+        $crate::disassembler::mips::TableInstruction { mnemomic: $mnemomic, desc: $desc, format: &[3] }
     };
 
     ($mnemomic:literal : $desc:literal, rs) => {
-        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[2] }
+        $crate::disassembler::mips::TableInstruction { mnemomic: $mnemomic, desc: $desc, format: &[2] }
     };
 
     ($mnemomic:literal : $desc:literal, rd) => {
-        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[0] }
+        $crate::disassembler::mips::TableInstruction { mnemomic: $mnemomic, desc: $desc, format: &[0] }
     };
 
     ($mnemomic:literal : $desc:literal) => {
-        $crate::disassembler::mips::Instruction { mnemomic: $mnemomic, desc: $desc, format: &[] }
+        $crate::disassembler::mips::TableInstruction { mnemomic: $mnemomic, desc: $desc, format: &[] }
     };
 }
 
-const I_TYPES: [Instruction; 44] = [
+const I_TYPES: [TableInstruction; 44] = [
     mips!("bgez" : "Branch to immediate if value of $rs is greater than or equal to zero", rs, imm),
     mips!(),
     mips!(),
@@ -308,14 +398,14 @@ const I_TYPES: [Instruction; 44] = [
     mips!("sw" : "Store 4 bytes at address in $rs with a given offset into $rt", rt, imm, rs),
 ];
 
-const J_TYPES: [Instruction; 4] = [
+const J_TYPES: [TableInstruction; 4] = [
     mips!(),
     mips!(),
     mips!("j" : "Jump to target address", imm),
     mips!("jr" : "Call the target address and save return addr in $ra", imm),
 ];
 
-const R_TYPES: [Instruction; 44] = [
+const R_TYPES: [TableInstruction; 44] = [
     mips!("sll" : "Shift value in $rt `immediate` number of times to the left storing the result in $rd and zero extending the shifted bits", rd, rt, imm),
     mips!(),
     mips!("srl" : "Shift value in $rt `immediate` number of times to the right storing the result in $rd and zero extending the shifted bits", rd, rt, imm),
@@ -366,25 +456,24 @@ const R_TYPES: [Instruction; 44] = [
 mod tests {
     macro_rules! eq {
         ([$($bytes:tt),+] => $mnemomic:literal, $($operand:literal),*) => {{
-            let mut stream = $crate::disassembler::InstructionStream::new(
-                &[$($bytes),+],
-                object::Architecture::Mips,
-                0
-            );
+            use $crate::disassembler::Streamable;
 
-            match $crate::disassembler::mips::next(&mut stream) {
+            let mut stream = $crate::disassembler::mips::Stream {
+                bytes: &[$($bytes),+],
+                offset: 0,
+            };
+
+            match stream.next() {
                 Ok(inst) => {
                     assert_eq!(inst.mnemomic, $mnemomic);
 
-                    dbg!(&inst.operands);
-
-                    let mut idx = -1;
+                    let mut idx = 0;
                     $(
                         idx += 1;
 
                         assert_eq!(
                             $operand,
-                            inst.operands.get(idx as usize).expect("not enough operands")
+                            inst.operands.get(idx - 1).expect("not enough operands")
                         );
                     )*
                 }

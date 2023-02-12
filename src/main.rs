@@ -47,18 +47,19 @@ macro_rules! assert_exit {
     }};
 }
 
+#[macro_export]
 macro_rules! unchecked_println {
     ($($arg:tt)*) => {{
         use std::io::Write;
 
         let mut stdout = std::io::stdout();
         match stdout.write_fmt(format_args!($($arg)*)) {
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => exit!(),
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => $crate::exit!(),
             _ => {}
         }
 
         match stdout.write(b"\n") {
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => exit!(),
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => $crate::exit!(),
             _ => {}
         }
     }};
@@ -192,12 +193,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &raw,
                 obj.architecture(),
                 base,
+                symbols
             );
 
-            for (off, instruction) in stream {
-                if let Some(label) = symbols.get(&(base + off)) {
-                    unchecked_println!("\n{off:012} <{label}>:");
-                }
+            for instruction in stream {
+                // if let Some(label) = symbols.get(&(base + off)) {
+                //     unchecked_println!("\n{off:012} <{label}>:");
+                // }
 
                 unchecked_println!("\t{instruction}");
             }

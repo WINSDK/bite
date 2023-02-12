@@ -1,262 +1,114 @@
-use std::fmt;
-use std::mem::MaybeUninit;
-
 use object::Architecture;
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 mod arm;
 mod mips;
 mod riscv;
 
-mod lookup;
-#[allow(dead_code, unused_variables, unused_assignments)]
-mod x86_64;
+// mod lookup;
+// #[allow(dead_code, unused_variables, unused_assignments)]
+// mod x86_64;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Instruction stream is empty.
     NoBytesLeft,
 
-    /// Somehow the instruction doesn't have an opcode.
-    MissingOpcode,
-
     InvalidInstruction,
     UnknownRegister,
     UnknownOpcode,
 }
 
-struct GenericInstruction {
-    width: usize,
-    mnemomic: &'static str,
-    operands: [std::borrow::Cow<'static, str>; 5],
-    operand_count: usize,
-}
+trait DecodableInstruction {
+    fn operands(&self) -> &[std::borrow::Cow<'static, str>];
+    fn decode(&self) -> String;
 
-impl GenericInstruction {
-    fn decode(&self) -> String {
-        let mut repr = self.mnemomic.to_string();
-
-        if self.operand_count > 0 {
-            repr += " ";
-        }
-
-        for idx in 0..self.operand_count {
-            if idx == self.operand_count - 1 {
-                repr += &format!("{}", self.operands[idx]);
-            } else {
-                repr += &format!("{}, ", self.operands[idx]);
-            }
-        }
-
-        repr
+    fn psuedo_decode(&mut self) -> String {
+        self.decode()
     }
 }
 
-pub struct InstructionStream<'a> {
-    bytes: &'a [u8],
-    interpreter: fn(&mut Self) -> Result<GenericInstruction, Error>,
-    addr_size: usize,
-    start: usize,
-    end: usize,
-    pub section_base: usize,
-    arch: Architecture,
+trait Streamable {
+    type Item: DecodableInstruction;
+    type Error;
+
+    fn next(&mut self) -> Result<Self::Item, Error>;
+    fn format(&self, next: Result<Self::Item, Error>) -> Option<String>;
 }
 
-impl<'a> InstructionStream<'a> {
-    pub fn new(bytes: &'a [u8], arch: Architecture, section_offset: usize) -> Self {
-        let interpreter = match arch {
-            Architecture::Mips | Architecture::Mips64 => mips::next,
-            Architecture::X86_64 | Architecture::X86_64_X32 => x86_64::next,
-            Architecture::Riscv32 | Architecture::Riscv64 => riscv::next,
+pub struct InstructionStream<'data> {
+    inner: InternalInstructionStream<'data>,
+    symbols: BTreeMap<usize, Cow<'static, str>>,
+}
+
+enum InternalInstructionStream<'data> {
+    Riscv(riscv::Stream<'data>),
+    Mips(mips::Stream<'data>),
+}
+
+impl<'data> InstructionStream<'data> {
+    pub fn new(
+        bytes: &'data [u8],
+        arch: Architecture,
+        section_base: usize,
+        symbols: BTreeMap<usize, Cow<'static, str>>,
+    ) -> Self {
+        let inner = match arch {
+            Architecture::Mips => {
+                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0 })
+            }
+            Architecture::Mips64 => {
+                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0 })
+            }
+            Architecture::Riscv32 => InternalInstructionStream::Riscv(riscv::Stream {
+                bytes,
+                offset: 0,
+                width: 4,
+                is_64: false,
+                section_base,
+            }),
+            Architecture::Riscv64 => InternalInstructionStream::Riscv(riscv::Stream {
+                bytes,
+                offset: 0,
+                width: 4,
+                is_64: true,
+                section_base,
+            }),
             _ => todo!(),
         };
 
-        let addr_size = arch
-            .address_size()
-            .map(|size| size.bytes() as usize * 8)
-            .expect("unknown target architecture");
-
-        Self { bytes, interpreter, addr_size, start: 0, end: 0, section_base: section_offset, arch }
-    }
-
-    #[inline(always)]
-    fn is_64(&self) -> bool {
-        match self.arch {
-            Architecture::Unknown => false,
-            Architecture::Aarch64 => true,
-            Architecture::Arm => false,
-            Architecture::Avr => false,
-            Architecture::Bpf => true,
-            Architecture::I386 => false,
-            Architecture::X86_64 => true,
-            Architecture::X86_64_X32 => false,
-            Architecture::Hexagon => false,
-            Architecture::LoongArch64 => true,
-            Architecture::Mips => false,
-            Architecture::Mips64 => true,
-            Architecture::Msp430 => false,
-            Architecture::PowerPc => false,
-            Architecture::PowerPc64 => true,
-            Architecture::Riscv32 => false,
-            Architecture::Riscv64 => true,
-            Architecture::S390x => true,
-            Architecture::Sparc64 => true,
-            Architecture::Wasm32 => false,
-            _ => unsafe { core::hint::unreachable_unchecked() }
-        }
+        Self { inner, symbols }
     }
 }
 
 impl Iterator for InstructionStream<'_> {
-    type Item = (usize, String);
+    type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match (self.interpreter)(self) {
-            Ok(inst) => {
-                let mut fmt = String::new();
+        let mut addr = 0;
 
-                let bytes: Vec<String> = (0..inst.width)
-                    .map(|off| self.bytes[self.start + off])
-                    .map(|byte| format!("{:02x}", byte))
-                    .collect();
-
-                let bytes = bytes.join(" ");
-
-                fmt += &format!("{bytes:11}  {} ", inst.decode());
-
-                self.start += inst.width;
-                self.end += inst.width;
-                self.end += inst.width * (self.end != 0) as usize;
-
-                Some((self.start - inst.width, fmt))
+        let fmt = match self.inner {
+            InternalInstructionStream::Riscv(ref mut stream) => {
+                let next = stream.next();
+                addr += stream.section_base;
+                addr += stream.offset;
+                stream.format(next)
             }
-            Err(err) => {
-                if err == Error::NoBytesLeft {
-                    return None;
-                }
-
-                if cfg!(debug_assertions) {
-                    crate::exit!(
-                        fail,
-                        "\t{:02x} {:02x} {:02x} {:02x}  <{err:?}>\n...",
-                        self.bytes[self.start],
-                        self.bytes[self.start + 1],
-                        self.bytes[self.start + 2],
-                        self.bytes[self.start + 3],
-                    );
-                } else {
-                    let fmt = format!(
-                        "\t{:02x} {:02x} {:02x} {:02x}  <{err:?}>",
-                        self.bytes[self.start],
-                        self.bytes[self.start + 1],
-                        self.bytes[self.start + 2],
-                        self.bytes[self.start + 3],
-                    );
-
-                    self.start += 4;
-                    self.end += 4;
-                    self.end += 4 * (self.end != 0) as usize;
-
-                    Some((self.start - 4, fmt))
-                }
+            InternalInstructionStream::Mips(ref mut stream) => {
+                let next = stream.next();
+                addr += stream.offset;
+                stream.format(next)
             }
-        }
-    }
-}
-
-pub struct Array<T, const S: usize> {
-    values: [MaybeUninit<T>; S],
-    len: usize,
-}
-
-impl<T, const S: usize> Array<T, S> {
-    pub fn new() -> Self {
-        let bytes = unsafe { MaybeUninit::uninit().assume_init() };
-
-        Self { values: bytes, len: 0 }
-    }
-}
-
-impl<T, const S: usize> Array<T, S> {
-    pub fn push(&mut self, val: T) {
-        assert!(
-            self.len <= self.values.len(),
-            "pushing to array would overflow length {}",
-            self.len
-        );
-
-        self.values[self.len] = MaybeUninit::new(val);
-        self.len += 1;
-    }
-
-    pub fn remove(&mut self, idx: usize)
-    where
-        T: Copy,
-    {
-        assert!(
-            self.len.checked_sub(idx).map(|diff| diff > 0) == Some(true),
-            "idx is {idx} which is out of bounce for len of {}",
-            self.len
-        );
-
-        self.values.copy_within(idx + 1.., idx);
-        self.len -= 1;
-    }
-}
-
-impl<T: PartialEq, const S: usize> PartialEq for Array<T, S> {
-    fn eq(&self, other: &Self) -> bool {
-        let (a, b) = unsafe {
-            std::mem::transmute::<(&[MaybeUninit<T>], &[MaybeUninit<T>]), (&[T], &[T])>((
-                &self.values[..self.len],
-                &other.values[..other.len],
-            ))
         };
 
-        a == b
-    }
-}
+        fmt.map(|fmt| {
+            if let Some(label) = self.symbols.get(&addr) {
+                return format!("\n{addr:012} <{label}>:\n\t{fmt}");
+            }
 
-impl<T: Eq, const S: usize> Eq for Array<T, S> {}
-
-impl<T, const S: usize> std::ops::Index<usize> for Array<T, S> {
-    type Output = T;
-
-    fn index(&self, idx: usize) -> &Self::Output {
-        if idx >= self.len {
-            panic!("idx `{idx}` is out of bound of array with len `{}`", self.len);
-        }
-
-        unsafe { self.values.get_unchecked(idx).assume_init_ref() }
-    }
-}
-
-impl<T, const S: usize> std::ops::IndexMut<usize> for Array<T, S> {
-    fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
-        if idx >= self.len {
-            panic!("idx `{idx}` is out of bound of array with len `{}`", self.len)
-        }
-
-        unsafe { self.values.get_unchecked_mut(idx).assume_init_mut() }
-    }
-}
-
-impl<T, const S: usize> AsRef<[T]> for Array<T, S> {
-    fn as_ref(&self) -> &[T] {
-        unsafe { std::mem::transmute::<&[MaybeUninit<T>], &[T]>(&self.values[..self.len]) }
-    }
-}
-
-impl<T, const S: usize> AsMut<[T]> for Array<T, S> {
-    fn as_mut(&mut self) -> &mut [T] {
-        unsafe {
-            std::mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(&mut self.values[..self.len])
-        }
-    }
-}
-
-impl<T: fmt::Debug, const S: usize> fmt::Debug for Array<T, S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.as_ref())
+            fmt
+        })
     }
 }
 
