@@ -93,11 +93,13 @@ impl Iterator for InstructionStream<'_> {
                 let next = stream.next();
                 addr += stream.section_base;
                 addr += stream.offset;
+                addr -= stream.width;
                 stream.format(next)
             }
             InternalInstructionStream::Mips(ref mut stream) => {
                 let next = stream.next();
                 addr += stream.offset;
+                addr -= 4;
                 stream.format(next)
             }
         };

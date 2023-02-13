@@ -1,6 +1,6 @@
 //! riscv64gc/riscv32gc disdisassembler
 
-use super::{Error, DecodableInstruction};
+use super::{DecodableInstruction, Error};
 use std::borrow::Cow;
 
 macro_rules! operands {
@@ -31,7 +31,7 @@ pub(super) struct Instruction {
     operand_count: usize,
 }
 
-impl super::DecodableInstruction for Instruction {
+impl DecodableInstruction for Instruction {
     fn psuedo_decode(&mut self) -> String {
         if let Some(map_to_psuedo) = PSUEDOS.get(self.mnemomic) {
             map_to_psuedo(self);
@@ -166,8 +166,8 @@ impl super::Streamable for Stream<'_> {
             _ if bytes == 0b000000000000_00000_000_00000_1110011 => decode_unique("ecall"),
             _ if bytes == 0b000000000001_00000_000_00000_1110011 => decode_unique("ebreak"),
             0b0001111 => decode_unique("fence"),
-            0b0110111 => decode_imm_reg("lui", bytes),
-            0b0010111 => decode_imm_reg("auipc", bytes),
+            0b0110111 => decode_double("lui", bytes),
+            0b0010111 => decode_double("auipc", bytes),
             0b1101111 => decode_jump(bytes, &self),
             0b1100111 => decode_jumpr(bytes, &self),
             0b1100011 => match bytes >> 12 & 0b111 {
@@ -218,19 +218,19 @@ impl super::Streamable for Stream<'_> {
             },
             0b0110011 => match bytes >> 25 {
                 0b0000000 => match bytes >> 12 & 0b111 {
-                    0b000 => decode_reg_triplet("add", bytes),
-                    0b001 => decode_reg_triplet("sll", bytes),
-                    0b010 => decode_reg_triplet("slt", bytes),
-                    0b011 => decode_reg_triplet("sltu", bytes),
-                    0b100 => decode_reg_triplet("xor", bytes),
-                    0b101 => decode_reg_triplet("srl", bytes),
-                    0b110 => decode_reg_triplet("or", bytes),
-                    0b111 => decode_reg_triplet("and", bytes),
+                    0b000 => decode_triplet("add", bytes),
+                    0b001 => decode_triplet("sll", bytes),
+                    0b010 => decode_triplet("slt", bytes),
+                    0b011 => decode_triplet("sltu", bytes),
+                    0b100 => decode_triplet("xor", bytes),
+                    0b101 => decode_triplet("srl", bytes),
+                    0b110 => decode_triplet("or", bytes),
+                    0b111 => decode_triplet("and", bytes),
                     _ => Err(Error::UnknownOpcode),
                 },
                 0b0100000 => match bytes >> 12 & 0b111 {
-                    0b000 => decode_reg_triplet("sub", bytes),
-                    0b101 => decode_reg_triplet("sra", bytes),
+                    0b000 => decode_triplet("sub", bytes),
+                    0b101 => decode_triplet("sra", bytes),
                     _ => Err(Error::UnknownOpcode),
                 },
                 _ => Err(Error::UnknownOpcode),
@@ -238,14 +238,14 @@ impl super::Streamable for Stream<'_> {
             0b0111011 => match bytes >> 25 {
                 _ if !self.is_64 => return Err(Error::UnknownOpcode),
                 0b0000000 => match bytes >> 12 & 0b111 {
-                    0b000 => decode_reg_triplet("addw", bytes),
-                    0b001 => decode_reg_triplet("sllw", bytes),
-                    0b101 => decode_reg_triplet("srlw", bytes),
+                    0b000 => decode_triplet("addw", bytes),
+                    0b001 => decode_triplet("sllw", bytes),
+                    0b101 => decode_triplet("srlw", bytes),
                     _ => Err(Error::UnknownOpcode),
                 },
                 0b0100000 => match bytes >> 12 & 0b111 {
-                    0b000 => decode_reg_triplet("subw", bytes),
-                    0b101 => decode_reg_triplet("sraw", bytes),
+                    0b000 => decode_triplet("subw", bytes),
+                    0b101 => decode_triplet("sraw", bytes),
                     _ => Err(Error::UnknownOpcode),
                 },
                 _ => Err(Error::UnknownOpcode),
@@ -266,28 +266,21 @@ impl super::Streamable for Stream<'_> {
                 let mut fmt = String::new();
 
                 let bytes = &self.bytes[self.offset - self.width..][..self.width];
-                let bytes: Vec<String> =
-                    bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-
+                let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
                 let bytes = bytes.join(" ");
 
                 fmt += &format!("{bytes:11}  <{err:?}>");
-
                 Some(fmt)
             }
             Ok(mut inst) => {
                 let mut fmt = String::new();
 
                 let bytes = &self.bytes[self.offset - self.width..][..self.width];
-                let bytes: Vec<String> =
-                    bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-
+                let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
                 let bytes = bytes.join(" ");
 
                 fmt += &format!("{bytes:11}  {}", inst.psuedo_decode());
                 Some(fmt)
-
-                // Some(self.section_base + self.offset, fmt))
             }
         }
     }
@@ -504,6 +497,7 @@ static PSUEDOS: phf::Map<&str, fn(&mut Instruction)> = phf::phf_map! {
     // TODO: table p2
 };
 
+/// Decode's beqz and bnez instructions.
 fn decode_comp_branch(
     mnemomic: &'static str,
     bytes: usize,
@@ -545,6 +539,7 @@ fn decode_comp_branch(
     })
 }
 
+/// Decode's beqz and bnez instructions.
 fn decode_comp_jump(
     mnemomic: &'static str,
     bytes: usize,
@@ -582,13 +577,14 @@ fn decode_comp_jump(
     })
 }
 
+/// Decode's j and jal instructions.
 fn decode_comp_jumpr(bytes: usize) -> Result<Instruction, Error> {
     let rs = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
     let (operands, operand_count) =
-        operands![Cow::Borrowed("ra"), Cow::Borrowed(rs), Cow::Borrowed("0"),];
+        operands![Cow::Borrowed("ra"), Cow::Borrowed(rs), Cow::Borrowed("0")];
 
     Ok(Instruction {
         mnemomic: "jalr",
@@ -597,6 +593,7 @@ fn decode_comp_jumpr(bytes: usize) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's sub, or, xor, and, subw and addw instructions.
 fn decode_comp_arith(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = INT_REGISTERS
         .get(bytes >> 7 & 0b111)
@@ -606,7 +603,7 @@ fn decode_comp_arith(mnemomic: &'static str, bytes: usize) -> Result<Instruction
         .ok_or(Error::UnknownRegister)?;
 
     let (operands, operand_count) =
-        operands![Cow::Borrowed(rd), Cow::Borrowed(rd), Cow::Borrowed(rs),];
+        operands![Cow::Borrowed(rd), Cow::Borrowed(rd), Cow::Borrowed(rs)];
 
     Ok(Instruction {
         mnemomic,
@@ -615,6 +612,7 @@ fn decode_comp_arith(mnemomic: &'static str, bytes: usize) -> Result<Instruction
     })
 }
 
+/// Decode's srli, srai and slli instructions.
 fn decode_comp_shift(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = INT_REGISTERS
         .get(bytes >> 7 & 0b111)
@@ -634,6 +632,7 @@ fn decode_comp_shift(mnemomic: &'static str, bytes: usize) -> Result<Instruction
     })
 }
 
+/// Decode's addi and addiw instructions.
 fn decode_comp_addi(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -657,6 +656,7 @@ fn decode_comp_addi(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's addi16sp instruction also represented as addi sp, sp, imm*16.
 fn decode_addi16sp(bytes: usize) -> Result<Instruction, Error> {
     let mut imm = 0;
 
@@ -672,7 +672,7 @@ fn decode_addi16sp(bytes: usize) -> Result<Instruction, Error> {
         imm = (imm | 0b1111110000000000) as i16 as i32;
     }
 
-    let (operands, operand_count) = operands![Cow::Owned(imm.to_string()),];
+    let (operands, operand_count) = operands![Cow::Owned(imm.to_string())];
 
     Ok(Instruction {
         mnemomic: "addi16sp",
@@ -681,6 +681,7 @@ fn decode_addi16sp(bytes: usize) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's addi14spn instruction also represented as addi sp, rs, imm*4.
 fn decode_addi4spn(bytes: usize) -> Result<Instruction, Error> {
     let rd = INT_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -701,6 +702,7 @@ fn decode_addi4spn(bytes: usize) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's add instruction.
 fn decode_comp_add(bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -710,7 +712,7 @@ fn decode_comp_add(bytes: usize) -> Result<Instruction, Error> {
         .ok_or(Error::UnknownRegister)?;
 
     let (operands, operand_count) =
-        operands![Cow::Borrowed(rd), Cow::Borrowed(rd), Cow::Borrowed(rs),];
+        operands![Cow::Borrowed(rd), Cow::Borrowed(rd), Cow::Borrowed(rs)];
 
     Ok(Instruction {
         mnemomic: "add",
@@ -719,6 +721,7 @@ fn decode_comp_add(bytes: usize) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's li and lui instructions.
 fn decode_comp_li(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let mut imm = (((bytes >> 7) & 0b100000) | ((bytes >> 2) & 0b11111)) as i16;
     let rs = ABI_REGISTERS
@@ -738,6 +741,7 @@ fn decode_comp_li(mnemomic: &'static str, bytes: usize) -> Result<Instruction, E
     })
 }
 
+/// Decode's store word relative to sp instruction for both integers and floats.
 fn decode_comp_swsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 2 & 0b11111)
@@ -753,6 +757,7 @@ fn decode_comp_swsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's store double relative to sp instruction for both integers and floats.
 fn decode_comp_sdsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 2 & 0b11111)
@@ -768,6 +773,7 @@ fn decode_comp_sdsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's load word relative to sp instruction for both integers and floats.
 fn decode_comp_lwsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -783,6 +789,7 @@ fn decode_comp_lwsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's load double relative to sp instruction for both integers and floats.
 fn decode_comp_ldsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -798,6 +805,7 @@ fn decode_comp_ldsp(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's load word instruction for integers.
 fn decode_comp_slw(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rs1 = INT_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -820,6 +828,7 @@ fn decode_comp_slw(mnemomic: &'static str, bytes: usize) -> Result<Instruction, 
     })
 }
 
+/// Decode's load double instruction for integers.
 fn decode_comp_sld(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rs1 = INT_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -842,6 +851,7 @@ fn decode_comp_sld(mnemomic: &'static str, bytes: usize) -> Result<Instruction, 
     })
 }
 
+/// Decode's load word instruction for floats.
 fn decode_comp_fslw(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rs1 = FP_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -864,6 +874,7 @@ fn decode_comp_fslw(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's load double instruction for floats.
 fn decode_comp_fsld(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rs1 = FP_REGISTERS
         .get(bytes >> 2 & 0b111)
@@ -886,6 +897,7 @@ fn decode_comp_fsld(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's move instruction.
 fn decode_comp_mv(bytes: usize) -> Result<Instruction, Error> {
     let rs = ABI_REGISTERS
         .get(bytes >> 2 & 0b11111)
@@ -894,7 +906,7 @@ fn decode_comp_mv(bytes: usize) -> Result<Instruction, Error> {
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    let (operands, operand_count) = operands![Cow::Borrowed(rd), Cow::Borrowed(rs),];
+    let (operands, operand_count) = operands![Cow::Borrowed(rd), Cow::Borrowed(rs)];
 
     Ok(Instruction {
         mnemomic: "mv",
@@ -903,6 +915,7 @@ fn decode_comp_mv(bytes: usize) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's instructions with weird formatting that aren't yet handled.
 fn decode_comp_unique(mnemomic: &'static str) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![];
 
@@ -913,6 +926,7 @@ fn decode_comp_unique(mnemomic: &'static str) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's instructions with weird formatting that aren't yet handled.
 fn decode_unique(mnemomic: &'static str) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![];
 
@@ -923,6 +937,7 @@ fn decode_unique(mnemomic: &'static str) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's sb, sh, sw and sd store instructions.
 fn decode_store(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let mut imm = 0;
 
@@ -951,6 +966,7 @@ fn decode_store(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Err
     })
 }
 
+/// Decode's beq, bne, blt, bge, bltu and bgeu branch instructions.
 fn decode_branch(
     mnemomic: &'static str,
     bytes: usize,
@@ -965,7 +981,8 @@ fn decode_branch(
 
     let mut imm = 0;
 
-    imm |= ((bytes & 0x80000000) as i32 >> 19) as usize;
+    // FIXME: this can be done better
+    imm |= ((bytes & 0b10000000000000000000000000000000) as i32 >> 19) as usize;
     imm |= bytes << 4 & 0b100000000000;
     imm |= bytes >> 20 & 0b011111100000;
     imm |= bytes >> 7 & 0b000000011110;
@@ -988,6 +1005,7 @@ fn decode_branch(
     })
 }
 
+/// Decode's jump instruction.
 fn decode_jump(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
     let mut imm = 0;
     let rd = ABI_REGISTERS
@@ -1017,6 +1035,7 @@ fn decode_jump(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's ret instruction.
 fn decode_jumpr(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
     let mut imm = (bytes as i32 >> 20) as i64;
     let rd = ABI_REGISTERS
@@ -1040,6 +1059,7 @@ fn decode_jumpr(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
     })
 }
 
+/// Decode's instructions that have two registers and an immediate.
 fn decode_immediate(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
@@ -1062,6 +1082,7 @@ fn decode_immediate(mnemomic: &'static str, bytes: usize) -> Result<Instruction,
     })
 }
 
+/// Decode's slli, srai, srli, slliw, sraiw and srliw  instruction's.
 fn decode_arith(
     mnemomic: &'static str,
     bytes: usize,
@@ -1093,7 +1114,8 @@ fn decode_arith(
     })
 }
 
-fn decode_reg_triplet(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
+/// Decode's instructions that have three registers.
+fn decode_triplet(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
@@ -1105,7 +1127,7 @@ fn decode_reg_triplet(mnemomic: &'static str, bytes: usize) -> Result<Instructio
         .ok_or(Error::UnknownRegister)?;
 
     let (operands, operand_count) =
-        operands![Cow::Borrowed(rd), Cow::Borrowed(rs1), Cow::Borrowed(rs2),];
+        operands![Cow::Borrowed(rd), Cow::Borrowed(rs1), Cow::Borrowed(rs2)];
 
     Ok(Instruction {
         mnemomic,
@@ -1114,13 +1136,14 @@ fn decode_reg_triplet(mnemomic: &'static str, bytes: usize) -> Result<Instructio
     })
 }
 
-fn decode_imm_reg(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
+/// Decode's instructions that have have a registers and an immediate.
+fn decode_double(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Error> {
     let imm = bytes >> 12;
     let rd = ABI_REGISTERS
         .get(bytes >> 7 & 0b11111)
         .ok_or(Error::UnknownRegister)?;
 
-    let (operands, operand_count) = operands![Cow::Borrowed(rd), Cow::Owned(imm.to_string()),];
+    let (operands, operand_count) = operands![Cow::Borrowed(rd), Cow::Owned(imm.to_string())];
 
     Ok(Instruction {
         mnemomic,
@@ -1130,6 +1153,7 @@ fn decode_imm_reg(mnemomic: &'static str, bytes: usize) -> Result<Instruction, E
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod tests {
     use object::{Object, ObjectSection, SectionKind};
 
