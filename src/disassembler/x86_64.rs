@@ -1,18 +1,176 @@
 use std::fmt;
 
-use super::{lookup, Array, Error, Reader};
+use super::{lookup, DecodableInstruction, Error, Reader};
+
+pub(super) struct Stream<'data> {
+    pub bytes: &'data [u8],
+    pub offset: usize,
+    pub width: usize,
+    pub is_64: bool,
+    pub section_base: usize,
+}
 
 // An Intel/AMD/IA-32 instruction is made up of up to 15 bytes.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Instruction {
+pub(super) struct Instruction {
     rex_prefix: Option<u8>,
-    prefixes: Array<Prefix, 4>,
+    prefixes: [Prefix; 4],
     repr: lookup::X86,
 }
 
-impl fmt::Display for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
+impl DecodableInstruction for Instruction {
+    fn decode(&self) -> String {
+        todo!()
+    }
+
+    fn operands(&self) -> &[std::borrow::Cow<'static, str>] {
+        todo!()
+    }
+}
+
+impl super::Streamable for Stream<'_> {
+    type Item = Instruction;
+    type Error = super::Error;
+
+    fn next(&mut self) -> Result<Self::Item, Error> {
+        let bytes = self.bytes.get(self.offset..).ok_or(Error::NoBytesLeft)?;
+        let mut bytes = Reader::new(bytes);
+
+        // read instruction prefixes (0-4 optional bytes).
+        let mut prefixes = [Prefix::Unknown; 4];
+        let mut prefix_count = 0;
+        for _ in 0..4 {
+            if let Some(prefix @ (0xf0 | 0xf2 | 0xf3 | 0x2e | 0x66 | 0x67)) = bytes.seek() {
+                prefixes[prefix_count] = unsafe { std::mem::transmute(prefix) };
+                prefix_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        // check if opcode starts with a `required prefix` + escape opcode or just escape opcode.
+        let multibyte = match prefixes.as_ref().get(0) {
+            Some(Prefix::OperandSize | Prefix::RepeatNotEqual | Prefix::Repeat)
+                if bytes.take(0x0f) =>
+            {
+                remove_from_array(&mut prefixes[..prefix_count], 0);
+                true
+            }
+            _ => bytes.take(0x0f),
+        };
+
+        // read optional REX prefix (1 byte).
+        let mut rex_prefix = None;
+        if let Some(prefix) = bytes.consume_eq(|x| (x >> 4) == 0b0100) {
+            if self.is_64 {
+                debug_assert_eq!(prefix >> 4, 0b0100);
+
+                let is_64_operand = (prefix & 0b00001000) == 0b00001000;
+                let mod_rm_reg = (prefix & 0b00000100) == 0b00000100;
+                let sib_idx_field = (prefix & 0b00000010) == 0b00000010;
+                let extension = (prefix & 0b00000001) == 0b00000001;
+
+                rex_prefix = Some(prefix);
+            }
+        }
+
+        let opcode = bytes
+            .consume_exact(multibyte as usize + 1)
+            .ok_or(Error::UnknownOpcode)?;
+
+        println!("{:x?}", opcode);
+
+        // read opcode bytes (1-3 bytes).
+        let repr = if multibyte {
+            todo!()
+        } else {
+            let opcode = opcode[0];
+
+            let row = (opcode & 0b11110000) >> 4;
+            let col = opcode & 0b00001111;
+
+            eprintln!("row: 0x{row:x}, col: 0x{col:x}");
+            dbg!(lookup::X86_SINGLE[row as usize][col as usize])
+        };
+
+        // read ModR/M (optional 1 byte).
+        //
+        //    2        3         2
+        // ┌─────┬────────────┬─────┐
+        // │ mod │ reg/opcode │ R/M │
+        // └─────┴────────────┴─────┘
+        //
+        if let Some(byte) = bytes.consume() {
+            let memory_addressing_mode = byte >> 6;
+            let register_addressing_mode = (byte & 0b00111111) >> 3;
+            let memory_operand_mode = byte & 0b00000111;
+
+            let is_64bit_addr = prefixes.as_ref().contains(&Prefix::AddrSize);
+
+            dbg!(is_64bit_addr);
+            eprintln!("addressing_mode: 0b{:02b}", memory_operand_mode);
+            eprintln!("0b{byte:08b}");
+
+            // match memory_addressing_mode {
+            //     0b00 => {
+            //         // Displacement only addressing.
+            //         if register_addressing_mode == 0b110 {}
+            //     }
+            //     // Register addressing mode
+            //     0b11 => if is_64bit_addr {},
+            // }
+
+            // the ModR/M is a register.
+            if byte >= 0xc0 {
+                panic!("{}", unsafe {
+                    std::mem::transmute::<_, Register>(byte as usize - 0xc0)
+                });
+            }
+
+            panic!("0x{:x}", byte);
+        }
+
+        // Read SIB (optional 1 byte).
+        //
+        //     2       3      3
+        // ┌───────┬───────┬──────┐
+        // │ scale │ index │ base │
+        // └───────┴───────┴──────┘
+        //
+
+        // A displacement is the constant offset that is applied when reading memory.
+        // E.g. mov edx, [rsp + displacement]
+
+        // Read displacement (0-4 optional bytes).
+
+        // Read immediate (0-4 optional bytes).
+
+        let mut displacements = [Prefix::Unknown; 4];
+        let mut displacement_count = 0;
+        while let Some(byte) = bytes.consume() {
+            displacements[displacement_count] = unsafe { std::mem::transmute(byte) };
+            displacement_count += 1;
+        }
+
+        todo!()
+    }
+
+    fn format(&self, next: Result<Self::Item, Error>) -> Option<String> {
+        todo!()
+    }
+}
+
+pub fn remove_from_array<T>(arr: &mut [T], index: usize) -> T {
+    // Note: `<` because it's *not* valid to remove after everything
+    assert!(index < arr.len(), "index out of bounds");
+    unsafe {
+        let result = std::ptr::read(arr.as_ptr().add(index));
+        std::ptr::copy(
+            arr.as_ptr().add(index + 1),
+            arr.as_mut_ptr().add(index),
+            arr.len() - index,
+        );
+        result
     }
 }
 
@@ -26,6 +184,8 @@ enum Addressing {
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Prefix {
+    Unknown,
+
     /// Makes instruction atomic. E.g. `lock mov edx, [reg]` is just `mov edx, [reg]`
     /// with the lock prefix.
     Lock = 0xf0,
@@ -317,119 +477,6 @@ pub enum OperandType {
     /// Doubleword integer register.
     #[allow(dead_code)]
     DoubleRegister,
-}
-
-pub(super) fn next(stream: &mut super::InstructionStream) -> Result<GenericInstruction, Error> {
-    let bytes = stream.bytes.get(stream.start..).ok_or(Error::NoBytesLeft)?;
-    let mut bytes = Reader::new(bytes);
-
-    // read instruction prefixes (0-4 optional bytes).
-    let mut prefixes = Array::<Prefix, 4>::new();
-    for _ in 0..4 {
-        if let Some(prefix @ (0xf0 | 0xf2 | 0xf3 | 0x2e | 0x66 | 0x67)) = bytes.seek() {
-            prefixes.push(unsafe { std::mem::transmute(prefix) });
-        } else {
-            break;
-        }
-    }
-
-    // check if opcode starts with a `required prefix` + escape opcode or just escape opcode.
-    let multibyte = match prefixes.as_ref().get(0) {
-        Some(Prefix::OperandSize | Prefix::RepeatNotEqual | Prefix::Repeat) if bytes.take(0x0f) => {
-            prefixes.remove(0);
-            true
-        }
-        _ => bytes.take(0x0f),
-    };
-
-    // read optional REX prefix (1 byte).
-    let mut rex_prefix = None;
-    if let Some(prefix) = bytes.consume_eq(|x| (x >> 4) == 0b0100) {
-        if stream.addr_size == 64 {
-            debug_assert_eq!(prefix >> 4, 0b0100);
-
-            let is_64_operand = (prefix & 0b00001000) == 0b00001000;
-            let mod_rm_reg = (prefix & 0b00000100) == 0b00000100;
-            let sib_idx_field = (prefix & 0b00000010) == 0b00000010;
-            let extension = (prefix & 0b00000001) == 0b00000001;
-
-            rex_prefix = Some(prefix);
-        }
-    }
-
-    let opcode = bytes.consume_exact(multibyte as usize + 1).ok_or(Error::MissingOpcode)?;
-
-    println!("{:x?}", opcode);
-
-    // read opcode bytes (1-3 bytes).
-    let repr = if multibyte {
-        todo!()
-    } else {
-        let opcode = opcode[0];
-
-        let row = (opcode & 0b11110000) >> 4;
-        let col = opcode & 0b00001111;
-
-        eprintln!("row: 0x{row:x}, col: 0x{col:x}");
-        dbg!(lookup::X86_SINGLE[row as usize][col as usize])
-    };
-
-    // read ModR/M (optional 1 byte).
-    //
-    //    2        3         2
-    // ┌─────┬────────────┬─────┐
-    // │ mod │ reg/opcode │ R/M │
-    // └─────┴────────────┴─────┘
-    //
-    if let Some(byte) = bytes.consume() {
-        let memory_addressing_mode = byte >> 6;
-        let register_addressing_mode = (byte & 0b00111111) >> 3;
-        let memory_operand_mode = byte & 0b00000111;
-
-        let is_64bit_addr = prefixes.as_ref().contains(&Prefix::AddrSize);
-
-        dbg!(is_64bit_addr);
-        eprintln!("addressing_mode: 0b{:02b}", memory_operand_mode);
-        eprintln!("0b{byte:08b}");
-
-        // match memory_addressing_mode {
-        //     0b00 => {
-        //         // Displacement only addressing.
-        //         if register_addressing_mode == 0b110 {}
-        //     }
-        //     // Register addressing mode
-        //     0b11 => if is_64bit_addr {},
-        // }
-
-        // the ModR/M is a register.
-        if byte >= 0xc0 {
-            panic!("{}", unsafe { std::mem::transmute::<_, Register>(byte as usize - 0xc0) });
-        }
-
-        panic!("0x{:x}", byte);
-    }
-
-    // Read SIB (optional 1 byte).
-    //
-    //     2       3      3
-    // ┌───────┬───────┬──────┐
-    // │ scale │ index │ base │
-    // └───────┴───────┴──────┘
-    //
-
-    // A displacement is the constant offset that is applied when reading memory.
-    // E.g. mov edx, [rsp + displacement]
-
-    // Read displacement (0-4 optional bytes).
-
-    // Read immediate (0-4 optional bytes).
-
-    let mut displacement = Array::<u8, 4>::new();
-    while let Some(byte) = bytes.consume() {
-        displacement.push(byte);
-    }
-
-    todo!()
 }
 
 /*

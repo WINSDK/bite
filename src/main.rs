@@ -4,66 +4,12 @@ use std::collections::BTreeMap;
 use pdb::FallibleIterator;
 
 use object::{Object, ObjectSection, ObjectSymbol, SectionKind};
-use rayon::prelude::*;
 
 mod args;
 mod demangler;
 mod disassembler;
 mod replace;
-
-#[macro_export]
-macro_rules! exit {
-    () => {
-        std::process::exit(0)
-    };
-
-    (fail) => {
-        std::process::exit(1)
-    };
-
-    (fail, $($arg:tt)*) => {{
-        eprintln!($($arg)*);
-        std::process::exit(1);
-    }};
-
-    ($($arg:tt)*) => {{
-        eprintln!($($arg)*);
-        std::process::exit(0);
-    }};
-}
-
-#[macro_export]
-macro_rules! assert_exit {
-    ($cond:expr $(,)?) => {{
-        if !($cond) {
-            $crate::exit!(fail);
-        }
-    }};
-
-    ($cond:expr, $($arg:tt)+) => {{
-        if !($cond) {
-            $crate::exit!($($arg)*);
-        }
-    }};
-}
-
-#[macro_export]
-macro_rules! unchecked_println {
-    ($($arg:tt)*) => {{
-        use std::io::Write;
-
-        let mut stdout = std::io::stdout();
-        match stdout.write_fmt(format_args!($($arg)*)) {
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => $crate::exit!(),
-            _ => {}
-        }
-
-        match stdout.write(b"\n") {
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => $crate::exit!(),
-            _ => {}
-        }
-    }};
-}
+mod macros;
 
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
@@ -167,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 && !symbol.1.is_empty()
         }
 
-        symbols.par_iter_mut().filter(valid_symbol).for_each(|(_, symbol)| {
+        symbols.iter_mut().filter(valid_symbol).for_each(|(_, symbol)| {
             match demangler::Symbol::parse_with_config(symbol, &config) {
                 Ok(sym) => println!("{}", sym.display()),
                 Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
@@ -175,17 +121,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    if !args.gui && args.disassemble {
+    if args.disassemble {
         let section = obj
             .sections()
             .filter(|s| s.kind() == SectionKind::Text)
             .find(|t| t.name() == Ok(".text"))
             .expect("failed to find `.text` section");
 
-        dbg!(section.address());
-        dbg!(&symbols);
+        let raw = section.uncompressed_data().expect("failed to decompress .text section");
 
-        if let Ok(raw) = section.uncompressed_data() {
+        if !args.gui {
             unchecked_println!("Disassembly of section {}:", section.name().unwrap_or("???"));
 
             let base = section.address() as usize;
@@ -199,6 +144,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for instruction in stream {
                 unchecked_println!("\t{instruction}");
             }
+        }
+
+        if args.gui {
+            panic!("no gui :(");
         }
     }
 

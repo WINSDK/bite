@@ -6,18 +6,23 @@ mod arm;
 mod mips;
 mod riscv;
 
-// mod lookup;
-// #[allow(dead_code, unused_variables, unused_assignments)]
-// mod x86_64;
+mod lookup;
+#[allow(dead_code, unused_variables, unused_assignments)]
+mod x86_64;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// Instruction stream is empty.
     NoBytesLeft,
 
-    InvalidInstruction,
+    /// Register in instruction is impossible/unknown.
     UnknownRegister,
+
+    /// Opcode in instruction is impossible/unknown.
     UnknownOpcode,
+
+    /// Instruction has a valid register and opcode yet is still invalid.
+    InvalidInstruction,
 }
 
 trait DecodableInstruction {
