@@ -1,12 +1,14 @@
+pub mod table;
+pub mod config;
+
 use crate::disassembler::Reader;
-use crate::config::Config;
-use crate::config::Statement;
+
+pub use config::Config;
+use config::Statement;
 
 use std::fmt;
 use std::fmt::Write;
 use std::mem::MaybeUninit;
-
-pub mod table;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -431,7 +433,7 @@ impl<'p> Symbol<'p> {
         Ok(Const { neg, ty, data: (start, end) })
     }
 
-    fn reformat_path(&mut self, matches: &mut crate::config::Search<'p>, spot: usize) -> bool {
+    fn reformat_path(&mut self, matches: &mut config::Search<'p>, spot: usize) -> bool {
         match self.ast.stack[spot] {
             Type::Path(Path::Crate(_, ident)) => {
                 matches.binary_search_range(ident);

@@ -1,7 +1,3 @@
-use object::Architecture;
-use std::borrow::Cow;
-use std::collections::BTreeMap;
-
 mod arm;
 mod mips;
 mod riscv;
@@ -9,6 +5,10 @@ mod riscv;
 mod lookup;
 #[allow(dead_code, unused_variables, unused_assignments)]
 mod x86_64;
+
+use object::Architecture;
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {

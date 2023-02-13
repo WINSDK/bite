@@ -1,14 +1,13 @@
+mod args;
+mod symbols;
+mod disassembler;
+mod macros;
+
 use std::borrow::Cow;
 
 use object::{Object, ObjectSection, SectionKind};
 use iced::{Element, Length, Sandbox};
 use iced::widget::{container, scrollable};
-
-mod args;
-mod symbols;
-mod disassembler;
-mod config;
-mod macros;
 
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
@@ -29,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
     let args = args::Cli::parse();
-    let config = config::Config::from_env(&args);
+    let config = symbols::Config::from_env(&args);
 
     let binary = std::fs::read(&args.path).expect("unexpected read of binary failed").leak();
     let obj = object::File::parse(&*binary).expect("failed to parse binary");
