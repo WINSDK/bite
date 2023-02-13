@@ -1,12 +1,12 @@
-//! MIPS V disdisassembler
+//! MIPS V disassembler.
 
 use super::{Error, DecodableInstruction};
 use std::borrow::Cow;
 
 macro_rules! operands {
-    [] => {([super::EMPTY_OPERAND; 3], 0)};
+    [] => {([$crate::disassembler::EMPTY_OPERAND; 3], 0)};
     [$($x:expr),+ $(,)?] => {{
-        let mut operands = [super::EMPTY_OPERAND; 3];
+        let mut operands = [$crate::disassembler::EMPTY_OPERAND; 3];
         let mut idx = 0;
         $(
             idx += 1;
