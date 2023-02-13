@@ -497,6 +497,14 @@ static PSUEDOS: phf::Map<&str, fn(&mut Instruction)> = phf::phf_map! {
     // TODO: table p2
 };
 
+#[inline(always)]
+fn encode_hex(imm: i64) -> String {
+    match imm {
+        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
+        0..=i64::MAX => format!("{:#x}", imm),
+    }
+}
+
 /// Decode's beqz and bnez instructions.
 fn decode_comp_branch(
     mnemomic: &'static str,
@@ -526,10 +534,7 @@ fn decode_comp_branch(
     let (operands, operand_count) = operands![
         Cow::Borrowed(rs),
         Cow::Borrowed(rs),
-        Cow::Owned(match imm {
-            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-            0..=i64::MAX => format!("{:#x}", imm),
-        })
+        Cow::Owned(encode_hex(imm))
     ];
 
     Ok(Instruction {
@@ -565,10 +570,7 @@ fn decode_comp_jump(
 
     imm += (stream.section_base + stream.offset) as i64;
 
-    let (operands, operand_count) = operands![Cow::Owned(match imm {
-        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-        0..=i64::MAX => format!("{:#x}", imm),
-    })];
+    let (operands, operand_count) = operands![Cow::Owned(encode_hex(imm))];
 
     Ok(Instruction {
         mnemomic,
@@ -992,10 +994,7 @@ fn decode_branch(
     let (operands, operand_count) = operands![
         Cow::Borrowed(rs1),
         Cow::Borrowed(rs2),
-        Cow::Owned(match imm {
-            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-            0..=i64::MAX => format!("{:#x}", imm),
-        }),
+        Cow::Owned(encode_hex(imm)),
     ];
 
     Ok(Instruction {
@@ -1022,10 +1021,7 @@ fn decode_jump(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
 
     let (operands, operand_count) = operands![
         Cow::Borrowed(rd),
-        Cow::Owned(match imm {
-            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-            0..=i64::MAX => format!("{:#x}", imm),
-        }),
+        Cow::Owned(encode_hex(imm)),
     ];
 
     Ok(Instruction {
@@ -1046,10 +1042,7 @@ fn decode_jumpr(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
 
     let (operands, operand_count) = operands![
         Cow::Borrowed(rd),
-        Cow::Owned(match imm {
-            i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-            0..=i64::MAX => format!("{:#x}", imm),
-        }),
+        Cow::Owned(encode_hex(imm)),
     ];
 
     Ok(Instruction {
