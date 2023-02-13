@@ -1,10 +1,12 @@
 use crate::disassembler::Reader;
-use crate::replace::Config;
-use crate::replace::Statement;
+use crate::config::Config;
+use crate::config::Statement;
 
 use std::fmt;
 use std::fmt::Write;
 use std::mem::MaybeUninit;
+
+pub mod table;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -429,7 +431,7 @@ impl<'p> Symbol<'p> {
         Ok(Const { neg, ty, data: (start, end) })
     }
 
-    fn reformat_path(&mut self, matches: &mut crate::replace::Search<'p>, spot: usize) -> bool {
+    fn reformat_path(&mut self, matches: &mut crate::config::Search<'p>, spot: usize) -> bool {
         match self.ast.stack[spot] {
             Type::Path(Path::Crate(_, ident)) => {
                 matches.binary_search_range(ident);
@@ -956,7 +958,7 @@ fn basic_types(tag: u8) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use crate::replace::Config;
+    use crate::config::Config;
 
     lazy_static::lazy_static! {
         static ref CONFIG: Config = Config::from_string(include_str!("../.dumpfmt").to_string());

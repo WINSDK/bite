@@ -1,14 +1,13 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
-use pdb::FallibleIterator;
-
-use object::{Object, ObjectSection, ObjectSymbol, SectionKind};
+use object::{Object, ObjectSection, SectionKind};
+use iced::{Element, Length, Sandbox};
+use iced::widget::{container, scrollable};
 
 mod args;
-mod demangler;
+mod symbols;
 mod disassembler;
-mod replace;
+mod config;
 mod macros;
 
 fn set_panic_handler() {
@@ -30,61 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
     let args = args::Cli::parse();
-    let config = replace::Config::from_env(&args);
+    let config = config::Config::from_env(&args);
 
     let binary = std::fs::read(&args.path).expect("unexpected read of binary failed").leak();
     let obj = object::File::parse(&*binary).expect("failed to parse binary");
-
-    let mut symbols: BTreeMap<usize, Cow<'static, str>> = obj
-        .symbols()
-        .filter_map(|s| s.name().map(|name| (s.address() as usize, Cow::Borrowed(name))).ok())
-        .filter(|(_, name)| !name.is_empty())
-        .collect();
-
-    if let Ok(Some(pdb)) = obj.pdb_info() {
-        let read_symbols = |f: std::fs::File| {
-            let mut symbols = Vec::new();
-            let mut pdb = pdb::PDB::open(f)?;
-
-            // get symbol table
-            let symbol_table = pdb.global_symbols()?;
-
-            // leak symbols onto the heap for later use
-            let symbol_table = Box::leak(Box::new(symbol_table));
-
-            // iterate through symbols collected earlier
-            let mut symbol_table = symbol_table.iter();
-
-            // retrieve addresses of symbols
-            let address_map = pdb.address_map()?;
-
-            while let Some(symbol) = symbol_table.next()? {
-                let symbol = symbol.parse()?;
-
-                let symbol = match symbol {
-                    pdb::SymbolData::Public(symbol) if symbol.function => symbol,
-                    _ => continue,
-                };
-
-                if let Some(addr) = symbol.offset.to_rva(&address_map) {
-                    if let Ok(name) = std::str::from_utf8(symbol.name.as_bytes()) {
-                        symbols.push((addr.0 as usize, Cow::Borrowed(name)));
-                    }
-                }
-            }
-
-            Ok(symbols)
-        };
-
-        symbols.extend(
-            std::str::from_utf8(pdb.path())
-                .map_err(|_| std::io::ErrorKind::InvalidData.into())
-                .and_then(std::fs::File::open)
-                .map_err(|_| pdb::Error::UnrecognizedFileFormat)
-                .and_then(read_symbols)
-                .unwrap_or_default(),
-        );
-    }
+    let mut symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
 
     if args.libs {
         println!("{}:", args.path.display());
@@ -114,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         symbols.iter_mut().filter(valid_symbol).for_each(|(_, symbol)| {
-            match demangler::Symbol::parse_with_config(symbol, &config) {
+            match symbols::Symbol::parse_with_config(symbol, &config) {
                 Ok(sym) => println!("{}", sym.display()),
                 Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
             }
@@ -147,9 +96,75 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if args.gui {
-            panic!("no gui :(");
+            let window = iced::window::Settings {
+                min_size: Some((300, 300)),
+                ..Default::default()
+            };
+
+            let settings = iced::Settings {
+                window,
+                antialiasing: true,
+                default_font: Some(include_bytes!("../assets/vera_sans_mono_bold.ttf")),
+                ..Default::default()
+            };
+
+            Gui::run(settings).expect("application loop excited");
         }
     }
 
     Ok(())
+}
+
+struct Gui {
+    instructions: Vec<String>
+}
+
+impl Sandbox for Gui {
+    type Message = ();
+
+    fn new() -> Self {
+        set_panic_handler();
+
+        let binary = std::fs::read("/tmp/sha").expect("unexpected read of binary failed").leak();
+        let obj = object::File::parse(&*binary).expect("failed to parse binary");
+        let symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
+
+        let section = obj
+            .sections()
+            .filter(|s| s.kind() == SectionKind::Text)
+            .find(|t| t.name() == Ok(".text"))
+            .expect("failed to find `.text` section");
+
+        let raw = section.uncompressed_data().expect("failed to decompress .text section");
+
+        let base = section.address() as usize;
+        let stream = disassembler::InstructionStream::new(
+            &raw,
+            obj.architecture(),
+            base,
+            symbols
+        );
+
+        Self {
+            instructions: stream.into_iter().collect()
+        }
+    }
+
+    fn title(&self) -> String {
+        String::from("Custom 2D geometry - Iced")
+    }
+
+    fn update(&mut self, _: ()) {}
+
+    fn view(&self) -> Element<()> {
+        let insts = self.instructions.iter().map(|s| iced::Element::from(s.as_str())).collect();
+
+        let content = iced::widget::Column::with_children(insts)
+            .padding(20);
+
+        scrollable(
+            container(content).width(Length::Fill)
+        )
+        .into()
+    }
 }
