@@ -197,10 +197,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             for instruction in stream {
-                // if let Some(label) = symbols.get(&(base + off)) {
-                //     unchecked_println!("\n{off:012} <{label}>:");
-                // }
-
                 unchecked_println!("\t{instruction}");
             }
         }
