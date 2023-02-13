@@ -497,12 +497,53 @@ static PSUEDOS: phf::Map<&str, fn(&mut Instruction)> = phf::phf_map! {
     // TODO: table p2
 };
 
+#[rustfmt::skip]
+const ENCODED_NUGGETS: [u8; 16] = [
+    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
+    b'a', b'b', b'c', b'd', b'e', b'f',
+];
+
 #[inline(always)]
-fn encode_hex(imm: i64) -> String {
-    match imm {
-        i64::MIN..=-1 => format!("-{:#x}", imm.abs()),
-        0..=i64::MAX => format!("{:#x}", imm),
+#[rustfmt::skip]
+pub fn reverse_hex_nuggets(mut imm: usize) -> usize {
+    imm = (imm & 0x00000000ffffffff) << 32 | (imm & 0xffffffff00000000) >> 32;
+    imm = (imm & 0x0000ffff0000ffff) << 16 | (imm & 0xffff0000ffff0000) >> 16;
+    imm = (imm & 0x00ff00ff00ff00ff) << 8  | (imm & 0xff00ff00ff00ff00) >> 8;
+    imm = (imm & 0x0f0f0f0f0f0f0f0f) << 4  | (imm & 0xf0f0f0f0f0f0f0f0) >> 4;
+    imm
+}
+
+pub fn encode_hex(mut imm: i64) -> String {
+    let mut hex = String::with_capacity(20); // max length of an i64
+    let raw = unsafe { hex.as_mut_vec() };
+    let mut off = 0;
+
+    if imm < 0 {
+        unsafe { *raw.get_unchecked_mut(0) = b'-' }
+
+        imm = -imm;
+        off += 1;
     }
+
+    unsafe {
+        *raw.get_unchecked_mut(1) = b'0';
+        *raw.get_unchecked_mut(2) = b'x';
+        off += 2;
+    }
+
+    let num_len = imm.checked_ilog10().unwrap_or(0) as usize;
+    let leading_zeros = (16 - num_len) * 4;
+    let mut imm = reverse_hex_nuggets(imm as usize);
+
+    imm >>= leading_zeros;
+    while imm > 0 {
+        unsafe { *raw.get_unchecked_mut(off) = ENCODED_NUGGETS[imm & 0b1111] }
+        imm >>= 4;
+        off += 1;
+    }
+
+    unsafe { raw.set_len(num_len + 2) }
+    hex
 }
 
 /// Decode's beqz and bnez instructions.
@@ -1019,10 +1060,7 @@ fn decode_jump(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
 
     let imm = imm as i64 + (stream.section_base + stream.offset) as i64;
 
-    let (operands, operand_count) = operands![
-        Cow::Borrowed(rd),
-        Cow::Owned(encode_hex(imm)),
-    ];
+    let (operands, operand_count) = operands![Cow::Borrowed(rd), Cow::Owned(encode_hex(imm))];
 
     Ok(Instruction {
         mnemomic: "jal",
@@ -1040,10 +1078,7 @@ fn decode_jumpr(bytes: usize, stream: &Stream) -> Result<Instruction, Error> {
 
     imm += (stream.section_base + stream.offset) as i64;
 
-    let (operands, operand_count) = operands![
-        Cow::Borrowed(rd),
-        Cow::Owned(encode_hex(imm)),
-    ];
+    let (operands, operand_count) = operands![Cow::Borrowed(rd), Cow::Owned(encode_hex(imm))];
 
     Ok(Instruction {
         mnemomic: "jalr",
