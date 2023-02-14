@@ -226,7 +226,7 @@ impl super::Streamable for Stream<'_> {
 
                 let bytes = bytes.join(" ");
 
-                fmt += &format!("{bytes:11}  <{err:?}>");
+                fmt += &format!("\t{bytes:11}  <{err:?}>");
 
                 Some(fmt)
             }
@@ -239,7 +239,7 @@ impl super::Streamable for Stream<'_> {
 
                 let bytes = bytes.join(" ");
 
-                fmt += &format!("{bytes:11}  {}", inst.psuedo_decode());
+                fmt += &format!("\t{bytes:11}  {}", inst.psuedo_decode());
                 Some(fmt)
 
                 // Some(self.section_base + self.offset, fmt))

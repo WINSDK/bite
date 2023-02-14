@@ -44,7 +44,7 @@ trait Streamable {
 
 pub struct InstructionStream<'data> {
     inner: InternalInstructionStream<'data>,
-    symbols: BTreeMap<usize, Cow<'static, str>>,
+    symbols: &'data BTreeMap<usize, Cow<'static, str>>,
 }
 
 enum InternalInstructionStream<'data> {
@@ -57,7 +57,7 @@ impl<'data> InstructionStream<'data> {
         bytes: &'data [u8],
         arch: Architecture,
         section_base: usize,
-        symbols: BTreeMap<usize, Cow<'static, str>>,
+        symbols: &'data BTreeMap<usize, Cow<'static, str>>,
     ) -> Self {
         let inner = match arch {
             Architecture::Mips => {
@@ -91,27 +91,35 @@ impl Iterator for InstructionStream<'_> {
     type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut addr = 0;
+        let mut base = 0;
+        let mut off = 0;
 
         let fmt = match self.inner {
             InternalInstructionStream::Riscv(ref mut stream) => {
                 let next = stream.next();
-                addr += stream.section_base;
-                addr += stream.offset;
-                addr -= stream.width;
+                base = stream.section_base;
+                off += stream.offset;
+                off -= stream.width;
                 stream.format(next)
             }
             InternalInstructionStream::Mips(ref mut stream) => {
                 let next = stream.next();
-                addr += stream.offset;
-                addr -= 4;
+                off += stream.offset;
+                off -= 4;
                 stream.format(next)
             }
         };
 
         fmt.map(|fmt| {
+            let addr = base + off;
+
             if let Some(label) = self.symbols.get(&addr) {
-                return format!("\n{addr:012} <{label}>:\n\t{fmt}");
+                // only print an newline before the label if it's not before the first instruction
+                if off > 0 {
+                    return format!("\n{addr:012} <{label}>:\n{fmt}");
+                } else {
+                    return format!("{addr:012} <{label}>:\n{fmt}");
+                }
             }
 
             fmt

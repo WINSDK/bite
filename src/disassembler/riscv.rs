@@ -269,7 +269,7 @@ impl super::Streamable for Stream<'_> {
                 let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
                 let bytes = bytes.join(" ");
 
-                fmt += &format!("{bytes:11}  <{err:?}>");
+                fmt += &format!("\t{bytes:11}  <{err:?}>");
                 Some(fmt)
             }
             Ok(mut inst) => {
@@ -279,7 +279,7 @@ impl super::Streamable for Stream<'_> {
                 let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
                 let bytes = bytes.join(" ");
 
-                fmt += &format!("{bytes:11}  {}", inst.psuedo_decode());
+                fmt += &format!("\t{bytes:11}  {}", inst.psuedo_decode());
                 Some(fmt)
             }
         }

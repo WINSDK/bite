@@ -1,13 +1,13 @@
 mod args;
-mod symbols;
 mod disassembler;
 mod macros;
+mod symbols;
 
 use std::borrow::Cow;
 
-use object::{Object, ObjectSection, SectionKind};
-use iced::{Element, Length, Sandbox};
 use iced::widget::{container, scrollable};
+use iced::{Element, Length, Sandbox};
+use object::{Object, ObjectSection, SectionKind};
 
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
@@ -30,7 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = args::Cli::parse();
     let config = symbols::Config::from_env(&args);
 
-    let binary = std::fs::read(&args.path).expect("unexpected read of binary failed").leak();
+    let binary = std::fs::read(&args.path)
+        .expect("unexpected read of binary failed")
+        .leak();
     let obj = object::File::parse(&*binary).expect("failed to parse binary");
     let mut symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
 
@@ -61,12 +63,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 && !symbol.1.is_empty()
         }
 
-        symbols.iter_mut().filter(valid_symbol).for_each(|(_, symbol)| {
-            match symbols::Symbol::parse_with_config(symbol, &config) {
-                Ok(sym) => println!("{}", sym.display()),
-                Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
-            }
-        });
+        symbols
+            .iter_mut()
+            .filter(valid_symbol)
+            .for_each(
+                |(_, symbol)| match symbols::Symbol::parse_with_config(symbol, &config) {
+                    Ok(sym) => println!("{}", sym.display()),
+                    Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
+                },
+            );
     }
 
     if args.disassemble {
@@ -76,33 +81,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .find(|t| t.name() == Ok(".text"))
             .expect("failed to find `.text` section");
 
-        let raw = section.uncompressed_data().expect("failed to decompress .text section");
+        let raw = section
+            .uncompressed_data()
+            .expect("failed to decompress .text section");
 
         if !args.gui {
-            unchecked_println!("Disassembly of section {}:", section.name().unwrap_or("???"));
-
-            let base = section.address() as usize;
-            let stream = disassembler::InstructionStream::new(
-                &raw,
-                obj.architecture(),
-                base,
-                symbols
+            unchecked_println!(
+                "Disassembly of section {}:\n",
+                section.name().unwrap_or("???")
             );
 
+            let base = section.address() as usize;
+            let stream =
+                disassembler::InstructionStream::new(&raw, obj.architecture(), base, &symbols);
+
             for instruction in stream {
-                unchecked_println!("\t{instruction}");
+                unchecked_println!("{instruction}");
             }
         }
 
         if args.gui {
             let window = iced::window::Settings {
-                min_size: Some((300, 300)),
+                min_size: Some((580, 300)),
                 ..Default::default()
             };
 
             let settings = iced::Settings {
                 window,
-                antialiasing: true,
+                antialiasing: false,
                 default_font: Some(include_bytes!("../assets/vera_sans_mono_bold.ttf")),
                 ..Default::default()
             };
@@ -114,17 +120,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-struct Gui {
-    instructions: Vec<String>
+struct Bordered;
+
+impl container::StyleSheet for Bordered {
+    type Style = iced::Theme;
+
+    fn appearance(&self, _style: &Self::Style) -> container::Appearance {
+        container::Appearance {
+            border_color: iced::color!(50, 47, 47),
+            border_width: 4.0,
+            ..Default::default()
+        }
+    }
 }
 
-impl Sandbox for Gui {
+struct Window;
+
+impl container::StyleSheet for Window {
+    type Style = iced::Theme;
+
+    fn appearance(&self, _style: &Self::Style) -> container::Appearance {
+        container::Appearance {
+            background: Some(iced::Background::Color(iced::color!(40, 40, 40))),
+            text_color: Some(iced::color!(224, 202, 168)),
+            ..Default::default()
+        }
+    }
+}
+
+struct Gui<'a> {
+    instructions: Vec<String>,
+    shown_files: Vec<String>,
+    symbols: std::collections::BTreeMap<usize, Cow<'a, str>>
+}
+
+impl Sandbox for Gui<'_> {
     type Message = ();
 
     fn new() -> Self {
         set_panic_handler();
 
-        let binary = std::fs::read("/tmp/sha").expect("unexpected read of binary failed").leak();
+        let binary = std::fs::read("/tmp/sha")
+            .expect("unexpected read of binary failed")
+            .leak();
         let obj = object::File::parse(&*binary).expect("failed to parse binary");
         let symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
 
@@ -134,36 +172,91 @@ impl Sandbox for Gui {
             .find(|t| t.name() == Ok(".text"))
             .expect("failed to find `.text` section");
 
-        let raw = section.uncompressed_data().expect("failed to decompress .text section");
+        let raw = section
+            .uncompressed_data()
+            .expect("failed to decompress .text section");
 
         let base = section.address() as usize;
-        let stream = disassembler::InstructionStream::new(
-            &raw,
-            obj.architecture(),
-            base,
-            symbols
-        );
+        let stream = disassembler::InstructionStream::new(&raw, obj.architecture(), base, &symbols);
+
+        let shown_files = std::fs::read_dir(".")
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.path())
+            .map(|path| {
+                path.components()
+                    .last()
+                    .unwrap()
+                    .as_os_str()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|stem| !stem.starts_with("."))
+            .collect();
+
+        let instructions: Vec<String> = stream
+            .into_iter()
+            .map(|s| {
+                s.replace('\t', "    ")
+                    .split('\n')
+                    .map(|sub| String::from(if sub == "" { " " } else { sub }))
+                    .collect::<Vec<String>>()
+            })
+            .flatten()
+            .collect();
 
         Self {
-            instructions: stream.into_iter().collect()
+            instructions,
+            shown_files,
+            symbols
         }
     }
 
     fn title(&self) -> String {
-        String::from("Custom 2D geometry - Iced")
+        String::from("rustdump")
+    }
+
+    fn theme(&self) -> iced::Theme {
+        iced::Theme::Dark
     }
 
     fn update(&mut self, _: ()) {}
 
     fn view(&self) -> Element<()> {
-        let insts = self.instructions.iter().map(|s| iced::Element::from(s.as_str())).collect();
+        let insts = self
+            .instructions
+            .iter()
+            .map(|s| iced::Element::from(s.as_str()))
+            .collect();
 
-        let content = iced::widget::Column::with_children(insts)
-            .padding(20);
+        let insts = iced::widget::Column::with_children(insts).padding(10);
 
-        scrollable(
-            container(content).width(Length::Fill)
-        )
+        let files = self
+            .shown_files
+            .iter()
+            .map(|s| iced::Element::from(s.as_str()))
+            .collect();
+
+        let files = iced::widget::Column::with_children(files).padding(10);
+
+        let symbols = self
+            .symbols
+            .iter()
+            .map(|(_, symbol)| iced::Element::from(symbol as &str))
+            .collect();
+
+        let symbols = iced::widget::Column::with_children(symbols).padding(10);
+
+        container(iced::widget::row![
+            iced::widget::column![
+                container(scrollable(files))
+                    .style(iced::theme::Container::Custom(Box::new(Bordered))),
+                container(scrollable(symbols))
+                    .style(iced::theme::Container::Custom(Box::new(Bordered))),
+            ].max_width(300).height(Length::Fill),
+            scrollable(container(insts).width(Length::Fill))
+        ])
+        .style(iced::theme::Container::Custom(Box::new(Window)))
         .into()
     }
 }
