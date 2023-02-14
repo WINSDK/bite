@@ -960,15 +960,15 @@ fn basic_types(tag: u8) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::Config;
+    use super::config::Config;
 
     lazy_static::lazy_static! {
-        static ref CONFIG: Config = Config::from_string(include_str!("../.dumpfmt").to_string());
+        static ref CONFIG: Config = Config::from_string(include_str!("../../.dumpfmt").to_string());
     }
 
     macro_rules! fmt {
         ($mangled:literal => $demangled:literal) => {
-            match $crate::demangler::Symbol::parse($mangled) {
+            match $crate::symbols::Symbol::parse($mangled) {
                 Ok(sym) if sym.display() != $demangled => {
                     let repr = unsafe { std::str::from_utf8_unchecked(sym.source.buf) };
 
@@ -981,7 +981,7 @@ mod tests {
         };
 
         ($mangled:literal => $demangled:literal, $cfg:expr) => {
-            match $crate::demangler::Symbol::parse_with_config($mangled, &CONFIG) {
+            match $crate::symbols::Symbol::parse_with_config($mangled, &CONFIG) {
                 Ok(sym) if sym.display() != $demangled => {
                     let repr = unsafe { std::str::from_utf8_unchecked(sym.source.buf) };
 
