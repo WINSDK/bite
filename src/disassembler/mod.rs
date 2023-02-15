@@ -42,9 +42,9 @@ trait Streamable {
     fn format(&self, next: Result<Self::Item, Error>) -> Option<String>;
 }
 
-pub struct InstructionStream<'data> {
+pub struct InstructionStream<'data, 'symbols> {
     inner: InternalInstructionStream<'data>,
-    symbols: &'data BTreeMap<usize, Cow<'static, str>>,
+    symbols: &'data BTreeMap<usize, Cow<'symbols, str>>,
 }
 
 enum InternalInstructionStream<'data> {
@@ -52,12 +52,12 @@ enum InternalInstructionStream<'data> {
     Mips(mips::Stream<'data>),
 }
 
-impl<'data> InstructionStream<'data> {
+impl<'data, 'symbols> InstructionStream<'data, 'symbols> {
     pub fn new(
         bytes: &'data [u8],
         arch: Architecture,
         section_base: usize,
-        symbols: &'data BTreeMap<usize, Cow<'static, str>>,
+        symbols: &'data BTreeMap<usize, Cow<'symbols, str>>,
     ) -> Self {
         let inner = match arch {
             Architecture::Mips => {
@@ -87,7 +87,7 @@ impl<'data> InstructionStream<'data> {
     }
 }
 
-impl Iterator for InstructionStream<'_> {
+impl Iterator for InstructionStream<'_, '_> {
     type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -116,9 +116,9 @@ impl Iterator for InstructionStream<'_> {
             if let Some(label) = self.symbols.get(&addr) {
                 // only print an newline before the label if it's not before the first instruction
                 if off > 0 {
-                    return format!("\n{addr:012} <{label}>:\n{fmt}");
+                    return format!("\n{addr:#012x} <{label}>:\n{fmt}");
                 } else {
-                    return format!("{addr:012} <{label}>:\n{fmt}");
+                    return format!("{addr:#012x} <{label}>:\n{fmt}");
                 }
             }
 
@@ -197,6 +197,13 @@ impl<'a, T> Reader<'a, T> {
     }
 }
 
+macro_rules! push_unsafe {
+    ($v:expr, $off:expr, $c:expr) => { unsafe {
+        *$v.get_unchecked_mut($off) = $c;
+        $off += 1;
+   }};
+}
+
 #[rustfmt::skip]
 const ENCODED_NUGGETS: [u8; 16] = [
     b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
@@ -219,17 +226,12 @@ fn encode_hex(mut imm: i64) -> String {
     let mut off = 0;
 
     if imm < 0 {
-        unsafe { *raw.get_unchecked_mut(0) = b'-' }
-        off += 1;
+        push_unsafe!(raw, off, b'-');
         imm = -imm;
     }
 
-    unsafe {
-        *raw.get_unchecked_mut(off) = b'0';
-        off += 1;
-        *raw.get_unchecked_mut(off) = b'x';
-        off += 1;
-    }
+    push_unsafe!(raw, off, b'0');
+    push_unsafe!(raw, off, b'x');
 
     let num_len = imm.checked_ilog(16).unwrap_or(0) as usize + 1;
     let leading_zeros = (16 - num_len) * 4;
@@ -237,9 +239,8 @@ fn encode_hex(mut imm: i64) -> String {
 
     imm >>= leading_zeros;
     for _ in 0..num_len {
-        unsafe { *raw.get_unchecked_mut(off) = ENCODED_NUGGETS[imm & 0b1111] }
+        push_unsafe!(raw, off, ENCODED_NUGGETS[imm & 0b1111]);
         imm >>= 4;
-        off += 1;
     }
 
     unsafe { raw.set_len(off) }

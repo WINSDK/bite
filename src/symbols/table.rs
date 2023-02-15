@@ -1,14 +1,20 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use pdb::FallibleIterator;
 use object::{Object, ObjectSymbol};
+use pdb::FallibleIterator;
 
-pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<BTreeMap<usize, Cow<'data, str>>> {
-    let mut symbols: BTreeMap<usize, Cow<'data, str>> = obj
+pub type SymbolLookup<'a> = BTreeMap<usize, Cow<'a, str>>;
+
+pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'data>> {
+    let mut symbols: SymbolLookup<'data> = obj
         .symbols()
-        .filter_map(|s| s.name().map(|name| (s.address() as usize, Cow::Borrowed(name))).ok())
-        .filter(|(_, name)| !name.is_empty())
+        .filter_map(|s| {
+            s.name()
+                .ok()
+                .filter(|name| !name.is_empty())
+                .map(|name| (s.address() as usize, Cow::Borrowed(name)))
+        })
         .collect();
 
     if let Ok(Some(pdb)) = obj.pdb_info() {
@@ -57,4 +63,20 @@ pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<BTreeMap<usize,
     }
 
     Ok(symbols)
+}
+
+fn valid_symbol(symbol: &(&usize, &mut Cow<'_, str>)) -> bool {
+    !symbol.1.starts_with("GCC_except_table") && !symbol.1.contains("cgu") && !symbol.1.is_empty()
+}
+
+pub fn simplify(symbols: &mut SymbolLookup<'_>) {
+    symbols
+        .iter_mut()
+        .filter(valid_symbol)
+        .for_each(
+            |(_, symbol)| match super::Symbol::parse_with_config(symbol, &crate::CONFIG) {
+                Ok(sym) => println!("{}", sym.display()),
+                Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
+            },
+        );
 }

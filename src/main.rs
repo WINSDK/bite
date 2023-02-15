@@ -3,11 +3,17 @@ mod disassembler;
 mod macros;
 mod symbols;
 
-use std::borrow::Cow;
+use std::collections::VecDeque;
 
-use iced::widget::{container, scrollable};
-use iced::{Element, Length, Sandbox};
+use iced::widget::{self, container, row, scrollable, Column};
+use iced::{Application, Element, Length};
+use iced_native::keyboard;
+
 use object::{Object, ObjectSection, SectionKind};
+use once_cell::sync::Lazy;
+
+static ARGS: Lazy<args::Cli> = Lazy::new(|| args::Cli::parse());
+static CONFIG: Lazy<symbols::Config> = Lazy::new(|| symbols::Config::from_env(&ARGS));
 
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
@@ -27,17 +33,15 @@ fn set_panic_handler() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
-    let args = args::Cli::parse();
-    let config = symbols::Config::from_env(&args);
-
-    let binary = std::fs::read(&args.path)
+    let binary = std::fs::read(&ARGS.path)
         .expect("unexpected read of binary failed")
         .leak();
+
     let obj = object::File::parse(&*binary).expect("failed to parse binary");
     let mut symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
 
-    if args.libs {
-        println!("{}:", args.path.display());
+    if ARGS.libs {
+        println!("{}:", ARGS.path.display());
 
         for import in obj.imports().expect("failed to resolve any symbols") {
             let library = match std::str::from_utf8(import.library()) {
@@ -52,55 +56,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    if args.names {
+    if ARGS.names {
         if symbols.is_empty() {
-            exit!(fail, "no symbols found: '{}'", args.path.display());
+            exit!(fail, "no symbols found: '{}'", ARGS.path.display());
         }
 
-        fn valid_symbol(symbol: &(&usize, &mut Cow<'static, str>)) -> bool {
-            !symbol.1.starts_with("GCC_except_table")
-                && !symbol.1.contains("cgu")
-                && !symbol.1.is_empty()
-        }
-
-        symbols
-            .iter_mut()
-            .filter(valid_symbol)
-            .for_each(
-                |(_, symbol)| match symbols::Symbol::parse_with_config(symbol, &config) {
-                    Ok(sym) => println!("{}", sym.display()),
-                    Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
-                },
-            );
+        symbols::table::simplify(&mut symbols);
     }
 
-    if args.disassemble {
-        let section = obj
-            .sections()
-            .filter(|s| s.kind() == SectionKind::Text)
-            .find(|t| t.name() == Ok(".text"))
-            .expect("failed to find `.text` section");
+    if ARGS.disassemble {
+        if !ARGS.gui {
+            let section = obj
+                .sections()
+                .filter(|s| s.kind() == SectionKind::Text)
+                .find(|t| t.name() == Ok(".text"))
+                .expect("failed to find `.text` section");
 
-        let raw = section
-            .uncompressed_data()
-            .expect("failed to decompress .text section");
+            let raw = section
+                .uncompressed_data()
+                .expect("failed to decompress .text section");
 
-        if !args.gui {
             unchecked_println!(
                 "Disassembly of section {}:\n",
                 section.name().unwrap_or("???")
             );
 
-            let base = section.address() as usize;
-            let stream =
-                disassembler::InstructionStream::new(&raw, obj.architecture(), base, &symbols);
+            let base_offset = section.address() as usize;
+            let stream = disassembler::InstructionStream::new(
+                &raw,
+                obj.architecture(),
+                base_offset,
+                &symbols,
+            );
 
             for instruction in stream {
                 unchecked_println!("{instruction}");
             }
         }
 
-        if args.gui {
+        if ARGS.gui {
             let window = iced::window::Settings {
                 min_size: Some((580, 300)),
                 ..Default::default()
@@ -148,23 +142,39 @@ impl container::StyleSheet for Window {
     }
 }
 
+#[derive(Debug)]
+enum Message {
+    EventOccurred(iced_native::Event),
+    Exit,
+}
+
 struct Gui<'a> {
     instructions: Vec<String>,
     shown_files: Vec<String>,
-    symbols: std::collections::BTreeMap<usize, Cow<'a, str>>
+    symbols: symbols::table::SymbolLookup<'a>,
+    events: VecDeque<iced_native::Event>,
+    debug: bool,
 }
 
-impl Sandbox for Gui<'_> {
-    type Message = ();
+impl Application for Gui<'_> {
+    type Message = Message;
+    type Executor = iced::executor::Default;
+    type Flags = ();
+    type Theme = iced::Theme;
 
-    fn new() -> Self {
+    fn new(_flags: ()) -> (Self, iced::Command<Message>) {
         set_panic_handler();
 
-        let binary = std::fs::read("/tmp/sha")
+        let binary = std::fs::read(&ARGS.path)
             .expect("unexpected read of binary failed")
             .leak();
+
         let obj = object::File::parse(&*binary).expect("failed to parse binary");
-        let symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
+        let mut symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
+
+        if ARGS.names {
+            symbols::table::simplify(&mut symbols);
+        }
 
         let section = obj
             .sections()
@@ -196,20 +206,25 @@ impl Sandbox for Gui<'_> {
 
         let instructions: Vec<String> = stream
             .into_iter()
+            .take(4096)
             .map(|s| {
                 s.replace('\t', "    ")
                     .split('\n')
-                    .map(|sub| String::from(if sub == "" { " " } else { sub }))
+                    .map(|s| s.replacen("", " ", 1))
                     .collect::<Vec<String>>()
             })
             .flatten()
             .collect();
 
-        Self {
+        let gui = Self {
             instructions,
             shown_files,
-            symbols
-        }
+            symbols,
+            events: VecDeque::new(),
+            debug: false,
+        };
+
+        (gui, iced::Command::none())
     }
 
     fn title(&self) -> String {
@@ -220,43 +235,93 @@ impl Sandbox for Gui<'_> {
         iced::Theme::Dark
     }
 
-    fn update(&mut self, _: ()) {}
+    fn update(&mut self, message: Message) -> iced::Command<Message> {
+        match message {
+            Message::EventOccurred(event) => {
+                if self.events.len() > 2 {
+                    self.events.pop_front();
+                }
 
-    fn view(&self) -> Element<()> {
-        let insts = self
+                self.events.push_back(event.clone());
+
+                match event {
+                    iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                        key_code: keyboard::KeyCode::F3,
+                        ..
+                    }) => {
+                        self.debug = !self.debug;
+                    }
+                    _ => {}
+                }
+
+                iced::Command::none()
+            }
+            Message::Exit => iced::window::close(),
+        }
+    }
+
+    fn subscription(&self) -> iced::Subscription<Self::Message> {
+        iced_native::subscription::events().map(Message::EventOccurred)
+    }
+
+    fn view(&self) -> Element<Message> {
+        let instructions = self
             .instructions
             .iter()
-            .map(|s| iced::Element::from(s.as_str()))
+            .take(4096)
+            .map(|s| iced::Element::from(s as &str))
             .collect();
 
-        let insts = iced::widget::Column::with_children(insts).padding(10);
+        let insts = scrollable(
+            container(Column::with_children(instructions).padding(10)).width(Length::Fill),
+        );
 
-        let files = self
-            .shown_files
-            .iter()
-            .map(|s| iced::Element::from(s.as_str()))
-            .collect();
+        // let files = self
+        //     .shown_files
+        //     .iter()
+        //     .take(4096)
+        //     .map(|s| iced::Element::from(s.as_str()))
+        //     .collect();
 
-        let files = iced::widget::Column::with_children(files).padding(10);
+        // let files = Column::with_children(files).padding(10);
 
         let symbols = self
             .symbols
             .iter()
-            .map(|(_, symbol)| iced::Element::from(symbol as &str))
+            .take(4096)
+            .map(|(_, s)| iced::Element::from(s as &str))
             .collect();
 
-        let symbols = iced::widget::Column::with_children(symbols).padding(10);
+        let symbols = container(scrollable(Column::with_children(symbols).padding(10)))
+            .style(iced::theme::Container::Custom(Box::new(Bordered)))
+            .max_width(300)
+            .width(Length::Shrink)
+            .height(Length::Fill);
 
-        container(iced::widget::row![
-            iced::widget::column![
-                container(scrollable(files))
-                    .style(iced::theme::Container::Custom(Box::new(Bordered))),
-                container(scrollable(symbols))
-                    .style(iced::theme::Container::Custom(Box::new(Bordered))),
-            ].max_width(300).height(Length::Fill),
-            scrollable(container(insts).width(Length::Fill))
-        ])
-        .style(iced::theme::Container::Custom(Box::new(Window)))
-        .into()
+        let mut rhs = Column::new();
+
+        if self.debug {
+            let events = self
+                .events
+                .iter()
+                .map(|event| widget::text(format!("{event:?}")).size(15))
+                .map(Element::from)
+                .collect();
+
+            let events = container(Column::with_children(events))
+                .width(Length::Fill)
+                .style(iced::theme::Container::Custom(Box::new(Bordered)))
+                .padding(10);
+
+            rhs = rhs.push(events);
+        }
+
+        rhs = rhs.push(insts);
+
+        let content = row![symbols, rhs];
+
+        container(content)
+            .style(iced::theme::Container::Custom(Box::new(Window)))
+            .into()
     }
 }

@@ -12,6 +12,8 @@ pdb = "0.8"
 triple_accel = "0.4"
 phf = { version = "0.11", features = ["macros"] }
 iced = "0.7"
+iced_native = "0.8"
+once_cell = "1.17"
 
 [dev-dependencies]
 lazy_static = "1.4"

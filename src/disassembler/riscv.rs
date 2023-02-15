@@ -491,7 +491,7 @@ static PSUEDOS: phf::Map<&str, fn(&mut Instruction)> = phf::phf_map! {
     },
     "auipc" => |inst| {
         if inst.operands[0] == "t2" {
-            todo!();
+            // todo!();
         }
     }
     // TODO: table p2
