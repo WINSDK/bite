@@ -11,11 +11,14 @@ object = "0.29"
 pdb = "0.8"
 triple_accel = "0.4"
 phf = { version = "0.11", features = ["macros"] }
-iced = "0.7"
-iced_native = "0.8"
 once_cell = "1.17"
 glam  = "0.22"
-bytemuck = "1.13.0"
+bytemuck = { version = "1.13", features = ["derive"] }
+winit = "0.28"
+wgpu = { version = "0.15", features = ["spirv"] }
+naga = { version = "0.11", features = ["glsl-in", "spv-out"] }
+tokio = { version = "1.25", features = ["rt-multi-thread", "net", "fs", "io-util", "macros"] }
+png = "0.17.7"
 
 [dev-dependencies]
 lazy_static = "1.4"
