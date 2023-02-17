@@ -6,6 +6,10 @@ use pdb::FallibleIterator;
 
 pub type SymbolLookup<'a> = BTreeMap<usize, Cow<'a, str>>;
 
+fn valid_symbol(symbol: &(&usize, &mut Cow<'_, str>)) -> bool {
+    !symbol.1.starts_with("GCC_except_table") && !symbol.1.contains("cgu") && !symbol.1.is_empty()
+}
+
 pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'data>> {
     let mut symbols: SymbolLookup<'data> = obj
         .symbols()
@@ -62,21 +66,22 @@ pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'d
         );
     }
 
-    Ok(symbols)
-}
+    let parser = if crate::ARGS.simplify {
+        |symbol: &Cow<str>| match super::Symbol::parse_with_config(symbol, &crate::CONFIG) {
+            Ok(sym) => sym.display(),
+            Err(..) => format!("{:#}", rustc_demangle::demangle(symbol)),
+        }
+    } else {
+        |symbol: &Cow<str>| match super::Symbol::parse(symbol) {
+            Ok(sym) => sym.display(),
+            Err(..) => format!("{:#}", rustc_demangle::demangle(symbol)),
+        }
+    };
 
-fn valid_symbol(symbol: &(&usize, &mut Cow<'_, str>)) -> bool {
-    !symbol.1.starts_with("GCC_except_table") && !symbol.1.contains("cgu") && !symbol.1.is_empty()
-}
-
-pub fn simplify(symbols: &mut SymbolLookup<'_>) {
     symbols
         .iter_mut()
         .filter(valid_symbol)
-        .for_each(
-            |(_, symbol)| match super::Symbol::parse_with_config(symbol, &crate::CONFIG) {
-                Ok(sym) => println!("{}", sym.display()),
-                Err(..) => println!("{:#}", rustc_demangle::demangle(symbol)),
-            },
-        );
+        .for_each(|(_, symbol)| *symbol = Cow::Owned(parser(symbol)));
+
+    Ok(symbols)
 }

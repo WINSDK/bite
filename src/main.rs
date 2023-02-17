@@ -1,3 +1,5 @@
+#![allow(clippy::unusual_byte_groupings)]
+
 mod args;
 mod disassembler;
 mod macros;
@@ -12,7 +14,7 @@ use iced_native::keyboard;
 use object::{Object, ObjectSection, SectionKind};
 use once_cell::sync::Lazy;
 
-static ARGS: Lazy<args::Cli> = Lazy::new(|| args::Cli::parse());
+static ARGS: Lazy<args::Cli> = Lazy::new(args::Cli::parse);
 static CONFIG: Lazy<symbols::Config> = Lazy::new(|| symbols::Config::from_env(&ARGS));
 
 fn set_panic_handler() {
@@ -38,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .leak();
 
     let obj = object::File::parse(&*binary).expect("failed to parse binary");
-    let mut symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
+    let symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
 
     if ARGS.libs {
         println!("{}:", ARGS.path.display());
@@ -54,14 +56,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(_) => println!("\t{library}"),
             };
         }
-    }
-
-    if ARGS.names {
-        if symbols.is_empty() {
-            exit!(fail, "no symbols found: '{}'", ARGS.path.display());
-        }
-
-        symbols::table::simplify(&mut symbols);
     }
 
     if ARGS.disassemble {
@@ -145,7 +139,6 @@ impl container::StyleSheet for Window {
 #[derive(Debug)]
 enum Message {
     EventOccurred(iced_native::Event),
-    Exit,
 }
 
 struct Gui<'a> {
@@ -170,11 +163,7 @@ impl Application for Gui<'_> {
             .leak();
 
         let obj = object::File::parse(&*binary).expect("failed to parse binary");
-        let mut symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
-
-        if ARGS.names {
-            symbols::table::simplify(&mut symbols);
-        }
+        let symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
 
         let section = obj
             .sections()
@@ -201,19 +190,18 @@ impl Application for Gui<'_> {
                     .to_string_lossy()
                     .into_owned()
             })
-            .filter(|stem| !stem.starts_with("."))
+            .filter(|stem| !stem.starts_with('.'))
             .collect();
 
         let instructions: Vec<String> = stream
             .into_iter()
             .take(4096)
-            .map(|s| {
+            .flat_map(|s| {
                 s.replace('\t', "    ")
                     .split('\n')
                     .map(|s| s.replacen("", " ", 1))
                     .collect::<Vec<String>>()
             })
-            .flatten()
             .collect();
 
         let gui = Self {
@@ -256,7 +244,6 @@ impl Application for Gui<'_> {
 
                 iced::Command::none()
             }
-            Message::Exit => iced::window::close(),
         }
     }
 
@@ -268,7 +255,6 @@ impl Application for Gui<'_> {
         let instructions = self
             .instructions
             .iter()
-            .take(4096)
             .map(|s| iced::Element::from(s as &str))
             .collect();
 

@@ -58,7 +58,7 @@ impl super::DecodableInstruction for Instruction {
         let mut repr = self.mnemomic.to_string();
         let operands = self.operands();
 
-        if operands.len() > 0 {
+        if !operands.is_empty() {
             repr += " ";
         }
 

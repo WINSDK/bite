@@ -1,7 +1,7 @@
 # rustdump
 
 A tool for analyzing assembly code. \
-It demangles rust symbols for both the v0 and the current mangling scheme. \
+It demangles rust symbols for both the current and v0 mangling scheme. \
 There is a roadmap for this project but currently i'm very busy with university.
 
 ### Features yet to be implemented
