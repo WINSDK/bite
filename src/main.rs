@@ -97,7 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let settings = iced::Settings {
                 window,
                 antialiasing: false,
-                default_font: Some(include_bytes!("../assets/vera_sans_mono_bold.ttf")),
+                default_font: Some(include_bytes!("../assets/LigaSFMonoNerdFont-Regular.otf")),
                 ..Default::default()
             };
 
@@ -129,7 +129,7 @@ impl container::StyleSheet for Window {
 
     fn appearance(&self, _style: &Self::Style) -> container::Appearance {
         container::Appearance {
-            background: Some(iced::Background::Color(iced::color!(40, 40, 40))),
+            background: Some(iced::Background::Color(iced::color!(26, 26, 26))),
             text_color: Some(iced::color!(224, 202, 168)),
             ..Default::default()
         }

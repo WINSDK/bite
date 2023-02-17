@@ -45,6 +45,7 @@ trait Streamable {
 pub struct InstructionStream<'data, 'symbols> {
     inner: InternalInstructionStream<'data>,
     symbols: &'data BTreeMap<usize, Cow<'symbols, str>>,
+    stream_size: usize,
 }
 
 enum InternalInstructionStream<'data> {
@@ -83,7 +84,7 @@ impl<'data, 'symbols> InstructionStream<'data, 'symbols> {
             _ => todo!(),
         };
 
-        Self { inner, symbols }
+        Self { inner, symbols, stream_size: bytes.len() }
     }
 }
 
@@ -114,11 +115,12 @@ impl Iterator for InstructionStream<'_, '_> {
             let addr = base + off;
 
             if let Some(label) = self.symbols.get(&addr) {
-                // only print an newline before the label if it's not before the first instruction
+                let padding = self.stream_size.ilog10() as usize + 1;
+
                 if off > 0 {
-                    return format!("\n{addr:#012x} <{label}>:\n{fmt}");
+                    return format!("\n{addr:#0padding$x} <{label}>:\n{fmt}");
                 } else {
-                    return format!("{addr:#012x} <{label}>:\n{fmt}");
+                    return format!("{addr:#0padding$x} <{label}>:\n{fmt}");
                 }
             }
 
