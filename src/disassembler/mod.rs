@@ -10,7 +10,7 @@ use object::Architecture;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Error {
     /// Instruction stream is empty.
     NoBytesLeft,
