@@ -1,6 +1,7 @@
 use super::{uniforms, Error};
 use std::mem::size_of;
 
+use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
 pub struct Backend {
@@ -18,6 +19,10 @@ pub struct Backend {
     pub vertex_buffers: Vec<wgpu::Buffer>,
     pub index_buffers: Vec<wgpu::Buffer>,
     pub index_count: u32,
+
+    pub staging_belt: wgpu::util::StagingBelt,
+
+    pub glyph_brush: GlyphBrush<()>,
 }
 
 impl Backend {
@@ -210,6 +215,12 @@ impl Backend {
             },
         });
 
+        let staging_belt = wgpu::util::StagingBelt::new(1024);
+
+        let font = include_bytes!("../../assets/LigaSFMonoNerdFont-Regular.otf");
+        let font = ab_glyph::FontArc::try_from_slice(font).unwrap();
+        let glyph_brush = GlyphBrushBuilder::using_font(font).build(&device, surface_format);
+
         Ok(Self {
             size,
             instance,
@@ -223,19 +234,26 @@ impl Backend {
             vertex_buffers: vec![vertex_buffer],
             index_buffers: vec![index_buffer],
             index_count: indices.len() as u32,
+            staging_belt,
+            glyph_brush,
         })
     }
 
-    fn redraw_frame(&mut self, frame: wgpu::SurfaceTexture) {
+    pub fn redraw(&mut self, fps: usize) -> Result<(), Error> {
+        let frame = self
+            .surface
+            .get_current_texture()
+            .map_err(Error::DrawTexture)?;
+
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let encoder_desc = wgpu::CommandEncoderDescriptor {
-            label: Some("rustdump::ui encoder"),
-        };
-
-        let mut encoder = self.device.create_command_encoder(&encoder_desc);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("rustdump::ui encoder"),
+            });
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
@@ -261,20 +279,58 @@ impl Backend {
         render_pass.set_index_buffer(self.index_buffers[0].slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..self.index_count, 0, 0..1);
 
-        // Required because render_pass and queue takes a &T.
+        // required drop because render_pass and queue take a &wgpu::Device
         drop(render_pass);
 
+        self.glyph_brush.queue(wgpu_glyph::Section {
+            screen_position: (10.0, 10.0),
+            bounds: (self.size.width as f32, self.size.height as f32),
+            text: vec![wgpu_glyph::Text::new(&format!("FPS: {fps}"))
+                .with_color([1.0, 1.0, 1.0, 1.0])
+                .with_scale(40.0)],
+            ..wgpu_glyph::Section::default()
+        });
+
+        // draw text
+        self.glyph_brush
+            .draw_queued(
+                &self.device,
+                &mut self.staging_belt,
+                &mut encoder,
+                &view,
+                self.size.width,
+                self.size.height,
+            )
+            .map_err(Error::DrawText)?;
+
+        // draw clipped text
+        // self.glyph_brush
+        //     .draw_queued_with_transform_and_scissoring(
+        //         &self.device,
+        //         &mut self.staging_belt,
+        //         &mut encoder,
+        //         &view,
+        //         wgpu_glyph::orthographic_projection(self.size.width, self.size.height),
+        //         wgpu_glyph::Region {
+        //             x: 40,
+        //             y: 105,
+        //             width: 200,
+        //             height: 15,
+        //         },
+        //     )
+        //     .map_err(Error::DrawText)?;
+
+        // submit work
+        self.staging_belt.finish();
         self.queue.submit(Some(encoder.finish()));
 
-        // Schedule texture to be renderer on surface.
+        // schedule texture to be renderer on surface
         frame.present();
-    }
 
-    pub fn redraw(&mut self) {
-        match self.surface.get_current_texture() {
-            Ok(frame) => self.redraw_frame(frame),
-            Err(info) => eprintln!("{:?}", Error::Draw(info)),
-        }
+        // recall unused staging buffers
+        self.staging_belt.recall();
+
+        Ok(())
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {

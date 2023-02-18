@@ -1,12 +1,12 @@
-mod window;
-mod uniforms;
 mod controls;
-mod utils;
 mod texture;
+mod uniforms;
+mod utils;
+mod window;
 
+use winit::dpi::{PhysicalSize, Size};
 use winit::event::{ElementState, Event, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::dpi::{PhysicalSize, Size};
 use winit::window::Fullscreen;
 
 #[derive(Debug)]
@@ -15,7 +15,10 @@ pub enum Error {
     IO(std::io::Error),
 
     /// Failure to retrieve the current texture from our surface.
-    Draw(wgpu::SurfaceError),
+    DrawTexture(wgpu::SurfaceError),
+
+    /// Failure from wgpu_glyph to draw text.
+    DrawText(String),
 
     /// Failed to create a winit window.
     WindowCreation,
@@ -74,8 +77,13 @@ pub async fn main() -> Result<(), Error> {
 
     let mut backend = window::Backend::new(&window).await?;
     let mut keyboard = controls::Keybind::new(VirtualKeyCode::Yen);
-    let mut now = std::time::Instant::now();
-    let mut frames = 0;
+
+    // frame time
+    let mut frame_timer = std::time::Instant::now();
+
+    // 100ms time
+    let mut short_timer = std::time::Instant::now();
+    let mut fps = 0;
 
     event_loop.run(move |event, _, control| {
         let controls = controls::Inputs::default();
@@ -110,19 +118,18 @@ pub async fn main() -> Result<(), Error> {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
-                frames += 1;
-
-                if now.elapsed() >= std::time::Duration::from_secs(1) {
-                    println!("frame rate: {frames}");
-                    frames = 0;
-                    now = std::time::Instant::now();
+                if short_timer.elapsed().as_millis() > 100 {
+                    fps = (1_000_000_000 / frame_timer.elapsed().as_nanos()) as usize;
+                    short_timer = std::time::Instant::now();
                 }
 
-                backend.redraw();
+                frame_timer = std::time::Instant::now();
+
+                if let Err(e) = backend.redraw(fps) {
+                    eprintln!("Failed to redraw frame, due to {e:?}");
+                }
             }
-            Event::MainEventsCleared => {
-                window.request_redraw();
-            }
+            Event::MainEventsCleared => window.request_redraw(),
             _ => (),
         }
     })
