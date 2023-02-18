@@ -1,12 +1,9 @@
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct Vertex {
     pos: glam::Vec3,
     tex: glam::Vec2,
 }
-
-unsafe impl bytemuck::Zeroable for Vertex {}
-unsafe impl bytemuck::Pod for Vertex {}
 
 pub fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     let vertex_data = vec![

@@ -91,22 +91,11 @@ async fn retrieve_cached_module<P1: AsRef<Path>, P2: AsRef<Path>>(
     // this ensures that if the source file get's modified, the cache file must be outdated.
     if date_modified == cache_modified {
         let mut shader: Vec<u8> = Vec::new();
-
         cache_file.read_to_end(&mut shader).await.ok()?;
-
-        let shader: Vec<u32> = {
-            let ptr = shader.as_mut_ptr() as *mut u32;
-            let len = shader.len() / 4;
-            let capacity = shader.capacity() / 4;
-
-            let new_vec = unsafe { Vec::from_raw_parts(ptr, len, capacity) };
-            std::mem::forget(shader);
-            new_vec
-        };
 
         return Some(device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::SpirV(Cow::Borrowed(shader.as_slice())),
+            source: wgpu::util::make_spirv(&shader[..]),
         }));
     }
 
