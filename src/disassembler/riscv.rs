@@ -1,6 +1,6 @@
 //! Riscv64gc/Riscv32gc disassembler.
 
-use super::{DecodableInstruction, Error, encode_hex};
+use super::{encode_hex, DecodableInstruction, Error};
 use std::borrow::Cow;
 
 macro_rules! operands {

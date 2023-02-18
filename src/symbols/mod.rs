@@ -1,5 +1,5 @@
-pub mod table;
 pub mod config;
+pub mod table;
 
 use crate::disassembler::Reader;
 
@@ -233,7 +233,13 @@ impl<'p> Symbol<'p> {
                 repr.push_str("*mut ");
                 self.fmt(repr, &self.ast.stack[*ty]);
             }
-            Type::FnSig { is_unsafe, ident, args, ret, .. } => {
+            Type::FnSig {
+                is_unsafe,
+                ident,
+                args,
+                ret,
+                ..
+            } => {
                 if *is_unsafe {
                     repr.push_str("unsafe ");
                 }
@@ -261,7 +267,11 @@ impl<'p> Symbol<'p> {
                     self.fmt(repr, &self.ast.stack[*ret]);
                 }
             }
-            Type::DynTrait { dyn_trait, lifetime, .. } => {
+            Type::DynTrait {
+                dyn_trait,
+                lifetime,
+                ..
+            } => {
                 repr.push_str("dyn ");
 
                 for (trait_idx, assoc_binding) in dyn_trait {
@@ -364,7 +374,9 @@ impl<'p> Symbol<'p> {
             };
 
             num = num.checked_mul(62).ok_or(Error::DecodingBase62Num)?;
-            num = num.checked_add(base_62_chr as usize).ok_or(Error::DecodingBase62Num)?;
+            num = num
+                .checked_add(base_62_chr as usize)
+                .ok_or(Error::DecodingBase62Num)?;
         }
 
         Err(Error::DecodingBase62Num)
@@ -406,7 +418,11 @@ impl<'p> Symbol<'p> {
             let spot = self.take_spot();
             self.ast.stack[spot] = Type::Basic("_");
 
-            return Ok(Const { neg: false, ty: spot, data: (0, 0) });
+            return Ok(Const {
+                neg: false,
+                ty: spot,
+                data: (0, 0),
+            });
         }
 
         let ty = self.ast.ptr;
@@ -417,7 +433,13 @@ impl<'p> Symbol<'p> {
         let start = self.source.pos;
         let mut end = 0;
         for idx in start.. {
-            if *self.source.buf.get(idx).ok_or(Error::ConstDelimiterNotFound)? == b'_' {
+            if *self
+                .source
+                .buf
+                .get(idx)
+                .ok_or(Error::ConstDelimiterNotFound)?
+                == b'_'
+            {
                 end = idx;
 
                 // Skip over const bytes and `_`.
@@ -430,7 +452,11 @@ impl<'p> Symbol<'p> {
             return Err(Error::ConstDelimiterNotFound);
         }
 
-        Ok(Const { neg, ty, data: (start, end) })
+        Ok(Const {
+            neg,
+            ty,
+            data: (start, end),
+        })
     }
 
     fn reformat_path(&mut self, matches: &mut config::Search<'p>, spot: usize) -> bool {
@@ -678,7 +704,13 @@ impl<'p> Symbol<'p> {
 
                 self.consume_type()?;
 
-                self.ast.stack[spot] = Type::FnSig { binder, is_unsafe, ident, args, ret };
+                self.ast.stack[spot] = Type::FnSig {
+                    binder,
+                    is_unsafe,
+                    ident,
+                    args,
+                    ret,
+                };
             }
             b'D' => {
                 // [binder] {path {"p" ident type}} "E" <lifetime>
@@ -714,7 +746,11 @@ impl<'p> Symbol<'p> {
 
                 let lifetime = self.consume_lifetime()?;
 
-                self.ast.stack[spot] = Type::DynTrait { binder, dyn_trait, lifetime };
+                self.ast.stack[spot] = Type::DynTrait {
+                    binder,
+                    dyn_trait,
+                    lifetime,
+                };
             }
             b'B' => {
                 // <base-62-number>
@@ -770,7 +806,10 @@ impl<'p> Default for Stack<'p> {
             }
         }
 
-        Self { stack: unsafe { bytes.assume_init() }, ptr: 0 }
+        Self {
+            stack: unsafe { bytes.assume_init() },
+            ptr: 0,
+        }
     }
 }
 

@@ -1,0 +1,51 @@
+name: CI
+on:
+  - pull_request
+  - push
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build:
+    name: Build
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
+    runs-on: ${{matrix.os}}
+    steps:
+      - name: Checking out repo
+        uses: actions/checkout@v3
+      - name: Checking out stable rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Reject unformatted code
+        run: git diff --exit-code
+      - name: Build package
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
+    runs-on: ${{matrix.os}}
+    steps:
+      - name: Checking out repo
+        uses: actions/checkout@v3
+      - name: Checking out stable rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test

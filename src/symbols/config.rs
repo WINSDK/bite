@@ -76,7 +76,9 @@ impl Config {
             }
         }
 
-        Self { includes: Vec::new() }
+        Self {
+            includes: Vec::new(),
+        }
     }
 
     pub fn from_string(s: String) -> Self {
@@ -140,7 +142,11 @@ impl Config {
 
     /// Returns all entries in slice that start with `target`.
     pub fn search(&self) -> Search {
-        Search { matches: self.includes.as_slice(), part_amount_match: 0, best_match: None }
+        Search {
+            matches: self.includes.as_slice(),
+            part_amount_match: 0,
+            best_match: None,
+        }
     }
 }
 
@@ -231,6 +237,9 @@ mod tests {
 
         assert!(conf.contains(&Statement::Path(vec!["std", "path", "Path"])));
         assert!(conf.contains(&Statement::Include(vec!["std", "mem"])));
-        assert!(conf.contains(&Statement::Rename(vec!["std", "mem", "transmute"], "rename")));
+        assert!(conf.contains(&Statement::Rename(
+            vec!["std", "mem", "transmute"],
+            "rename"
+        )));
     }
 }

@@ -9,7 +9,10 @@ pub struct Keybind {
 
 impl Keybind {
     pub fn new(key: VirtualKeyCode) -> Self {
-        Self { modifier: ModifiersState::empty(), key }
+        Self {
+            modifier: ModifiersState::empty(),
+            key,
+        }
     }
 
     pub fn new_with_modifier(key: VirtualKeyCode, modifier: ModifiersState) -> Self {
@@ -35,7 +38,9 @@ pub struct Inputs {
 
 impl Default for Inputs {
     fn default() -> Self {
-        let mut keymap = Inputs { keymap: HashMap::new() };
+        let mut keymap = Inputs {
+            keymap: HashMap::new(),
+        };
 
         keymap.insert(
             Actions::Maximize,

@@ -84,7 +84,11 @@ impl<'data, 'symbols> InstructionStream<'data, 'symbols> {
             _ => todo!(),
         };
 
-        Self { inner, symbols, stream_size: bytes.len() }
+        Self {
+            inner,
+            symbols,
+            stream_size: bytes.len(),
+        }
     }
 }
 
@@ -200,10 +204,12 @@ impl<'a, T> Reader<'a, T> {
 }
 
 macro_rules! push_unsafe {
-    ($v:expr, $off:expr, $c:expr) => { unsafe {
-        *$v.get_unchecked_mut($off) = $c;
-        $off += 1;
-   }};
+    ($v:expr, $off:expr, $c:expr) => {
+        unsafe {
+            *$v.get_unchecked_mut($off) = $c;
+            $off += 1;
+        }
+    };
 }
 
 #[rustfmt::skip]
