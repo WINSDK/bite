@@ -1,5 +1,8 @@
 #![allow(clippy::unusual_byte_groupings)]
 
+#[cfg(not(any(target_family = "windows", target_family = "unix")))]
+compile_error!("Rustdump can only be build for windows, macos and linux.");
+
 mod args;
 mod disassembler;
 mod macros;
