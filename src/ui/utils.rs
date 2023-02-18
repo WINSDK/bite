@@ -202,7 +202,6 @@ pub fn generate_window(
         .with_title(title)
         .with_transparent(true)
         .with_drag_and_drop(true)
-        .with_always_on_top(true)
         .with_taskbar_icon(icon.clone())
         .with_window_icon(icon)
         .with_min_inner_size(super::MIN_WIN_SIZE)
