@@ -61,8 +61,8 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env(args: &crate::args::Cli) -> Self {
-        if let Some(ref conf_path) = args.config {
+    pub fn from_env() -> Self {
+        if let Some(ref conf_path) = crate::ARGS.config {
             if let Ok(data) = std::fs::read(conf_path) {
                 if let Ok(s) = String::from_utf8(data) {
                     return Self::from_string(s);

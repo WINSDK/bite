@@ -10,7 +10,7 @@ use object::{Object, ObjectSection, SectionKind};
 use once_cell::sync::Lazy;
 
 static ARGS: Lazy<args::Cli> = Lazy::new(args::Cli::parse);
-static CONFIG: Lazy<symbols::Config> = Lazy::new(|| symbols::Config::from_env(&ARGS));
+static CONFIG: Lazy<symbols::Config> = Lazy::new(symbols::Config::from_env);
 
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
@@ -23,24 +23,41 @@ fn set_panic_handler() {
             return unchecked_println!("{msg}");
         }
 
-        unchecked_println!("panic occurred")
+        unchecked_println!("Panic occurred.")
     }));
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
-    let binary = std::fs::read(&ARGS.path)
-        .expect("unexpected read of binary failed")
+    if ARGS.gui {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .build()
+            .expect("Failed to start tokio runtime.")
+            .block_on(ui::main())?;
+
+        return Ok(());
+    }
+
+    let binary = std::fs::read(ARGS.path.as_ref().unwrap())
+        .expect("Unexpected read of binary failed.")
         .leak();
 
-    let obj = object::File::parse(&*binary).expect("failed to parse binary");
-    let symbols = symbols::table::parse(&obj).expect("failed to parse symbols table");
+    let obj = object::File::parse(&*binary).expect("Failed to parse binary.");
+    let symbols = symbols::table::parse(&obj).expect("Failed to parse symbols table.");
+    let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {
-        println!("{}:", ARGS.path.display());
+        let imports = obj.imports().expect("Failed to resolve any symbols.");
 
-        for import in obj.imports().expect("failed to resolve any symbols") {
+        if imports.is_empty() {
+            exit!("Object \"{path}\" doesn't import anything.");
+        }
+
+        println!("{path}:");
+
+        for import in imports {
             let library = match std::str::from_utf8(import.library()) {
                 Ok(library) => library,
                 Err(_) => continue,
@@ -53,42 +70,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    if ARGS.disassemble {
-        if !ARGS.gui {
-            let section = obj
-                .sections()
-                .filter(|s| s.kind() == SectionKind::Text)
-                .find(|t| t.name() == Ok(".text"))
-                .expect("failed to find `.text` section");
-
-            let raw = section
-                .uncompressed_data()
-                .expect("failed to decompress .text section");
-
-            unchecked_println!(
-                "Disassembly of section {}:\n",
-                section.name().unwrap_or("???")
-            );
-
-            let base_offset = section.address() as usize;
-            let stream = disassembler::InstructionStream::new(
-                &raw,
-                obj.architecture(),
-                base_offset,
-                &symbols,
-            );
-
-            for instruction in stream {
-                unchecked_println!("{instruction}");
-            }
+    if ARGS.names {
+        if symbols.is_empty() {
+            exit!(fail, "Object \"{path}\" doesn't export any symbols.");
         }
 
-        if ARGS.gui {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .build()
-                .expect("failed to start tokio runtime")
-                .block_on(ui::main())?;
+        for symbol in symbols.values() {
+            let is_invalid = false
+                || symbol.starts_with("_")
+                || symbol.starts_with(".")
+                || symbol.starts_with("GCC_except_table")
+                || symbol.starts_with("anon.")
+                || symbol.starts_with("str.");
+
+            if !is_invalid {
+                println!("{symbol}");
+            }
+        }
+    }
+
+    if ARGS.disassemble {
+        let section = obj
+            .sections()
+            .filter(|s| s.kind() == SectionKind::Text)
+            .find(|t| t.name() == Ok(".text"))
+            .expect("Failed to find `.text` section.");
+
+        let raw = section
+            .uncompressed_data()
+            .expect("Failed to decompress .text section.");
+
+        unchecked_println!(
+            "Disassembly of section {}:\n",
+            section.name().unwrap_or("???")
+        );
+
+        let base_offset = section.address() as usize;
+        let stream =
+            disassembler::InstructionStream::new(&raw, obj.architecture(), base_offset, &symbols);
+
+        for instruction in stream {
+            unchecked_println!("{instruction}");
         }
     }
 

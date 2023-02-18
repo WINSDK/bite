@@ -11,11 +11,20 @@ OPTIONS:
   -L, --libs          Print linked shared libraries 
   -N, --names         Print all symbols exposed by object
   -S, --simplify      Replace common types with shortened paths
-  -D, --dissasembly   Path to object you're disassembling
+  -D, --disassemble   Path to object you're disassembling
+  -C, --config        Path to config used for disassembling
   -G, --gui           Launch a GUI to explore a give object";
 
-const SHORT: &[&str] = &["-H", "-L", "-N", "-D", "-S", "-C"];
-const NAMES: &[&str] = &["--help", "--libs", "--names", "--dissasembly", "--simplify", "--config"];
+const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C", "-G"];
+const NAMES: &[&str] = &[
+    "--help",
+    "--libs",
+    "--names",
+    "--simplify",
+    "--disassemble",
+    "--config",
+    "--gui",
+];
 
 #[derive(Debug, Clone)]
 pub struct Cli {
@@ -35,7 +44,7 @@ pub struct Cli {
     pub gui: bool,
 
     /// Path to symbol being disassembled.
-    pub path: PathBuf,
+    pub path: Option<PathBuf>,
 
     /// Optional path to a symbol formatting config.
     pub config: Option<PathBuf>,
@@ -50,45 +59,51 @@ impl Cli {
             disassemble: false,
             gui: false,
             config: None,
-            path: PathBuf::new(),
+            path: None,
         };
 
         let mut args = std::env::args().skip(1).peekable();
         while let Some(arg) = args.next() {
-            if args.peek().is_none() {
-                cli.path = PathBuf::from(arg);
-                break;
-            }
-
             match arg.as_str() {
                 "-H" | "--help" => exit!(fail, "{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
-                "-N" | "--names" => cli.names = true,
-                "-L" | "--libs" => cli.libs = true,
+                "-N" | "--names" => {
+                    cli.names = true;
+
+                    if let Some(path) = args.next().as_deref() {
+                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
+                            cli.path = Some(PathBuf::from(path));
+                        }
+                    }
+                }
+                "-L" | "--libs" => {
+                    cli.libs = true;
+
+                    if let Some(path) = args.next().as_deref() {
+                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
+                            cli.path = Some(PathBuf::from(path));
+                        }
+                    }
+                }
                 "-D" | "--disassemble" => {
                     cli.disassemble = true;
 
                     if let Some(path) = args.next().as_deref() {
-                        if NAMES.contains(&path) || SHORT.contains(&path) {
-                            exit!(fail, "Must specify path to object");
+                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
+                            cli.path = Some(PathBuf::from(path));
                         }
-
-                        cli.path = PathBuf::from(path);
-                    } else {
-                        exit!(fail, "Must specify path to object");
                     }
                 }
                 "-G" | "--gui" => cli.gui = true,
                 "-C" | "--config" => {
                     if let Some(path) = args.next().as_deref() {
-                        if NAMES.contains(&path) || SHORT.contains(&path) {
-                            exit!(fail, "Must specify path to object");
+                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
+                            cli.config = Some(PathBuf::from(path));
+                            continue;
                         }
-
-                        cli.config = Some(PathBuf::from(path));
-                    } else {
-                        exit!(fail, "Must specify path to object");
                     }
+
+                    exit!(fail, "Missing path to a config.");
                 }
                 unknown => {
                     let mut distance = u32::MAX;
@@ -103,7 +118,10 @@ impl Cli {
 
                     // A guess that's less than 3 `steps` away from a correct arg.
                     if distance < 4 {
-                        exit!(fail, "Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
+                        exit!(
+                            fail,
+                            "Unknown cmd arg '{unknown}' did you mean '{best_guess}'?"
+                        );
                     } else {
                         exit!(fail, "Unknown cmd arg '{unknown}' was entered.");
                     }
@@ -115,15 +133,28 @@ impl Cli {
         cli
     }
 
-    fn validate_args(&self) {
+    fn validate_args(&mut self) {
         if let Some(ref config) = self.config {
-            assert_exit!(config.is_file(), "{HELP}");
+            assert_exit!(config.is_file(), "Path to config {config:?} is invalid.");
         }
 
-        assert_exit!(self.path.is_file(), "{HELP}");
-        assert_exit!(
-            self.disassemble as u8 + self.libs as u8 + self.names as u8 == 1,
-            "Invalid combination of required arguements"
-        );
+        if self.disassemble || self.libs || self.names {
+            let path = self.path.as_ref();
+
+            assert_exit!(path.is_some(), "Missing path to an object.");
+            assert_exit!(
+                path.unwrap().is_file(),
+                "Path to object {:?} is invalid.",
+                path.unwrap()
+            );
+        }
+
+        // you aren't required to pass an object if the GUI is used
+        if !self.gui {
+            assert_exit!(
+                self.disassemble ^ self.libs ^ self.names,
+                "Invalid combination of arguements."
+            );
+        }
     }
 }
