@@ -141,12 +141,9 @@ async fn compile_shader<P: AsRef<Path>>(
         let mut src = String::new();
         src_file.read_to_string(&mut src).await.map_err(Error::IO)?;
 
-        let mut parser = glsl::Parser::default();
-        let module = parser
+        glsl::Parser::default()
             .parse(&glsl::Options::from(stage), &src[..])
-            .map_err(|_| Error::CompilationFailed)?;
-
-        module
+            .map_err(|_| Error::CompilationFailed)?
     };
 
     let mut validator = if cfg!(debug_assertions) {

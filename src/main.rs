@@ -77,8 +77,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for symbol in symbols.values() {
             let is_invalid = false
-                || symbol.starts_with("_")
-                || symbol.starts_with(".")
+                || symbol.starts_with('_')
+                || symbol.starts_with('.')
                 || symbol.starts_with("GCC_except_table")
                 || symbol.starts_with("anon.")
                 || symbol.starts_with("str.");

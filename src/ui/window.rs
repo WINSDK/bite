@@ -37,13 +37,13 @@ impl Backend {
         let surface = unsafe {
             instance
                 .create_surface(&window)
-                .map_err(|_| Error::SurfaceCreation)?
+                .map_err(Error::SurfaceCreation)?
         };
 
         let adapter = instance
             .enumerate_adapters(backends)
             .find(|adapter| adapter.is_surface_supported(&surface))
-            .ok_or(Error::AdapterCreation)?;
+            .ok_or(Error::AdapterRequest)?;
 
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("rustdump::ui device"),
@@ -54,7 +54,7 @@ impl Backend {
         let (device, queue) = adapter
             .request_device(&device_desc, None)
             .await
-            .map_err(Error::GPU)?;
+            .map_err(Error::DeviceRequest)?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);
 
@@ -273,7 +273,7 @@ impl Backend {
     pub fn redraw(&mut self) {
         match self.surface.get_current_texture() {
             Ok(frame) => self.redraw_frame(frame),
-            Err(info) => eprintln!("{:?}", Error::DRAW(info)),
+            Err(info) => eprintln!("{:?}", Error::Draw(info)),
         }
     }
 

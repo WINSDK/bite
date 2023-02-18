@@ -11,18 +11,23 @@ use winit::window::Fullscreen;
 
 #[derive(Debug)]
 pub enum Error {
-    GPU(wgpu::RequestDeviceError),
-    DRAW(wgpu::SurfaceError),
+    /// Generic IO operation failed.
     IO(std::io::Error),
 
-    /// Failed to build winit window.
+    /// Failure to retrieve the current texture from our surface.
+    Draw(wgpu::SurfaceError),
+
+    /// Failed to create a winit window.
     WindowCreation,
 
-    /// Failed to to create a wgpu surface.
-    SurfaceCreation,
+    /// Failed to to create a surface.
+    SurfaceCreation(wgpu::CreateSurfaceError),
 
     /// Failed to find a adapter that supports our surface.
-    AdapterCreation,
+    AdapterRequest,
+
+    /// Failed to find a device that meets our adapter's limits.
+    DeviceRequest(wgpu::RequestDeviceError),
 
     /// Invalid data given to the png decoder.
     PngDecode,
