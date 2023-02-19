@@ -23,18 +23,8 @@ jobs:
           profile: minimal
           toolchain: stable
           components: rustfmt
-      - name: Caching cargo
-        uses: actions/cache@v3
-        continue-on-error: false
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/            
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+      - name: Retrieving cache
+        uses: Swatinem/rust-cache@v2
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Reject unformatted code
@@ -58,17 +48,7 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-      - name: Caching cargo
-        uses: actions/cache@v3
-        continue-on-error: false
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/            
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+      - name: Retrieving cache
+        uses: Swatinem/rust-cache@v2
       - name: Test
         run: cargo test
