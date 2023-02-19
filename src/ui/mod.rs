@@ -5,7 +5,7 @@ mod utils;
 mod window;
 
 use winit::dpi::{PhysicalSize, Size};
-use winit::event::{ElementState, Event, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
 
@@ -96,10 +96,18 @@ pub async fn main() -> Result<(), Error> {
                 WindowEvent::ModifiersChanged(modi) => {
                     keyboard.modifier ^= modi;
                 }
-                WindowEvent::KeyboardInput { input, .. } => {
-                    keyboard.key = input.virtual_keycode.unwrap();
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            virtual_keycode: Some(keycode),
+                            state,
+                            ..
+                        },
+                    ..
+                } => {
+                    keyboard.key = keycode;
 
-                    if input.state == ElementState::Pressed {
+                    if state == ElementState::Pressed {
                         if controls.matching_action(controls::Actions::Maximize, keyboard) {
                             if window.fullscreen().is_some() {
                                 window.set_fullscreen(None);

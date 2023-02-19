@@ -24,7 +24,9 @@ pub fn decode_png<P: AsRef<Path>>(path: P) -> Result<Png, Error> {
 }
 
 pub fn decode_png_bytes(bytes: &[u8]) -> Result<Png, Error> {
-    let decoder = png::Decoder::new(bytes);
+    let mut decoder = png::Decoder::new(bytes);
+    decoder.set_transformations(png::Transformations::STRIP_16 | png::Transformations::EXPAND);
+
     let mut reader = decoder.read_info().map_err(|_| Error::PngDecode)?;
     let mut data = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut data).map_err(|_| Error::PngDecode)?;
@@ -184,6 +186,8 @@ pub fn generate_window(
 ) -> Result<winit::window::Window, Error> {
     winit::window::WindowBuilder::new()
         .with_title(title)
+        .with_decorations(false)
+        .with_theme(Some(winit::window::Theme::Dark))
         .with_window_icon(icon)
         .with_min_inner_size(super::MIN_WIN_SIZE)
         .build(event_loop)
@@ -200,6 +204,8 @@ pub fn generate_window(
 
     winit::window::WindowBuilder::new()
         .with_title(title)
+        .with_decorations(false)
+        .with_theme(Some(winit::window::Theme::Dark))
         .with_transparent(true)
         .with_drag_and_drop(true)
         .with_taskbar_icon(icon.clone())
