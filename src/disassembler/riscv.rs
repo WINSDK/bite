@@ -1149,7 +1149,10 @@ mod tests {
 
             path.push("target");
             path.push(format!("test_{}", CRC.checksum($code.as_bytes())));
-            path.set_extension("exe");
+
+            if cfg!(target_family = "windows") {
+                path.set_extension("exe");
+            }
 
             let mut cc = std::process::Command::new("clang")
                 .arg("-Oz")

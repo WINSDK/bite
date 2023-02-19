@@ -17,18 +17,30 @@ jobs:
     steps:
       - name: Checking out repo
         uses: actions/checkout@v3
-      - name: Checking out stable rust toolchain
+      - name: Checking out rust toolchain
         uses: actions-rs/toolchain@v1
         with:
+          profile: minimal
           toolchain: stable
+          components: rustfmt
+      - name: Caching cargo
+        uses: actions/cache@v3
+        continue-on-error: false
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/            
+          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Reject unformatted code
         run: git diff --exit-code
-      - name: Build package
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
+      - name: Build
+        run: cargo build
   test:
     name: Test
     strategy:
@@ -41,11 +53,22 @@ jobs:
     steps:
       - name: Checking out repo
         uses: actions/checkout@v3
-      - name: Checking out stable rust toolchain
+      - name: Checking out rust toolchain
         uses: actions-rs/toolchain@v1
         with:
+          profile: minimal
           toolchain: stable
-      - name: Run tests
-        uses: actions-rs/cargo@v1
+      - name: Caching cargo
+        uses: actions/cache@v3
+        continue-on-error: false
         with:
-          command: test
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/            
+          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Test
+        run: cargo test
