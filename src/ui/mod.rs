@@ -72,7 +72,7 @@ pub async fn main() -> Result<(), Error> {
             icon = winit::window::Icon::from_rgba(png.data, png.width, png.height).ok();
         }
 
-        utils::generate_window("rustdump", icon, &event_loop)?
+        utils::generate_window("bite", icon, &event_loop)?
     };
 
     let mut backend = window::Backend::new(&window).await?;

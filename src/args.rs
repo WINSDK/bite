@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use crate::{assert_exit, exit};
 
-const HELP: &str = "OVERVIEW: rust object dumper
+const HELP: &str = "OVERVIEW: Decompilation tool
 
-USAGE: rustdump [options] <OBJECT>
+USAGE: bite [options] <OBJECT>
 
 OPTIONS:
   -H, --help          Print usage information

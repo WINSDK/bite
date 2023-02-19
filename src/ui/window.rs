@@ -51,7 +51,7 @@ impl Backend {
             .ok_or(Error::AdapterRequest)?;
 
         let device_desc = wgpu::DeviceDescriptor {
-            label: Some("rustdump::ui device"),
+            label: Some("bite::ui device"),
             features: wgpu::Features::empty(),
             limits: adapter.limits(),
         };
@@ -92,7 +92,7 @@ impl Backend {
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("rustdump::ui texture bind group layout"),
+                label: Some("bite::ui texture bind group layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -114,7 +114,7 @@ impl Backend {
             });
 
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rustdump::ui texture bind group"),
+            label: Some("bite::ui texture bind group"),
             layout: &texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -131,7 +131,7 @@ impl Backend {
         let (vertices, indices) = uniforms::create_vertices();
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("rustdump::ui vertex buffer"),
+            label: Some("bite::ui vertex buffer"),
             size: (size_of::<uniforms::Vertex>() * vertices.len()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -140,7 +140,7 @@ impl Backend {
         queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&vertices[..]));
 
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("rustdump::ui indices buffer"),
+            label: Some("bite::ui indices buffer"),
             size: (size_of::<u16>() * indices.len()) as u64,
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -166,7 +166,7 @@ impl Backend {
         println!("took {:#?} to generate shaders", now.elapsed());
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("rustdump::ui pipeline layout"),
+            label: Some("bite::ui pipeline layout"),
             bind_group_layouts: &[&texture_bind_group_layout],
             push_constant_ranges: &[],
         });
@@ -252,7 +252,7 @@ impl Backend {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("rustdump::ui encoder"),
+                label: Some("bite::ui encoder"),
             });
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

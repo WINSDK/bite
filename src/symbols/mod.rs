@@ -1047,10 +1047,10 @@ mod tests {
 
     #[test]
     fn namespaces() {
-        fmt!("_RNvC8rustdump6decode" => "rustdump::decode");
-        fmt!("_RNvNvC8rustdump6decode6x86_64" => "rustdump::decode::x86_64");
-        fmt!("_RINvNvC8rustdump6decode6x86_64NvC3lol4damnE" =>
-             "rustdump::decode::x86_64::<lol::damn>");
+        fmt!("_RNvC4bite6decode" => "bite::decode");
+        fmt!("_RNvNvC4bite6decode6x86_64" => "bite::decode::x86_64");
+        fmt!("_RINvNvC4bite6decode6x86_64NvC3lol4damnE" =>
+             "bite::decode::x86_64::<lol::damn>");
     }
 
     #[test]
@@ -1061,20 +1061,20 @@ mod tests {
 
     #[test]
     fn pointers() {
-        fmt!("_RINvC8rustdump6decodeRL_eE" => "rustdump::decode::<&str>");
-        fmt!("_RINvC8rustdump6decodeRL0_eE" => "rustdump::decode::<&'a str>");
+        fmt!("_RINvC4bite6decodeRL_eE" => "bite::decode::<&str>");
+        fmt!("_RINvC4bite6decodeRL0_eE" => "bite::decode::<&'a str>");
 
-        fmt!("_RINvC8rustdump6decodeQL_eE" => "rustdump::decode::<&mut str>");
-        fmt!("_RINvC8rustdump6decodeQL0_eE" => "rustdump::decode::<&'a mut str>");
+        fmt!("_RINvC4bite6decodeQL_eE" => "bite::decode::<&mut str>");
+        fmt!("_RINvC4bite6decodeQL0_eE" => "bite::decode::<&'a mut str>");
 
-        fmt!("_RINvC8rustdump6decodePeE" => "rustdump::decode::<*const str>");
-        fmt!("_RINvC8rustdump6decodeOeE" => "rustdump::decode::<*mut str>");
+        fmt!("_RINvC4bite6decodePeE" => "bite::decode::<*const str>");
+        fmt!("_RINvC4bite6decodeOeE" => "bite::decode::<*mut str>");
     }
 
     #[test]
     fn arrays() {
-        fmt!("_RINvC8rustdump6decodeANtNvC3std5array5Arrayjf_E" =>
-             "rustdump::decode::<[std::array::Array; 15]>");
+        fmt!("_RINvC4bite6decodeANtNvC3std5array5Arrayjf_E" =>
+             "bite::decode::<[std::array::Array; 15]>");
     }
 
     #[test]
@@ -1085,8 +1085,8 @@ mod tests {
 
     #[test]
     fn constants() {
-        fmt!("_RNvXs5_NtCsd4VYFwevHkG_8rustdump6decodeINtB5_5ArrayNtNtB5_6x86_646PrefixKj4_EINtNtNtCs9ltgdHTiPiY_4core3ops5index8IndexMutjE9index_mutB7_" =>
-             "<rustdump::decode::Array<rustdump::decode::x86_64::Prefix, 4> as core::ops::index::IndexMut<usize>>::index_mut");
+        fmt!("_RNvXs5_NtCsd4VYFwevHkG_4bite6decodeINtB5_5ArrayNtNtB5_6x86_646PrefixKj4_EINtNtNtCs9ltgdHTiPiY_4core3ops5index8IndexMutjE9index_mutB7_" =>
+             "<bite::decode::Array<bite::decode::x86_64::Prefix, 4> as core::ops::index::IndexMut<usize>>::index_mut");
 
         fmt!("__RNvMNtCs9ltgdHTiPiY_4core5sliceSRe4iterCslWKjbRFJPpS_3log" => "<[&str]>::iter");
 
@@ -1120,18 +1120,18 @@ mod tests {
 
     #[test]
     fn type_compression() {
-        fmt!("_RINvNtCs9ltgdHTiPiY_4core3ptr13drop_in_placeNtCs1GtwyVVVJ4z_6goblin6ObjectECsjO9TEQ1PNLx_8rustdump" =>
+        fmt!("_RINvNtCs9ltgdHTiPiY_4core3ptr13drop_in_placeNtCs1GtwyVVVJ4z_6goblin6ObjectECsjO9TEQ1PNLx_4bite" =>
              "core::ptr::drop_in_place::<goblin::Object>");
     }
 
     #[test]
     fn closures() {
-        fmt!("_RNCNvC8rustdump6decodes_0" => "rustdump::decode::{closure}");
-        fmt!("_RNCNvC8rustdump6decodes0_" => "rustdump::decode::{closure#1}");
-        fmt!("_RNCNvC8rustdump6decodes0_3wow" => "rustdump::decode::{closure:wow#1}");
+        fmt!("_RNCNvC4bite6decodes_0" => "bite::decode::{closure}");
+        fmt!("_RNCNvC4bite6decodes0_" => "bite::decode::{closure#1}");
+        fmt!("_RNCNvC4bite6decodes0_3wow" => "bite::decode::{closure:wow#1}");
 
-        fmt!("_RINvMNtCs9ltgdHTiPiY_4core6optionINtB3_6OptionRhE3maphNCINvMs9_NtCsd4VYFwevHkG_8rustdump6decodeNtBZ_6Reader10consume_eqNCNvNtBZ_6x86_643asms_0Es0_0EB11_" =>
-             "<core::option::Option<&u8>>::map::<u8, <rustdump::decode::Reader>::consume_eq::<rustdump::decode::x86_64::asm::{closure}>::{closure#1}>");
+        fmt!("_RINvMNtCs9ltgdHTiPiY_4core6optionINtB3_6OptionRhE3maphNCINvMs9_NtCsd4VYFwevHkG_4bite6decodeNtBZ_6Reader10consume_eqNCNvNtBZ_6x86_643asms_0Es0_0EB11_" =>
+             "<core::option::Option<&u8>>::map::<u8, <bite::decode::Reader>::consume_eq::<bite::decode::x86_64::asm::{closure}>::{closure#1}>");
     }
 
     #[test]
@@ -1140,12 +1140,12 @@ mod tests {
 
         fmt!("_RNvNvNvNtC4core4iter6traits8iterator8Iterator"=> "Iterator", &CONFIG);
 
-        fmt!("__RINvNtCs6sMkaBefFpu_4core3ptr13drop_in_placeINtNtCsiU9zNs5JoLw_5alloc7raw_vec6RawVecTjINtNtBL_3vec3VecTRejEEEEECsuo8w5Bdzp_8rustdump" =>
+        fmt!("__RINvNtCs6sMkaBefFpu_4core3ptr13drop_in_placeINtNtCsiU9zNs5JoLw_5alloc7raw_vec6RawVecTjINtNtBL_3vec3VecTRejEEEEECsuo8w5Bdzp_4bite" =>
              "drop_in_place::<RawVec::<(usize, Vec::<(&str, usize)>)>>",
              &CONFIG
         );
 
-        fmt!("__RINvNvMs_NtCsiU9zNs5JoLw_5alloc7raw_vecINtB7_6RawVecppE7reserve21do_reserve_and_handlehNtNtC3dem5alloc6GlobalECsuo8w5Bdzp_8rustdump" =>
+        fmt!("__RINvNvMs_NtCsiU9zNs5JoLw_5alloc7raw_vecINtB7_6RawVecppE7reserve21do_reserve_and_handlehNtNtC3dem5alloc6GlobalECsuo8w5Bdzp_4bite" =>
              "<RawVec::<_, _>>::reserve::do_reserve_and_handle::<u8, dem::alloc::Global>",
              &CONFIG
         );
