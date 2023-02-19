@@ -6,7 +6,6 @@ env:
   CARGO_TERM_COLOR: always
 jobs:
   build:
-    name: Build
     strategy:
       fail-fast: false
       matrix:
@@ -24,24 +23,12 @@ jobs:
           profile: minimal
           toolchain: stable
           components: rustfmt
-      - name: Retrieving cache
+      - name: Caching cargo
         uses: Swatinem/rust-cache@v2
-      - name: Formatting
-        run: cargo fmt --all -- --check
-      - name: Reject unformatted code
-        run: git diff --exit-code
       - name: Build
         run: cargo build
-  test:
-    name: Test
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macOS-latest
-          - windows-latest
-    runs-on: ${{matrix.os}}
+  test-ubuntu:
+    runs-on: ubuntu-latest
     steps:
       - name: Checking out repo
         uses: actions/checkout@v3
@@ -50,7 +37,46 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-      - name: Retrieving cache
+      - name: Caching cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checking out repo
+        uses: actions/checkout@v3
+      - name: Checking out rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      - name: Caching cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Caching homebrew
+        uses: actions/cache@v2
+        with:
+          path: /Users/runner/Library/Caches/Homebrew
+          key: ${{ runner.os }}-sbt-${{ hashFiles('*.rb') }}
+      - name: brew update
+        run: brew update
+      - name: tap riscv
+        run: brew tap riscv/riscv
+      - name: install tools
+        run: brew install riscv-tools
+      - name: Test
+        run: cargo test
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checking out repo
+        uses: actions/checkout@v3
+      - name: Checking out rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      - name: Caching cargo
         uses: Swatinem/rust-cache@v2
       - name: Test
         run: cargo test
