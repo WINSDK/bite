@@ -53,7 +53,7 @@ impl Backend {
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("bite::ui device"),
             features: wgpu::Features::empty(),
-            limits: wgpu::Limits::downlevel_defaults()
+            limits: wgpu::Limits::downlevel_defaults(),
         };
 
         let (device, queue) = adapter

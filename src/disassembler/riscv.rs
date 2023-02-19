@@ -1143,13 +1143,21 @@ mod tests {
 
     macro_rules! decode_instructions {
         ($code:literal) => {{
+            static CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
+
+            let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+            path.push("target");
+            path.push(format!("test_{}", CRC.checksum($code.as_bytes())));
+            path.set_extension("exe");
+
             let mut cc = std::process::Command::new("clang")
                 .arg("-Oz")
                 .arg("-g3")
                 .arg("-nostdlib")
                 .arg("-ffreestanding")
                 .arg("-fuse-ld=lld")
-                .arg("--output=/dev/stdout")
+                .arg(format!("--output={}", path.display()))
                 .arg("--target=riscv64-gc-unknown")
                 .arg("-Werror")
                 .arg("-xc")
@@ -1171,7 +1179,8 @@ mod tests {
                 return Err(format!("clang failed with exit code: {}", cc.status).into());
             }
 
-            let binary = object::File::parse(&cc.stdout[..])?;
+            let binary = std::fs::read(path).unwrap();
+            let binary = object::File::parse(&binary[..])?;
             let section = binary
                 .sections()
                 .filter(|s| s.kind() == SectionKind::Text)

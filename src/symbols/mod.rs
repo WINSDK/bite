@@ -1000,10 +1000,10 @@ fn basic_types(tag: u8) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::config::Config;
+    use once_cell::sync::Lazy;
 
-    lazy_static::lazy_static! {
-        static ref CONFIG: Config = Config::from_string(include_str!("../../.dumpfmt").to_string());
-    }
+    static CONFIG: Lazy<Config> =
+        Lazy::new(|| Config::from_string(include_str!("../../.dumpfmt").to_string()));
 
     macro_rules! fmt {
         ($mangled:literal => $demangled:literal) => {

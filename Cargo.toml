@@ -28,4 +28,4 @@ lto = "thin"
 panic = "abort"
 
 [dev-dependencies]
-lazy_static = "1.4"
+crc = "3.0"

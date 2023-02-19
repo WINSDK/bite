@@ -44,18 +44,12 @@ impl Default for Inputs {
 
         keymap.insert(
             Actions::Maximize,
-            Keybind::new_with_modifier(
-                VirtualKeyCode::F,
-                ModifiersState::CTRL
-            ),
+            Keybind::new_with_modifier(VirtualKeyCode::F, ModifiersState::CTRL),
         );
 
         keymap.insert(
             Actions::CloseRequest,
-            Keybind::new_with_modifier(
-                VirtualKeyCode::Q,
-                ModifiersState::CTRL
-            ),
+            Keybind::new_with_modifier(VirtualKeyCode::Q, ModifiersState::CTRL),
         );
 
         keymap
