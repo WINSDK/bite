@@ -53,7 +53,7 @@ impl Backend {
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("bite::ui device"),
             features: wgpu::Features::empty(),
-            limits: adapter.limits(),
+            limits: wgpu::Limits::downlevel_defaults()
         };
 
         let (device, queue) = adapter
@@ -63,7 +63,6 @@ impl Backend {
 
         let surface_capabilities = surface.get_capabilities(&adapter);
 
-        let present_mode = surface_capabilities.present_modes[0];
         let alpha_mode = surface_capabilities.alpha_modes[0];
 
         let surface_format = {
@@ -81,7 +80,7 @@ impl Backend {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode,
+            present_mode: wgpu::PresentMode::AutoNoVsync,
             alpha_mode,
             view_formats: Vec::new(),
         };
@@ -191,10 +190,7 @@ impl Backend {
                 entry_point: "main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE,
-                    }),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),

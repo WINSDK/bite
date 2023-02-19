@@ -206,7 +206,6 @@ pub fn generate_window(
         .with_title(title)
         .with_decorations(false)
         .with_theme(Some(winit::window::Theme::Dark))
-        .with_transparent(true)
         .with_drag_and_drop(true)
         .with_taskbar_icon(icon.clone())
         .with_window_icon(icon)
