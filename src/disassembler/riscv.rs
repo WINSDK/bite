@@ -1154,12 +1154,17 @@ mod tests {
                 path.set_extension("exe");
             }
 
+            let mut linker = "";
+            if cfg!(not(target_os = "macos")) {
+                linker = "-fuse-ld=lld";
+            }
+
             let mut cc = std::process::Command::new("clang")
                 .arg("-Oz")
                 .arg("-g3")
                 .arg("-nostdlib")
                 .arg("-ffreestanding")
-                .arg("-fuse-ld=lld")
+                .arg(linker)
                 .arg(format!("--output={}", path.display()))
                 .arg("--target=riscv64-gc-unknown")
                 .arg("-Werror")
