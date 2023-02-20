@@ -1136,58 +1136,54 @@ fn decode_double(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Er
 mod tests {
     use object::{Object, ObjectSection, SectionKind};
 
-    use std::io::Write;
-    use std::process::Stdio;
-
     use crate::disassembler::{DecodableInstruction, Streamable};
 
     macro_rules! decode_instructions {
         ($code:literal) => {{
             static CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
 
-            let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let code = format!("
+                #![deny(warnings)]
+                #![no_std]
+                #![no_main]
 
-            path.push("target");
-            path.push(format!("test_{}", CRC.checksum($code.as_bytes())));
+                core::arch::global_asm!(\"{}\");
+
+                #[panic_handler]
+                fn panic(_: &core::panic::PanicInfo) -> ! {{
+                    loop {{}}
+                }}
+            ", $code);
+
+            let mut out_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
+            out_path.push("target");
+            out_path.push(format!("test_riscv{}", CRC.checksum($code.as_bytes())));
+
+            let src_path = out_path.with_extension("rs");
+
+            std::fs::write(&src_path, code).unwrap();
 
             if cfg!(target_family = "windows") {
-                path.set_extension("exe");
+                out_path.set_extension("exe");
             }
 
-            let mut linker = "";
-            if cfg!(not(target_os = "macos")) {
-                linker = "-fuse-ld=lld";
+            let rustc = std::process::Command::new("rustc")
+                .arg(format!("-o{}", out_path.display()))
+                .arg("--target=riscv64gc-unknown-none-elf")
+                .arg("-Cstrip=symbols")
+                .arg(format!("{}", src_path.display()))
+                .output()?;
+
+            if !rustc.stderr.is_empty() {
+                eprintln!("{}", String::from_utf8_lossy(&rustc.stderr[..]));
             }
 
-            let mut cc = std::process::Command::new("clang")
-                .arg("-Oz")
-                .arg("-g3")
-                .arg("-nostdlib")
-                .arg("-ffreestanding")
-                .arg(linker)
-                .arg(format!("--output={}", path.display()))
-                .arg("--target=riscv64-gc-unknown")
-                .arg("-Werror")
-                .arg("-xc")
-                .arg("-")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .stdin(Stdio::piped())
-                .spawn()?;
-
-            cc.stdin.as_mut().unwrap().write($code.as_bytes())?;
-
-            let cc = cc.wait_with_output()?;
-
-            if !cc.stderr.is_empty() {
-                eprintln!("{}", String::from_utf8_lossy(&cc.stderr[..]));
+            if !rustc.status.success() {
+                return Err(format!("rustc failed with exit code: {}", rustc.status).into());
             }
 
-            if !cc.status.success() {
-                return Err(format!("clang failed with exit code: {}", cc.status).into());
-            }
-
-            let binary = std::fs::read(path).unwrap();
+            let binary = std::fs::read(out_path).unwrap();
             let binary = object::File::parse(&binary[..])?;
             let section = binary
                 .sections()
@@ -1219,13 +1215,15 @@ mod tests {
 
     #[test]
     fn deref() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(r#"
-            int _start() {
-                *(int *)0x1000000 = 12;
-
-                return 0;
-            }
-       "#);
+        let decoded = decode_instructions!("
+            .global _start
+            _start:
+                lui	a0, 4096
+                li	a1, 12
+                sw	a1, 0(a0)
+                li	a0, 0
+                ret
+       ");
 
         let test = [
             "lui a0, 4096",
@@ -1247,210 +1245,419 @@ mod tests {
 
     #[test]
     fn sha256() -> Result<(), Box<dyn std::error::Error>> {
-        let decoded = decode_instructions!(r#"
-            /*********************************************************************
-            * Author:     Brad Conte (brad AT bradconte.com)
-            * Copyright:
-            * Disclaimer: This code is presented "as is" without any guarantees.
-            * Details:    Implementation of the SHA-256 hashing algorithm.
-                          SHA-256 is one of the three algorithms in the SHA2
-                          specification. The others, SHA-384 and SHA-512, are not
-                          offered in this implementation.
-                          Algorithm specification can be found here:
-                           * http://csrc.nist.gov/publications/fips/fips180-2/fips180-2withchangenotice.pdf
-                          This implementation uses little endian byte order.
-            *********************************************************************/
+        let decoded = decode_instructions!("
+            .global _start
+            memset:
+                li	a3, 0
+                beq	a2, a3, .LIB0_2
 
-            /*************************** HEADER FILES ***************************/
-            #include <stdint.h>
-            #include <stddef.h>
+            .LIB0_1:
+                add	a4, a0, a3
+                sb	a1, 0(a4)
+                addi	a3, a3, 1
+                bne	a2, a3, .LIB0_1
 
-            /****************************** MACROS ******************************/
-            #define SHA256_BLOCK_SIZE 32            // SHA256 outputs a 32 byte digest
+            .LIB0_2:
+                ret
 
-            /**************************** DATA TYPES ****************************/
-            typedef unsigned char BYTE;             // 8-bit byte
-            typedef unsigned int  WORD;             // 32-bit word, change to "long" for 16-bit machines
+            sha256_transform:
+                addi	sp, sp, -352
+                sd	s0, 344(sp)
+                sd	s1, 336(sp)
+                sd	s2, 328(sp)
+                sd	s3, 320(sp)
+                sd	s4, 312(sp)
+                sd	s5, 304(sp)
+                sd	s6, 296(sp)
+                sd	s7, 288(sp)
+                sd	s8, 280(sp)
+                sd	s9, 272(sp)
+                sd	s10, 264(sp)
+                sd	s11, 256(sp)
+                li	a2, 0
+                li	a3, 64
+                mv	a6, sp
+                beq	a2, a3, .LIB1_2
 
-            typedef struct {
-                BYTE data[64];
-                WORD datalen;
-                unsigned long long bitlen;
-                WORD state[8];
-            } SHA256_CTX;
+            .LIB1_1:
+                add	a5, a1, a2
+                lb	s1, 0(a5)
+                lbu	s0, 1(a5)
+                slli	s1, s1, 24
+                lbu	a4, 2(a5)
+                slli	s0, s0, 16
+                lbu	a5, 3(a5)
+                or	s1, s1, s0
+                slli	a4, a4, 8
+                or	a4, a4, s1
+                or	a4, a4, a5
+                add	a5, a6, a2
+                sw	a4, 0(a5)
+                addi	a2, a2, 4
+                bne	a2, a3, .LIB1_1
 
-            /*********************** FUNCTION DECLARATIONS **********************/
-            void sha256_init(SHA256_CTX *ctx);
-            void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len);
-            void sha256_final(SHA256_CTX *ctx, BYTE hash[]);
+            .LIB1_2:
+                li	a1, 0
+                li	a7, 192
+                mv	a6, sp
+                beq	a1, a7, .LIB1_4
 
-            /****************************** MACROS ******************************/
-            #define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32-(b))))
-            #define ROTRIGHT(a,b) (((a) >> (b)) | ((a) << (32-(b))))
+            .LIB1_3:
+                add	a4, a6, a1
+                lwu	a5, 56(a4)
+                srli	s1, a5, 17
+                slliw	s0, a5, 15
+                or	s1, s1, s0
+                srli	s0, a5, 19
+                slliw	a3, a5, 13
+                or	a3, a3, s0
+                xor	a3, a3, s1
+                lw	s1, 36(a4)
+                lwu	s0, 4(a4)
+                srli	a5, a5, 10
+                xor	a3, a3, a5
+                addw	a3, a3, s1
+                srli	a5, s0, 7
+                slli	s1, s0, 25
+                or	a5, a5, s1
+                srli	s1, s0, 18
+                slli	a2, s0, 14
+                or	a2, a2, s1
+                lw	s1, 0(a4)
+                xor	a2, a2, a5
+                srli	a5, s0, 3
+                xor	a2, a2, a5
+                addw	a3, a3, s1
+                addw	a2, a2, a3
+                sw	a2, 64(a4)
+                addi	a1, a1, 4
+                bne	a1, a7, .LIB1_3
 
-            #define CH(x,y,z) (((x) & (y)) ^ (~(x) & (z)))
-            #define MAJ(x,y,z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
-            #define EP0(x) (ROTRIGHT(x,2) ^ ROTRIGHT(x,13) ^ ROTRIGHT(x,22))
-            #define EP1(x) (ROTRIGHT(x,6) ^ ROTRIGHT(x,11) ^ ROTRIGHT(x,25))
-            #define SIG0(x) (ROTRIGHT(x,7) ^ ROTRIGHT(x,18) ^ ((x) >> 3))
-            #define SIG1(x) (ROTRIGHT(x,17) ^ ROTRIGHT(x,19) ^ ((x) >> 10))
+            .LIB1_4:
+                li	s9, 0
+                lw	t5, 80(a0)
+                lw	t4, 84(a0)
+                lw	t3, 88(a0)
+                lw	t2, 92(a0)
+                lw	t1, 96(a0)
+                lw	t0, 100(a0)
+                lw	a7, 104(a0)
+                lw	a6, 108(a0)
+                li	t6, 256
+                lui	a2, 16
+                addi	s3, a2, 344
+                mv	s2, sp
+                mv	s7, t3
+                mv	s4, t2
+                mv	s6, t1
+                mv	a3, t0
+                mv	s10, a7
+                mv	s5, a6
+                mv	s8, t4
+                mv	s0, t5
 
-            /**************************** VARIABLES *****************************/
-            static const WORD k[64] = {
-                0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
-                0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
-                0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
-                0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
-                0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
-                0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
-                0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
-                0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
-            };
+            .LIB1_5:
+                mv	s11, s10
+                mv	s10, a3
+                mv	a3, s6
+                mv	s1, s7
+                beq	s9, t6, .LIB1_7
+                srliw	a4, a3, 6
+                slliw	a1, a3, 26
+                or	a1, a1, a4
+                srliw	a4, a3, 11
+                slliw	a2, a3, 21
+                or	a2, a2, a4
+                xor	a1, a1, a2
+                srliw	a2, a3, 25
+                slliw	a4, a3, 7
+                or	a2, a2, a4
+                xor	s6, a1, a2
+                and	a2, s10, a3
+                not	a4, a3
+                and	a4, s11, a4
+                add	a5, s3, s9
+                lw	a5, 0(a5)
+                add	a1, s2, s9
+                lw	a1, 0(a1)
+                addw	a2, s6, a2
+                addw	a2, a2, s5
+                addw	a2, a2, a4
+                addw	a2, a2, a5
+                addw	a1, a1, a2
+                srliw	a2, s0, 2
+                slliw	a4, s0, 30
+                or	a2, a2, a4
+                srliw	a4, s0, 13
+                slliw	a5, s0, 19
+                or	a4, a4, a5
+                xor	a2, a2, a4
+                srliw	a4, s0, 22
+                slli	a5, s0, 10
+                or	a4, a4, a5
+                xor	a2, a2, a4
+                xor	a4, s8, s1
+                and	a4, a4, s0
+                and	a5, s8, s1
+                xor	a4, a4, a5
+                addw	a2, a2, a4
+                addw	s6, a1, s4
+                mv	s7, s8
+                mv	s8, s0
+                addw	s0, a2, a1
+                addi	s9, s9, 4
+                mv	s4, s1
+                mv	s5, s11
+                j	.LIB1_5
 
-            /*********************** FUNCTION DEFINITIONS ***********************/
-            void* memset(void *s, int c, size_t len) {
-                unsigned char *dst = s;
-                while (len > 0) {
-                    *dst = (unsigned char) c;
-                    dst++;
-                    len--;
-                }
-                return s;
-            }
+            .LIB1_7:
+                addw	a1, s0, t5
+                sw	a1, 80(a0)
+                addw	a1, s8, t4
+                sw	a1, 84(a0)
+                addw	a1, s1, t3
+                sw	a1, 88(a0)
+                addw	a1, s4, t2
+                sw	a1, 92(a0)
+                addw	a1, a3, t1
+                sw	a1, 96(a0)
+                addw	a1, s10, t0
+                sw	a1, 100(a0)
+                addw	a1, s11, a7
+                sw	a1, 104(a0)
+                addw	a1, s5, a6
+                sw	a1, 108(a0)
+                ld	s0, 344(sp)
+                ld	s1, 336(sp)
+                ld	s2, 328(sp)
+                ld	s3, 320(sp)
+                ld	s4, 312(sp)
+                ld	s5, 304(sp)
+                ld	s6, 296(sp)
+                ld	s7, 288(sp)
+                ld	s8, 280(sp)
+                ld	s9, 272(sp)
+                ld	s10, 264(sp)
+                ld	s11, 256(sp)
+                addi	sp, sp, 352
+                ret
 
-            void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
-            {
-                WORD a, b, c, d, e, f, g, h, i, j, t1, t2, m[64];
+            sha256_init:
+                lui	a1, 18
+                ld	a1, 1632(a1)
+                lui	a2, 18
+                ld	a2, 1640(a2)
+                sd	a1, 80(a0)
+                lui	a1, 18
+                ld	a1, 1648(a1)
+                sd	a2, 88(a0)
+                lui	a2, 18
+                ld	a2, 1656(a2)
+                sd	a1, 96(a0)
+                li	a1, 0
+                sw	a1, 64(a0)
+                sd	a1, 72(a0)
+                sd	a2, 104(a0)
+                ret
 
-                for (i = 0, j = 0; i < 16; ++i, j += 4)
-                    m[i] = (data[j] << 24) | (data[j + 1] << 16) | (data[j + 2] << 8) | (data[j + 3]);
-                for ( ; i < 64; ++i)
-                    m[i] = SIG1(m[i - 2]) + m[i - 7] + SIG0(m[i - 15]) + m[i - 16];
+            sha256_update:
+                addi	sp, sp, -48
+                sd	ra, 40(sp)
+                sd	s0, 32(sp)
+                sd	s1, 24(sp)
+                sd	s2, 16(sp)
+                sd	s3, 8(sp)
+                sd	s4, 0(sp)
+                mv	s3, a2
+                mv	s2, a1
+                mv	s1, a0
+                li	s0, 0
+                li	s4, 64
 
-                a = ctx->state[0];
-                b = ctx->state[1];
-                c = ctx->state[2];
-                d = ctx->state[3];
-                e = ctx->state[4];
-                f = ctx->state[5];
-                g = ctx->state[6];
-                h = ctx->state[7];
+            .LIB3_1:
+                slli	a0, s0, 32
+                srli	a0, a0, 32
+                bgeu	a0, s3, .LIB3_5
+                add	a0, a0, s2
+                lwu	a1, 64(s1)
+                lb	a0, 0(a0)
+                add	a1, a1, s1
+                sb	a0, 0(a1)
+                lw	a0, 64(s1)
+                addiw	a0, a0, 1
+                sw	a0, 64(s1)
+                bne	a0, s4, .LIB3_4
+                mv	a0, s1
+                mv	a1, s1
+                jal	sha256_transform
+                ld	a0, 72(s1)
+                addi	a0, a0, 512
+                sd	a0, 72(s1)
+                sw	zero, 64(s1)
 
-                for (i = 0; i < 64; ++i) {
-                    t1 = h + EP1(e) + CH(e,f,g) + k[i] + m[i];
-                    t2 = EP0(a) + MAJ(a,b,c);
-                    h = g;
-                    g = f;
-                    f = e;
-                    e = d + t1;
-                    d = c;
-                    c = b;
-                    b = a;
-                    a = t1 + t2;
-                }
+            .LIB3_4:
+                addiw	s0, s0, 1
+                j	.LIB3_1
 
-                ctx->state[0] += a;
-                ctx->state[1] += b;
-                ctx->state[2] += c;
-                ctx->state[3] += d;
-                ctx->state[4] += e;
-                ctx->state[5] += f;
-                ctx->state[6] += g;
-                ctx->state[7] += h;
-            }
+            .LIB3_5:
+                ld	ra, 40(sp)
+                ld	s0, 32(sp)
+                ld	s1, 24(sp)
+                ld	s2, 16(sp)
+                ld	s3, 8(sp)
+                ld	s4, 0(sp)
+                addi	sp, sp, 48
+                ret
 
-            void sha256_init(SHA256_CTX *ctx)
-            {
-                ctx->datalen = 0;
-                ctx->bitlen = 0;
-                ctx->state[0] = 0x6a09e667;
-                ctx->state[1] = 0xbb67ae85;
-                ctx->state[2] = 0x3c6ef372;
-                ctx->state[3] = 0xa54ff53a;
-                ctx->state[4] = 0x510e527f;
-                ctx->state[5] = 0x9b05688c;
-                ctx->state[6] = 0x1f83d9ab;
-                ctx->state[7] = 0x5be0cd19;
-            }
+            sha256_final:
+                addi	sp, sp, -32
+                sd	ra, 24(sp)
+                sd	s0, 16(sp)
+                sd	s1, 8(sp)
+                mv	s0, a0
+                lwu	a0, 64(a0)
+                mv	s1, a1
+                sext.w	a1, a0
+                add	a2, s0, a0
+                li	a3, 128
+                li	a4, 56
+                sb	a3, 0(a2)
+                bgeu	a1, a4, .LIB4_3
+                addi	a1, s0, 1
+                li	a2, 55
+                beq	a0, a2, .LIB4_7
 
-            void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len)
-            {
-                WORD i;
+            .LIB4_2:
+                add	a3, a1, a0
+                addi	a0, a0, 1
+                sb	zero, 0(a3)
+                bne	a0, a2, .LIB4_2
+                j	.LIB4_7
 
-                for (i = 0; i < len; ++i) {
-                    ctx->data[ctx->datalen] = data[i];
-                    ctx->datalen++;
-                    if (ctx->datalen == 64) {
-                        sha256_transform(ctx, ctx->data);
-                        ctx->bitlen += 512;
-                        ctx->datalen = 0;
-                    }
-                }
-            }
+            .LIB4_3:
+                li	a1, 63
 
-            void sha256_final(SHA256_CTX *ctx, BYTE hash[])
-            {
-                WORD i;
+            .LIB4_4:
+                addiw	a0, a0, 1
+                bltu	a1, a0, .LIB4_6
+                add	a2, s0, a0
+                sb	zero, 0(a2)
+                j	.LIB4_4
 
-                i = ctx->datalen;
+            .LIB4_6:
+                mv	a0, s0
+                mv	a1, s0
+                jal	sha256_transform
+                li	a2, 56
+                mv	a0, s0
+                li	a1, 0
+                jal	memset
 
-                // Pad whatever data is left in the buffer.
-                if (ctx->datalen < 56) {
-                    ctx->data[i++] = 0x80;
-                    while (i < 56)
-                        ctx->data[i++] = 0x00;
-                }
-                else {
-                    ctx->data[i++] = 0x80;
-                    while (i < 64)
-                        ctx->data[i++] = 0x00;
-                    sha256_transform(ctx, ctx->data);
-                    memset(ctx->data, 0, 56);
-                }
+            .LIB4_7:
+                lw	a0, 64(s0)
+                ld	a1, 72(s0)
+                slli	a0, a0, 35
+                srli	a0, a0, 32
+                add	a0, a0, a1
+                sd	a0, 72(s0)
+                sb	a0, 63(s0)
+                srli	a1, a0, 8
+                sb	a1, 62(s0)
+                srli	a1, a0, 16
+                sb	a1, 61(s0)
+                srli	a1, a0, 24
+                sb	a1, 60(s0)
+                srli	a1, a0, 32
+                sb	a1, 59(s0)
+                srli	a1, a0, 40
+                sb	a1, 58(s0)
+                srli	a1, a0, 48
+                sb	a1, 57(s0)
+                srli	a0, a0, 56
+                sb	a0, 56(s0)
+                mv	a0, s0
+                mv	a1, s0
+                jal	sha256_transform
+                li	a0, 0
+                addi	a1, s1, 16
+                li	a2, 4
+                li	a3, 24
+                beq	a0, a2, .LIB4_9
 
-                // Append to the padding the total message's length in bits and transform.
-                ctx->bitlen += ctx->datalen * 8;
-                ctx->data[63] = ctx->bitlen;
-                ctx->data[62] = ctx->bitlen >> 8;
-                ctx->data[61] = ctx->bitlen >> 16;
-                ctx->data[60] = ctx->bitlen >> 24;
-                ctx->data[59] = ctx->bitlen >> 32;
-                ctx->data[58] = ctx->bitlen >> 40;
-                ctx->data[57] = ctx->bitlen >> 48;
-                ctx->data[56] = ctx->bitlen >> 56;
-                sha256_transform(ctx, ctx->data);
+            .LIB4_8:
+                lw	a4, 80(s0)
+                slliw	a5, a0, 3
+                subw	a5, a3, a5
+                srlw	a4, a4, a5
+                add	s1, a1, a0
+                sb	a4, -16(s1)
+                lw	a4, 84(s0)
+                srlw	a4, a4, a5
+                sb	a4, -12(s1)
+                lw	a4, 88(s0)
+                srlw	a4, a4, a5
+                sb	a4, -8(s1)
+                lw	a4, 92(s0)
+                srlw	a4, a4, a5
+                sb	a4, -4(s1)
+                lw	a4, 96(s0)
+                srlw	a4, a4, a5
+                sb	a4, 0(s1)
+                lw	a4, 100(s0)
+                srlw	a4, a4, a5
+                sb	a4, 4(s1)
+                lw	a4, 104(s0)
+                srlw	a4, a4, a5
+                sb	a4, 8(s1)
+                lw	a4, 108(s0)
+                srlw	a4, a4, a5
+                sb	a4, 12(s1)
+                addi	a0, a0, 1
+                bne	a0, a2, .LIB4_8
 
-                // Since this implementation uses little endian byte ordering and SHA uses big endian,
-                // reverse all the bytes when copying the final state to the output hash.
-                for (i = 0; i < 4; ++i) {
-                    hash[i]      = (ctx->state[0] >> (24 - i * 8)) & 0x000000ff;
-                    hash[i + 4]  = (ctx->state[1] >> (24 - i * 8)) & 0x000000ff;
-                    hash[i + 8]  = (ctx->state[2] >> (24 - i * 8)) & 0x000000ff;
-                    hash[i + 12] = (ctx->state[3] >> (24 - i * 8)) & 0x000000ff;
-                    hash[i + 16] = (ctx->state[4] >> (24 - i * 8)) & 0x000000ff;
-                    hash[i + 20] = (ctx->state[5] >> (24 - i * 8)) & 0x000000ff;
-                    hash[i + 24] = (ctx->state[6] >> (24 - i * 8)) & 0x000000ff;
-                    hash[i + 28] = (ctx->state[7] >> (24 - i * 8)) & 0x000000ff;
-                }
-            }
+            .LIB4_9:
+                ld	ra, 24(sp)
+                ld	s0, 16(sp)
+                ld	s1, 8(sp)
+                addi	sp, sp, 32
+                ret
 
-            void _start()
-            {
-                SHA256_CTX ctx;
-
-                sha256_init(&ctx);
-                sha256_update(&ctx, (BYTE*)0x1000, 1024);
-                sha256_final(&ctx, (BYTE*)0x2000);
-            }
-       "#);
+            _start:
+                addi	sp, sp, -128
+                sd	ra, 120(sp)
+                sw	zero, 72(sp)
+                sd	zero, 80(sp)
+                lui	a0, 18
+                ld	a0, 1664(a0)
+                lui	a1, 18
+                ld	a1, 1672(a1)
+                lui	a2, 18
+                ld	a2, 1680(a2)
+                lui	a3, 18
+                ld	a3, 1688(a3)
+                sd	a0, 88(sp)
+                sd	a1, 96(sp)
+                sd	a2, 104(sp)
+                sd	a3, 112(sp)
+                addi	a0, sp, 8
+                lui	a1, 1
+                li	a2, 1024
+                jal	sha256_update
+                addi	a0, sp, 8
+                lui	a1, 2
+                jal	sha256_final
+                ld	ra, 120(sp)
+                addi	sp, sp, 128
+                ret
+       ");
 
         let test = [
             "li a3, 0",
-            "beq a2, a3, 0x1126c",
+            "beq a2, a3, 0x11134",
             "add a4, a0, a3",
             "sb a1, a4, 0",
             "addi a3, a3, 1",
-            "bne a2, a3, 0x1125e",
+            "bne a2, a3, 0x11126",
             "ret",
             "addi16sp -352",
             "sdsp s0, 344",
@@ -1468,7 +1675,7 @@ mod tests {
             "li a2, 0",
             "li a3, 64",
             "mv a6, sp",
-            "beq a2, a3, 0x112c0",
+            "beq a2, a3, 0x11188",
             "add a5, a1, a2",
             "lb s1, a5, 0",
             "lbu s0, a5, 1",
@@ -1483,11 +1690,11 @@ mod tests {
             "add a5, a6, a2",
             "sw a4, a5, 0",
             "addi a2, a2, 4",
-            "bne a2, a3, 0x11294",
+            "bne a2, a3, 0x1115c",
             "li a1, 0",
             "li a7, 192",
             "mv a6, sp",
-            "beq a1, a7, 0x11320",
+            "beq a1, a7, 0x111e8",
             "add a4, a6, a1",
             "lwu a5, a4, 56",
             "srli s1, a5, 17",
@@ -1516,7 +1723,7 @@ mod tests {
             "addw a2, a2, a3",
             "sw a2, a4, 64",
             "addi a1, a1, 4",
-            "bne a1, a7, 0x112cc",
+            "bne a1, a7, 0x11194",
             "li s9, 0",
             "lw t5, a0, 80",
             "lw t4, a0, 84",
@@ -1542,7 +1749,7 @@ mod tests {
             "mv s10, a3",
             "mv a3, s6",
             "mv s1, s7",
-            "beq s9, t6, 0x113fa",
+            "beq s9, t6, 0x112c0",
             "srliw a4, a3, 6",
             "slliw a1, a3, 26",
             "or a1, a1, a4",
@@ -1589,7 +1796,7 @@ mod tests {
             "addi s9, s9, 4",
             "mv s4, s1",
             "mv s5, s11",
-            "j 0x11360",
+            "j 0x11226",
             "addw a1, s0, t5",
             "sw a1, a0, 80",
             "addw a1, s8, t4",
@@ -1621,15 +1828,15 @@ mod tests {
             "addi16sp 352",
             "ret",
             "lui a1, 18",
-            "ld a1, a1, 1640",
+            "ld a1, a1, 1632",
             "lui a2, 18",
-            "ld a2, a2, 1648",
+            "ld a2, a2, 1640",
             "sd a1, a0, 80",
             "lui a1, 18",
-            "ld a1, a1, 1656",
+            "ld a1, a1, 1648",
             "sd a2, a0, 88",
             "lui a2, 18",
-            "ld a2, a2, 1664",
+            "ld a2, a2, 1656",
             "sd a1, a0, 96",
             "li a1, 0",
             "sw a1, a0, 64",
@@ -1650,7 +1857,7 @@ mod tests {
             "li s4, 64",
             "slli a0, s0, 32",
             "srli a0, a0, 32",
-            "bgeu a0, s3, 0x114cc",
+            "bgeu a0, s3, 0x1138a",
             "add a0, a0, s2",
             "lwu a1, s1, 64",
             "lb a0, a0, 0",
@@ -1659,16 +1866,16 @@ mod tests {
             "lw a0, s1, 64",
             "addiw a0, a0, 1",
             "sw a0, s1, 64",
-            "bne a0, s4, 0x114c8",
+            "bne a0, s4, 0x11386",
             "mv a0, s1",
             "mv a1, s1",
-            "jal 0x1126e",
+            "jal 0x11136",
             "ld a0, s1, 72",
             "addi a0, a0, 512",
             "sd a0, s1, 72",
             "sw zero, s1, 64",
             "addiw s0, s0, 1",
-            "j 0x11490",
+            "j 0x1134e",
             "ldsp ra, 40",
             "ldsp s0, 32",
             "ldsp s1, 24",
@@ -1689,14 +1896,29 @@ mod tests {
             "li a3, 128",
             "li a4, 56",
             "sb a3, a2, 0",
-            "bgeu a1, a4, 0x115e6",
+            "bgeu a1, a4, 0x113de",
             "addi a1, s0, 1",
             "li a2, 55",
-            "beq a0, a2, 0x1151e",
+            "beq a0, a2, 0x11406",
             "add a3, a1, a0",
             "addi a0, a0, 1",
             "sb zero, a3, 0",
-            "bne a0, a2, 0x11510",
+            "bne a0, a2, 0x113ce",
+
+            "j 0x11406",
+            "li a1, 63",
+            "addiw a0, a0, 1",
+            "bltu a1, a0, 0x113f2",
+            "add a2, s0, a0",
+            "sb zero, a2, 0",
+            "j 0x113e2",
+            "mv a0, s0",
+            "mv a1, s0",
+            "jal 0x11136",
+            "li a2, 56",
+            "mv a0, s0",
+            "li a1, 0",
+            "jal 0x11120",
             "lw a0, s0, 64",
             "ld a1, s0, 72",
             "slli a0, a0, 35",
@@ -1720,12 +1942,12 @@ mod tests {
             "sb a0, s0, 56",
             "mv a0, s0",
             "mv a1, s0",
-            "jal 0x1126e",
+            "jal 0x11136",
             "li a0, 0",
             "addi a1, s1, 16",
             "li a2, 4",
             "li a3, 24",
-            "beq a0, a2, 0x115dc",
+            "beq a0, a2, 0x114c4",
             "lw a4, s0, 80",
             "slliw a5, a0, 3",
             "subw a5, a3, a5",
@@ -1754,41 +1976,24 @@ mod tests {
             "srlw a4, a4, a5",
             "sb a4, s1, 12",
             "addi a0, a0, 1",
-            "bne a0, a2, 0x1157a",
+            "bne a0, a2, 0x11462",
             "ldsp ra, 24",
             "ldsp s0, 16",
             "ldsp s1, 8",
             "addi16sp 32",
             "ret",
-            "li a1, 63",
-            "addiw a0, a0, 1",
-            "bltu a1, a0, 0x115fa",
-            "add a2, s0, a0",
-            "sb zero, a2, 0",
-            "j 0x115ea",
-            "mv a0, s0",
-            "mv a1, s0",
-            "jal 0x1126e",
-            "li a0, 0",
-            "li a1, 56",
-            "beq a0, a1, 0x1151e",
-            "add a2, s0, a0",
-            "sb zero, a2, 0",
-            "addi a0, a0, 1",
-            "bne a0, a1, 0x1160c",
-            "j 0x1151e",
             "addi16sp -128",
             "sdsp ra, 120",
             "swsp zero, 72",
             "sdsp zero, 80",
             "lui a0, 18",
-            "ld a0, a0, 1672",
+            "ld a0, a0, 1664",
             "lui a1, 18",
-            "ld a1, a1, 1680",
+            "ld a1, a1, 1672",
             "lui a2, 18",
-            "ld a2, a2, 1688",
+            "ld a2, a2, 1680",
             "lui a3, 18",
-            "ld a3, a3, 1696",
+            "ld a3, a3, 1688",
             "sdsp a0, 88",
             "sdsp a1, 96",
             "sdsp a2, 104",
@@ -1796,13 +2001,13 @@ mod tests {
             "addi4spn a0, 8",
             "lui a1, 1",
             "li a2, 1024",
-            "jal 0x11476",
+            "jal 0x11334",
             "addi4spn a0, 8",
             "lui a1, 2",
-            "jal 0x114dc",
+            "jal 0x1139a",
             "ldsp ra, 120",
             "addi16sp 128",
-            "ret",
+            "ret"
         ];
 
         for (test, decoded) in test.iter().zip(decoded) {
