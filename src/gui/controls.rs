@@ -26,7 +26,6 @@ impl Default for Keybinds {
         };
 
         keymap.insert(Actions::Maximize, (VirtualKeyCode::F, ModifiersState::CTRL));
-
         keymap.insert(
             Actions::CloseRequest,
             (VirtualKeyCode::Q, ModifiersState::CTRL),

@@ -310,24 +310,31 @@ impl Backend {
 
             for line in dissasembly.iter().take(100) {
                 if let Some(ref label) = line.label {
-                    let mut text = Vec::new();
+                    if line.offset > 0 {
+                        texts.push(wgpu_glyph::Text::new("\n").with_scale(40.0));
+                    }
 
-                    // shitty hack
-                    texts.push(wgpu_glyph::Text::new("\n").with_scale(40.0));
-                    text.push(
-                        wgpu_glyph::OwnedText::new(format!("<{label}>:\n"))
+                    texts.push(
+                        wgpu_glyph::Text::new("<")
                             .with_scale(40.0)
                             .with_color(crate::colors::TEAL),
                     );
-
-                    self.glyph_brush.queue(&wgpu_glyph::OwnedSection {
-                        screen_position: (10.0, 50.0),
-                        text,
-                        ..wgpu_glyph::OwnedSection::default()
-                    });
+                    texts.push(
+                        wgpu_glyph::Text::new(label)
+                            .with_scale(40.0)
+                            .with_color(crate::colors::TEAL),
+                    );
+                    texts.push(
+                        wgpu_glyph::Text::new(">:\n")
+                            .with_scale(40.0)
+                            .with_color(crate::colors::TEAL),
+                    );
                 }
 
                 let tokens = line.tokens();
+
+                // pad
+                texts.push(wgpu_glyph::Text::new("        ").with_scale(40.0));
 
                 // mnemomic
                 texts.push(tokens[0].text());
@@ -364,7 +371,7 @@ impl Backend {
 
             // queue assembly listing text
             self.glyph_brush.queue(wgpu_glyph::Section {
-                screen_position: (200.0, 50.0),
+                screen_position: (10.0, 50.0),
                 text: texts,
                 ..wgpu_glyph::Section::default()
             });

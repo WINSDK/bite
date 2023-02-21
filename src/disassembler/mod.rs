@@ -146,21 +146,21 @@ impl<'data> Iterator for InstructionStream<'data> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut section_base = 0;
-        let mut offset;
+        let mut offset = 0;
 
         let tokens = match self.inner {
             InternalInstructionStream::Riscv(ref mut stream) => {
                 section_base = stream.section_base;
-                offset = stream.offset;
-                offset = offset.saturating_sub(stream.width);
+                offset += stream.offset;
+                offset += offset.saturating_sub(stream.width);
 
-                stream.next().map(|i| i.tokenize())
+                stream.next().map(DecodableInstruction::tokenize)
             }
             InternalInstructionStream::Mips(ref mut stream) => {
-                offset = stream.offset;
-                offset = offset.saturating_sub(4);
+                offset += stream.offset;
+                offset += offset.saturating_sub(4);
 
-                stream.next().map(|i| i.tokenize())
+                stream.next().map(DecodableInstruction::tokenize)
             }
         };
 
