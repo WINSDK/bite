@@ -11,6 +11,36 @@ use naga::{
     valid::{Capabilities, ValidationFlags, Validator},
 };
 
+pub struct Timer {
+    start: std::time::Instant,
+    ups: usize,
+}
+
+impl Timer {
+    pub fn new(ups: usize) -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            ups,
+        }
+    }
+
+    pub fn reached(&self) -> bool {
+        self.start.elapsed().as_millis() as usize * self.ups > 1000
+    }
+
+    pub fn reset(&mut self) {
+        self.start = std::time::Instant::now();
+    }
+}
+
+impl std::ops::Deref for Timer {
+    type Target = std::time::Instant;
+
+    fn deref(&self) -> &Self::Target {
+        &self.start
+    }
+}
+
 pub struct Png {
     pub data: Vec<u8>,
     pub width: u32,
@@ -186,7 +216,6 @@ pub fn generate_window(
 ) -> Result<winit::window::Window, Error> {
     winit::window::WindowBuilder::new()
         .with_title(title)
-        .with_decorations(false)
         .with_theme(Some(winit::window::Theme::Dark))
         .with_window_icon(icon)
         .with_min_inner_size(super::MIN_WIN_SIZE)

@@ -26,12 +26,7 @@ pub enum Error {
 }
 
 trait DecodableInstruction {
-    fn operands(&self) -> &[std::borrow::Cow<'static, str>];
-    fn decode(&self) -> String;
-
-    fn psuedo_decode(&mut self) -> String {
-        self.decode()
-    }
+    fn tokenize(self) -> TokenStream<'static>;
 }
 
 trait Streamable {
@@ -39,12 +34,60 @@ trait Streamable {
     type Error;
 
     fn next(&mut self) -> Result<Self::Item, Error>;
-    fn format(&self, next: Result<Self::Item, Error>) -> Option<String>;
 }
 
-pub struct InstructionStream<'data, 'symbols> {
+pub struct InstructionToken<'a> {
+    pub token: Cow<'a, str>,
+    pub color: crate::colors::Color,
+}
+
+impl<'a> InstructionToken<'a> {
+    pub fn text(&'a self) -> wgpu_glyph::Text<'a> {
+        wgpu_glyph::Text::new(&self.token)
+            .with_color(self.color)
+            .with_scale(40.0)
+    }
+}
+
+pub struct TokenStream<'a> {
+    tokens: [InstructionToken<'a>; 5],
+    token_count: usize,
+}
+
+impl TokenStream<'_> {
+    pub fn tokens(&self) -> &[InstructionToken] {
+        &self.tokens[..self.token_count]
+    }
+}
+
+impl ToString for TokenStream<'_> {
+    fn to_string(&self) -> String {
+        let mut fmt = String::with_capacity(30);
+        let operands = &self.tokens[1..][..self.token_count - 1];
+
+        fmt += &self.tokens[0].token;
+
+        if operands.is_empty() {
+            return fmt;
+        }
+
+        fmt += " ";
+
+        if operands.len() > 1 {
+            for operand in &operands[..operands.len() - 1] {
+                fmt += &operand.token;
+                fmt += ", ";
+            }
+        }
+
+        fmt += &operands[operands.len() - 1].token;
+        fmt
+    }
+}
+
+pub struct InstructionStream<'data> {
     inner: InternalInstructionStream<'data>,
-    symbols: &'data BTreeMap<usize, Cow<'symbols, str>>,
+    symbols: &'data BTreeMap<usize, Cow<'data, str>>,
     stream_size: usize,
 }
 
@@ -53,12 +96,12 @@ enum InternalInstructionStream<'data> {
     Mips(mips::Stream<'data>),
 }
 
-impl<'data, 'symbols> InstructionStream<'data, 'symbols> {
+impl<'data> InstructionStream<'data> {
     pub fn new(
         bytes: &'data [u8],
         arch: Architecture,
         section_base: usize,
-        symbols: &'data BTreeMap<usize, Cow<'symbols, str>>,
+        symbols: &'data BTreeMap<usize, Cow<'data, str>>,
     ) -> Self {
         let inner = match arch {
             Architecture::Mips => {
@@ -92,44 +135,60 @@ impl<'data, 'symbols> InstructionStream<'data, 'symbols> {
     }
 }
 
-impl Iterator for InstructionStream<'_, '_> {
-    type Item = String;
+impl<'data> Iterator for InstructionStream<'data> {
+    type Item = TokenStream<'data>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut base = 0;
-        let mut off = 0;
+        // let mut base = 0;
+        // let mut off = 0;
 
-        let fmt = match self.inner {
+        let tokens = match self.inner {
             InternalInstructionStream::Riscv(ref mut stream) => {
-                let next = stream.next();
-                base = stream.section_base;
-                off += stream.offset;
-                off -= stream.width;
-                stream.format(next)
+                // base = stream.section_base;
+                // off = stream.offset;
+                // off.checked_sub(stream.width).unwrap_or(0);
+                stream.next().map(|i| i.tokenize())
             }
             InternalInstructionStream::Mips(ref mut stream) => {
-                let next = stream.next();
-                off += stream.offset;
-                off -= 4;
-                stream.format(next)
+                // off = stream.offset;
+                // off.checked_sub(4).unwrap_or(0);
+                stream.next().map(|i| i.tokenize())
             }
         };
 
-        fmt.map(|fmt| {
-            let addr = base + off;
+        match tokens {
+            Ok(tokens) => Some(tokens),
+            Err(Error::NoBytesLeft) => None,
+            Err(err) => {
+                let mut tokens = [EMPTY_TOKEN; 5];
 
-            if let Some(label) = self.symbols.get(&addr) {
-                let padding = self.stream_size.ilog10() as usize + 1;
+                tokens[0] = InstructionToken {
+                    token: Cow::Owned(format!("<{err:?}>")),
+                    color: crate::colors::RED,
+                };
 
-                if off > 0 {
-                    return format!("\n{addr:#0padding$x} <{label}>:\n{fmt}");
-                } else {
-                    return format!("{addr:#0padding$x} <{label}>:\n{fmt}");
-                }
+                Some(TokenStream {
+                    tokens,
+                    token_count: 1,
+                })
             }
+        }
 
-            fmt
-        })
+        // fmt.map(|fmt| {
+        //     let addr = base + off;
+
+        //     if let Some(label) = self.symbols.get(&addr) {
+        //         let padding = self.stream_size.ilog10() as usize + 1;
+
+        //         if off > 0 {
+        //             return format!("\n{addr:#0padding$x} <{label}>:\n{fmt}");
+        //         } else {
+        //             return format!("{addr:#0padding$x} <{label}>:\n{fmt}");
+        //         }
+        //     }
+
+        //     fmt
+        // })
     }
 }
 
@@ -203,15 +262,6 @@ impl<'a, T> Reader<'a, T> {
     }
 }
 
-macro_rules! push_unsafe {
-    ($v:expr, $off:expr, $c:expr) => {
-        unsafe {
-            *$v.get_unchecked_mut($off) = $c;
-            $off += 1;
-        }
-    };
-}
-
 #[rustfmt::skip]
 const ENCODED_NUGGETS: [u8; 16] = [
     b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
@@ -229,6 +279,8 @@ fn reverse_hex_nuggets(mut imm: usize) -> usize {
 }
 
 fn encode_hex(mut imm: i64) -> String {
+    use crate::push_unsafe;
+
     let mut hex = String::with_capacity(20); // max length of an i64
     let raw = unsafe { hex.as_mut_vec() };
     let mut off = 0;
@@ -256,3 +308,8 @@ fn encode_hex(mut imm: i64) -> String {
 }
 
 const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");
+
+const EMPTY_TOKEN: InstructionToken<'static> = InstructionToken {
+    color: crate::colors::WHITE,
+    token: std::borrow::Cow::Borrowed(""),
+};

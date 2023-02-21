@@ -1,6 +1,6 @@
 //! Riscv64gc/Riscv32gc disassembler.
 
-use super::{encode_hex, DecodableInstruction, Error};
+use super::{encode_hex, Error};
 use std::borrow::Cow;
 
 macro_rules! operands {
@@ -17,7 +17,7 @@ macro_rules! operands {
     }};
 }
 
-pub(super) struct Stream<'data> {
+pub struct Stream<'data> {
     pub bytes: &'data [u8],
     pub offset: usize,
     pub width: usize,
@@ -25,44 +25,43 @@ pub(super) struct Stream<'data> {
     pub section_base: usize,
 }
 
-pub(super) struct Instruction {
+pub struct Instruction {
     mnemomic: &'static str,
     operands: [std::borrow::Cow<'static, str>; 3],
     operand_count: usize,
 }
 
-impl DecodableInstruction for Instruction {
-    fn psuedo_decode(&mut self) -> String {
-        if let Some(map_to_psuedo) = PSUEDOS.get(self.mnemomic) {
-            map_to_psuedo(self);
+impl super::DecodableInstruction for Instruction {
+    fn tokenize(mut self) -> super::TokenStream<'static> {
+        let mut tokens = [super::EMPTY_TOKEN; 5];
+        let mut token_count = 1;
+
+        tokens[0] = super::InstructionToken {
+            token: Cow::Borrowed(self.mnemomic),
+            color: crate::colors::WHITE,
+        };
+
+        for idx in 0..self.operand_count {
+            let operand = std::mem::take(&mut self.operands[idx]);
+
+            tokens[token_count] = match operand {
+                Cow::Owned(_) => super::InstructionToken {
+                    token: operand,
+                    color: crate::colors::BLUE,
+                },
+                Cow::Borrowed(_) => super::InstructionToken {
+                    token: operand,
+                    color: crate::colors::MAGENTA,
+                },
+            };
+
+            token_count += 1;
         }
 
-        self.decode()
-    }
-
-    fn decode(&self) -> String {
-        let mut repr = self.mnemomic.to_string();
-        let operands = self.operands();
-
-        if operands.is_empty() {
-            return repr;
+        super::TokenStream {
+            tokens,
+            token_count,
         }
-
-        repr += " ";
-
-        if operands.len() > 1 {
-            for operand in &operands[..operands.len() - 1] {
-                repr += operand;
-                repr += ", ";
-            }
-        }
-
-        repr += &operands[operands.len() - 1];
-        repr
-    }
-
-    fn operands(&self) -> &[std::borrow::Cow<'static, str>] {
-        &self.operands[..self.operand_count]
     }
 }
 
@@ -159,7 +158,13 @@ impl super::Streamable for Stream<'_> {
             self.width = 2;
             self.offset += 2;
 
-            return decoded_inst;
+            return decoded_inst.map(|mut inst| {
+                if let Some(map_to_psuedo) = PSUEDOS.get(inst.mnemomic) {
+                    map_to_psuedo(&mut inst);
+                }
+
+                inst
+            });
         }
 
         let decoded_inst = match opcode {
@@ -256,34 +261,40 @@ impl super::Streamable for Stream<'_> {
         self.width = 4;
         self.offset += 4;
 
-        decoded_inst
+        decoded_inst.map(|mut inst| {
+            if let Some(map_to_psuedo) = PSUEDOS.get(inst.mnemomic) {
+                map_to_psuedo(&mut inst);
+            }
+
+            inst
+        })
     }
 
-    fn format(&self, next: Result<Self::Item, Error>) -> Option<String> {
-        match next {
-            Err(Error::NoBytesLeft) => None,
-            Err(err) => {
-                let mut fmt = String::new();
+    // fn format(&self, next: Result<Self::Item, Error>) -> Option<String> {
+    //     match next {
+    //         Err(Error::NoBytesLeft) => None,
+    //         Err(err) => {
+    //             let mut fmt = String::new();
 
-                let bytes = &self.bytes[self.offset - self.width..][..self.width];
-                let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-                let bytes = bytes.join(" ");
+    //             let bytes = &self.bytes[self.offset - self.width..][..self.width];
+    //             let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+    //             let bytes = bytes.join(" ");
 
-                fmt += &format!("\t{bytes:11}  <{err:?}>");
-                Some(fmt)
-            }
-            Ok(mut inst) => {
-                let mut fmt = String::new();
+    //             fmt += &format!("\t{bytes:11}  <{err:?}>");
+    //             Some(fmt)
+    //         }
+    //         Ok(mut inst) => {
+    //             let mut fmt = String::new();
 
-                let bytes = &self.bytes[self.offset - self.width..][..self.width];
-                let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-                let bytes = bytes.join(" ");
+    //             let bytes = &self.bytes[self.offset - self.width..][..self.width];
+    //             let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+    //             let bytes = bytes.join(" ");
 
-                fmt += &format!("\t{bytes:11}  {}", inst.psuedo_decode());
-                Some(fmt)
-            }
-        }
-    }
+    //             fmt += &format!("\t{bytes:11}  {}", inst.psuedo_decode());
+    //             Some(fmt)
+    //         }
+    //     }
+    // }
 }
 
 // NOTE: registers starting with f have to be floating-point whilst all other are integers
@@ -1135,8 +1146,7 @@ fn decode_double(mnemomic: &'static str, bytes: usize) -> Result<Instruction, Er
 #[rustfmt::skip]
 mod tests {
     use object::{Object, ObjectSection, SectionKind};
-
-    use crate::disassembler::{DecodableInstruction, Streamable};
+    use crate::disassembler::Streamable;
 
     macro_rules! decode_instructions {
         ($code:literal) => {{
@@ -1194,7 +1204,7 @@ mod tests {
             let binary = section.uncompressed_data()?;
             let mut decoded = Vec::new();
             let mut stream = $crate::disassembler::riscv::Stream {
-                bytes: &*binary,
+                bytes: &binary[..],
                 offset: 0,
                 width: 4,
                 is_64: true,
@@ -1203,7 +1213,27 @@ mod tests {
 
             loop {
                 match stream.next() {
-                    Ok(ref mut inst) => decoded.push(inst.psuedo_decode()),
+                    Ok(ref mut inst) => {
+                        let mut fmt = inst.mnemomic.to_string();
+                        let operands = &inst.operands[..inst.operand_count];
+
+                        if operands.is_empty() {
+                            decoded.push(fmt);
+                            continue;
+                        }
+
+                        fmt += " ";
+
+                        if operands.len() > 1 {
+                            for operand in &operands[..operands.len() - 1] {
+                                fmt += operand;
+                                fmt += ", ";
+                            }
+                        }
+
+                        fmt += &operands[operands.len() - 1];
+                        decoded.push(fmt);
+                    },
                     Err($crate::disassembler::Error::NoBytesLeft) => break,
                     Err(..) => decoded.push("????".to_string()),
                 }

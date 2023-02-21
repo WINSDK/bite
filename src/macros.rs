@@ -51,3 +51,13 @@ macro_rules! unchecked_println {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! push_unsafe {
+    ($v:expr, $off:expr, $c:expr) => {
+        unsafe {
+            *$v.get_unchecked_mut($off) = $c;
+            $off += 1;
+        }
+    };
+}

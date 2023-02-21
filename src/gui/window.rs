@@ -235,7 +235,7 @@ impl Backend {
         })
     }
 
-    pub fn redraw(&mut self, fps: usize) -> Result<(), Error> {
+    pub fn redraw(&mut self, ctx: &mut super::RenderContext) -> Result<(), Error> {
         let frame = self
             .surface
             .get_current_texture()
@@ -271,23 +271,92 @@ impl Backend {
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_groups[0], &[]);
-        render_pass.set_vertex_buffer(0, self.vertex_buffers[0].slice(..));
-        render_pass.set_index_buffer(self.index_buffers[0].slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.index_count, 0, 0..1);
+        // render_pass.set_vertex_buffer(0, self.vertex_buffers[0].slice(..));
+        // render_pass.set_index_buffer(self.index_buffers[0].slice(..), wgpu::IndexFormat::Uint16);
+        // render_pass.draw_indexed(0..self.index_count, 0, 0..1);
 
         // required drop because render_pass and queue take a &wgpu::Device
         drop(render_pass);
 
+        // queue fps text
         self.glyph_brush.queue(wgpu_glyph::Section {
             screen_position: (10.0, 10.0),
             bounds: (self.size.width as f32, self.size.height as f32),
-            text: vec![wgpu_glyph::Text::new(&format!("FPS: {fps}"))
-                .with_color([1.0, 1.0, 1.0, 1.0])
+            text: vec![wgpu_glyph::Text::new(&format!("FPS: {}", ctx.fps))
+                .with_color(crate::colors::WHITE)
                 .with_scale(40.0)],
             ..wgpu_glyph::Section::default()
         });
 
-        // draw text
+        if ctx.show_donut {
+            // queue donut text
+            self.glyph_brush.queue(wgpu_glyph::Section {
+                screen_position: (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0),
+                layout: wgpu_glyph::Layout::default()
+                    .h_align(wgpu_glyph::HorizontalAlign::Center)
+                    .v_align(wgpu_glyph::VerticalAlign::Center),
+                text: vec![wgpu_glyph::Text::new(&ctx.donut.frame)
+                    .with_color(crate::colors::WHITE)
+                    .with_scale(20.0)],
+                ..wgpu_glyph::Section::default()
+            });
+        }
+
+        if let Ok(ref mut dissasembly) = ctx.dissasembly.try_lock() {
+            ctx.show_donut = false;
+
+            let pad = "        ";
+            let mut texts = Vec::with_capacity(1024);
+
+            for diss in dissasembly.iter().take(100) {
+                let tokens = diss.tokens();
+
+                // mnemomic
+                texts.push(tokens[0].text());
+
+                // mnemomic padding up to 8 character wide instructions
+                let pad = &pad[std::cmp::min(tokens[0].token.len(), pad.len())..];
+                texts.push(wgpu_glyph::Text::new(pad).with_scale(40.0));
+
+                if tokens.len() > 1 {
+                    // separator
+                    texts.push(
+                        wgpu_glyph::Text::new(" ")
+                            .with_scale(40.0)
+                            .with_color(crate::colors::WHITE),
+                    );
+
+                    if tokens.len() > 2 {
+                        for token in &tokens[..tokens.len() - 1][1..] {
+                            // operand
+                            texts.push(token.text());
+
+                            // separator
+                            texts.push(
+                                wgpu_glyph::Text::new(&", ")
+                                    .with_scale(40.0)
+                                    .with_color(crate::colors::WHITE),
+                            );
+                        }
+                    }
+
+                    // last operand, which doesn't require a comma
+                    texts.push(tokens[tokens.len() - 1].text());
+                }
+
+                // next instruction
+                texts.push(wgpu_glyph::Text::new("\n").with_scale(40.0));
+            }
+
+            // queue assembly listing text
+            self.glyph_brush.queue(wgpu_glyph::Section {
+                screen_position: (200.0, 50.0),
+                text: texts,
+                ..wgpu_glyph::Section::default()
+            });
+        }
+
+        // draw
         self.glyph_brush
             .draw_queued(
                 &self.device,
@@ -330,11 +399,9 @@ impl Backend {
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
-        if size.width > 0 && size.height > 0 {
-            self.size = size;
-            self.surface_cfg.width = std::cmp::max(size.width, super::MIN_REAL_SIZE.width);
-            self.surface_cfg.height = std::cmp::max(size.height, super::MIN_REAL_SIZE.height);
-            self.surface.configure(&self.device, &self.surface_cfg);
-        }
+        self.size = size;
+        self.surface_cfg.width = size.width;
+        self.surface_cfg.height = size.height;
+        self.surface.configure(&self.device, &self.surface_cfg);
     }
 }

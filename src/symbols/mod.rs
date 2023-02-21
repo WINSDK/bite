@@ -595,9 +595,9 @@ impl<'p> Symbol<'p> {
                 self.consume_backref()?;
             }
             b'E' => {}
-            #[cfg(debug_assertions)]
-            _ => panic!("\n{}", String::from_utf8_lossy(self.source.buf)),
-            #[cfg(not(debug_assertions))]
+            // #[cfg(debug_assertions)]
+            // _ => panic!("\n{}", String::from_utf8_lossy(self.source.buf)),
+            // #[cfg(not(debug_assertions))]
             _ => return Err(Error::Invalid),
         }
 

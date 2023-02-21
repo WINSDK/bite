@@ -4,13 +4,16 @@
 compile_error!("Bite can only be build for windows, macos and linux.");
 
 mod args;
+mod colors;
 mod disassembler;
+mod gui;
 mod macros;
 mod symbols;
-mod ui;
 
+use disassembler::InstructionStream;
 use object::{Object, ObjectSection, SectionKind};
 use once_cell::sync::Lazy;
+use std::fs;
 
 static ARGS: Lazy<args::Cli> = Lazy::new(args::Cli::parse);
 static CONFIG: Lazy<symbols::Config> = Lazy::new(symbols::Config::from_env);
@@ -38,14 +41,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .worker_threads(2)
             .build()
             .expect("Failed to start tokio runtime.")
-            .block_on(ui::main())?;
+            .block_on(gui::main())?;
 
         return Ok(());
     }
 
-    let binary = std::fs::read(ARGS.path.as_ref().unwrap())
-        .expect("Unexpected read of binary failed.")
-        .leak();
+    let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
 
     let obj = object::File::parse(&*binary).expect("Failed to parse binary.");
     let symbols = symbols::table::parse(&obj).expect("Failed to parse symbols table.");
@@ -110,11 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         let base_offset = section.address() as usize;
-        let stream =
-            disassembler::InstructionStream::new(&raw, obj.architecture(), base_offset, &symbols);
+        let stream = InstructionStream::new(&raw, obj.architecture(), base_offset, &symbols);
 
         for instruction in stream {
-            unchecked_println!("{instruction}");
+            unchecked_println!("{}", instruction.to_string());
         }
     }
 

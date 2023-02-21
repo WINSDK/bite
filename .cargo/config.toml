@@ -1,2 +1,2 @@
 [build]
-rustflags = ["-Csymbol-mangling-version=v0"]
+rustflags = ["-Csymbol-mangling-version=v0", "-Ctarget-cpu=native"]

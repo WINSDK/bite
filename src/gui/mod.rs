@@ -1,13 +1,19 @@
 mod controls;
+mod donut;
 mod texture;
 mod uniforms;
 mod utils;
 mod window;
 
 use winit::dpi::{PhysicalSize, Size};
-use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, Event, KeyboardInput, ModifiersState, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
+
+use crate::disassembler::{InstructionStream, TokenStream};
+use object::{Object, ObjectSection, SectionKind};
+use std::sync::Arc;
+use std::sync::Mutex;
 
 #[derive(Debug)]
 pub enum Error {
@@ -56,11 +62,22 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+pub struct RenderContext<'src> {
+    fps: usize,
+    donut: donut::Donut,
+    show_donut: bool,
+    timer60: utils::Timer,
+    timer10: utils::Timer,
+    dissasembly: Arc<Mutex<Vec<TokenStream<'src>>>>,
+}
+
 pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
 pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
 
 pub async fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new();
+
+    // generate window
     let window = {
         #[cfg(target_os = "linux")]
         let decode = utils::decode_png_bytes(include_bytes!("../../assets/iconx64.png"));
@@ -76,17 +93,71 @@ pub async fn main() -> Result<(), Error> {
     };
 
     let mut backend = window::Backend::new(&window).await?;
-    let mut keyboard = controls::Keybind::new(VirtualKeyCode::Yen);
+    let mut ctx = RenderContext {
+        fps: 0,
+        donut: donut::Donut::new(true),
+        show_donut: true,
+        timer60: utils::Timer::new(60),
+        timer10: utils::Timer::new(10),
+        dissasembly: Arc::new(Mutex::new(Vec::new())),
+    };
 
-    // frame time
-    let mut frame_timer = std::time::Instant::now();
+    // parse and generate dissasembly
+    let dissasembly = Arc::clone(&ctx.dissasembly);
+    tokio::task::spawn(async move {
+        let mut dissasembly = dissasembly.lock().unwrap();
+        let now = std::time::Instant::now();
 
-    // 100ms time
-    let mut short_timer = std::time::Instant::now();
-    let mut fps = 0;
+        let Some(ref path) = crate::ARGS.path else {
+            return;
+        };
+
+        let binary = std::fs::read(path)
+            .expect("Unexpected read of binary failed.")
+            .leak();
+
+        let obj = object::File::parse(&*binary).expect("Failed to parse binary.");
+        let symbols = Box::leak(Box::new(
+            crate::symbols::table::parse(&obj).expect("Failed to parse symbols table."),
+        ));
+
+        let section = obj
+            .sections()
+            .filter(|s| s.kind() == SectionKind::Text)
+            .find(|t| t.name() == Ok(".text"))
+            .expect("Failed to find `.text` section.");
+
+        let raw = section
+            .uncompressed_data()
+            .expect("Failed to decompress .text section.")
+            .into_owned()
+            .leak();
+
+        let base_offset = section.address() as usize;
+        let stream = InstructionStream::new(&*raw, obj.architecture(), base_offset, &*symbols);
+
+        // TODO: optimize for lazy chunk loading
+        for inst in stream {
+            dissasembly.push(inst);
+        }
+
+        println!("took {:#?} to parse {:?}", now.elapsed(), path);
+    });
+
+    let mut frame_time = std::time::Instant::now();
+    let mut keyboard_modi = ModifiersState::empty();
+    let keybinds = controls::Keybinds::default();
 
     event_loop.run(move |event, _, control| {
-        let controls = controls::Inputs::default();
+        if ctx.timer10.reached() {
+            ctx.fps = (1_000_000_000 / frame_time.elapsed().as_nanos()) as usize;
+            ctx.timer10.reset();
+        }
+
+        if ctx.timer60.reached() {
+            ctx.donut.update_frame();
+            ctx.timer60.reset();
+        }
 
         match event {
             Event::WindowEvent { event, .. } => match event {
@@ -94,7 +165,7 @@ pub async fn main() -> Result<(), Error> {
                     *control = ControlFlow::Exit;
                 }
                 WindowEvent::ModifiersChanged(modi) => {
-                    keyboard.modifier ^= modi;
+                    keyboard_modi ^= modi;
                 }
                 WindowEvent::KeyboardInput {
                     input:
@@ -105,10 +176,10 @@ pub async fn main() -> Result<(), Error> {
                         },
                     ..
                 } => {
-                    keyboard.key = keycode;
+                    let keypress = (keycode, keyboard_modi);
 
                     if state == ElementState::Pressed {
-                        if controls.matching_action(controls::Actions::Maximize, keyboard) {
+                        if keybinds.matching_action(controls::Actions::Maximize, keypress) {
                             if window.fullscreen().is_some() {
                                 window.set_fullscreen(None);
                             } else {
@@ -117,7 +188,7 @@ pub async fn main() -> Result<(), Error> {
                             }
                         }
 
-                        if controls.matching_action(controls::Actions::CloseRequest, keyboard) {
+                        if keybinds.matching_action(controls::Actions::CloseRequest, keypress) {
                             *control = ControlFlow::Exit;
                         }
                     }
@@ -126,14 +197,9 @@ pub async fn main() -> Result<(), Error> {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
-                if short_timer.elapsed().as_millis() > 100 {
-                    fps = (1_000_000_000 / frame_timer.elapsed().as_nanos()) as usize;
-                    short_timer = std::time::Instant::now();
-                }
+                frame_time = std::time::Instant::now();
 
-                frame_timer = std::time::Instant::now();
-
-                if let Err(e) = backend.redraw(fps) {
+                if let Err(e) = backend.redraw(&mut ctx) {
                     eprintln!("Failed to redraw frame, due to {e:?}");
                 }
             }

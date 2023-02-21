@@ -2,7 +2,7 @@ use std::fmt;
 
 use super::{lookup, DecodableInstruction, Error, Reader};
 
-pub(super) struct Stream<'data> {
+pub struct Stream<'data> {
     pub bytes: &'data [u8],
     pub offset: usize,
     pub width: usize,
@@ -12,18 +12,14 @@ pub(super) struct Stream<'data> {
 
 // An Intel/AMD/IA-32 instruction is made up of up to 15 bytes.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Instruction {
+pub struct Instruction {
     rex_prefix: Option<u8>,
     prefixes: [Prefix; 4],
     repr: lookup::X86,
 }
 
 impl DecodableInstruction for Instruction {
-    fn decode(&self) -> String {
-        todo!()
-    }
-
-    fn operands(&self) -> &[std::borrow::Cow<'static, str>] {
+    fn tokenize(self) -> super::TokenStream<'static> {
         todo!()
     }
 }
@@ -152,10 +148,6 @@ impl super::Streamable for Stream<'_> {
             displacement_count += 1;
         }
 
-        todo!()
-    }
-
-    fn format(&self, next: Result<Self::Item, Error>) -> Option<String> {
         todo!()
     }
 }

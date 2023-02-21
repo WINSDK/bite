@@ -1,6 +1,6 @@
 //! MIPS V disassembler.
 
-use super::{DecodableInstruction, Error};
+use super::Error;
 use std::borrow::Cow;
 
 macro_rules! operands {
@@ -35,12 +35,12 @@ enum Format {
     J,
 }
 
-pub(super) struct Stream<'data> {
+pub struct Stream<'data> {
     pub bytes: &'data [u8],
     pub offset: usize,
 }
 
-pub(super) struct Instruction {
+pub struct Instruction {
     mnemomic: &'static str,
     operands: [std::borrow::Cow<'static, str>; 3],
     operand_count: usize,
@@ -54,27 +54,36 @@ struct TableInstruction {
 }
 
 impl super::DecodableInstruction for Instruction {
-    fn decode(&self) -> String {
-        let mut repr = self.mnemomic.to_string();
-        let operands = self.operands();
+    fn tokenize(mut self) -> super::TokenStream<'static> {
+        let mut tokens = [super::EMPTY_TOKEN; 5];
+        let mut token_count = 1;
 
-        if !operands.is_empty() {
-            repr += " ";
+        tokens[0] = super::InstructionToken {
+            token: Cow::Borrowed(self.mnemomic),
+            color: crate::colors::WHITE,
+        };
+
+        for idx in 0..self.operand_count {
+            let operand = std::mem::take(&mut self.operands[idx]);
+
+            tokens[token_count] = match operand {
+                Cow::Owned(_) => super::InstructionToken {
+                    token: operand,
+                    color: crate::colors::BLUE,
+                },
+                Cow::Borrowed(_) => super::InstructionToken {
+                    token: operand,
+                    color: crate::colors::MAGENTA,
+                },
+            };
+
+            token_count += 1;
         }
 
-        if operands.len() > 1 {
-            for operand in &operands[..operands.len() - 1] {
-                repr += operand;
-                repr += ", ";
-            }
+        super::TokenStream {
+            tokens,
+            token_count,
         }
-
-        repr += &operands[operands.len() - 1];
-        repr
-    }
-
-    fn operands(&self) -> &[std::borrow::Cow<'static, str>] {
-        &self.operands[..self.operand_count]
     }
 }
 
@@ -222,37 +231,6 @@ impl super::Streamable for Stream<'_> {
                     operands,
                     operand_count,
                 })
-            }
-        }
-    }
-
-    fn format(&self, next: Result<Self::Item, Error>) -> Option<String> {
-        match next {
-            Err(Error::NoBytesLeft) => None,
-            Err(err) => {
-                let mut fmt = String::new();
-
-                let bytes = &self.bytes[self.offset - 4..][..4];
-                let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-
-                let bytes = bytes.join(" ");
-
-                fmt += &format!("\t{bytes:11}  <{err:?}>");
-
-                Some(fmt)
-            }
-            Ok(mut inst) => {
-                let mut fmt = String::new();
-
-                let bytes = &self.bytes[self.offset - 4..][..4];
-                let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-
-                let bytes = bytes.join(" ");
-
-                fmt += &format!("\t{bytes:11}  {}", inst.psuedo_decode());
-                Some(fmt)
-
-                // Some(self.section_base + self.offset, fmt))
             }
         }
     }
