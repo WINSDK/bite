@@ -420,9 +420,11 @@ impl Backend {
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
-        self.size = size;
-        self.surface_cfg.width = size.width;
-        self.surface_cfg.height = size.height;
-        self.surface.configure(&self.device, &self.surface_cfg);
+        if size.width > 0 && size.height > 0 {
+            self.size = size;
+            self.surface_cfg.width = size.width;
+            self.surface_cfg.height = size.height;
+            self.surface.configure(&self.device, &self.surface_cfg);
+        }
     }
 }

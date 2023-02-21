@@ -183,28 +183,13 @@ impl<'data> Iterator for InstructionStream<'data> {
         };
 
         let label = self.symbols.get(&(section_base + offset)).map(|l| l.to_string());
+
         Some(Line {
             section_base,
             offset,
             label,
             tokens
         })
-
-        // fmt.map(|fmt| {
-        //     let addr = base + off;
-
-        //     if let Some(label) = self.symbols.get(&addr) {
-        //         let padding = self.stream_size.ilog10() as usize + 1;
-
-        //         if off > 0 {
-        //             return format!("\n{addr:#0padding$x} <{label}>:\n{fmt}");
-        //         } else {
-        //             return format!("{addr:#0padding$x} <{label}>:\n{fmt}");
-        //         }
-        //     }
-
-        //     fmt
-        // })
     }
 }
 
