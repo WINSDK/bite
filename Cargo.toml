@@ -24,7 +24,7 @@ git = "https://github.com/WINSDK/wgpu_glyph.git"
 
 [profile.release]
 strip = true
-lto = "thin"
+# lto = "thin"
 panic = "abort"
 
 [dev-dependencies]

@@ -308,8 +308,26 @@ impl Backend {
             let pad = "        ";
             let mut texts = Vec::with_capacity(1024);
 
-            for diss in dissasembly.iter().take(100) {
-                let tokens = diss.tokens();
+            for line in dissasembly.iter().take(100) {
+                if let Some(ref label) = line.label {
+                    let mut text = Vec::new();
+
+                    // shitty hack
+                    texts.push(wgpu_glyph::Text::new("\n").with_scale(40.0));
+                    text.push(
+                        wgpu_glyph::OwnedText::new(format!("<{label}>:\n"))
+                            .with_scale(40.0)
+                            .with_color(crate::colors::TEAL),
+                    );
+
+                    self.glyph_brush.queue(&wgpu_glyph::OwnedSection {
+                        screen_position: (10.0, 50.0),
+                        text,
+                        ..wgpu_glyph::OwnedSection::default()
+                    });
+                }
+
+                let tokens = line.tokens();
 
                 // mnemomic
                 texts.push(tokens[0].text());
@@ -320,11 +338,7 @@ impl Backend {
 
                 if tokens.len() > 1 {
                     // separator
-                    texts.push(
-                        wgpu_glyph::Text::new(" ")
-                            .with_scale(40.0)
-                            .with_color(crate::colors::WHITE),
-                    );
+                    texts.push(wgpu_glyph::Text::new(" ").with_scale(40.0));
 
                     if tokens.len() > 2 {
                         for token in &tokens[..tokens.len() - 1][1..] {
@@ -333,7 +347,7 @@ impl Backend {
 
                             // separator
                             texts.push(
-                                wgpu_glyph::Text::new(&", ")
+                                wgpu_glyph::Text::new(", ")
                                     .with_scale(40.0)
                                     .with_color(crate::colors::WHITE),
                             );

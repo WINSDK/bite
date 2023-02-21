@@ -59,7 +59,7 @@ impl super::DecodableInstruction for Instruction {
         }
 
         super::TokenStream {
-            tokens,
+            inner: tokens,
             token_count,
         }
     }

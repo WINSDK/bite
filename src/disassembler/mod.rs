@@ -50,22 +50,24 @@ impl<'a> InstructionToken<'a> {
 }
 
 pub struct TokenStream<'a> {
-    tokens: [InstructionToken<'a>; 5],
+    inner: [InstructionToken<'a>; 5],
     token_count: usize,
 }
 
-impl TokenStream<'_> {
-    pub fn tokens(&self) -> &[InstructionToken] {
-        &self.tokens[..self.token_count]
-    }
+pub struct Line<'a> {
+    pub section_base: usize,
+    pub offset: usize,
+    pub label: Option<String>,
+    tokens: TokenStream<'a>,
 }
 
-impl ToString for TokenStream<'_> {
+impl ToString for Line<'_> {
     fn to_string(&self) -> String {
         let mut fmt = String::with_capacity(30);
-        let operands = &self.tokens[1..][..self.token_count - 1];
+        let tokens = self.tokens();
+        let operands = &tokens[1..];
 
-        fmt += &self.tokens[0].token;
+        fmt += &tokens[0].token;
 
         if operands.is_empty() {
             return fmt;
@@ -85,10 +87,15 @@ impl ToString for TokenStream<'_> {
     }
 }
 
+impl Line<'_> {
+    pub fn tokens(&self) -> &[InstructionToken] {
+        &self.tokens.inner[..self.tokens.token_count]
+    }
+}
+
 pub struct InstructionStream<'data> {
     inner: InternalInstructionStream<'data>,
     symbols: &'data BTreeMap<usize, Cow<'data, str>>,
-    stream_size: usize,
 }
 
 enum InternalInstructionStream<'data> {
@@ -130,35 +137,36 @@ impl<'data> InstructionStream<'data> {
         Self {
             inner,
             symbols,
-            stream_size: bytes.len(),
         }
     }
 }
 
 impl<'data> Iterator for InstructionStream<'data> {
-    type Item = TokenStream<'data>;
+    type Item = Line<'data>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // let mut base = 0;
-        // let mut off = 0;
+        let mut section_base = 0;
+        let mut offset;
 
         let tokens = match self.inner {
             InternalInstructionStream::Riscv(ref mut stream) => {
-                // base = stream.section_base;
-                // off = stream.offset;
-                // off.checked_sub(stream.width).unwrap_or(0);
+                section_base = stream.section_base;
+                offset = stream.offset;
+                offset = offset.saturating_sub(stream.width);
+
                 stream.next().map(|i| i.tokenize())
             }
             InternalInstructionStream::Mips(ref mut stream) => {
-                // off = stream.offset;
-                // off.checked_sub(4).unwrap_or(0);
+                offset = stream.offset;
+                offset = offset.saturating_sub(4);
+
                 stream.next().map(|i| i.tokenize())
             }
         };
 
-        match tokens {
-            Ok(tokens) => Some(tokens),
-            Err(Error::NoBytesLeft) => None,
+        let tokens = match tokens {
+            Ok(tokens) => tokens,
+            Err(Error::NoBytesLeft) => return None,
             Err(err) => {
                 let mut tokens = [EMPTY_TOKEN; 5];
 
@@ -167,12 +175,20 @@ impl<'data> Iterator for InstructionStream<'data> {
                     color: crate::colors::RED,
                 };
 
-                Some(TokenStream {
-                    tokens,
+                TokenStream {
+                    inner: tokens,
                     token_count: 1,
-                })
+                }
             }
-        }
+        };
+
+        let label = self.symbols.get(&(section_base + offset)).map(|l| l.to_string());
+        Some(Line {
+            section_base,
+            offset,
+            label,
+            tokens
+        })
 
         // fmt.map(|fmt| {
         //     let addr = base + off;

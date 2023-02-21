@@ -11,13 +11,14 @@ macro_rules! color {
 pub const WHITE: Color = color!(0xff, 0xff, 0xff);
 pub const BLUE: Color = color!(0x0f, 0x62, 0xfe);
 pub const MAGENTA: Color = color!(0xf5, 0x12, 0x81);
-pub const RED: Color = color!(0xda, 0x1e, 0x28);
+pub const RED: Color = color!(0xff, 0x00, 0x0b);
+pub const TEAL: Color = color!(0x00, 0x5d, 0x5d);
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color([f32; 4]);
 
-impl Into<[f32; 4]> for Color {
-    fn into(self) -> [f32; 4] {
-        self.0
+impl From<Color> for [f32; 4] {
+    fn from(val: Color) -> Self {
+        val.0
     }
 }

@@ -10,7 +10,7 @@ use winit::event::{ElementState, Event, KeyboardInput, ModifiersState, WindowEve
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
 
-use crate::disassembler::{InstructionStream, TokenStream};
+use crate::disassembler::{InstructionStream, Line};
 use object::{Object, ObjectSection, SectionKind};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -68,7 +68,7 @@ pub struct RenderContext<'src> {
     show_donut: bool,
     timer60: utils::Timer,
     timer10: utils::Timer,
-    dissasembly: Arc<Mutex<Vec<TokenStream<'src>>>>,
+    dissasembly: Arc<Mutex<Vec<Line<'src>>>>,
 }
 
 pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
@@ -134,7 +134,7 @@ pub async fn main() -> Result<(), Error> {
             .leak();
 
         let base_offset = section.address() as usize;
-        let stream = InstructionStream::new(&*raw, obj.architecture(), base_offset, &*symbols);
+        let stream = InstructionStream::new(raw, obj.architecture(), base_offset, symbols);
 
         // TODO: optimize for lazy chunk loading
         for inst in stream {

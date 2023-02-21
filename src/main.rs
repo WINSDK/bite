@@ -1,4 +1,5 @@
 #![allow(clippy::unusual_byte_groupings)]
+#![allow(clippy::needless_range_loop)]
 
 #[cfg(not(any(target_family = "windows", target_family = "unix")))]
 compile_error!("Bite can only be build for windows, macos and linux.");
