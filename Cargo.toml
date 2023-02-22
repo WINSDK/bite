@@ -18,6 +18,7 @@ naga = { version = "0.11", features = ["glsl-in", "spv-out"] }
 tokio = { version = "1.25", features = ["rt-multi-thread", "net", "fs", "io-util", "macros"] }
 png = "0.17.7"
 ab_glyph = "0.2.20"
+rfd = { version = "0.11", features = ["xdg-portal"], default-features = false }
 
 [dependencies.wgpu_glyph]
 git = "https://github.com/WINSDK/wgpu_glyph.git"

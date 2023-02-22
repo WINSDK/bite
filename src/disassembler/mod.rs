@@ -134,10 +134,7 @@ impl<'data> InstructionStream<'data> {
             _ => todo!(),
         };
 
-        Self {
-            inner,
-            symbols,
-        }
+        Self { inner, symbols }
     }
 }
 
@@ -182,13 +179,16 @@ impl<'data> Iterator for InstructionStream<'data> {
             }
         };
 
-        let label = self.symbols.get(&(section_base + offset)).map(|l| l.to_string());
+        let label = self
+            .symbols
+            .get(&(section_base + offset))
+            .map(|l| l.to_string());
 
         Some(Line {
             section_base,
             offset,
             label,
-            tokens
+            tokens,
         })
     }
 }

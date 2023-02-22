@@ -11,8 +11,6 @@ use naga::{
     valid::{Capabilities, ValidationFlags, Validator},
 };
 
-use winit::dpi::PhysicalSize;
-
 pub struct Timer {
     start: std::time::Instant,
     ups: usize,
@@ -232,11 +230,14 @@ pub fn generate_window(
     event_loop: &winit::event_loop::EventLoop<()>,
 ) -> Result<winit::window::Window, Error> {
     use winit::platform::windows::{WindowBuilderExtWindows, WindowExtWindows, HWND};
+    use winit::dpi::PhysicalSize;
 
+    const GWL_EXSTYLE: i32 = -20;
     const GWL_STYLE: i32 = -16;
     const WS_POPUP: isize = 2147483648;
     const WS_VISIBLE: isize = 268435456;
     const WS_THICKFRAME: isize = 262144;
+    const WS_EX_ACCEPTFILES: isize = 16;
 
     extern "system" {
         fn SetWindowLongPtrW(handle: HWND, idx: i32, dw_new_long: isize) -> isize;
@@ -254,22 +255,27 @@ pub fn generate_window(
     let window = winit::window::WindowBuilder::new()
         .with_title(title)
         .with_decorations(true)
-        .with_drag_and_drop(true)
         .with_taskbar_icon(icon.clone())
         .with_window_icon(icon)
         .with_min_inner_size(super::MIN_WIN_SIZE)
         .build(event_loop)
         .map_err(|_| Error::WindowCreation)?;
 
-    let PhysicalSize{ width, height } = window.available_monitors().next().unwrap().size();
+    let PhysicalSize { width, height } = window.available_monitors().next().unwrap().size();
 
     unsafe {
+        // set basic window attributes
         let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
-
         if SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr) == 0 {
             return Err(Error::WindowCreation);
         }
 
+        // set extended window attributes
+        if SetWindowLongPtrW(window.hwnd(), GWL_EXSTYLE, WS_EX_ACCEPTFILES) == 0 {
+            return Err(Error::WindowCreation);
+        }
+
+        // resize window to some reasonable dimensions, whilst applying the window attributes
         if SetWindowPos(window.hwnd(), 0, 0, 0, width * 2 / 5, height * 2 / 3, 0) == 0 {
             return Err(Error::WindowCreation);
         }

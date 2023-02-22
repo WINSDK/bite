@@ -153,7 +153,7 @@ impl Cli {
         if !self.gui {
             assert_exit!(
                 self.disassemble ^ self.libs ^ self.names,
-                "Invalid combination of arguements."
+                "Invalid combination of arguements.\n\n{HELP}"
             );
         }
     }

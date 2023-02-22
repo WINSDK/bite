@@ -1,5 +1,6 @@
 use super::{uniforms, Error};
 use std::mem::size_of;
+use std::sync::atomic::Ordering;
 
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
@@ -288,7 +289,7 @@ impl Backend {
             ..wgpu_glyph::Section::default()
         });
 
-        if ctx.show_donut {
+        if ctx.show_donut.load(Ordering::Relaxed) {
             // queue donut text
             self.glyph_brush.queue(wgpu_glyph::Section {
                 screen_position: (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0),
@@ -303,7 +304,7 @@ impl Backend {
         }
 
         if let Ok(ref mut dissasembly) = ctx.dissasembly.try_lock() {
-            ctx.show_donut = false;
+            ctx.show_donut.store(false, Ordering::Relaxed);
 
             let pad = "        ";
             let mut texts = Vec::with_capacity(1024);

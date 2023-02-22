@@ -6,14 +6,16 @@ mod utils;
 mod window;
 
 use winit::dpi::{PhysicalSize, Size};
-use winit::event::{ElementState, Event, KeyboardInput, ModifiersState, WindowEvent};
+use winit::event::{
+    ElementState, Event, KeyboardInput, ModifiersState, VirtualKeyCode, WindowEvent,
+};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
 
 use crate::disassembler::{InstructionStream, Line};
 use object::{Object, ObjectSection, SectionKind};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub enum Error {
@@ -65,54 +67,24 @@ impl std::error::Error for Error {}
 pub struct RenderContext<'src> {
     fps: usize,
     donut: donut::Donut,
-    show_donut: bool,
+    show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
     timer10: utils::Timer,
     dissasembly: Arc<Mutex<Vec<Line<'src>>>>,
 }
 
-pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
-pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
-
-pub async fn main() -> Result<(), Error> {
-    let event_loop = EventLoop::new();
-
-    // generate window
-    let window = {
-        #[cfg(target_os = "linux")]
-        let decode = utils::decode_png_bytes(include_bytes!("../../assets/iconx64.png"));
-        #[cfg(any(target_os = "windows", target_os = "macos"))]
-        let decode = utils::decode_png_bytes(include_bytes!("../../assets/iconx256.png"));
-
-        let mut icon = None;
-        if let Ok(png) = decode {
-            icon = winit::window::Icon::from_rgba(png.data, png.width, png.height).ok();
-        }
-
-        utils::generate_window("bite", icon, &event_loop)?
-    };
-
-    let mut backend = window::Backend::new(&window).await?;
-    let mut ctx = RenderContext {
-        fps: 0,
-        donut: donut::Donut::new(true),
-        show_donut: true,
-        timer60: utils::Timer::new(60),
-        timer10: utils::Timer::new(10),
-        dissasembly: Arc::new(Mutex::new(Vec::new())),
-    };
-
-    // parse and generate dissasembly
-    let dissasembly = Arc::clone(&ctx.dissasembly);
-    tokio::task::spawn(async move {
+fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
+    dissasembly: Arc<Mutex<Vec<Line<'static>>>>,
+    show_donut: Arc<AtomicBool>,
+    path: P,
+) {
+    tokio::spawn(async move {
         let mut dissasembly = dissasembly.lock().unwrap();
+        show_donut.store(true, Ordering::Relaxed);
+
         let now = std::time::Instant::now();
 
-        let Some(ref path) = crate::ARGS.path else {
-            return;
-        };
-
-        let binary = std::fs::read(path)
+        let binary = std::fs::read(&path)
             .expect("Unexpected read of binary failed.")
             .leak();
 
@@ -141,12 +113,51 @@ pub async fn main() -> Result<(), Error> {
             dissasembly.push(inst);
         }
 
-        println!("took {:#?} to parse {:?}", now.elapsed(), path);
+        println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
     });
+}
+
+pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
+pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
+
+pub async fn main() -> Result<(), Error> {
+    let event_loop = EventLoop::new();
+
+    // generate window
+    let window = {
+        #[cfg(target_os = "linux")]
+        let decode = utils::decode_png_bytes(include_bytes!("../../assets/iconx64.png"));
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        let decode = utils::decode_png_bytes(include_bytes!("../../assets/iconx256.png"));
+
+        let mut icon = None;
+        if let Ok(png) = decode {
+            icon = winit::window::Icon::from_rgba(png.data, png.width, png.height).ok();
+        }
+
+        utils::generate_window("bite", icon, &event_loop)?
+    };
+
+    let mut backend = window::Backend::new(&window).await?;
+    let mut ctx = RenderContext {
+        fps: 0,
+        donut: donut::Donut::new(true),
+        show_donut: Arc::new(AtomicBool::new(false)),
+        timer60: utils::Timer::new(60),
+        timer10: utils::Timer::new(10),
+        dissasembly: Arc::new(Mutex::new(Vec::new())),
+    };
+
+    if let Some(ref path) = crate::ARGS.path {
+        load_dissasembly(
+            Arc::clone(&ctx.dissasembly),
+            Arc::clone(&ctx.show_donut),
+            path,
+        );
+    }
 
     let mut frame_time = std::time::Instant::now();
-    let mut keyboard_modi = ModifiersState::empty();
-    let keybinds = controls::Keybinds::default();
+    let mut keyboard = controls::KeyMap::new();
 
     event_loop.run(move |event, _, control| {
         if ctx.timer10.reached() {
@@ -161,12 +172,8 @@ pub async fn main() -> Result<(), Error> {
 
         match event {
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => {
-                    *control = ControlFlow::Exit;
-                }
-                WindowEvent::ModifiersChanged(modi) => {
-                    keyboard_modi ^= modi;
-                }
+                WindowEvent::CloseRequested => *control = ControlFlow::Exit,
+                WindowEvent::ModifiersChanged(modi) => keyboard.press_modifiers(modi),
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {
@@ -175,25 +182,18 @@ pub async fn main() -> Result<(), Error> {
                             ..
                         },
                     ..
-                } => {
-                    let keypress = (keycode, keyboard_modi);
-
-                    if state == ElementState::Pressed {
-                        if keybinds.matching_action(controls::Actions::Maximize, keypress) {
-                            if window.fullscreen().is_some() {
-                                window.set_fullscreen(None);
-                            } else {
-                                let handle = window.current_monitor();
-                                window.set_fullscreen(Some(Fullscreen::Borderless(handle)));
-                            }
-                        }
-
-                        if keybinds.matching_action(controls::Actions::CloseRequest, keypress) {
-                            *control = ControlFlow::Exit;
-                        }
-                    }
-                }
+                } => match state {
+                    ElementState::Pressed => keyboard.press_key(keycode),
+                    ElementState::Released => keyboard.release(keycode),
+                },
                 WindowEvent::Resized(size) => backend.resize(size),
+                WindowEvent::DroppedFile(path) => {
+                    load_dissasembly(
+                        Arc::clone(&ctx.dissasembly),
+                        Arc::clone(&ctx.show_donut),
+                        path,
+                    );
+                }
                 _ => (),
             },
             Event::RedrawRequested(_) => {
@@ -203,7 +203,37 @@ pub async fn main() -> Result<(), Error> {
                     eprintln!("Failed to redraw frame, due to {e:?}");
                 }
             }
-            Event::MainEventsCleared => window.request_redraw(),
+            Event::MainEventsCleared => {
+                if keyboard.pressed(VirtualKeyCode::O, ModifiersState::CTRL) {
+                    keyboard.release(VirtualKeyCode::O);
+
+                    // create dialog popup and get references to the donut and dissasembly
+                    let dialog = rfd::AsyncFileDialog::new().set_parent(&window).pick_file();
+                    let show_donut = Arc::clone(&ctx.show_donut);
+                    let dissasembly = Arc::clone(&ctx.dissasembly);
+
+                    tokio::spawn(async move {
+                        if let Some(file) = dialog.await {
+                            load_dissasembly(dissasembly, show_donut, file.path().to_path_buf());
+                        }
+                    });
+                }
+
+                if keyboard.pressed(VirtualKeyCode::F, ModifiersState::CTRL) {
+                    if window.fullscreen().is_some() {
+                        window.set_fullscreen(None);
+                    } else {
+                        let handle = window.current_monitor();
+                        window.set_fullscreen(Some(Fullscreen::Borderless(handle)));
+                    }
+                }
+
+                if keyboard.pressed(VirtualKeyCode::Q, ModifiersState::CTRL) {
+                    *control = ControlFlow::Exit;
+                }
+
+                window.request_redraw();
+            }
             _ => (),
         }
     })
