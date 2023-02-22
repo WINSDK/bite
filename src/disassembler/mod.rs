@@ -12,6 +12,9 @@ use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub enum Error {
+    /// Either the target architecture isn't supported yet or won't be.
+    UnsupportedArchitecture,
+
     /// Instruction stream is empty.
     NoBytesLeft,
 
@@ -109,7 +112,7 @@ impl<'data> InstructionStream<'data> {
         arch: Architecture,
         section_base: usize,
         symbols: &'data BTreeMap<usize, Cow<'data, str>>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let inner = match arch {
             Architecture::Mips => {
                 InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0 })
@@ -131,10 +134,10 @@ impl<'data> InstructionStream<'data> {
                 is_64: true,
                 section_base,
             }),
-            _ => todo!(),
+            _ => return Err(Error::UnsupportedArchitecture),
         };
 
-        Self { inner, symbols }
+        Ok(Self { inner, symbols })
     }
 }
 

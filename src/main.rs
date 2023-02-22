@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
 
-    let obj = object::File::parse(&*binary).expect("Failed to parse binary.");
+    let obj = object::File::parse(&*binary).expect("Not a valid object.");
     let symbols = symbols::table::parse(&obj).expect("Failed to parse symbols table.");
     let path = ARGS.path.as_ref().unwrap().display();
 
@@ -112,7 +112,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         let base_offset = section.address() as usize;
-        let stream = InstructionStream::new(&raw, obj.architecture(), base_offset, &symbols);
+        let stream = match InstructionStream::new(&raw, obj.architecture(), base_offset, &symbols) {
+            Err(err) => exit!("Failed to disassemble: {err:?}"),
+            Ok(stream) => stream,
+        };
 
         for instruction in stream {
             unchecked_println!("{}", instruction.to_string());

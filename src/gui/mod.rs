@@ -78,35 +78,38 @@ fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
     show_donut: Arc<AtomicBool>,
     path: P,
 ) {
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let mut dissasembly = dissasembly.lock().unwrap();
         show_donut.store(true, Ordering::Relaxed);
 
         let now = std::time::Instant::now();
 
         let binary = std::fs::read(&path)
-            .expect("Unexpected read of binary failed.")
+            .map_err(|_| "Unexpected read of binary failed.")?
             .leak();
 
-        let obj = object::File::parse(&*binary).expect("Failed to parse binary.");
+        let obj = object::File::parse(&*binary).map_err(|_| "Not a valid object.")?;
         let symbols = Box::leak(Box::new(
-            crate::symbols::table::parse(&obj).expect("Failed to parse symbols table."),
+            crate::symbols::table::parse(&obj).map_err(|_| "Failed to parse symbols table.")?,
         ));
 
         let section = obj
             .sections()
             .filter(|s| s.kind() == SectionKind::Text)
             .find(|t| t.name() == Ok(".text"))
-            .expect("Failed to find `.text` section.");
+            .ok_or("Failed to find `.text` section.")?;
 
         let raw = section
             .uncompressed_data()
-            .expect("Failed to decompress .text section.")
+            .map_err(|_| "Failed to decompress .text section.")?
             .into_owned()
             .leak();
 
         let base_offset = section.address() as usize;
-        let stream = InstructionStream::new(raw, obj.architecture(), base_offset, symbols);
+        let stream = match InstructionStream::new(raw, obj.architecture(), base_offset, symbols) {
+            Err(..) => return Err("Failed to disassemble: UnsupportedArchitecture."),
+            Ok(stream) => stream,
+        };
 
         // TODO: optimize for lazy chunk loading
         for inst in stream {
@@ -114,6 +117,16 @@ fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
         }
 
         println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
+
+        Ok::<(), &'static str>(())
+    });
+
+    tokio::spawn(async move {
+        match task.await {
+            Ok(Err(err)) => eprintln!("{err}"),
+            Err(err) => eprintln!("{err:?}"),
+            _ => {}
+        }
     });
 }
 
