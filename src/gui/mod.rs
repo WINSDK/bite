@@ -262,7 +262,7 @@ pub async fn main() -> Result<(), Error> {
                     #[cfg(target_family = "windows")]
                     unsafe {
                         use utils::windows::*;
-                        use winit::platform::windows::{WindowExtWindows, MonitorHandleExtWindows};
+                        use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
 
                         let mut info = MonitorInfo {
                             size: std::mem::size_of::<MonitorInfo>() as u32,
@@ -310,10 +310,10 @@ pub async fn main() -> Result<(), Error> {
                     }
 
                     #[cfg(target_family = "unix")]
-                    match window.fullscreen() {
-                        Some(..) => window.set_fullscreen(None),
-                        None => window.set_fullscreen(Some(Fullscreen::Borderless(monitor)))
-                    }
+                    window.set_fullscreen(match window.fullscreen() {
+                        Some(..) => None,
+                        None => Some(winit::window::Fullscreen::Borderless(Some(monitor))),
+                    });
                 }
 
                 if keyboard.pressed(VirtualKeyCode::Minus, ModifiersState::CTRL) {
