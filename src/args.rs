@@ -63,6 +63,13 @@ impl Cli {
         };
 
         let mut args = std::env::args().skip(1).peekable();
+
+        // start the gui when no arguements are given
+        if args.peek().is_none() {
+            cli.gui = true;
+            return cli;
+        }
+
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "-H" | "--help" => exit!(fail, "{HELP}"),

@@ -215,12 +215,13 @@ pub mod windows {
 
     pub const GWL_EXSTYLE: i32 = -20;
     pub const GWL_STYLE: i32 = -16;
+    pub const SWP_NOZORDER: i32 = 4;
     pub const WS_POPUP: isize = 2147483648;
     pub const WS_VISIBLE: isize = 268435456;
     pub const WS_THICKFRAME: isize = 262144;
     pub const WS_EX_ACCEPTFILES: isize = 16;
     pub const WS_OVERLAPPED: isize = 0;
-    pub const SWP_NOZORDER: i32 = 4;
+    pub const HWND_NOTOPMOST: isize = -2;
 
     #[repr(C)]
     #[derive(Default)]
@@ -240,7 +241,6 @@ pub mod windows {
     }
 
     extern "system" {
-        pub fn GetWindowLongPtrW(handle: HWND, idx: i32) -> isize;
         pub fn SetWindowLongPtrW(handle: HWND, idx: i32, dw_new_long: isize) -> isize;
         pub fn SetWindowPos(
             handle: HWND,
@@ -249,7 +249,7 @@ pub mod windows {
             y: u32,
             cx: u32,
             cy: u32,
-            uflags: i32,
+            flags: i32,
         ) -> i32;
         pub fn GetMonitorInfoW(monitor: HMONITOR, info: &mut MonitorInfo) -> i32;
     }
@@ -310,7 +310,7 @@ pub fn generate_window(
         let height = height * 2 / 3;
 
         // resize window to some reasonable dimensions, whilst applying the window attributes
-        if SetWindowPos(window.hwnd(), 0, 0, 0, width, height, SWP_NOZORDER) == 0 {
+        if SetWindowPos(window.hwnd(), HWND_NOTOPMOST, 0, 0, width, height, SWP_NOZORDER) == 0 {
             return Err(Error::WindowCreation);
         }
     }

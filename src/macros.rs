@@ -9,11 +9,39 @@ macro_rules! exit {
     };
 
     (fail, $($arg:tt)*) => {{
+        #[cfg(target_family = "windows")]
+        unsafe {
+            use winit::platform::windows::HWND;
+
+            extern "system" {
+                fn MessageBoxA(handle: HWND, text: *const i8, title: *const i8, flags: i32) -> i32;
+            }
+
+            let title = std::ffi::CString::new("Bite failed at runtime").unwrap();
+            let msg = std::ffi::CString::new(format!($($arg)*).as_str()).unwrap();
+
+            MessageBoxA(0, msg.as_ptr(), title.as_ptr(), 0);
+        }
+
         eprintln!($($arg)*);
         std::process::exit(1);
     }};
 
     ($($arg:tt)*) => {{
+        #[cfg(target_family = "windows")]
+        unsafe {
+            use winit::platform::windows::HWND;
+
+            extern "system" {
+                fn MessageBoxA(handle: HWND, text: *const i8, title: *const i8, flags: i32) -> i32;
+            }
+
+            let title = std::ffi::CString::new("Bite failed at runtime").unwrap();
+            let msg = std::ffi::CString::new(format!($($arg)*).as_str()).unwrap();
+
+            MessageBoxA(0, msg.as_ptr(), title.as_ptr(), 0);
+        }
+
         eprintln!($($arg)*);
         std::process::exit(0);
     }};

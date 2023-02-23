@@ -269,32 +269,6 @@ impl super::Streamable for Stream<'_> {
             inst
         })
     }
-
-    // fn format(&self, next: Result<Self::Item, Error>) -> Option<String> {
-    //     match next {
-    //         Err(Error::NoBytesLeft) => None,
-    //         Err(err) => {
-    //             let mut fmt = String::new();
-
-    //             let bytes = &self.bytes[self.offset - self.width..][..self.width];
-    //             let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-    //             let bytes = bytes.join(" ");
-
-    //             fmt += &format!("\t{bytes:11}  <{err:?}>");
-    //             Some(fmt)
-    //         }
-    //         Ok(mut inst) => {
-    //             let mut fmt = String::new();
-
-    //             let bytes = &self.bytes[self.offset - self.width..][..self.width];
-    //             let bytes: Vec<String> = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-    //             let bytes = bytes.join(" ");
-
-    //             fmt += &format!("\t{bytes:11}  {}", inst.psuedo_decode());
-    //             Some(fmt)
-    //         }
-    //     }
-    // }
 }
 
 // NOTE: registers starting with f have to be floating-point whilst all other are integers

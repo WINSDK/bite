@@ -1,5 +1,6 @@
 #![allow(clippy::unusual_byte_groupings)]
 #![allow(clippy::needless_range_loop)]
+#![cfg_attr(all(not(debug_assertions), target_family = "windows"), windows_subsystem = "windows")]
 
 #[cfg(not(any(target_family = "windows", target_family = "unix")))]
 compile_error!("Bite can only be build for windows, macos and linux.");
@@ -22,15 +23,35 @@ static CONFIG: Lazy<symbols::Config> = Lazy::new(symbols::Config::from_env);
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
     std::panic::set_hook(Box::new(|details| {
+        let mut panic_msg = String::new();
+
         if let Some(msg) = details.payload().downcast_ref::<String>() {
-            return unchecked_println!("{msg}");
+            panic_msg = msg.to_string();
         }
 
         if let Some(msg) = details.payload().downcast_ref::<&str>() {
-            return unchecked_println!("{msg}");
+            panic_msg = msg.to_string();
         }
 
-        unchecked_println!("Panic occurred.")
+        if panic_msg.is_empty() {
+            panic_msg = "Panic occurred.".to_string();
+        }
+
+        #[cfg(target_family = "windows")]
+        unsafe {
+            use winit::platform::windows::HWND;
+
+            extern "system" {
+                fn MessageBoxA(handle: HWND, text: *const i8, title: *const i8, flags: i32) -> i32;
+            }
+
+            let title = std::ffi::CString::new("Bite failed at runtime").unwrap();
+            let msg = std::ffi::CString::new(panic_msg.as_str()).unwrap();
+
+            MessageBoxA(0, msg.as_ptr(), title.as_ptr(), 0);
+        }
+
+        unchecked_println!("{panic_msg}");
     }));
 }
 
@@ -38,11 +59,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
     if ARGS.gui {
-        tokio::runtime::Builder::new_multi_thread()
+        let result = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .build()
             .expect("Failed to start tokio runtime.")
-            .block_on(gui::main())?;
+            .block_on(gui::main());
+
+        if let Err(err) = result {
+            panic!("{err:?}");
+        }
 
         return Ok(());
     }
