@@ -177,6 +177,7 @@ pub async fn main() -> Result<(), Error> {
 
     let mut frame_time = std::time::Instant::now();
     let mut keyboard = controls::KeyMap::new();
+    let mut unwindowed_size = window.outer_size();
 
     event_loop.run(move |event, _, control| {
         if ctx.timer10.reached() {
@@ -289,8 +290,8 @@ pub async fn main() -> Result<(), Error> {
                                 0,
                                 info.work_area.left,
                                 info.work_area.top,
-                                width * 2 / 5,
-                                height * 2 / 3,
+                                unwindowed_size.width,
+                                unwindowed_size.height,
                                 SWP_NOZORDER,
                             );
                         } else {
@@ -306,6 +307,8 @@ pub async fn main() -> Result<(), Error> {
                                 work_area_height,
                                 SWP_NOZORDER,
                             );
+
+                            unwindowed_size = PhysicalSize { width, height };
                         }
                     }
 
