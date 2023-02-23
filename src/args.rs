@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{assert_exit, exit};
+use crate::{assert_exit, fail};
 
 const HELP: &str = "OVERVIEW: Decompilation tool
 
@@ -72,7 +72,7 @@ impl Cli {
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "-H" | "--help" => exit!(fail, "{HELP}"),
+                "-H" | "--help" => fail!("{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
                 "-N" | "--names" => {
                     cli.names = true;
@@ -110,7 +110,7 @@ impl Cli {
                         }
                     }
 
-                    exit!(fail, "Missing path to a config.");
+                    fail!("Missing path to a config.");
                 }
                 unknown => {
                     let mut distance = u32::MAX;
@@ -125,12 +125,9 @@ impl Cli {
 
                     // A guess that's less than 3 `steps` away from a correct arg.
                     if distance < 4 {
-                        exit!(
-                            fail,
-                            "Unknown cmd arg '{unknown}' did you mean '{best_guess}'?"
-                        );
+                        fail!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
                     } else {
-                        exit!(fail, "Unknown cmd arg '{unknown}' was entered.");
+                        fail!("Unknown cmd arg '{unknown}' was entered.");
                     }
                 }
             }

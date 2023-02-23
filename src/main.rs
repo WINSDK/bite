@@ -23,35 +23,15 @@ static CONFIG: Lazy<symbols::Config> = Lazy::new(symbols::Config::from_env);
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
     std::panic::set_hook(Box::new(|details| {
-        let mut panic_msg = String::new();
-
         if let Some(msg) = details.payload().downcast_ref::<String>() {
-            panic_msg = msg.to_string();
+            fail!("{msg}");
         }
 
         if let Some(msg) = details.payload().downcast_ref::<&str>() {
-            panic_msg = msg.to_string();
+            fail!("{msg}");
         }
 
-        if panic_msg.is_empty() {
-            panic_msg = "Panic occurred.".to_string();
-        }
-
-        #[cfg(target_family = "windows")]
-        unsafe {
-            use winit::platform::windows::HWND;
-
-            extern "system" {
-                fn MessageBoxA(handle: HWND, text: *const i8, title: *const i8, flags: i32) -> i32;
-            }
-
-            let title = std::ffi::CString::new("Bite failed at runtime").unwrap();
-            let msg = std::ffi::CString::new(panic_msg.as_str()).unwrap();
-
-            MessageBoxA(0, msg.as_ptr(), title.as_ptr(), 0);
-        }
-
-        unchecked_println!("{panic_msg}");
+        fail!("Panic occurred.");
     }));
 }
 
@@ -82,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let imports = obj.imports().expect("Failed to resolve any symbols.");
 
         if imports.is_empty() {
-            exit!("Object \"{path}\" doesn't import anything.");
+            exit!("Object \"{path}\" doesn't seem to import anything.");
         }
 
         println!("{path}:");
@@ -102,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if ARGS.names {
         if symbols.is_empty() {
-            exit!(fail, "Object \"{path}\" doesn't export any symbols.");
+            exit!("Object \"{path}\" doesn't seem to export any symbols.");
         }
 
         for symbol in symbols.values() {
@@ -138,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let base_offset = section.address() as usize;
         let stream = match InstructionStream::new(&raw, obj.architecture(), base_offset, &symbols) {
-            Err(err) => exit!("Failed to disassemble: {err:?}"),
+            Err(err) => fail!("Failed to disassemble: {err:?}"),
             Ok(stream) => stream,
         };
 

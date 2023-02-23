@@ -14,6 +14,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 
 use crate::disassembler::{InstructionStream, Line};
 use object::{Object, ObjectSection, SectionKind};
+use once_cell::sync::OnceCell;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -137,6 +139,9 @@ fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
 pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
 pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
 
+
+pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
+
 pub async fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new();
 
@@ -151,8 +156,10 @@ pub async fn main() -> Result<(), Error> {
             icon = winit::window::Icon::from_rgba(png.data, png.width, png.height).ok();
         }
 
-        utils::generate_window("bite", icon, &event_loop)?
+        Arc::new(utils::generate_window("bite", icon, &event_loop)?)
     };
+
+    WINDOW.set(Arc::clone(&window)).unwrap();
 
     let mut backend = window::Backend::new(&window).await?;
     let mut ctx = RenderContext {
@@ -243,7 +250,7 @@ pub async fn main() -> Result<(), Error> {
                     keyboard.release(VirtualKeyCode::O);
 
                     // create dialog popup and get references to the donut and dissasembly
-                    let dialog = rfd::AsyncFileDialog::new().set_parent(&window).pick_file();
+                    let dialog = rfd::AsyncFileDialog::new().set_parent(&*window).pick_file();
                     let show_donut = Arc::clone(&ctx.show_donut);
                     let dissasembly = Arc::clone(&ctx.dissasembly);
 

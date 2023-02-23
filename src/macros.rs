@@ -4,42 +4,37 @@ macro_rules! exit {
         std::process::exit(0)
     };
 
-    (fail) => {
-        std::process::exit(1)
-    };
+    ($($arg:tt)*) => {{
+        if let Some(window) = $crate::gui::WINDOW.get() {
+            let window = std::sync::Arc::clone(&window);
 
-    (fail, $($arg:tt)*) => {{
-        #[cfg(target_family = "windows")]
-        unsafe {
-            use winit::platform::windows::HWND;
-
-            extern "system" {
-                fn MessageBoxA(handle: HWND, text: *const i8, title: *const i8, flags: i32) -> i32;
-            }
-
-            let title = std::ffi::CString::new("Bite failed at runtime").unwrap();
-            let msg = std::ffi::CString::new(format!($($arg)*).as_str()).unwrap();
-
-            MessageBoxA(0, msg.as_ptr(), title.as_ptr(), 0);
+            rfd::MessageDialog::new()
+                .set_title("Bite failed at runtime")
+                .set_description(format!($($arg)*).as_str())
+                .set_parent(&*window)
+                .show();
         }
 
         eprintln!($($arg)*);
-        std::process::exit(1);
+        std::process::exit(0);
     }};
+}
+
+#[macro_export]
+macro_rules! fail {
+    () => {
+        std::process::exit(1)
+    };
 
     ($($arg:tt)*) => {{
-        #[cfg(target_family = "windows")]
-        unsafe {
-            use winit::platform::windows::HWND;
+        if let Some(window) = $crate::gui::WINDOW.get() {
+            let window = std::sync::Arc::clone(&window);
 
-            extern "system" {
-                fn MessageBoxA(handle: HWND, text: *const i8, title: *const i8, flags: i32) -> i32;
-            }
-
-            let title = std::ffi::CString::new("Bite failed at runtime").unwrap();
-            let msg = std::ffi::CString::new(format!($($arg)*).as_str()).unwrap();
-
-            MessageBoxA(0, msg.as_ptr(), title.as_ptr(), 0);
+            rfd::MessageDialog::new()
+                .set_title("Bite failed at runtime")
+                .set_description(format!($($arg)*).as_str())
+                .set_parent(&*window)
+                .show();
         }
 
         eprintln!($($arg)*);
