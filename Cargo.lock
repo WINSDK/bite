@@ -176,6 +176,7 @@ dependencies = [
  "wgpu",
  "wgpu_glyph",
  "winit",
+ "winres",
 ]
 
 [[package]]
@@ -2247,6 +2248,15 @@ dependencies = [
  "web-sys",
  "windows-sys 0.45.0",
  "x11-dl",
+]
+
+[[package]]
+name = "winres"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b68db261ef59e9e52806f688020631e987592bd83619edccda9c47d42cde4f6c"
+dependencies = [
+ "toml",
 ]
 
 [[package]]

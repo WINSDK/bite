@@ -30,3 +30,6 @@ panic = "abort"
 
 [dev-dependencies]
 crc = "3.0"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
