@@ -178,6 +178,7 @@ pub async fn main() -> Result<(), Error> {
     let mut frame_time = std::time::Instant::now();
     let mut keyboard = controls::KeyMap::new();
     let mut unwindowed_size = window.outer_size();
+    let mut unwindowed_pos = window.outer_position().unwrap_or_default();
 
     event_loop.run(move |event, _, control| {
         if ctx.timer10.reached() {
@@ -288,14 +289,17 @@ pub async fn main() -> Result<(), Error> {
                             SetWindowPos(
                                 window.hwnd(),
                                 0,
-                                info.work_area.left,
-                                info.work_area.top,
+                                unwindowed_pos.x as u32,
+                                unwindowed_pos.y as u32,
                                 unwindowed_size.width,
                                 unwindowed_size.height,
                                 SWP_NOZORDER,
                             );
                         } else {
                             let attr = WS_VISIBLE | WS_OVERLAPPED;
+
+                            unwindowed_size = window.outer_size();
+                            unwindowed_pos = window.outer_position().unwrap_or_default();
 
                             SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
                             SetWindowPos(
@@ -307,8 +311,6 @@ pub async fn main() -> Result<(), Error> {
                                 work_area_height,
                                 SWP_NOZORDER,
                             );
-
-                            unwindowed_size = PhysicalSize { width, height };
                         }
                     }
 
