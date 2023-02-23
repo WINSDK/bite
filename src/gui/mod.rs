@@ -5,9 +5,10 @@ mod uniforms;
 mod utils;
 mod window;
 
-use winit::dpi::{PhysicalSize, Size};
+use winit::dpi::{PhysicalPosition, PhysicalSize, Size};
 use winit::event::{
-    ElementState, Event, KeyboardInput, ModifiersState, VirtualKeyCode, WindowEvent,
+    ElementState, Event, KeyboardInput, ModifiersState, MouseScrollDelta, VirtualKeyCode,
+    WindowEvent,
 };
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
@@ -71,6 +72,7 @@ pub struct RenderContext<'src> {
     timer60: utils::Timer,
     timer10: utils::Timer,
     dissasembly: Arc<Mutex<Vec<Line<'src>>>>,
+    listing_offset: f64,
 }
 
 fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
@@ -159,6 +161,7 @@ pub async fn main() -> Result<(), Error> {
         timer60: utils::Timer::new(60),
         timer10: utils::Timer::new(10),
         dissasembly: Arc::new(Mutex::new(Vec::new())),
+        listing_offset: 0.0,
     };
 
     if let Some(ref path) = crate::ARGS.path {
@@ -207,7 +210,16 @@ pub async fn main() -> Result<(), Error> {
                         path,
                     );
                 }
-                _ => (),
+                WindowEvent::MouseWheel { delta, .. } => {
+                    let delta = -match delta {
+                        // I'm assuming a line is about 100 pixels
+                        MouseScrollDelta::LineDelta(_, scroll) => scroll as f64 * 100.0,
+                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => scroll
+                    };
+
+                    ctx.listing_offset = f64::max(0.0, ctx.listing_offset + delta);
+                },
+                _ => {}
             },
             Event::RedrawRequested(_) => {
                 frame_time = std::time::Instant::now();

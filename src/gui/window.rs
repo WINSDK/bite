@@ -290,6 +290,8 @@ impl Backend {
         });
 
         if ctx.show_donut.load(Ordering::Relaxed) {
+            ctx.listing_offset = 0.0;
+
             // queue donut text
             self.glyph_brush.queue(wgpu_glyph::Section {
                 screen_position: (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0),
@@ -303,82 +305,7 @@ impl Backend {
             });
         }
 
-        if let Ok(ref mut dissasembly) = ctx.dissasembly.try_lock() {
-            ctx.show_donut.store(false, Ordering::Relaxed);
-
-            let pad = "        ";
-            let mut texts = Vec::with_capacity(1024);
-
-            for line in dissasembly.iter().take(100) {
-                if let Some(ref label) = line.label {
-                    if line.offset > 0 {
-                        texts.push(wgpu_glyph::Text::new("\n").with_scale(40.0));
-                    }
-
-                    texts.push(
-                        wgpu_glyph::Text::new("<")
-                            .with_scale(40.0)
-                            .with_color(crate::colors::TEAL),
-                    );
-                    texts.push(
-                        wgpu_glyph::Text::new(label)
-                            .with_scale(40.0)
-                            .with_color(crate::colors::TEAL),
-                    );
-                    texts.push(
-                        wgpu_glyph::Text::new(">:\n")
-                            .with_scale(40.0)
-                            .with_color(crate::colors::TEAL),
-                    );
-                }
-
-                let tokens = line.tokens();
-
-                // pad
-                texts.push(wgpu_glyph::Text::new("        ").with_scale(40.0));
-
-                // mnemomic
-                texts.push(tokens[0].text());
-
-                // mnemomic padding up to 8 character wide instructions
-                let pad = &pad[std::cmp::min(tokens[0].token.len(), pad.len())..];
-                texts.push(wgpu_glyph::Text::new(pad).with_scale(40.0));
-
-                if tokens.len() > 1 {
-                    // separator
-                    texts.push(wgpu_glyph::Text::new(" ").with_scale(40.0));
-
-                    if tokens.len() > 2 {
-                        for token in &tokens[..tokens.len() - 1][1..] {
-                            // operand
-                            texts.push(token.text());
-
-                            // separator
-                            texts.push(
-                                wgpu_glyph::Text::new(", ")
-                                    .with_scale(40.0)
-                                    .with_color(crate::colors::WHITE),
-                            );
-                        }
-                    }
-
-                    // last operand, which doesn't require a comma
-                    texts.push(tokens[tokens.len() - 1].text());
-                }
-
-                // next instruction
-                texts.push(wgpu_glyph::Text::new("\n").with_scale(40.0));
-            }
-
-            // queue assembly listing text
-            self.glyph_brush.queue(wgpu_glyph::Section {
-                screen_position: (10.0, 50.0),
-                text: texts,
-                ..wgpu_glyph::Section::default()
-            });
-        }
-
-        // draw
+        // draw donut/fps
         self.glyph_brush
             .draw_queued(
                 &self.device,
@@ -390,22 +317,105 @@ impl Backend {
             )
             .map_err(Error::DrawText)?;
 
-        // draw clipped text
-        // self.glyph_brush
-        //     .draw_queued_with_transform_and_scissoring(
-        //         &self.device,
-        //         &mut self.staging_belt,
-        //         &mut encoder,
-        //         &view,
-        //         wgpu_glyph::orthographic_projection(self.size.width, self.size.height),
-        //         wgpu_glyph::Region {
-        //             x: 40,
-        //             y: 105,
-        //             width: 200,
-        //             height: 15,
-        //         },
-        //     )
-        //     .map_err(Error::DrawText)?;
+        if let Ok(ref mut dissasembly) = ctx.dissasembly.try_lock() {
+            ctx.show_donut.store(false, Ordering::Relaxed);
+
+            let pad = "        ";
+            let mut texts = Vec::with_capacity(1024);
+            let char_size = 40.0;
+
+            let lines = (self.size.height as f32 / char_size).ceil() as usize;
+
+            for line in dissasembly[(ctx.listing_offset / 40.0) as usize..].iter().take(lines) {
+                if let Some(ref label) = line.label {
+                    if line.offset > 0 {
+                        texts.push(wgpu_glyph::Text::new("\n").with_scale(char_size));
+                    }
+
+                    texts.push(
+                        wgpu_glyph::Text::new("<")
+                            .with_scale(char_size)
+                            .with_color(crate::colors::TEAL),
+                    );
+                    texts.push(
+                        wgpu_glyph::Text::new(label)
+                            .with_scale(char_size)
+                            .with_color(crate::colors::TEAL),
+                    );
+                    texts.push(
+                        wgpu_glyph::Text::new(">:\n")
+                            .with_scale(char_size)
+                            .with_color(crate::colors::TEAL),
+                    );
+                }
+
+                let tokens = line.tokens();
+
+                // pad
+                texts.push(wgpu_glyph::Text::new("        ").with_scale(char_size));
+
+                // mnemomic
+                texts.push(tokens[0].text());
+
+                // mnemomic padding up to 8 character wide instructions
+                let pad = &pad[std::cmp::min(tokens[0].token.len(), pad.len())..];
+                texts.push(wgpu_glyph::Text::new(pad).with_scale(char_size));
+
+                if tokens.len() > 1 {
+                    // separator
+                    texts.push(wgpu_glyph::Text::new(" ").with_scale(char_size));
+
+                    if tokens.len() > 2 {
+                        for token in &tokens[..tokens.len() - 1][1..] {
+                            // operand
+                            texts.push(token.text());
+
+                            // separator
+                            texts.push(
+                                wgpu_glyph::Text::new(", ")
+                                    .with_scale(char_size)
+                                    .with_color(crate::colors::WHITE),
+                            );
+                        }
+                    }
+
+                    // last operand, which doesn't require a comma
+                    texts.push(tokens[tokens.len() - 1].text());
+                }
+
+                // next instruction
+                texts.push(wgpu_glyph::Text::new("\n").with_scale(char_size));
+            }
+
+            // queue assembly listing text
+            self.glyph_brush.queue(wgpu_glyph::Section {
+                screen_position: (10.0, 50.0),
+                text: texts,
+                ..wgpu_glyph::Section::default()
+            });
+
+            let per = ctx.listing_offset as f32 % char_size;
+
+            let mut proj = glam::mat4(
+                glam::vec4(2.0 / self.size.width as f32, 0.0, 0.0, 0.0),
+                glam::vec4(0.0, -2.0 / self.size.height as f32, 0.0, 0.0),
+                glam::vec4(0.0, 0.0, 1.0, 0.0),
+                glam::vec4(-1.0, 1.0, 0.0, 1.0),
+            );
+
+            proj *= glam::Mat4::from_translation(glam::Vec3::new(0.0, -per, 0.0));
+
+            // draw assembly listing
+            self.glyph_brush
+                .draw_queued_with_transform(
+                    &self.device,
+                    &mut self.staging_belt,
+                    &mut encoder,
+                    &view,
+                    *proj.as_ref(),
+                )
+                .map_err(Error::DrawText)?;
+        }
 
         // submit work
         self.staging_belt.finish();
