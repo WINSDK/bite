@@ -11,7 +11,6 @@ use winit::event::{
     WindowEvent,
 };
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::Fullscreen;
 
 use crate::disassembler::{InstructionStream, Line};
 use object::{Object, ObjectSection, SectionKind};
@@ -73,7 +72,8 @@ pub struct RenderContext<'src> {
     timer10: utils::Timer,
     dissasembly: Arc<Mutex<Vec<Line<'src>>>>,
     listing_offset: f64,
-    scale: f32,
+    scale_factor: f32,
+    font_size: f32,
 }
 
 fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
@@ -140,7 +140,6 @@ pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
 pub async fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new();
 
-    // generate window
     let window = {
         #[cfg(target_os = "linux")]
         let decode = utils::decode_png_bytes(include_bytes!("../../assets/iconx64.png"));
@@ -164,7 +163,8 @@ pub async fn main() -> Result<(), Error> {
         timer10: utils::Timer::new(10),
         dissasembly: Arc::new(Mutex::new(Vec::new())),
         listing_offset: 0.0,
-        scale: 20.0
+        scale_factor: window.scale_factor() as f32,
+        font_size: 20.0,
     };
 
     if let Some(ref path) = crate::ARGS.path {
@@ -204,7 +204,7 @@ pub async fn main() -> Result<(), Error> {
                         },
                     ..
                 } => match state {
-                    ElementState::Pressed => keyboard.press_key(keycode),
+                    ElementState::Pressed => keyboard.press(keycode),
                     ElementState::Released => keyboard.release(keycode),
                 },
                 WindowEvent::Resized(size) => backend.resize(size),
@@ -219,11 +219,14 @@ pub async fn main() -> Result<(), Error> {
                     let delta = -match delta {
                         // I'm assuming a line is about 100 pixels
                         MouseScrollDelta::LineDelta(_, scroll) => scroll as f64 * 100.0,
-                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => scroll
+                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => scroll,
                     };
 
                     ctx.listing_offset = f64::max(0.0, ctx.listing_offset + delta);
-                },
+                }
+                WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                    ctx.scale_factor = scale_factor as f32;
+                }
                 _ => {}
             },
             Event::RedrawRequested(_) => {
@@ -250,24 +253,75 @@ pub async fn main() -> Result<(), Error> {
                 }
 
                 if keyboard.pressed(VirtualKeyCode::F, ModifiersState::CTRL) {
-                    if window.fullscreen().is_some() {
-                        window.set_fullscreen(None);
-                    } else {
-                        let handle = window.current_monitor();
-                        window.set_fullscreen(Some(Fullscreen::Borderless(handle)));
+                    keyboard.release(VirtualKeyCode::F);
+
+                    let Some(monitor) = window.current_monitor() else {
+                        return;
+                    };
+
+                    #[cfg(target_family = "windows")]
+                    unsafe {
+                        use utils::windows::*;
+                        use winit::platform::windows::{WindowExtWindows, MonitorHandleExtWindows};
+
+                        let mut info = MonitorInfo {
+                            size: std::mem::size_of::<MonitorInfo>() as u32,
+                            monitor_area: Rect::default(),
+                            work_area: Rect::default(),
+                            flags: 0,
+                        };
+
+                        if GetMonitorInfoW(monitor.hmonitor(), &mut info) == 0 {
+                            return;
+                        }
+
+                        let PhysicalSize { width, height } = window.outer_size();
+                        let work_area_width = info.work_area.right - info.work_area.left;
+                        let work_area_height = info.work_area.bottom - info.work_area.top;
+
+                        // check if the window is fullscreen borderless
+                        if width == work_area_width && height == work_area_height {
+                            let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
+
+                            SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
+                            SetWindowPos(
+                                window.hwnd(),
+                                0,
+                                info.work_area.left,
+                                info.work_area.top,
+                                width * 2 / 5,
+                                height * 2 / 3,
+                                SWP_NOZORDER,
+                            );
+                        } else {
+                            let attr = WS_VISIBLE | WS_OVERLAPPED;
+
+                            SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
+                            SetWindowPos(
+                                window.hwnd(),
+                                0,
+                                info.work_area.left,
+                                info.work_area.top,
+                                work_area_width,
+                                work_area_height,
+                                SWP_NOZORDER,
+                            );
+                        }
+                    }
+
+                    #[cfg(target_family = "unix")]
+                    match window.fullscreen() {
+                        Some(..) => window.set_fullscreen(None),
+                        None => window.set_fullscreen(Some(Fullscreen::Borderless(monitor)))
                     }
                 }
 
-                if keyboard.pressed(VirtualKeyCode::Q, ModifiersState::CTRL) {
-                    *control = ControlFlow::Exit;
-                }
-
                 if keyboard.pressed(VirtualKeyCode::Minus, ModifiersState::CTRL) {
-                    ctx.scale = f32::clamp(ctx.scale / 1.025, 5.0, 50.0);
+                    ctx.scale_factor = f32::clamp(ctx.scale_factor / 1.025, 0.5, 10.0);
                 }
 
                 if keyboard.pressed(VirtualKeyCode::Equals, ModifiersState::CTRL) {
-                    ctx.scale = f32::clamp(ctx.scale * 1.025, 5.0, 50.0);
+                    ctx.scale_factor = f32::clamp(ctx.scale_factor * 1.025, 0.5, 10.0);
                 }
 
                 window.request_redraw();

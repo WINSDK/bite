@@ -13,7 +13,7 @@ impl KeyMap {
         }
     }
 
-    pub fn press_key(&mut self, keycode: VirtualKeyCode) {
+    pub fn press(&mut self, keycode: VirtualKeyCode) {
         self.pressed[keycode as usize] = true;
     }
 
