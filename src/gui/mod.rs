@@ -73,6 +73,7 @@ pub struct RenderContext<'src> {
     timer10: utils::Timer,
     dissasembly: Arc<Mutex<Vec<Line<'src>>>>,
     listing_offset: f64,
+    scale: f32,
 }
 
 fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
@@ -119,6 +120,7 @@ fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
         }
 
         println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
+        show_donut.store(false, Ordering::Relaxed);
 
         Ok::<(), &'static str>(())
     });
@@ -162,6 +164,7 @@ pub async fn main() -> Result<(), Error> {
         timer10: utils::Timer::new(10),
         dissasembly: Arc::new(Mutex::new(Vec::new())),
         listing_offset: 0.0,
+        scale: 20.0
     };
 
     if let Some(ref path) = crate::ARGS.path {
@@ -181,9 +184,11 @@ pub async fn main() -> Result<(), Error> {
             ctx.timer10.reset();
         }
 
-        if ctx.timer60.reached() {
-            ctx.donut.update_frame();
-            ctx.timer60.reset();
+        if ctx.show_donut.load(Ordering::Relaxed) {
+            if ctx.timer60.reached() {
+                ctx.donut.update_frame();
+                ctx.timer60.reset();
+            }
         }
 
         match event {
@@ -255,6 +260,14 @@ pub async fn main() -> Result<(), Error> {
 
                 if keyboard.pressed(VirtualKeyCode::Q, ModifiersState::CTRL) {
                     *control = ControlFlow::Exit;
+                }
+
+                if keyboard.pressed(VirtualKeyCode::Minus, ModifiersState::CTRL) {
+                    ctx.scale = f32::clamp(ctx.scale / 1.025, 5.0, 50.0);
+                }
+
+                if keyboard.pressed(VirtualKeyCode::Equals, ModifiersState::CTRL) {
+                    ctx.scale = f32::clamp(ctx.scale * 1.025, 5.0, 50.0);
                 }
 
                 window.request_redraw();

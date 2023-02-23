@@ -285,7 +285,7 @@ impl Backend {
             bounds: (self.size.width as f32, self.size.height as f32),
             text: vec![wgpu_glyph::Text::new(&format!("FPS: {}", ctx.fps))
                 .with_color(crate::colors::WHITE)
-                .with_scale(40.0)],
+                .with_scale(ctx.scale)],
             ..wgpu_glyph::Section::default()
         });
 
@@ -318,33 +318,35 @@ impl Backend {
             .map_err(Error::DrawText)?;
 
         if let Ok(ref mut dissasembly) = ctx.dissasembly.try_lock() {
-            ctx.show_donut.store(false, Ordering::Relaxed);
-
             let pad = "        ";
-            let mut texts = Vec::with_capacity(1024);
-            let char_size = 40.0;
+            let line_count = (self.size.height as f32 / ctx.scale).ceil() as usize;
+            let mut texts = Vec::with_capacity(line_count * 10);
 
-            let lines = (self.size.height as f32 / char_size).ceil() as usize;
+            let listing = dissasembly
+                .get((ctx.listing_offset / ctx.scale as f64) as usize..)
+                .unwrap_or(dissasembly)
+                .get(..line_count)
+                .unwrap_or(dissasembly);
 
-            for line in dissasembly[(ctx.listing_offset / 40.0) as usize..].iter().take(lines) {
+            for line in listing {
                 if let Some(ref label) = line.label {
                     if line.offset > 0 {
-                        texts.push(wgpu_glyph::Text::new("\n").with_scale(char_size));
+                        texts.push(wgpu_glyph::Text::new("\n").with_scale(ctx.scale));
                     }
 
                     texts.push(
                         wgpu_glyph::Text::new("<")
-                            .with_scale(char_size)
+                            .with_scale(ctx.scale)
                             .with_color(crate::colors::TEAL),
                     );
                     texts.push(
                         wgpu_glyph::Text::new(label)
-                            .with_scale(char_size)
+                            .with_scale(ctx.scale)
                             .with_color(crate::colors::TEAL),
                     );
                     texts.push(
                         wgpu_glyph::Text::new(">:\n")
-                            .with_scale(char_size)
+                            .with_scale(ctx.scale)
                             .with_color(crate::colors::TEAL),
                     );
                 }
@@ -352,39 +354,39 @@ impl Backend {
                 let tokens = line.tokens();
 
                 // pad
-                texts.push(wgpu_glyph::Text::new("        ").with_scale(char_size));
+                texts.push(wgpu_glyph::Text::new("        ").with_scale(ctx.scale));
 
                 // mnemomic
-                texts.push(tokens[0].text());
+                texts.push(tokens[0].text(ctx.scale));
 
                 // mnemomic padding up to 8 character wide instructions
                 let pad = &pad[std::cmp::min(tokens[0].token.len(), pad.len())..];
-                texts.push(wgpu_glyph::Text::new(pad).with_scale(char_size));
+                texts.push(wgpu_glyph::Text::new(pad).with_scale(ctx.scale));
 
                 if tokens.len() > 1 {
                     // separator
-                    texts.push(wgpu_glyph::Text::new(" ").with_scale(char_size));
+                    texts.push(wgpu_glyph::Text::new(" ").with_scale(ctx.scale));
 
                     if tokens.len() > 2 {
                         for token in &tokens[..tokens.len() - 1][1..] {
                             // operand
-                            texts.push(token.text());
+                            texts.push(token.text(ctx.scale));
 
                             // separator
                             texts.push(
                                 wgpu_glyph::Text::new(", ")
-                                    .with_scale(char_size)
+                                    .with_scale(ctx.scale)
                                     .with_color(crate::colors::WHITE),
                             );
                         }
                     }
 
                     // last operand, which doesn't require a comma
-                    texts.push(tokens[tokens.len() - 1].text());
+                    texts.push(tokens[tokens.len() - 1].text(ctx.scale));
                 }
 
                 // next instruction
-                texts.push(wgpu_glyph::Text::new("\n").with_scale(char_size));
+                texts.push(wgpu_glyph::Text::new("\n").with_scale(ctx.scale));
             }
 
             // queue assembly listing text
@@ -394,8 +396,6 @@ impl Backend {
                 ..wgpu_glyph::Section::default()
             });
 
-            let per = ctx.listing_offset as f32 % char_size;
-
             let mut proj = glam::mat4(
                 glam::vec4(2.0 / self.size.width as f32, 0.0, 0.0, 0.0),
                 glam::vec4(0.0, -2.0 / self.size.height as f32, 0.0, 0.0),
@@ -403,7 +403,11 @@ impl Backend {
                 glam::vec4(-1.0, 1.0, 0.0, 1.0),
             );
 
-            proj *= glam::Mat4::from_translation(glam::Vec3::new(0.0, -per, 0.0));
+            proj *= glam::Mat4::from_translation(glam::Vec3::new(
+                0.0,
+                -ctx.listing_offset as f32 % ctx.scale,
+                0.0,
+            ));
 
             // draw assembly listing
             self.glyph_brush
@@ -412,7 +416,7 @@ impl Backend {
                     &mut self.staging_belt,
                     &mut encoder,
                     &view,
-                    *proj.as_ref(),
+                    proj.to_cols_array(),
                 )
                 .map_err(Error::DrawText)?;
         }

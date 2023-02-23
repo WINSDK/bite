@@ -45,10 +45,10 @@ pub struct InstructionToken<'a> {
 }
 
 impl<'a> InstructionToken<'a> {
-    pub fn text(&'a self) -> wgpu_glyph::Text<'a> {
+    pub fn text(&'a self, scale: f32) -> wgpu_glyph::Text<'a> {
         wgpu_glyph::Text::new(&self.token)
             .with_color(self.color)
-            .with_scale(40.0)
+            .with_scale(scale)
     }
 }
 
