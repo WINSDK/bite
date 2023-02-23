@@ -289,10 +289,10 @@ pub fn generate_window(
         .build(event_loop)
         .map_err(|_| Error::WindowCreation)?;
 
-    let PhysicalSize {
-        mut width,
-        mut height,
-    } = window.available_monitors().next().unwrap().size();
+    let PhysicalSize { width, height } = window
+        .current_monitor()
+        .ok_or(Error::WindowCreation)?
+        .size();
 
     unsafe {
         // set basic window attributes
@@ -306,8 +306,8 @@ pub fn generate_window(
             return Err(Error::WindowCreation);
         }
 
-        width = width * 2 / 5;
-        height = height * 2 / 3;
+        let width = width * 2 / 5;
+        let height = height * 2 / 3;
 
         // resize window to some reasonable dimensions, whilst applying the window attributes
         if SetWindowPos(window.hwnd(), 0, 0, 0, width, height, SWP_NOZORDER) == 0 {
