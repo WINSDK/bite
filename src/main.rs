@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         let base_offset = section.address() as usize;
-        let stream = match InstructionStream::new(&raw, obj.architecture(), base_offset, &symbols) {
+        let stream = match InstructionStream::new(&raw, obj.architecture(), base_offset) {
             Err(err) => fail!("Failed to disassemble: {err:?}"),
             Ok(stream) => stream,
         };

@@ -10,7 +10,6 @@ use object::Architecture;
 use object::{Object, ObjectSection, SectionKind};
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -57,12 +56,9 @@ impl Dissasembly {
                 .await
                 .map_err(|_| "Unexpected read of binary failed.")?;
 
-            let mut symbols = self.symbols.lock().unwrap();
-            let mut lines = self.lines.lock().unwrap();
-
             let obj = object::File::parse(&*binary).map_err(|_| "Not a valid object.")?;
 
-            *symbols =
+            *self.symbols.lock().unwrap() =
                 crate::symbols::table::parse(&obj).map_err(|_| "Failed to parse symbols table.")?;
 
             let section = obj
@@ -78,13 +74,13 @@ impl Dissasembly {
                 .leak();
 
             let base_offset = section.address() as usize;
-            let stream =
-                match InstructionStream::new(raw, obj.architecture(), base_offset, &symbols) {
-                    Err(..) => return Err("Failed to disassemble: UnsupportedArchitecture."),
-                    Ok(stream) => stream,
-                };
+            let stream = match InstructionStream::new(raw, obj.architecture(), base_offset) {
+                Err(..) => return Err("Failed to disassemble: UnsupportedArchitecture."),
+                Ok(stream) => stream,
+            };
 
             // TODO: optimize for lazy chunk loading
+            let mut lines = self.lines.lock().unwrap();
             for inst in stream {
                 lines.push(inst);
             }
@@ -137,7 +133,6 @@ pub struct TokenStream {
 pub struct Line {
     pub section_base: usize,
     pub offset: usize,
-    pub label: Option<String>,
     tokens: TokenStream,
 }
 
@@ -175,7 +170,6 @@ impl Line {
 
 pub struct InstructionStream<'data> {
     inner: InternalInstructionStream<'data>,
-    symbols: &'data BTreeMap<usize, String>,
 }
 
 enum InternalInstructionStream<'data> {
@@ -184,12 +178,7 @@ enum InternalInstructionStream<'data> {
 }
 
 impl<'data> InstructionStream<'data> {
-    pub fn new(
-        bytes: &'data [u8],
-        arch: Architecture,
-        section_base: usize,
-        symbols: &'data BTreeMap<usize, String>,
-    ) -> Result<Self, Error> {
+    pub fn new(bytes: &'data [u8], arch: Architecture, section_base: usize) -> Result<Self, Error> {
         let inner = match arch {
             Architecture::Mips => {
                 InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0 })
@@ -214,7 +203,7 @@ impl<'data> InstructionStream<'data> {
             _ => return Err(Error::UnsupportedArchitecture),
         };
 
-        Ok(Self { inner, symbols })
+        Ok(Self { inner })
     }
 }
 
@@ -259,12 +248,9 @@ impl Iterator for InstructionStream<'_> {
             }
         };
 
-        let label = self.symbols.get(&(section_base + offset)).cloned();
-
         Some(Line {
             section_base,
             offset,
-            label,
             tokens,
         })
     }
