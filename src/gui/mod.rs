@@ -12,12 +12,10 @@ use winit::event::{
 };
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use crate::disassembler::{InstructionStream, Line};
-use object::{Object, ObjectSection, SectionKind};
 use once_cell::sync::OnceCell;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum Error {
@@ -66,79 +64,20 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub struct RenderContext<'src> {
+pub struct RenderContext {
     fps: usize,
     donut: donut::Donut,
     show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
     timer10: utils::Timer,
-    dissasembly: Arc<Mutex<Vec<Line<'src>>>>,
+    dissasembly: Arc<crate::disassembler::Dissasembly>,
     listing_offset: f64,
     scale_factor: f32,
     font_size: f32,
 }
 
-fn load_dissasembly<P: AsRef<std::path::Path> + Send + 'static>(
-    dissasembly: Arc<Mutex<Vec<Line<'static>>>>,
-    show_donut: Arc<AtomicBool>,
-    path: P,
-) {
-    let task = tokio::spawn(async move {
-        let mut dissasembly = dissasembly.lock().unwrap();
-        show_donut.store(true, Ordering::Relaxed);
-
-        let now = std::time::Instant::now();
-
-        let binary = std::fs::read(&path)
-            .map_err(|_| "Unexpected read of binary failed.")?
-            .leak();
-
-        let obj = object::File::parse(&*binary).map_err(|_| "Not a valid object.")?;
-        let symbols = Box::leak(Box::new(
-            crate::symbols::table::parse(&obj).map_err(|_| "Failed to parse symbols table.")?,
-        ));
-
-        let section = obj
-            .sections()
-            .filter(|s| s.kind() == SectionKind::Text)
-            .find(|t| t.name() == Ok(".text"))
-            .ok_or("Failed to find `.text` section.")?;
-
-        let raw = section
-            .uncompressed_data()
-            .map_err(|_| "Failed to decompress .text section.")?
-            .into_owned()
-            .leak();
-
-        let base_offset = section.address() as usize;
-        let stream = match InstructionStream::new(raw, obj.architecture(), base_offset, symbols) {
-            Err(..) => return Err("Failed to disassemble: UnsupportedArchitecture."),
-            Ok(stream) => stream,
-        };
-
-        // TODO: optimize for lazy chunk loading
-        for inst in stream {
-            dissasembly.push(inst);
-        }
-
-        println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
-        show_donut.store(false, Ordering::Relaxed);
-
-        Ok::<(), &'static str>(())
-    });
-
-    tokio::spawn(async move {
-        match task.await {
-            Ok(Err(err)) => eprintln!("{err}"),
-            Err(err) => eprintln!("{err:?}"),
-            _ => {}
-        }
-    });
-}
-
 pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
 pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
-
 
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
 
@@ -168,18 +107,14 @@ pub async fn main() -> Result<(), Error> {
         show_donut: Arc::new(AtomicBool::new(false)),
         timer60: utils::Timer::new(60),
         timer10: utils::Timer::new(10),
-        dissasembly: Arc::new(Mutex::new(Vec::new())),
+        dissasembly: Arc::new(crate::disassembler::Dissasembly::new()),
         listing_offset: 0.0,
         scale_factor: window.scale_factor() as f32,
         font_size: 20.0,
     };
 
     if let Some(ref path) = crate::ARGS.path {
-        load_dissasembly(
-            Arc::clone(&ctx.dissasembly),
-            Arc::clone(&ctx.show_donut),
-            path,
-        );
+        Arc::clone(&ctx.dissasembly).load(path, Arc::clone(&ctx.show_donut));
     }
 
     let mut frame_time = std::time::Instant::now();
@@ -193,11 +128,9 @@ pub async fn main() -> Result<(), Error> {
             ctx.timer10.reset();
         }
 
-        if ctx.show_donut.load(Ordering::Relaxed) {
-            if ctx.timer60.reached() {
-                ctx.donut.update_frame();
-                ctx.timer60.reset();
-            }
+        if ctx.show_donut.load(Ordering::Relaxed) && ctx.timer60.reached() {
+            ctx.donut.update_frame();
+            ctx.timer60.reset();
         }
 
         match event {
@@ -218,11 +151,7 @@ pub async fn main() -> Result<(), Error> {
                 },
                 WindowEvent::Resized(size) => backend.resize(size),
                 WindowEvent::DroppedFile(path) => {
-                    load_dissasembly(
-                        Arc::clone(&ctx.dissasembly),
-                        Arc::clone(&ctx.show_donut),
-                        path,
-                    );
+                    Arc::clone(&ctx.dissasembly).load(path, Arc::clone(&ctx.show_donut));
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
                     let delta = -match delta {
@@ -256,7 +185,7 @@ pub async fn main() -> Result<(), Error> {
 
                     tokio::spawn(async move {
                         if let Some(file) = dialog.await {
-                            load_dissasembly(dissasembly, show_donut, file.path().to_path_buf());
+                            dissasembly.load(file.path().to_path_buf(), show_donut);
                         }
                     });
                 }

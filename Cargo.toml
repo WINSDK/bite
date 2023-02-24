@@ -15,7 +15,7 @@ bytemuck = { version = "1.13", features = ["derive"] }
 winit = "0.28"
 wgpu = { version = "0.15", features = ["spirv"] }
 naga = { version = "0.11", features = ["glsl-in", "spv-out"] }
-tokio = { version = "1.25", features = ["rt-multi-thread", "net", "fs", "io-util", "macros"] }
+tokio = { version = "1.25", features = ["rt-multi-thread", "net", "fs", "io-util", "macros", "time"] }
 png = "0.17.7"
 ab_glyph = "0.2.20"
 rfd = "0.11"

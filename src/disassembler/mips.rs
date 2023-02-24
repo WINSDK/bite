@@ -54,7 +54,7 @@ struct TableInstruction {
 }
 
 impl super::DecodableInstruction for Instruction {
-    fn tokenize(mut self) -> super::TokenStream<'static> {
+    fn tokenize(mut self) -> super::TokenStream {
         let mut tokens = [super::EMPTY_TOKEN; 5];
         let mut token_count = 1;
 

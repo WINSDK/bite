@@ -1,23 +1,22 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use object::{Object, ObjectSymbol};
 use pdb::FallibleIterator;
 
-pub type SymbolLookup<'a> = BTreeMap<usize, Cow<'a, str>>;
+pub type SymbolLookup = BTreeMap<usize, String>;
 
-fn valid_symbol(symbol: &(&usize, &mut Cow<'_, str>)) -> bool {
+fn valid_symbol(symbol: &(&usize, &mut String)) -> bool {
     !symbol.1.starts_with("GCC_except_table") && !symbol.1.contains("cgu") && !symbol.1.is_empty()
 }
 
-pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'data>> {
-    let mut symbols: SymbolLookup<'data> = obj
+pub fn parse(obj: &object::File) -> object::Result<SymbolLookup> {
+    let mut symbols: SymbolLookup = obj
         .symbols()
         .filter_map(|s| {
             s.name()
                 .ok()
                 .filter(|name| !name.is_empty())
-                .map(|name| (s.address() as usize, Cow::Borrowed(name)))
+                .map(|name| (s.address() as usize, name.to_string()))
         })
         .collect();
 
@@ -28,9 +27,6 @@ pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'d
 
             // get symbol table
             let symbol_table = pdb.global_symbols()?;
-
-            // leak symbols onto the heap for later use
-            let symbol_table = Box::leak(Box::new(symbol_table));
 
             // iterate through symbols collected earlier
             let mut symbol_table = symbol_table.iter();
@@ -48,7 +44,7 @@ pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'d
 
                 if let Some(addr) = symbol.offset.to_rva(&address_map) {
                     if let Ok(name) = std::str::from_utf8(symbol.name.as_bytes()) {
-                        symbols.push((addr.0 as usize, Cow::Borrowed(name)));
+                        symbols.push((addr.0 as usize, name.to_string()));
                     }
                 }
             }
@@ -67,12 +63,12 @@ pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'d
     }
 
     let parser = if crate::ARGS.simplify {
-        |symbol: &Cow<str>| match super::Symbol::parse_with_config(symbol, &crate::CONFIG) {
+        |symbol: &str| match super::Symbol::parse_with_config(symbol, &crate::CONFIG) {
             Ok(sym) => sym.display(),
             Err(..) => format!("{:#}", rustc_demangle::demangle(symbol)),
         }
     } else {
-        |symbol: &Cow<str>| match super::Symbol::parse(symbol) {
+        |symbol: &str| match super::Symbol::parse(symbol) {
             Ok(sym) => sym.display(),
             Err(..) => format!("{:#}", rustc_demangle::demangle(symbol)),
         }
@@ -81,7 +77,7 @@ pub fn parse<'data>(obj: &object::File<'data>) -> object::Result<SymbolLookup<'d
     symbols
         .iter_mut()
         .filter(valid_symbol)
-        .for_each(|(_, symbol)| *symbol = Cow::Owned(parser(symbol)));
+        .for_each(|(_, symbol)| *symbol = parser(symbol));
 
     Ok(symbols)
 }

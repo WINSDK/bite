@@ -319,7 +319,7 @@ impl Backend {
             )
             .map_err(Error::DrawText)?;
 
-        if let Ok(ref mut dissasembly) = ctx.dissasembly.try_lock() {
+        if let Ok(ref mut dissasembly) = ctx.dissasembly.lines.try_lock() {
             let pad = "        ";
             let line_count = (self.size.height as f32 / font_size).ceil() as usize;
             let mut texts = Vec::with_capacity(line_count * 10);
@@ -332,9 +332,7 @@ impl Backend {
 
             for line in listing {
                 if let Some(ref label) = line.label {
-                    if line.offset > 0 {
-                        texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
-                    }
+                    texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
 
                     texts.push(
                         wgpu_glyph::Text::new("<")

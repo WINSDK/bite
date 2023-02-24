@@ -19,7 +19,7 @@ pub struct Instruction {
 }
 
 impl DecodableInstruction for Instruction {
-    fn tokenize(self) -> super::TokenStream<'static> {
+    fn tokenize(self) -> super::TokenStream {
         todo!()
     }
 }

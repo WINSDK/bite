@@ -7,8 +7,12 @@ mod lookup;
 mod x86_64;
 
 use object::Architecture;
+use object::{Object, ObjectSection, SectionKind};
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub enum Error {
@@ -28,8 +32,81 @@ pub enum Error {
     InvalidInstruction,
 }
 
+pub struct Dissasembly {
+    pub lines: Mutex<Vec<Line>>,
+    pub symbols: Mutex<crate::symbols::table::SymbolLookup>,
+}
+
+impl Dissasembly {
+    pub fn new() -> Self {
+        Self {
+            lines: Mutex::new(Vec::new()),
+            symbols: Mutex::new(crate::symbols::table::SymbolLookup::new()),
+        }
+    }
+
+    pub fn load<P>(self: Arc<Self>, path: P, show_donut: Arc<AtomicBool>)
+    where
+        P: AsRef<std::path::Path> + Sync + Send + 'static,
+    {
+        let task = tokio::spawn(async move {
+            show_donut.store(true, Ordering::Relaxed);
+
+            let now = tokio::time::Instant::now();
+            let binary = tokio::fs::read(&path)
+                .await
+                .map_err(|_| "Unexpected read of binary failed.")?;
+
+            let mut symbols = self.symbols.lock().unwrap();
+            let mut lines = self.lines.lock().unwrap();
+
+            let obj = object::File::parse(&*binary).map_err(|_| "Not a valid object.")?;
+
+            *symbols =
+                crate::symbols::table::parse(&obj).map_err(|_| "Failed to parse symbols table.")?;
+
+            let section = obj
+                .sections()
+                .filter(|s| s.kind() == SectionKind::Text)
+                .find(|t| t.name() == Ok(".text"))
+                .ok_or("Failed to find `.text` section.")?;
+
+            let raw = section
+                .uncompressed_data()
+                .map_err(|_| "Failed to decompress .text section.")?
+                .into_owned()
+                .leak();
+
+            let base_offset = section.address() as usize;
+            let stream =
+                match InstructionStream::new(raw, obj.architecture(), base_offset, &symbols) {
+                    Err(..) => return Err("Failed to disassemble: UnsupportedArchitecture."),
+                    Ok(stream) => stream,
+                };
+
+            // TODO: optimize for lazy chunk loading
+            for inst in stream {
+                lines.push(inst);
+            }
+
+            println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
+            show_donut.store(false, Ordering::Relaxed);
+
+            Ok(())
+        });
+
+        tokio::spawn(async move {
+            match task.await {
+                Ok(Err(err)) => eprintln!("{err}"),
+                Err(err) => eprintln!("{err:?}"),
+                _ => {}
+            }
+        });
+    }
+}
+
 trait DecodableInstruction {
-    fn tokenize(self) -> TokenStream<'static>;
+    fn tokenize(self) -> TokenStream;
 }
 
 trait Streamable {
@@ -39,32 +116,32 @@ trait Streamable {
     fn next(&mut self) -> Result<Self::Item, Error>;
 }
 
-pub struct InstructionToken<'a> {
-    pub token: Cow<'a, str>,
+pub struct InstructionToken {
+    pub token: Cow<'static, str>,
     pub color: crate::colors::Color,
 }
 
-impl<'a> InstructionToken<'a> {
-    pub fn text(&'a self, scale: f32) -> wgpu_glyph::Text<'a> {
+impl InstructionToken {
+    pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
         wgpu_glyph::Text::new(&self.token)
             .with_color(self.color)
             .with_scale(scale)
     }
 }
 
-pub struct TokenStream<'a> {
-    inner: [InstructionToken<'a>; 5],
+pub struct TokenStream {
+    inner: [InstructionToken; 5],
     token_count: usize,
 }
 
-pub struct Line<'a> {
+pub struct Line {
     pub section_base: usize,
     pub offset: usize,
     pub label: Option<String>,
-    tokens: TokenStream<'a>,
+    tokens: TokenStream,
 }
 
-impl ToString for Line<'_> {
+impl ToString for Line {
     fn to_string(&self) -> String {
         let mut fmt = String::with_capacity(30);
         let tokens = self.tokens();
@@ -90,7 +167,7 @@ impl ToString for Line<'_> {
     }
 }
 
-impl Line<'_> {
+impl Line {
     pub fn tokens(&self) -> &[InstructionToken] {
         &self.tokens.inner[..self.tokens.token_count]
     }
@@ -98,7 +175,7 @@ impl Line<'_> {
 
 pub struct InstructionStream<'data> {
     inner: InternalInstructionStream<'data>,
-    symbols: &'data BTreeMap<usize, Cow<'data, str>>,
+    symbols: &'data BTreeMap<usize, String>,
 }
 
 enum InternalInstructionStream<'data> {
@@ -111,7 +188,7 @@ impl<'data> InstructionStream<'data> {
         bytes: &'data [u8],
         arch: Architecture,
         section_base: usize,
-        symbols: &'data BTreeMap<usize, Cow<'data, str>>,
+        symbols: &'data BTreeMap<usize, String>,
     ) -> Result<Self, Error> {
         let inner = match arch {
             Architecture::Mips => {
@@ -141,8 +218,8 @@ impl<'data> InstructionStream<'data> {
     }
 }
 
-impl<'data> Iterator for InstructionStream<'data> {
-    type Item = Line<'data>;
+impl Iterator for InstructionStream<'_> {
+    type Item = Line;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut section_base = 0;
@@ -182,10 +259,7 @@ impl<'data> Iterator for InstructionStream<'data> {
             }
         };
 
-        let label = self
-            .symbols
-            .get(&(section_base + offset))
-            .map(|l| l.to_string());
+        let label = self.symbols.get(&(section_base + offset)).cloned();
 
         Some(Line {
             section_base,
@@ -313,7 +387,7 @@ fn encode_hex(mut imm: i64) -> String {
 
 const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");
 
-const EMPTY_TOKEN: InstructionToken<'static> = InstructionToken {
+const EMPTY_TOKEN: InstructionToken = InstructionToken {
     color: crate::colors::WHITE,
     token: std::borrow::Cow::Borrowed(""),
 };
