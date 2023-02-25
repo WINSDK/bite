@@ -179,8 +179,6 @@ pub async fn main() -> Result<(), Error> {
             }
             Event::MainEventsCleared => {
                 if keyboard.pressed(VirtualKeyCode::O, ModifiersState::CTRL) {
-                    keyboard.release(VirtualKeyCode::O);
-
                     // create dialog popup and get references to the donut and dissasembly
                     let dialog = rfd::AsyncFileDialog::new().set_parent(&*window).pick_file();
                     let show_donut = Arc::clone(&ctx.show_donut);
@@ -194,8 +192,6 @@ pub async fn main() -> Result<(), Error> {
                 }
 
                 if keyboard.pressed(VirtualKeyCode::F, ModifiersState::CTRL) {
-                    keyboard.release(VirtualKeyCode::F);
-
                     let Some(monitor) = window.current_monitor() else {
                         return;
                     };
@@ -269,6 +265,7 @@ pub async fn main() -> Result<(), Error> {
                 }
 
                 window.request_redraw();
+                keyboard.release_pressed();
             }
             _ => (),
         }
