@@ -119,7 +119,10 @@ pub async fn main() -> Result<(), Error> {
 
     let mut frame_time = std::time::Instant::now();
     let mut keyboard = controls::KeyMap::new();
+
+    #[cfg(target_family = "windows")]
     let mut unwindowed_size = window.outer_size();
+    #[cfg(target_family = "windows")]
     let mut unwindowed_pos = window.outer_position().unwrap_or_default();
 
     event_loop.run(move |event, _, control| {

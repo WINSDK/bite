@@ -333,7 +333,7 @@ impl Backend {
                 .unwrap_or(dissasembly);
 
             for line in listing {
-                if let Some(ref label) = symbols.get(&(line.section_base + line.offset)) {
+                if let Some(label) = symbols.get(&(line.section_base + line.offset)) {
                     texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
 
                     texts.push(

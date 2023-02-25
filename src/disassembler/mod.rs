@@ -48,9 +48,9 @@ impl Dissasembly {
     where
         P: AsRef<std::path::Path> + Sync + Send + 'static,
     {
-        let task = tokio::spawn(async move {
-            show_donut.store(true, Ordering::Relaxed);
+        show_donut.store(true, Ordering::Relaxed);
 
+        let task = tokio::spawn(async move {
             let now = tokio::time::Instant::now();
             let binary = tokio::fs::read(&path)
                 .await
@@ -86,17 +86,31 @@ impl Dissasembly {
             }
 
             println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
-            show_donut.store(false, Ordering::Relaxed);
 
             Ok(())
         });
 
         tokio::spawn(async move {
-            match task.await {
-                Ok(Err(err)) => eprintln!("{err}"),
-                Err(err) => eprintln!("{err:?}"),
-                _ => {}
+            show_donut.store(false, Ordering::Relaxed);
+
+            let err = match task.await {
+                Ok(Err(err)) => format!("{err}"),
+                Err(err) => format!("{err:?}"),
+                _ => return,
+            };
+
+            if let Some(window) = crate::gui::WINDOW.get() {
+                let window = std::sync::Arc::clone(&window);
+
+                rfd::AsyncMessageDialog::new()
+                    .set_title("Bite failed at runtime")
+                    .set_description(&err)
+                    .set_parent(&*window)
+                    .show()
+                    .await;
             }
+
+            eprintln!("{err}");
         });
     }
 }

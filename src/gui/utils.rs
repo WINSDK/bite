@@ -93,7 +93,7 @@ fn cached_path<P: AsRef<Path>>(path: P) -> PathBuf {
     let cache_path = path.as_ref().with_extension("spv");
     let cache_path = cache_path.file_name().unwrap();
     if cfg!(target_os = "windows") {
-        Path::new(&std::env::var("TMP").unwrap()).join(cache_path)
+        Path::new("C:\\Windows\\Temp").join(cache_path)
     } else {
         Path::new("/tmp").join(cache_path)
     }

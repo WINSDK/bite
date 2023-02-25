@@ -23,6 +23,7 @@ macro_rules! exit {
 #[macro_export]
 macro_rules! fail {
     () => {
+        unsafe { std::arch::asm!("int3") }
         std::process::exit(1)
     };
 
@@ -38,7 +39,8 @@ macro_rules! fail {
         }
 
         eprintln!($($arg)*);
-        std::process::exit(0);
+        unsafe { std::arch::asm!("int3") }
+        std::process::exit(1)
     }};
 }
 
