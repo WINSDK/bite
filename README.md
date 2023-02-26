@@ -1,11 +1,11 @@
 <h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/logo.png">
-    <img height="150px" src="https://i.ibb.co/Rb3hgqt/donut.png">
+    <img height="150px" src="./assets/logo.png">
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/logo_text.svg">
-    <img height="150px" src="http://svgur.com/i/qSv.svg">
+    <img height="150px" src="./assets/logo_text.png">
    </picture>
 </h1>
 
@@ -30,3 +30,5 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
   - [ ] [WinDbg](https://windbg.org) (maybe?) / own implementation (depends)
 - [ ] X86-64 support
 - [ ] AArch64/AArch32 support
+- [x] Riscv64gc/Riscv32gc support
+- [x] MIPS-V support
