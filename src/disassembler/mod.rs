@@ -91,13 +91,16 @@ impl Dissasembly {
         });
 
         tokio::spawn(async move {
-            show_donut.store(false, Ordering::Relaxed);
-
             let err = match task.await {
                 Ok(Err(err)) => format!("{err}"),
                 Err(err) => format!("{err:?}"),
-                _ => return,
+                _ => {
+                    show_donut.store(false, Ordering::Relaxed);
+                    return;
+                },
             };
+
+            show_donut.store(false, Ordering::Relaxed);
 
             if let Some(window) = crate::gui::WINDOW.get() {
                 let window = std::sync::Arc::clone(&window);

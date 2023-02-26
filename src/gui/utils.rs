@@ -282,6 +282,7 @@ pub fn generate_window(
 
     let window = winit::window::WindowBuilder::new()
         .with_title(title)
+        .with_visible(false)
         .with_decorations(true)
         .with_taskbar_icon(icon.clone())
         .with_window_icon(icon)
@@ -295,8 +296,11 @@ pub fn generate_window(
         .size();
 
     unsafe {
+        let width = width * 2 / 5;
+        let height = height * 2 / 3;
+
         // set basic window attributes
-        let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
+        let attr = WS_THICKFRAME | WS_POPUP;
         if SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr) == 0 {
             return Err(Error::WindowCreation);
         }
@@ -306,11 +310,13 @@ pub fn generate_window(
             return Err(Error::WindowCreation);
         }
 
-        let width = width * 2 / 5;
-        let height = height * 2 / 3;
-
         // resize window to some reasonable dimensions, whilst applying the window attributes
         if SetWindowPos(window.hwnd(), HWND_NOTOPMOST, 0, 0, width, height, SWP_NOZORDER) == 0 {
+            return Err(Error::WindowCreation);
+        }
+
+        // set window visibility
+        if SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr | WS_VISIBLE) == 0 {
             return Err(Error::WindowCreation);
         }
     }
