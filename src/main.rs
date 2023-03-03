@@ -84,17 +84,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         for symbol in index.symbols() {
-            let mut valid = true;
+            // let mut valid = true;
 
-            valid &= !symbol.starts_with('_');
-            valid &= !symbol.starts_with('.');
-            valid &= !symbol.starts_with("GCC_except_table");
-            valid &= !symbol.starts_with("anon.");
-            valid &= !symbol.starts_with("str.");
+            // valid &= !symbol.starts_with('_');
+            // valid &= !symbol.starts_with('.');
+            // valid &= !symbol.starts_with("GCC_except_table");
+            // valid &= !symbol.starts_with("anon.");
+            // valid &= !symbol.starts_with("str.");
 
-            if valid {
-                println!("{symbol}")
-            }
+            // if valid {
+            //     println!("{symbol}")
+            // }
         }
     }
 

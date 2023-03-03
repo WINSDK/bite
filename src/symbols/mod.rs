@@ -10,12 +10,13 @@ use std::collections::BTreeMap;
 
 use crate::disassembler::Line;
 use crate::threading::spawn_threaded;
+use crate::colors;
 
 pub use config::Config;
 
 #[derive(Debug)]
 pub struct Index {
-    tree: BTreeMap<usize, String>,
+    tree: BTreeMap<usize, TokenStream>,
 }
 
 impl Index {
@@ -32,7 +33,7 @@ impl Index {
             let Ok(path) = std::str::from_utf8(pdb.path()) else {
                 let tree = symbols
                     .into_iter()
-                    .map(|(addr, symbol)| (addr, symbol.to_string()))
+                    .map(|(addr, symbol)| (addr, TokenStream::new(symbol)))
                     .collect();
 
                 return Ok(Self { tree });
@@ -41,7 +42,7 @@ impl Index {
             let Ok(file) = std::fs::File::open(path) else {
                 let tree = symbols
                     .into_iter()
-                    .map(|(addr, symbol)| (addr, symbol.to_string()))
+                    .map(|(addr, symbol)| (addr, TokenStream::new(symbol)))
                     .collect();
 
                 return Ok(Self { tree });
@@ -79,10 +80,15 @@ impl Index {
             todo!("simplify symbols");
         }
 
-        let parser = |s: &str| {
+        let parser = |s: &str| -> TokenStream {
+            // ignore common invalid symbols
+            if s.starts_with("GCC_except_table") || s.contains("cgu") {
+                return TokenStream::new(s);
+            }
+
             // parse rust symbols that match the v0 mangling scheme
             if let Some(s) = strip_prefixes(s, &["__R", "_R", "R"]) {
-                return rust_modern::parse(s).unwrap_or_default();
+                return rust_modern::parse(s).unwrap_or_else(|| TokenStream::new(s));
             }
 
             // try parsing legacy rust symbols first because they can also be appear as C++ symbols
@@ -93,17 +99,17 @@ impl Index {
             }
 
             // parse gnu/llvm C/C++ symbols   
-            if let Some(s) = strip_prefixes(s, &["@?", "?"]) {
-                return itanium::parse(s).unwrap_or_default();
+            if let Some(s) = strip_prefixes(s, &["__Z", "_Z", "Z"]) {
+                return itanium::parse(s).unwrap_or_else(|| TokenStream::new(s));
             }
 
             // parse windows msvc C/C++ symbols
             if let Some(s) = strip_prefixes(s, &["@?", "?"]) {
-                return msvc::parse(s).unwrap_or_default();
+                return msvc::parse(s).unwrap_or_else(|| TokenStream::new(s));
             }
 
             // return the original mangled symbol on failure
-            s.to_string()
+            TokenStream::new(s)
         };
 
         let tree = spawn_threaded(symbols, move |(addr, symbol)| (addr, parser(symbol))).await;
@@ -113,7 +119,7 @@ impl Index {
         })
     }
 
-    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, String> {
+    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, TokenStream> {
         self.tree.values()
     }
 
@@ -122,10 +128,36 @@ impl Index {
     }
 
     pub fn get_by_line(&self, line: &Line) -> Option<&str> {
-        self.tree
-            .get(&(line.section_base + line.offset))
-            .map(|s| s as &str)
+        todo!()
+        // self.tree
+        //     .get(&(line.section_base + line.offset))
+        //     .map(|s| s as &str)
     }
+}
+
+#[derive(Debug)]
+pub struct TokenStream {
+    inner: std::pin::Pin<String>,
+    tokens: Vec<Token<'static>>,
+}
+
+impl TokenStream {
+    pub fn new(s: &str) -> Self {
+        Self {
+            inner: std::pin::Pin::new(s.to_string()),
+            tokens: Vec::new()
+        }
+    }
+
+    pub fn tokens<'a>(&'a self) -> &[Token<'a>] {
+        self.tokens.as_slice()
+    }
+}
+
+#[derive(Debug)]
+pub struct Token<'a> {
+    pub text: &'a str,
+    pub color: colors::Color
 }
 
 fn strip_prefixes<'a>(s: &'a str, prefixes: &[&str]) -> Option<&'a str> {
@@ -145,7 +177,3 @@ fn symbol_addr_name<'a>(symbol: object::Symbol<'a, 'a>) -> Option<(usize, &'a st
 
     None
 }
-
-// fn valid_symbol(symbol: &(&usize, &&str)) -> bool {
-//     !symbol.1.starts_with("GCC_except_table") && !symbol.1.contains("cgu") && !symbol.1.is_empty()
-// }

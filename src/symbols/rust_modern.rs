@@ -1,4 +1,6 @@
-pub fn parse(s: &str) -> Option<String> {
+use super::TokenStream;
+
+pub fn parse<'a>(s: &'a str) -> Option<TokenStream> {
     todo!()
 }
 

@@ -132,13 +132,13 @@ trait Streamable {
 }
 
 pub struct InstructionToken {
-    pub token: Cow<'static, str>,
+    pub text: Cow<'static, str>,
     pub color: crate::colors::Color,
 }
 
 impl InstructionToken {
     pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
-        wgpu_glyph::Text::new(&self.token)
+        wgpu_glyph::Text::new(&self.text)
             .with_color(self.color)
             .with_scale(scale)
     }
@@ -161,7 +161,7 @@ impl ToString for Line {
         let tokens = self.tokens();
         let operands = &tokens[1..];
 
-        fmt += &tokens[0].token;
+        fmt += &tokens[0].text;
 
         if operands.is_empty() {
             return fmt;
@@ -171,12 +171,12 @@ impl ToString for Line {
 
         if operands.len() > 1 {
             for operand in &operands[..operands.len() - 1] {
-                fmt += &operand.token;
+                fmt += &operand.text;
                 fmt += ", ";
             }
         }
 
-        fmt += &operands[operands.len() - 1].token;
+        fmt += &operands[operands.len() - 1].text;
         fmt
     }
 }
@@ -256,7 +256,7 @@ impl Iterator for InstructionStream<'_> {
                 let mut tokens = [EMPTY_TOKEN; 5];
 
                 tokens[0] = InstructionToken {
-                    token: Cow::Owned(format!("<{err:?}>")),
+                    text: Cow::Owned(format!("<{err:?}>")),
                     color: crate::colors::RED,
                 };
 
@@ -394,5 +394,5 @@ const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed
 
 const EMPTY_TOKEN: InstructionToken = InstructionToken {
     color: crate::colors::WHITE,
-    token: std::borrow::Cow::Borrowed(""),
+    text: std::borrow::Cow::Borrowed(""),
 };

@@ -362,7 +362,7 @@ impl Backend {
                 texts.push(tokens[0].text(font_size));
 
                 // mnemomic padding up to 8 character wide instructions
-                let pad = &pad[std::cmp::min(tokens[0].token.len(), pad.len())..];
+                let pad = &pad[std::cmp::min(tokens[0].text.len(), pad.len())..];
                 texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
 
                 if tokens.len() > 1 {

@@ -37,7 +37,7 @@ impl super::DecodableInstruction for Instruction {
         let mut token_count = 1;
 
         tokens[0] = super::InstructionToken {
-            token: Cow::Borrowed(self.mnemomic),
+            text: Cow::Borrowed(self.mnemomic),
             color: crate::colors::WHITE,
         };
 
@@ -46,11 +46,11 @@ impl super::DecodableInstruction for Instruction {
 
             tokens[token_count] = match operand {
                 Cow::Owned(_) => super::InstructionToken {
-                    token: operand,
+                    text: operand,
                     color: crate::colors::BLUE,
                 },
                 Cow::Borrowed(_) => super::InstructionToken {
-                    token: operand,
+                    text: operand,
                     color: crate::colors::MAGENTA,
                 },
             };
