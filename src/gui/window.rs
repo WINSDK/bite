@@ -302,7 +302,7 @@ impl Backend {
                     .v_align(wgpu_glyph::VerticalAlign::Center),
                 text: vec![wgpu_glyph::Text::new(&ctx.donut.frame)
                     .with_color(crate::colors::WHITE)
-                    .with_scale(20.0)],
+                    .with_scale(ctx.scale_factor * 10.0)],
                 ..wgpu_glyph::Section::default()
             });
         }
@@ -333,7 +333,7 @@ impl Backend {
                 .unwrap_or(dissasembly);
 
             for line in listing {
-                if let Some(label) = symbols.get(&(line.section_base + line.offset)) {
+                if let Some(label) = symbols.get_by_line(line) {
                     texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
 
                     texts.push(
@@ -393,7 +393,7 @@ impl Backend {
 
             // queue assembly listing text
             self.glyph_brush.queue(wgpu_glyph::Section {
-                screen_position: (ctx.scale_factor * 5.0, ctx.scale_factor * 25.0),
+                screen_position: (ctx.scale_factor * 5.0, ctx.scale_factor * 5.0),
                 text: texts,
                 ..wgpu_glyph::Section::default()
             });

@@ -6,6 +6,7 @@ mod lookup;
 #[allow(dead_code, unused_variables, unused_assignments)]
 mod x86_64;
 
+use crate::symbols::Index;
 use object::Architecture;
 use object::{Object, ObjectSection, SectionKind};
 
@@ -33,14 +34,14 @@ pub enum Error {
 
 pub struct Dissasembly {
     pub lines: Mutex<Vec<Line>>,
-    pub symbols: Mutex<crate::symbols::table::SymbolLookup>,
+    pub symbols: Mutex<Index>,
 }
 
 impl Dissasembly {
     pub fn new() -> Self {
         Self {
             lines: Mutex::new(Vec::new()),
-            symbols: Mutex::new(crate::symbols::table::SymbolLookup::new()),
+            symbols: Mutex::new(Index::new()),
         }
     }
 
@@ -58,8 +59,9 @@ impl Dissasembly {
 
             let obj = object::File::parse(&*binary).map_err(|_| "Not a valid object.")?;
 
-            *self.symbols.lock().unwrap() =
-                crate::symbols::table::parse(&obj).map_err(|_| "Failed to parse symbols table.")?;
+            *self.symbols.lock().unwrap() = Index::parse(&obj)
+                .await
+                .map_err(|_| "Failed to parse symbols table.")?;
 
             let section = obj
                 .sections()
@@ -92,7 +94,7 @@ impl Dissasembly {
 
         tokio::spawn(async move {
             let err = match task.await {
-                Ok(Err(err)) => format!("{err}"),
+                Ok(Err(err)) => format!("{err:?}"),
                 Err(err) => format!("{err:?}"),
                 _ => {
                     show_donut.store(false, Ordering::Relaxed);
@@ -103,7 +105,7 @@ impl Dissasembly {
             show_donut.store(false, Ordering::Relaxed);
 
             if let Some(window) = crate::gui::WINDOW.get() {
-                let window = std::sync::Arc::clone(&window);
+                let window = std::sync::Arc::clone(window);
 
                 rfd::AsyncMessageDialog::new()
                     .set_title("Bite failed at runtime")

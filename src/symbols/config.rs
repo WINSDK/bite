@@ -52,9 +52,6 @@ impl Ord for Statement<'_> {
 
 impl Eq for Statement<'_> {}
 
-// NOTE: Using *const str's to refer to parts of inner is correct for as long as `inner` doesn't
-// reallocate. Moving inner shouldn't change the pointer to it's internal Vec<u8>.
-
 #[derive(Debug)]
 pub struct Config {
     includes: Vec<Statement<'static>>,

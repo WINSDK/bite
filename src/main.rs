@@ -1,6 +1,9 @@
 #![allow(clippy::unusual_byte_groupings)]
 #![allow(clippy::needless_range_loop)]
-#![cfg_attr(all(not(debug_assertions), target_family = "windows"), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(not(debug_assertions), target_family = "windows"),
+    windows_subsystem = "windows"
+)]
 
 #[cfg(not(any(target_family = "windows", target_family = "unix")))]
 compile_error!("Bite can only be build for windows, macos and linux.");
@@ -11,6 +14,7 @@ mod disassembler;
 mod gui;
 mod macros;
 mod symbols;
+mod threading;
 
 use disassembler::InstructionStream;
 use object::{Object, ObjectSection, SectionKind};
@@ -35,27 +39,21 @@ fn set_panic_handler() {
     }));
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
     if ARGS.gui {
-        let result = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .build()
-            .expect("Failed to start tokio runtime.")
-            .block_on(gui::main());
-
-        if let Err(err) = result {
-            panic!("{err:?}");
-        }
-
-        return Ok(());
+        return match gui::main().await {
+            Err(err) => panic!("{err:?}"),
+            Ok(..) => Ok(()),
+        };
     }
 
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
 
     let obj = object::File::parse(&*binary).expect("Not a valid object.");
-    let symbols = symbols::table::parse(&obj).expect("Failed to parse symbols table.");
+    let index = symbols::Index::parse(&obj).await.expect("Failed to parse symbols table.");
     let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {
@@ -81,11 +79,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if ARGS.names {
-        if symbols.is_empty() {
+        if index.is_empty() {
             exit!("Object \"{path}\" doesn't seem to export any symbols.");
         }
 
-        for symbol in symbols.values() {
+        for symbol in index.symbols() {
             let mut valid = true;
 
             valid &= !symbol.starts_with('_');
