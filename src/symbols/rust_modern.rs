@@ -1,7 +1,7 @@
 //! Rust v0 symbol demangler
 
 use crate::colors;
-use super::{Token, TokenStream};
+use super::TokenStream;
 
 pub fn parse(s: &str) -> Option<TokenStream> {
     // paths have to be ascii

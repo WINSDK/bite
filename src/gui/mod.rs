@@ -224,7 +224,7 @@ pub async fn main() -> Result<(), Error> {
                             SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
                             SetWindowPos(
                                 window.hwnd(),
-                                HWND_NOTOPMOST,
+                                HWND_TOP,
                                 unwindowed_pos.x as u32,
                                 unwindowed_pos.y as u32,
                                 unwindowed_size.width,
@@ -240,7 +240,7 @@ pub async fn main() -> Result<(), Error> {
                             SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
                             SetWindowPos(
                                 window.hwnd(),
-                                HWND_NOTOPMOST,
+                                HWND_TOP,
                                 info.work_area.left,
                                 info.work_area.top,
                                 work_area_width,

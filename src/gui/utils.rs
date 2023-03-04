@@ -221,6 +221,7 @@ pub mod windows {
     pub const WS_THICKFRAME: isize = 262144;
     pub const WS_EX_ACCEPTFILES: isize = 16;
     pub const WS_OVERLAPPED: isize = 0;
+    pub const HWND_TOP: isize = 0;
 
     #[repr(C)]
     #[derive(Default)]
@@ -310,7 +311,7 @@ pub fn generate_window(
         }
 
         // resize window to some reasonable dimensions, whilst applying the window attributes
-        if SetWindowPos(window.hwnd(), 0, 0, 0, width, height, SWP_NOZORDER) == 0 {
+        if SetWindowPos(window.hwnd(), HWND_TOP, 0, 0, width, height, SWP_NOZORDER) == 0 {
             return Err(Error::WindowCreation);
         }
 

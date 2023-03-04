@@ -289,25 +289,12 @@ impl<'a, T> Reader<'a, T> {
         &self.buf[self.pos..]
     }
 
-    pub fn offset(&mut self, num_bytes: isize) {
-        self.pos = (self.pos as isize + num_bytes) as usize;
-    }
-
     pub fn take(&mut self, value: T) -> bool
     where
         T: PartialEq,
     {
         let eq = self.buf.get(self.pos) == Some(&value);
         self.pos += eq as usize;
-        eq
-    }
-
-    pub fn take_buf(&mut self, values: &[T]) -> bool
-    where
-        T: PartialEq,
-    {
-        let eq = self.buf.get(self.pos..self.pos + values.len()) == Some(values);
-        self.buf = &self.buf[(values.len()) * eq as usize..];
         eq
     }
 

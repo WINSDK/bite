@@ -84,17 +84,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         for symbol in index.symbols() {
-            // let mut valid = true;
+            let symbol = symbol.tokens().iter().map(|s| s.text);
+            let symbol = String::from_iter(symbol);
 
-            // valid &= !symbol.starts_with('_');
-            // valid &= !symbol.starts_with('.');
-            // valid &= !symbol.starts_with("GCC_except_table");
-            // valid &= !symbol.starts_with("anon.");
-            // valid &= !symbol.starts_with("str.");
-
-            // if valid {
-            //     println!("{symbol}")
-            // }
+            println!("{symbol}");
         }
     }
 

@@ -5,18 +5,18 @@ edition = "2021"
 
 [dependencies]
 rustc-demangle = "0.1"
-object = "0.29"
+object = "0.30"
 pdb = "0.8"
 triple_accel = "0.4"
 phf = { version = "0.11", features = ["macros"] }
 once_cell = "1.17"
-glam = { version = "0.22", features = ["bytemuck"] }
+glam = { version = "0.23", features = ["bytemuck"] }
 bytemuck = { version = "1.13", features = ["derive"] }
-winit = "0.28"
+winit = "0.28.2"
 wgpu = { version = "0.15", features = ["spirv"] }
 naga = { version = "0.11", features = ["glsl-in", "spv-out"] }
-tokio = { version = "1.25", features = ["rt-multi-thread", "net", "fs", "io-util", "macros", "time"] }
-png = "0.17.7"
+tokio = { version = "1.2", features = ["rt-multi-thread", "net", "fs", "io-util", "macros", "time"] }
+png = "0.17"
 ab_glyph = "0.2.20"
 rfd = "0.11"
 
