@@ -16,6 +16,7 @@ use once_cell::sync::OnceCell;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use crate::disassembler::Dissasembly;
 
 #[derive(Debug)]
 pub enum Error {
@@ -70,7 +71,7 @@ pub struct RenderContext {
     show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
     timer10: utils::Timer,
-    dissasembly: Arc<crate::disassembler::Dissasembly>,
+    dissasembly: Arc<Dissasembly>,
     listing_offset: f64,
     scale_factor: f32,
     font_size: f32,

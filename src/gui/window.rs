@@ -341,11 +341,15 @@ impl Backend {
                             .with_scale(font_size)
                             .with_color(crate::colors::TEAL),
                     );
-                    texts.push(
-                        wgpu_glyph::Text::new(label)
-                            .with_scale(font_size)
-                            .with_color(crate::colors::TEAL),
-                    );
+
+                    for token in label {
+                        texts.push(
+                            wgpu_glyph::Text::new(token.text)
+                                .with_scale(font_size)
+                                .with_color(token.color),
+                        );
+                    }
+
                     texts.push(
                         wgpu_glyph::Text::new(">:\n")
                             .with_scale(font_size)

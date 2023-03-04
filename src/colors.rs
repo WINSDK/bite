@@ -13,6 +13,7 @@ pub const BLUE: Color = color!(0x0f, 0x62, 0xfe);
 pub const MAGENTA: Color = color!(0xf5, 0x12, 0x81);
 pub const RED: Color = color!(0xff, 0x00, 0x0b);
 pub const TEAL: Color = color!(0x00, 0x5d, 0x5d);
+pub const PURPLE: Color = color!(0xc4, 0x91, 0xfd);
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color([f32; 4]);

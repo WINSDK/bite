@@ -8,9 +8,9 @@ use object::{Object, ObjectSymbol};
 use pdb::FallibleIterator;
 use std::collections::BTreeMap;
 
+use crate::colors::Color;
 use crate::disassembler::Line;
 use crate::threading::spawn_threaded;
-use crate::colors;
 
 pub use config::Config;
 
@@ -26,7 +26,7 @@ impl Index {
         }
     }
 
-    pub async fn parse<'a>(obj: &'a object::File<'a>) -> pdb::Result<Self> {
+    pub async fn parse(obj: &object::File<'_>) -> pdb::Result<Index> {
         let symbols: Vec<(usize, &str)> = obj.symbols().filter_map(symbol_addr_name).collect();
 
         if let Ok(Some(pdb)) = obj.pdb_info() {
@@ -98,7 +98,7 @@ impl Index {
                 }
             }
 
-            // parse gnu/llvm C/C++ symbols   
+            // parse gnu/llvm C/C++ symbols
             if let Some(s) = strip_prefixes(s, &["__Z", "_Z", "Z"]) {
                 return itanium::parse(s).unwrap_or_else(|| TokenStream::new(s));
             }
@@ -127,37 +127,47 @@ impl Index {
         self.tree.is_empty()
     }
 
-    pub fn get_by_line(&self, line: &Line) -> Option<&str> {
-        todo!()
-        // self.tree
-        //     .get(&(line.section_base + line.offset))
-        //     .map(|s| s as &str)
+    pub fn get_by_line(&self, line: &Line) -> Option<&[Token]> {
+        self.tree
+            .get(&(line.section_base + line.offset))
+            .map(TokenStream::tokens)
     }
 }
 
 #[derive(Debug)]
 pub struct TokenStream {
     inner: std::pin::Pin<String>,
-    tokens: Vec<Token<'static>>,
+    __tokens: Vec<Token<'static>>,
 }
 
 impl TokenStream {
     pub fn new(s: &str) -> Self {
         Self {
             inner: std::pin::Pin::new(s.to_string()),
-            tokens: Vec::new()
+            __tokens: Vec::new(),
         }
     }
 
-    pub fn tokens<'a>(&'a self) -> &[Token<'a>] {
-        self.tokens.as_slice()
+    #[inline]
+    pub fn inner(&self) -> &'static str {
+        unsafe { std::mem::transmute(&*self.inner) }
+    }
+
+    #[inline]
+    pub fn tokens<'src>(&'src self) -> &'src [Token<'src>] {
+        self.__tokens.as_slice()
+    }
+
+    #[inline]
+    pub fn push(&mut self, text: &'static str, color: Color) {
+        self.__tokens.push(Token { text, color })
     }
 }
 
 #[derive(Debug)]
 pub struct Token<'a> {
     pub text: &'a str,
-    pub color: colors::Color
+    pub color: Color,
 }
 
 fn strip_prefixes<'a>(s: &'a str, prefixes: &[&str]) -> Option<&'a str> {
