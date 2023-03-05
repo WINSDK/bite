@@ -43,6 +43,8 @@ fn set_panic_handler() {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
+    std::env::set_current_dir(r#"C:\\Users\\Nicolas Mazzon\\Projects\\bite"#)?;
+
     if ARGS.gui {
         return match gui::main().await {
             Err(err) => panic!("{err:?}"),
@@ -53,7 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
 
     let obj = object::File::parse(&*binary).expect("Not a valid object.");
-    let index = symbols::Index::parse(&obj).await.expect("Failed to parse symbols table.");
+    let index = symbols::Index::parse(&obj)
+        .await
+        .expect("Failed to parse symbols table.");
     let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {

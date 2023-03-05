@@ -14,9 +14,9 @@ use winit::event_loop::{ControlFlow, EventLoop};
 
 use once_cell::sync::OnceCell;
 
+use crate::disassembler::Dissasembly;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use crate::disassembler::Dissasembly;
 
 #[derive(Debug)]
 pub enum Error {
