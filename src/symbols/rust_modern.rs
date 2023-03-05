@@ -113,7 +113,7 @@ impl Parser {
     }
 
     /// Consumes either a regular unambiguous or a punycode enabled string.
-    fn ident<'a, 'b>(&'a mut self) -> Option<&'b str> {
+    fn ident<'src>(&mut self) -> Option<&'src str> {
         if let Some(..) = self.consume(b'u') {
             todo!("punycode symbols decoding");
         }
@@ -140,11 +140,10 @@ impl Parser {
             b'M' => {
                 self.take();
                 let _disambiguator = self.disambiguator();
-                let ident = self.ident()?;
 
                 Some(())
             }
-            _ => return None,
+            _ => None,
         }
     }
 }

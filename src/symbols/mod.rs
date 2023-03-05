@@ -127,6 +127,10 @@ impl Index {
         self.tree.is_empty()
     }
 
+    pub fn clear(&mut self) {
+        self.tree.clear();
+    }
+
     pub fn get_by_line(&self, line: &Line) -> Option<&[Token]> {
         self.tree
             .get(&(line.section_base + line.offset))

@@ -115,7 +115,9 @@ pub async fn main() -> Result<(), Error> {
     };
 
     if let Some(ref path) = crate::ARGS.path {
-        Arc::clone(&ctx.dissasembly).load(path, Arc::clone(&ctx.show_donut));
+        Arc::clone(&ctx.dissasembly)
+            .load(path, Arc::clone(&ctx.show_donut))
+            .await;
     }
 
     let mut frame_time = std::time::Instant::now();
@@ -155,7 +157,13 @@ pub async fn main() -> Result<(), Error> {
                 },
                 WindowEvent::Resized(size) => backend.resize(size),
                 WindowEvent::DroppedFile(path) => {
-                    Arc::clone(&ctx.dissasembly).load(path, Arc::clone(&ctx.show_donut));
+                    let dissasembly = Arc::clone(&ctx.dissasembly);
+                    let show_donut = Arc::clone(&ctx.show_donut);
+
+                    tokio::spawn(async move {
+                        dissasembly.clear();
+                        dissasembly.load(path, show_donut).await;
+                    });
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
                     let delta = -match delta {
@@ -187,7 +195,8 @@ pub async fn main() -> Result<(), Error> {
 
                     tokio::spawn(async move {
                         if let Some(file) = dialog.await {
-                            dissasembly.load(file.path().to_path_buf(), show_donut);
+                            dissasembly.clear();
+                            dissasembly.load(file.path().to_owned(), show_donut).await;
                         }
                     });
                 }
