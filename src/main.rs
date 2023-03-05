@@ -53,7 +53,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
 
     let obj = object::File::parse(&*binary).expect("Not a valid object.");
-    let index = symbols::Index::parse(&obj).await.expect("Failed to parse symbols table.");
+    let index = symbols::Index::parse(&obj)
+        .await
+        .expect("Failed to parse symbols table.");
+
     let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {

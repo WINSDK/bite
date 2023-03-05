@@ -99,7 +99,7 @@ impl Dissasembly {
                 _ => {
                     show_donut.store(false, Ordering::Relaxed);
                     return;
-                },
+                }
             };
 
             show_donut.store(false, Ordering::Relaxed);

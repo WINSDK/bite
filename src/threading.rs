@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 
 static THREAD_COUNT: Lazy<usize> = Lazy::new(|| {
-    let fallback = std::num::NonZeroUsize::new(0).unwrap();
+    let fallback = std::num::NonZeroUsize::new(1).unwrap();
 
     std::thread::available_parallelism()
         .unwrap_or(fallback)

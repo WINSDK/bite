@@ -1,30 +1,46 @@
-use super::{utils::Png, Error};
+use crate::gui::utils::{decode_png, decode_png_bytes, Png};
+use crate::gui::Error;
+
+use once_cell::sync::OnceCell;
 use std::path::Path;
 use wgpu::util::DeviceExt;
+
+static BIND_GROUP_LAYOUT: OnceCell<wgpu::BindGroupLayout> = OnceCell::new();
 
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+    pub bind_group: wgpu::BindGroup,
 }
 
 impl Texture {
-    pub fn new<P: AsRef<Path>>(
+    pub async fn new<P: AsRef<Path>>(
         path: P,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Texture, Error> {
-        let image = super::utils::decode_png(path)?;
+        let image = decode_png(path).await?;
 
         Self::from_png(image, device, queue)
     }
 
-    pub fn from_bytes(
+    pub fn set_layout(device: &wgpu::Device, desc: &wgpu::BindGroupLayoutDescriptor) {
+        BIND_GROUP_LAYOUT
+            .set(device.create_bind_group_layout(desc))
+            .unwrap();
+    }
+
+    pub fn layout() -> &'static wgpu::BindGroupLayout {
+        BIND_GROUP_LAYOUT.get().unwrap()
+    }
+
+    pub async fn from_bytes(
         bytes: &[u8],
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Texture, Error> {
-        let image = super::utils::decode_png_bytes(bytes)?;
+        let image = decode_png_bytes(bytes)?;
 
         Self::from_png(image, device, queue)
     }
@@ -64,10 +80,26 @@ impl Texture {
             ..Default::default()
         });
 
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bite::ui texture bind group"),
+            layout: Self::layout(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
         Ok(Self {
             texture,
             view,
             sampler,
+            bind_group,
         })
     }
 }

@@ -1,4 +1,4 @@
-use super::{uniforms, Error};
+use crate::gui::{texture::Texture, uniforms, Error};
 use std::mem::size_of;
 use std::sync::atomic::Ordering;
 
@@ -88,10 +88,9 @@ impl Backend {
 
         surface.configure(&device, &surface_cfg);
 
-        let texture = super::texture::Texture::new("./assets/joe_biden.png", &device, &queue)?;
-
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        Texture::set_layout(
+            &device,
+            &wgpu::BindGroupLayoutDescriptor {
                 label: Some("bite::ui texture bind group layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -111,22 +110,10 @@ impl Backend {
                         count: None,
                     },
                 ],
-            });
+            },
+        );
 
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bite::ui texture bind group"),
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                },
-            ],
-        });
+        let texture = Texture::new("./assets/joe_biden.png", &device, &queue).await?;
 
         let (vertices, indices) = uniforms::create_vertices();
 
@@ -148,7 +135,7 @@ impl Backend {
 
         queue.write_buffer(&index_buffer, 0, bytemuck::cast_slice(&indices[..]));
 
-        // TODO make module compiling run in parallel, not concurrently
+        // TODO: make module compiling run in parallel, not concurrently
         let now = std::time::Instant::now();
         let (vert_module, frag_module) = tokio::try_join!(
             super::utils::generate_vulkan_shader_module(
@@ -167,7 +154,7 @@ impl Backend {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("bite::ui pipeline layout"),
-            bind_group_layouts: &[&texture_bind_group_layout],
+            bind_group_layouts: &[&Texture::layout()],
             push_constant_ranges: &[],
         });
 
@@ -226,7 +213,7 @@ impl Backend {
             queue,
             surface,
             surface_cfg,
-            bind_groups: vec![texture_bind_group],
+            bind_groups: vec![texture.bind_group],
             pipeline,
             vertex_buffers: vec![vertex_buffer],
             index_buffers: vec![index_buffer],
