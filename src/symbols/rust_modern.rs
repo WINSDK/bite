@@ -51,18 +51,7 @@ impl Parser {
         self.src().bytes().next()
     }
 
-    /// Increment the offset if there are bytes in the mangled symbol left .
-    fn take(&mut self) -> Option<u8> {
-        if let Some(next) = self.src().bytes().next() {
-            self.offset += 1;
-            return Some(next);
-        }
-
-        None
-    }
-
     /// Increment the offset if the current byte equals the byte given.
-    #[must_use]
     fn consume(&mut self, byte: u8) -> Option<()> {
         if self.src().bytes().next() == Some(byte) {
             self.offset += 1;
@@ -74,7 +63,6 @@ impl Parser {
 
     /// Consumes a series of bytes that are in the range b'0' to b'Z' and converts it to base 62.
     /// It also consumes an underscore in the case that the base62 number happens to be zero.
-    #[must_use]
     fn base62(&mut self) -> Option<usize> {
         let mut num = 0usize;
 
@@ -93,14 +81,14 @@ impl Parser {
 
             num = num.checked_mul(62)?;
             num = num.checked_add(base_62_chr as usize)?;
-            self.take();
+
+            self.offset += 1;
         }
 
         None
     }
 
     /// Consumes a series of bytes that are in the range b'0' to b'9' and converts it to base 10.
-    #[must_use]
     fn base10(&mut self) -> Option<usize> {
         let mut len = 0usize;
 
@@ -108,7 +96,7 @@ impl Parser {
             len = len.checked_mul(10)?;
             len = len.checked_add((digit - b'0') as usize)?;
 
-            self.take();
+            self.offset += 1;
         }
 
         Some(len)
@@ -117,7 +105,7 @@ impl Parser {
     /// Consumes an ident's disambiguator.
     fn disambiguator(&mut self) -> Option<usize> {
         if let Some(..) = self.consume(b's') {
-            self.take();
+            self.offset += 1;
             return self.base62();
         }
 
@@ -125,7 +113,6 @@ impl Parser {
     }
 
     /// Consumes either a regular unambiguous or a punycode enabled string.
-    #[must_use]
     fn ident<'src>(&mut self) -> Option<&'src str> {
         if let Some(..) = self.consume(b'u') {
             todo!("punycode symbols decoding");
@@ -140,7 +127,6 @@ impl Parser {
         })
     }
 
-    #[must_use]
     fn namespace(&mut self) -> Option<NameSpace> {
         let ns = match self.peek()? {
             b'C' => Some(NameSpace::Closure),
@@ -150,23 +136,39 @@ impl Parser {
             _ => return None
         };
 
-        self.take();
+        self.offset += 1;
         ns
     }
 
-    #[must_use]
-    fn generics(&mut self) -> Option<()> {
+    fn generic(&mut self) -> Option<()> {
+        if let Some(..) = self.lifetime() {
+            return Some(());
+        }
+
+        if let Some(..) = self.tipe() {
+            return Some(());
+        }
+
+        if let Some(..) = self.consume(b'K') {
+            self.constant()?;
+            return Some(());
+        }
+
         None
     }
 
-    #[must_use]
     fn constant(&mut self) -> Option<()> {
         None
     }
 
-    #[must_use]
     fn lifetime(&mut self) -> Option<()> {
-        None
+        self.consume(b'L')?;
+
+        if self.base62()? != 0 {
+            self.stream.push("'_", colors::MAGENTA);
+        }
+
+        Some(())
     }
 
     fn binder(&mut self) -> Option<usize> {
@@ -174,7 +176,36 @@ impl Parser {
         self.base62()
     }
 
-    #[must_use]
+    fn basic_tipe(&mut self, prefix: u8) -> Option<&'static str> {
+        let basic = match prefix {
+            b'b' => "bool",
+            b'c' => "char",
+            b'e' => "str",
+            b'u' => "()",
+            b'a' => "i8",
+            b's' => "i16",
+            b'l' => "i32",
+            b'x' => "i64",
+            b'n' => "i128",
+            b'i' => "isize",
+            b'h' => "u8",
+            b't' => "u16",
+            b'm' => "u32",
+            b'y' => "u64",
+            b'o' => "u128",
+            b'j' => "usize",
+            b'f' => "f32",
+            b'd' => "f64",
+            b'z' => "!",
+            b'p' => "_",
+            b'v' => "...",
+            _ => return None,
+        };
+
+        self.offset += 1;
+        Some(basic)
+    }
+
     fn path(&mut self) -> Option<()> {
         if self.depth > MAX_DEPTH {
             return None;
@@ -185,7 +216,7 @@ impl Parser {
         match self.peek()? {
             // crate root
             b'C' => {
-                self.take();
+                self.offset += 1;
 
                 let _disambiguator = self.disambiguator();
                 let ident = self.ident()?;
@@ -193,7 +224,7 @@ impl Parser {
             }
             // <T> (inherited impl)
             b'M' => {
-                self.take();
+                self.offset += 1;
 
                 let _disambiguator = self.disambiguator();
                 self.path()?;
@@ -203,7 +234,7 @@ impl Parser {
             }
             // <T as Trait> (trait impl)
             b'X' => {
-                self.take();
+                self.offset += 1;
 
                 let _disambiguator = self.disambiguator();
                 self.path()?;
@@ -213,7 +244,7 @@ impl Parser {
             }
             // <T as Trait> (trait definition)
             b'Y' => {
-                self.take();
+                self.offset += 1;
 
                 self.stream.push("<", colors::BLUE);
                 self.tipe()?;
@@ -223,7 +254,7 @@ impl Parser {
             }
             // ...::ident (nested path)
             b'N' => {
-                self.take();
+                self.offset += 1;
 
                 let ns = self.namespace()?;
                 let _disambiguator = self.disambiguator();
@@ -249,13 +280,23 @@ impl Parser {
             }
             // ...<T, U, ..> (generic args)
             b'I' => {
-                self.take();
+                self.offset += 1;
 
-                self.stream.push("<", colors::BLUE);
                 self.path()?;
-                self.generics()?;
+                self.stream.push("::", colors::GRAY);
+                self.stream.push("<", colors::BLUE);
+
+                let mut iters = 0;
+                while let None = self.consume(b'E') {
+                    if iters != 0 {
+                        self.stream.push(", ", colors::BLUE);
+                    }
+
+                    self.generic()?;
+                    iters += 1;
+                }
+
                 self.stream.push(">", colors::BLUE);
-                self.consume(b'E')?;
             }
             _ => return None,
         }
@@ -263,7 +304,6 @@ impl Parser {
         Some(())
     }
 
-    #[must_use]
     fn tipe(&mut self) -> Option<()> {
         if self.depth > MAX_DEPTH {
             return None;
@@ -274,9 +314,8 @@ impl Parser {
         let prefix = self.peek()?;
 
         // basic types
-        if let Some(tipe) = basic_tipe(prefix) {
+        if let Some(tipe) = self.basic_tipe(prefix) {
             self.stream.push(tipe, colors::PURPLE);
-
             return Some(());
         }
 
@@ -304,11 +343,14 @@ impl Parser {
             b'T' => {
                 self.stream.push("(", colors::BLUE);
 
-                while self.peek() != Some(b'E') {
-                    match self.tipe() {
-                        Some(..) => self.stream.push(", ", colors::BLUE),
-                        None => break,
+                let mut iters = 0;
+                while let None = self.consume(b'E') {
+                    if iters != 0 {
+                        self.stream.push(", ", colors::BLUE);
                     }
+
+                    self.tipe();
+                    iters += 1;
                 }
 
                 self.stream.push(")", colors::BLUE);
@@ -360,11 +402,14 @@ impl Parser {
                 self.stream.push("fn", colors::MAGENTA);
                 self.stream.push("(", colors::WHITE);
 
-                while self.peek() != Some(b'E') {
-                    match self.tipe() {
-                        Some(..) => self.stream.push(", ", colors::BLUE),
-                        None => break,
+                let mut iters = 0;
+                while let None = self.consume(b'E') {
+                    if iters != 0 {
+                        self.stream.push(", ", colors::BLUE);
                     }
+
+                    self.tipe();
+                    iters += 1;
                 }
 
                 self.stream.push(" -> ", colors::BLUE);
@@ -376,7 +421,12 @@ impl Parser {
                 self.stream.push("dyn ", colors::RED);
 
                 // associated traits e.g. Send + Sync + Pin
-                while self.peek() != Some(b'E') {
+                let mut iters = 0;
+                while let None = self.consume(b'E') {
+                    if iters != 0 {
+                        self.stream.push(" + ", colors::BLUE);
+                    }
+
                     self.path()?;
 
                     // associated trait bounds e.g. Trait<Assoc = X>
@@ -389,9 +439,7 @@ impl Parser {
                         self.stream.push(">", colors::BLUE);
                     }
 
-                    if self.peek() != Some(b'E') {
-                        self.stream.push(" + ", colors::WHITE);
-                    }
+                    iters += 1;
                 }
             }
             b'B' => {
@@ -406,40 +454,13 @@ impl Parser {
     }
 }
 
-fn basic_tipe(prefix: u8) -> Option<&'static str> {
-    Some(match prefix {
-        b'b' => "bool",
-        b'c' => "char",
-        b'e' => "str",
-        b'u' => "()",
-        b'a' => "i8",
-        b's' => "i16",
-        b'l' => "i32",
-        b'x' => "i64",
-        b'n' => "i128",
-        b'i' => "isize",
-        b'h' => "u8",
-        b't' => "u16",
-        b'm' => "u32",
-        b'y' => "u64",
-        b'o' => "u128",
-        b'j' => "usize",
-        b'f' => "f32",
-        b'd' => "f64",
-        b'z' => "!",
-        b'p' => "_",
-        b'v' => "...",
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn simple() {
-        parse("C8demangle").is_some();
+        parse("INvNvC3std3mem8align_ofjdE").unwrap();
     }
 }
 
