@@ -148,7 +148,7 @@ impl TokenStream {
     pub fn new(s: &str) -> Self {
         Self {
             inner: std::pin::Pin::new(s.to_string()),
-            __tokens: Vec::new(),
+            __tokens: Vec::with_capacity(128),
         }
     }
 

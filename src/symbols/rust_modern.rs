@@ -3,6 +3,8 @@
 use super::TokenStream;
 use crate::colors;
 
+const MAX_DEPTH: usize = 256;
+
 pub fn parse(s: &str) -> Option<TokenStream> {
     // paths have to be ascii
     if !s.bytes().all(|c| c.is_ascii()) {
@@ -10,8 +12,7 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     }
 
     let mut parser = Parser::new(s);
-
-    parser.path();
+    parser.path()?;
 
     Some(parser.stream)
 }
@@ -21,6 +22,13 @@ struct Parser {
     stream: TokenStream,
     offset: usize,
     depth: usize,
+}
+
+enum NameSpace {
+    Closure,
+    Shim,
+    Special(char),
+    Internal(char)
 }
 
 impl Parser {
@@ -54,6 +62,7 @@ impl Parser {
     }
 
     /// Increment the offset if the current byte equals the byte given.
+    #[must_use]
     fn consume(&mut self, byte: u8) -> Option<()> {
         if self.src().bytes().next() == Some(byte) {
             self.offset += 1;
@@ -65,6 +74,7 @@ impl Parser {
 
     /// Consumes a series of bytes that are in the range b'0' to b'Z' and converts it to base 62.
     /// It also consumes an underscore in the case that the base62 number happens to be zero.
+    #[must_use]
     fn base62(&mut self) -> Option<usize> {
         let mut num = 0usize;
 
@@ -90,6 +100,7 @@ impl Parser {
     }
 
     /// Consumes a series of bytes that are in the range b'0' to b'9' and converts it to base 10.
+    #[must_use]
     fn base10(&mut self) -> Option<usize> {
         let mut len = 0usize;
 
@@ -103,6 +114,7 @@ impl Parser {
         Some(len)
     }
 
+    /// Consumes an ident's disambiguator.
     fn disambiguator(&mut self) -> Option<usize> {
         if let Some(..) = self.consume(b's') {
             self.take();
@@ -113,6 +125,7 @@ impl Parser {
     }
 
     /// Consumes either a regular unambiguous or a punycode enabled string.
+    #[must_use]
     fn ident<'src>(&mut self) -> Option<&'src str> {
         if let Some(..) = self.consume(b'u') {
             todo!("punycode symbols decoding");
@@ -121,31 +134,303 @@ impl Parser {
         let len = self.base10()?;
         let _underscore = self.consume(b'_');
 
-        self.src().get(..len)
+        self.src().get(..len).map(|slice| {
+            self.offset += slice.len();
+            slice
+        })
     }
 
+    #[must_use]
+    fn namespace(&mut self) -> Option<NameSpace> {
+        let ns = match self.peek()? {
+            b'C' => Some(NameSpace::Closure),
+            b'S' => Some(NameSpace::Shim),
+            c @ b'A'..=b'Z' => Some(NameSpace::Special(c as char)),
+            c @ b'a'..=b'z' => Some(NameSpace::Internal(c as char)),
+            _ => return None
+        };
+
+        self.take();
+        ns
+    }
+
+    #[must_use]
+    fn generics(&mut self) -> Option<()> {
+        None
+    }
+
+    #[must_use]
+    fn constant(&mut self) -> Option<()> {
+        None
+    }
+
+    #[must_use]
+    fn lifetime(&mut self) -> Option<()> {
+        None
+    }
+
+    fn binder(&mut self) -> Option<usize> {
+        self.consume(b'G')?;
+        self.base62()
+    }
+
+    #[must_use]
     fn path(&mut self) -> Option<()> {
+        if self.depth > MAX_DEPTH {
+            return None;
+        }
+
+        self.depth += 1;
+
         match self.peek()? {
             // crate root
             b'C' => {
                 self.take();
+
                 let _disambiguator = self.disambiguator();
                 let ident = self.ident()?;
-
                 self.stream.push(ident, colors::PURPLE);
-
-                Some(())
             }
-            // <T> impl path
+            // <T> (inherited impl)
             b'M' => {
                 self.take();
-                let _disambiguator = self.disambiguator();
 
-                Some(())
+                let _disambiguator = self.disambiguator();
+                self.path()?;
+                self.stream.push("<", colors::BLUE);
+                self.tipe()?;
+                self.stream.push(">", colors::BLUE);
             }
-            _ => None,
+            // <T as Trait> (trait impl)
+            b'X' => {
+                self.take();
+
+                let _disambiguator = self.disambiguator();
+                self.path()?;
+                self.tipe()?;
+                self.stream.push(" as ", colors::BLUE);
+                self.path()?;
+            }
+            // <T as Trait> (trait definition)
+            b'Y' => {
+                self.take();
+
+                self.stream.push("<", colors::BLUE);
+                self.tipe()?;
+                self.stream.push(" as ", colors::BLUE);
+                self.path()?;
+                self.stream.push(">", colors::BLUE);
+            }
+            // ...::ident (nested path)
+            b'N' => {
+                self.take();
+
+                let ns = self.namespace()?;
+                let _disambiguator = self.disambiguator();
+                self.path()?;
+                let ident = self.ident()?;
+
+                self.stream.push("::", colors::GRAY);
+
+                match ns {
+                    NameSpace::Closure => {
+                        self.stream.push("{closure", colors::GRAY);
+
+                        if !ident.is_empty() {
+                            self.stream.push(":", colors::GRAY);
+                            self.stream.push(ident, colors::GRAY);
+                        }
+
+                        self.stream.push("}", colors::GRAY);
+
+                    }
+                    _ => self.stream.push(ident, colors::PURPLE),
+                }
+            }
+            // ...<T, U, ..> (generic args)
+            b'I' => {
+                self.take();
+
+                self.stream.push("<", colors::BLUE);
+                self.path()?;
+                self.generics()?;
+                self.stream.push(">", colors::BLUE);
+                self.consume(b'E')?;
+            }
+            _ => return None,
         }
+
+        Some(())
     }
+
+    #[must_use]
+    fn tipe(&mut self) -> Option<()> {
+        if self.depth > MAX_DEPTH {
+            return None;
+        }
+
+        self.depth += 1;
+
+        let prefix = self.peek()?;
+
+        // basic types
+        if let Some(tipe) = basic_tipe(prefix) {
+            self.stream.push(tipe, colors::PURPLE);
+
+            return Some(());
+        }
+
+        // named type
+        if let Some(..) = self.path() {
+            return Some(());
+        }
+
+        match prefix {
+            // [T; N]
+            b'A' => {
+                self.stream.push("[", colors::BLUE);
+                self.tipe()?;
+                self.stream.push("; ", colors::BLUE);
+                self.constant()?;
+                self.stream.push("]", colors::BLUE);
+            }
+            // [T]
+            b'S' => {
+                self.stream.push("[", colors::BLUE);
+                self.tipe()?;
+                self.stream.push("]", colors::BLUE);
+            }
+            // (T1, T2, T3, ..)
+            b'T' => {
+                self.stream.push("(", colors::BLUE);
+
+                while self.peek() != Some(b'E') {
+                    match self.tipe() {
+                        Some(..) => self.stream.push(", ", colors::BLUE),
+                        None => break,
+                    }
+                }
+
+                self.stream.push(")", colors::BLUE);
+            }
+            // &T
+            b'R' => {
+                self.stream.push("&", colors::BLUE);
+                self.lifetime()?;
+                self.tipe()?;
+            }
+            // &mut T
+            b'Q' => {
+                self.stream.push("&mut ", colors::BLUE);
+                self.lifetime()?;
+                self.tipe()?;
+            }
+            // *const T
+            b'P' => {
+                self.stream.push("*const ", colors::BLUE);
+                self.tipe()?;
+            }
+            // *mut T
+            b'O' => {
+                self.stream.push("*mut ", colors::BLUE);
+                self.tipe()?;
+            }
+            // fn(..) -> ..
+            b'F' => {
+                self.binder();
+
+                if let Some(..) = self.consume(b'U') {
+                    self.stream.push("unsafe ", colors::RED);
+                }
+
+                if let Some(..) = self.consume(b'K') {
+                    self.stream.push("extern ", colors::RED);
+
+                    if let Some(..) = self.consume(b'C') {
+                        self.stream.push("\"C\"", colors::BLUE);
+                    } else {
+                        let ident = self.ident()?;
+
+                        self.stream.push("\"", colors::BLUE);
+                        self.stream.push(ident, colors::BLUE);
+                        self.stream.push("\"", colors::BLUE);
+                    }
+                }
+
+                self.stream.push("fn", colors::MAGENTA);
+                self.stream.push("(", colors::WHITE);
+
+                while self.peek() != Some(b'E') {
+                    match self.tipe() {
+                        Some(..) => self.stream.push(", ", colors::BLUE),
+                        None => break,
+                    }
+                }
+
+                self.stream.push(" -> ", colors::BLUE);
+                self.tipe()?;
+            }
+            // dyn ..
+            b'D' => {
+                self.binder();
+                self.stream.push("dyn ", colors::RED);
+
+                // associated traits e.g. Send + Sync + Pin
+                while self.peek() != Some(b'E') {
+                    self.path()?;
+
+                    // associated trait bounds e.g. Trait<Assoc = X>
+                    while let Some(..) = self.consume(b'p') {
+                        self.stream.push("<", colors::BLUE);
+                        let ident = self.ident()?;
+                        self.stream.push(ident, colors::PURPLE);
+                        self.stream.push(" = ", colors::WHITE);
+                        self.tipe()?;
+                        self.stream.push(">", colors::BLUE);
+                    }
+
+                    if self.peek() != Some(b'E') {
+                        self.stream.push(" + ", colors::WHITE);
+                    }
+                }
+            }
+            b'B' => {
+                let backref = self.base62()?;
+
+                todo!("handle backref: {backref}")
+            }
+            _ => return None,
+        }
+
+        Some(())
+    }
+}
+
+fn basic_tipe(prefix: u8) -> Option<&'static str> {
+    Some(match prefix {
+        b'b' => "bool",
+        b'c' => "char",
+        b'e' => "str",
+        b'u' => "()",
+        b'a' => "i8",
+        b's' => "i16",
+        b'l' => "i32",
+        b'x' => "i64",
+        b'n' => "i128",
+        b'i' => "isize",
+        b'h' => "u8",
+        b't' => "u16",
+        b'm' => "u32",
+        b'y' => "u64",
+        b'o' => "u128",
+        b'j' => "usize",
+        b'f' => "f32",
+        b'd' => "f64",
+        b'z' => "!",
+        b'p' => "_",
+        b'v' => "...",
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -154,7 +439,7 @@ mod tests {
 
     #[test]
     fn simple() {
-        dbg!(parse("C8demangle"));
+        parse("C8demangle").is_some();
     }
 }
 
