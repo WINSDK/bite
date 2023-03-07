@@ -4,6 +4,7 @@ mod texture;
 mod uniforms;
 mod utils;
 mod window;
+mod quad;
 
 use winit::dpi::{PhysicalPosition, PhysicalSize, Size};
 use winit::event::{

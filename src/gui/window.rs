@@ -5,6 +5,8 @@ use std::sync::atomic::Ordering;
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
+use super::quad;
+
 pub struct Backend {
     pub size: winit::dpi::PhysicalSize<u32>,
 
@@ -24,6 +26,8 @@ pub struct Backend {
     pub staging_belt: wgpu::util::StagingBelt,
 
     pub glyph_brush: GlyphBrush<()>,
+
+    quad_pipeline: crate::gui::quad::Pipeline,
 }
 
 impl Backend {
@@ -205,6 +209,11 @@ impl Backend {
         let font = ab_glyph::FontArc::try_from_slice(font).unwrap();
         let glyph_brush = GlyphBrushBuilder::using_font(font).build(&device, surface_format);
 
+        let quad_pipeline = crate::gui::quad::Pipeline::new(
+            &device,
+            surface_format,
+        );
+
         Ok(Self {
             size,
             instance,
@@ -220,6 +229,7 @@ impl Backend {
             index_count: indices.len() as u32,
             staging_belt,
             glyph_brush,
+            quad_pipeline,
         })
     }
 
