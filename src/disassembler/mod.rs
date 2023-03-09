@@ -7,6 +7,7 @@ mod lookup;
 mod x86_64;
 
 use crate::symbols::Index;
+use crate::warning;
 use object::Architecture;
 use object::{Object, ObjectSection, SectionKind};
 
@@ -33,7 +34,7 @@ pub enum Error {
 }
 
 pub struct Dissasembly {
-    pub lines: Mutex<Vec<Line>>,
+    lines: Mutex<Vec<Line>>,
     pub symbols: Mutex<Index>,
 }
 
@@ -45,23 +46,25 @@ impl Dissasembly {
         }
     }
 
-    pub fn load<P>(self: Arc<Self>, path: P, show_donut: Arc<AtomicBool>)
+    pub async fn load<P>(self: Arc<Self>, path: P, show_donut: Arc<AtomicBool>)
     where
         P: AsRef<std::path::Path> + Sync + Send + 'static,
     {
-        show_donut.store(true, Ordering::Relaxed);
+        let now = tokio::time::Instant::now();
+        let path_fmt = format!("{:?}", path.as_ref());
 
         let task = tokio::spawn(async move {
-            let now = tokio::time::Instant::now();
+            show_donut.store(true, Ordering::Relaxed);
+
             let binary = tokio::fs::read(&path)
                 .await
                 .map_err(|_| "Unexpected read of binary failed.")?;
 
-            let obj = object::File::parse(&*binary).map_err(|_| "Not a valid object.")?;
+            // SAFETY: tokio::spawn's in this scope require a &'static
+            let binary: &'static [u8] = unsafe { std::mem::transmute(&binary[..]) };
 
-            *self.symbols.lock().unwrap() = Index::parse(&obj)
-                .await
-                .map_err(|_| "Failed to parse symbols table.")?;
+            let obj = object::File::parse(binary).map_err(|_| "Not a valid object.")?;
+            let arch = obj.architecture();
 
             let section = obj
                 .sections()
@@ -69,54 +72,53 @@ impl Dissasembly {
                 .find(|t| t.name() == Ok(".text"))
                 .ok_or("Failed to find `.text` section.")?;
 
+            // SAFETY: tokio::spawn's in this scope require a &'static
+            let section: object::Section<'static, '_> = unsafe { std::mem::transmute(section) };
+
             let raw = section
                 .uncompressed_data()
-                .map_err(|_| "Failed to decompress .text section.")?
-                .into_owned()
-                .leak();
+                .map_err(|_| "Failed to decompress .text section.")?;
 
-            let base_offset = section.address() as usize;
-            let stream = match InstructionStream::new(raw, obj.architecture(), base_offset) {
-                Err(..) => return Err("Failed to disassemble: UnsupportedArchitecture."),
-                Ok(stream) => stream,
-            };
+            let symbols = tokio::spawn(async move {
+                Index::parse(&obj)
+                    .await
+                    .map_err(|_| "Failed to parse symbols table.")
+            });
 
             // TODO: optimize for lazy chunk loading
-            let mut lines = self.lines.lock().unwrap();
-            for inst in stream {
-                lines.push(inst);
-            }
+            let lines = tokio::spawn(async move {
+                let base_offset = section.address() as usize;
 
-            println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
+                InstructionStream::new(&raw[..], arch, base_offset)
+                    .map(|stream| stream.collect())
+                    .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")
+            });
 
-            Ok(())
+            *self.symbols.lock().unwrap() = symbols.await.unwrap()?;
+            *self.lines.lock().unwrap() = lines.await.unwrap()?;
+
+            Ok::<(), &str>(())
         });
 
-        tokio::spawn(async move {
-            let err = match task.await {
-                Ok(Err(err)) => format!("{err:?}"),
-                Err(err) => format!("{err:?}"),
-                _ => {
-                    show_donut.store(false, Ordering::Relaxed);
-                    return;
-                }
-            };
+        match task.await.unwrap() {
+            Err(err) => warning!("{err:?}"),
+            _ => println!("took {:#?} to parse {}", now.elapsed(), path_fmt),
+        };
+    }
 
-            show_donut.store(false, Ordering::Relaxed);
-
-            if let Some(window) = crate::gui::WINDOW.get() {
-                let window = std::sync::Arc::clone(window);
-
-                rfd::AsyncMessageDialog::new()
-                    .set_title("Bite failed at runtime")
-                    .set_description(&err)
-                    .set_parent(&*window)
-                    .show()
-                    .await;
+    pub fn lines(&self) -> Option<std::sync::MutexGuard<Vec<Line>>> {
+        if let Ok(lines) = self.lines.try_lock() {
+            if !lines.is_empty() {
+                return Some(lines);
             }
+        }
 
-            eprintln!("{err}");
-        });
+        None
+    }
+
+    pub fn clear(&self) {
+        self.lines.lock().unwrap().clear();
+        self.symbols.lock().unwrap().clear();
     }
 }
 

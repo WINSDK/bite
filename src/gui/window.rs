@@ -154,7 +154,7 @@ impl Backend {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("bite::ui pipeline layout"),
-            bind_group_layouts: &[&Texture::layout()],
+            bind_group_layouts: &[Texture::layout()],
             push_constant_ranges: &[],
         });
 
@@ -306,7 +306,9 @@ impl Backend {
             )
             .map_err(Error::DrawText)?;
 
-        if let Ok(ref mut dissasembly) = ctx.dissasembly.lines.try_lock() {
+        if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
+            ctx.show_donut.store(false, Ordering::Relaxed);
+
             let symbols = ctx.dissasembly.symbols.lock().unwrap();
 
             let pad = "        ";

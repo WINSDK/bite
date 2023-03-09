@@ -127,6 +127,10 @@ impl Index {
         self.tree.is_empty()
     }
 
+    pub fn clear(&mut self) {
+        self.tree.clear();
+    }
+
     pub fn get_by_line(&self, line: &Line) -> Option<&[Token]> {
         self.tree
             .get(&(line.section_base + line.offset))
@@ -144,7 +148,7 @@ impl TokenStream {
     pub fn new(s: &str) -> Self {
         Self {
             inner: std::pin::Pin::new(s.to_string()),
-            __tokens: Vec::new(),
+            __tokens: Vec::with_capacity(128),
         }
     }
 

@@ -45,6 +45,27 @@ macro_rules! fail {
 }
 
 #[macro_export]
+macro_rules! warning {
+    () => {
+        eprintln!("Unknown warning occurred.");
+    };
+
+    ($($arg:tt)*) => {{
+        if let Some(window) = $crate::gui::WINDOW.get() {
+            let window = std::sync::Arc::clone(&window);
+
+            rfd::MessageDialog::new()
+                .set_title("Bite Warning")
+                .set_description(format!($($arg)*).as_str())
+                .set_parent(&*window)
+                .show();
+        }
+
+        eprintln!($($arg)*);
+    }};
+}
+
+#[macro_export]
 macro_rules! assert_exit {
     ($cond:expr $(,)?) => {{
         if !($cond) {

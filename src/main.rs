@@ -58,6 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let index = symbols::Index::parse(&obj)
         .await
         .expect("Failed to parse symbols table.");
+
     let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {
