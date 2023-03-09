@@ -12,8 +12,9 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     }
 
     let mut parser = Parser::new(s);
-    parser.path();
+    let success = parser.path();
     dbg!(parser.stream.tokens());
+    success?;
 
     Some(parser.stream)
 }
@@ -181,8 +182,8 @@ impl Parser {
         self.base62()
     }
 
-    fn basic_tipe(&mut self, prefix: u8) -> Option<&'static str> {
-        let basic = match prefix {
+    fn basic_tipe(&mut self) -> Option<&'static str> {
+        let basic = match self.peek()? {
             b'b' => "bool",
             b'c' => "char",
             b'e' => "str",
@@ -323,10 +324,8 @@ impl Parser {
 
         self.depth += 1;
 
-        let prefix = self.peek()?;
-
         // basic types
-        if let Some(tipe) = self.basic_tipe(prefix) {
+        if let Some(tipe) = self.basic_tipe() {
             self.stream.push(tipe, colors::PURPLE);
             return Some(());
         }
@@ -336,9 +335,11 @@ impl Parser {
             return Some(());
         }
 
-        match prefix {
+        match self.peek()? {
             // [T; N]
             b'A' => {
+                self.offset += 1;
+
                 self.stream.push("[", colors::BLUE);
                 self.tipe()?;
                 self.stream.push("; ", colors::BLUE);
@@ -347,12 +348,16 @@ impl Parser {
             }
             // [T]
             b'S' => {
+                self.offset += 1;
+
                 self.stream.push("[", colors::BLUE);
                 self.tipe()?;
                 self.stream.push("]", colors::BLUE);
             }
             // (T1, T2, T3, ..)
             b'T' => {
+                self.offset += 1;
+
                 self.stream.push("(", colors::BLUE);
 
                 let mut iters = 0;
@@ -361,7 +366,7 @@ impl Parser {
                         self.stream.push(", ", colors::BLUE);
                     }
 
-                    self.tipe();
+                    self.tipe()?;
                     iters += 1;
                 }
 
@@ -369,28 +374,37 @@ impl Parser {
             }
             // &T
             b'R' => {
+                self.offset += 1;
+
                 self.stream.push("&", colors::BLUE);
                 self.lifetime()?;
                 self.tipe()?;
             }
             // &mut T
             b'Q' => {
+                self.offset += 1;
+
                 self.stream.push("&mut ", colors::BLUE);
                 self.lifetime()?;
                 self.tipe()?;
             }
             // *const T
             b'P' => {
+                self.offset += 1;
+
                 self.stream.push("*const ", colors::BLUE);
                 self.tipe()?;
             }
             // *mut T
             b'O' => {
+                self.offset += 1;
+
                 self.stream.push("*mut ", colors::BLUE);
                 self.tipe()?;
             }
             // fn(..) -> ..
             b'F' => {
+                self.offset += 1;
                 self.binder();
 
                 if let Some(..) = self.consume(b'U') {
@@ -401,7 +415,7 @@ impl Parser {
                     self.stream.push("extern ", colors::RED);
 
                     if let Some(..) = self.consume(b'C') {
-                        self.stream.push("\"C\"", colors::BLUE);
+                        self.stream.push("\"C\" ", colors::BLUE);
                     } else {
                         let ident = self.ident()?;
 
@@ -420,15 +434,17 @@ impl Parser {
                         self.stream.push(", ", colors::BLUE);
                     }
 
-                    self.tipe();
+                    self.tipe()?;
                     iters += 1;
                 }
 
+                self.stream.push(")", colors::WHITE);
                 self.stream.push(" -> ", colors::BLUE);
                 self.tipe()?;
             }
             // dyn ..
             b'D' => {
+                self.offset += 1;
                 self.binder();
                 self.stream.push("dyn ", colors::RED);
 
@@ -455,6 +471,7 @@ impl Parser {
                 }
             }
             b'B' => {
+                self.offset += 1;
                 let backref = self.base62()?;
 
                 todo!("handle backref: {backref}")
@@ -543,11 +560,11 @@ mod tests {
 
     #[test]
     fn fn_signature() {
-        eq!("INvNtC3std3mem8align_ofFUKC3rundddEoE" =>
-             "std::mem::align_of::<unsafe fn run(f64, f64, f64) -> u128>");
+        eq!("INvNtC3std3mem8align_ofFUdddEoE" =>
+             "std::mem::align_of::<unsafe fn(f64, f64, f64) -> u128>");
 
-        eq!("INvNtC3std3mem8align_ofFKC3rundddEoE" =>
-             "std::mem::align_of::<fn run(f64, f64, f64) -> u128>");
+        eq!("INvNtC3std3mem8align_ofFKCdddEoE" =>
+             "std::mem::align_of::<extern \"C\" fn(f64, f64, f64) -> u128>");
 
         eq!("INvNtC3std3mem8align_ofFdddEoE" =>
              "std::mem::align_of::<fn(f64, f64, f64) -> u128>");
