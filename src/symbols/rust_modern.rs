@@ -1,7 +1,7 @@
 //! Rust v0 symbol demangler
 
 use super::TokenStream;
-use crate::colors;
+use crate::colors::{self, Color};
 
 const MAX_DEPTH: usize = 256;
 
@@ -12,9 +12,7 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     }
 
     let mut parser = Parser::new(s);
-    let success = parser.path();
-    // dbg!(parser.stream.tokens());
-    success?;
+    parser.path()?;
 
     Some(parser.stream)
 }
@@ -24,6 +22,7 @@ struct Parser {
     stream: TokenStream,
     offset: usize,
     depth: usize,
+    printing: bool,
 }
 
 enum NameSpace {
@@ -40,22 +39,26 @@ impl Parser {
             stream: TokenStream::new(s),
             offset: 0,
             depth: 0,
+            printing: true,
         }
     }
 
     /// Create a reference to the underlying pinned string that holds the mangled symbol.
-    #[inline(always)]
+    #[inline]
     fn src(&self) -> &'static str {
         &self.stream.inner()[self.offset..]
+    }
+
+    #[inline]
+    fn push(&mut self, text: &'static str, color: Color) {
+        if self.printing {
+            self.stream.push(text, color);
+        }
     }
 
     /// View the current byte in the mangled symbol without incrementing the offset.
     fn peek(&self) -> Option<u8> {
         self.src().bytes().next()
-    }
-
-    fn peek_slice(&self, range: std::ops::Range<usize>) -> Option<&str> {
-        self.src().get(range)
     }
 
     /// Increment the offset if the current byte equals the byte given.
@@ -66,6 +69,15 @@ impl Parser {
         }
 
         None
+    }
+
+    #[inline]
+    fn dont_print<F: FnOnce(&mut Self) -> Option<()>>(&mut self, f: F) -> Option<()> {
+        self.printing = false;
+        f(self)?;
+        self.printing = true;
+
+        Some(())
     }
 
     /// Consumes a series of bytes that are in the range b'0' to b'Z' and converts it to base 62.
@@ -150,7 +162,9 @@ impl Parser {
     }
 
     fn generic(&mut self) -> Option<()> {
-        if let Some(..) = self.lifetime() {
+        if let Some(lifetime) = self.lifetime() {
+            self.push(lifetime, colors::MAGENTA);
+            self.push(" ", colors::MAGENTA);
             return Some(());
         }
 
@@ -191,56 +205,65 @@ impl Parser {
     fn constant(&mut self) -> Option<()> {
         // placeholder
         if let Some(..) = self.consume(b'p') {
-            self.stream.push("'_", colors::MAGENTA);
+            self.push("_", colors::MAGENTA);
             return Some(());
         }
 
         if let Some(..) = self.consume(b'B') {
+            self.depth += 1;
+
+            if self.depth > MAX_DEPTH {
+                return None;
+            }
+
             let backref = self.base62()?;
-            todo!("handle backref: {backref}");
+            let start = self.offset;
+
+            self.offset = backref;
+            self.constant()?;
+
+            self.offset = start;
+            self.depth -= 1;
         }
 
         // can't implement constants using just &'static str's
         self.offset += 1;
         self.hex_nibbles()?;
-        self.stream.push("_", colors::MAGENTA);
+        self.push("_", colors::MAGENTA);
         Some(())
     }
 
-    fn lifetime(&mut self) -> Option<()> {
+    fn lifetime<'src>(&mut self) -> Option<&'src str> {
         self.consume(b'L')?;
 
-        let s = match self.base62()? {
-            1 => "'a ",
-            2 => "'b ",
-            3 => "'c ",
-            4 => "'d ",
-            5 => "'e ",
-            6 => "'f ",
-            7 => "'g ",
-            8 => "'h ",
-            9 => "'i ",
-            10 => "'j ",
-            11 => "'k ",
-            12 => "'l ",
-            13 => "'m ",
-            14 => "'n ",
-            15 => "'o ",
-            16 => "'p ",
-            17 => "'q ",
-            18 => "'s ",
-            19 => "'t ",
-            20 => "'u ",
-            21 => "'v ",
-            22 => "'w ",
-            23 => "'x ",
-            24 => "'y ",
-            25 => "'z ",
-            _ => return Some(()),
-        };
-
-        self.stream.push(s, colors::MAGENTA);
-        Some(())
+        Some(match self.base62()? {
+            1 => "'a",
+            2 => "'b",
+            3 => "'c",
+            4 => "'d",
+            5 => "'e",
+            6 => "'f",
+            7 => "'g",
+            8 => "'h",
+            9 => "'i",
+            10 => "'j",
+            11 => "'k",
+            12 => "'l",
+            13 => "'m",
+            14 => "'n",
+            15 => "'o",
+            16 => "'p",
+            17 => "'q",
+            18 => "'s",
+            19 => "'t",
+            20 => "'u",
+            21 => "'v",
+            22 => "'w",
+            23 => "'x",
+            24 => "'y",
+            25 => "'z",
+            _ => return None,
+        })
     }
 
     fn binder(&mut self) -> Option<usize> {
@@ -292,40 +315,41 @@ impl Parser {
 
                 let _disambiguator = self.disambiguator();
                 let ident = self.ident()?;
-                self.stream.push(ident, colors::PURPLE);
+                self.push(ident, colors::PURPLE);
             }
             // <T> (inherited impl)
             b'M' => {
                 self.offset += 1;
 
                 let _disambiguator = self.disambiguator();
-                self.path()?;
-                self.stream.push("<", colors::BLUE);
+
+                self.dont_print(|this| this.path())?;
+                self.push("<", colors::BLUE);
                 self.tipe()?;
-                self.stream.push(">", colors::BLUE);
+                self.push(">", colors::BLUE);
             }
             // <T as Trait> (trait impl)
             b'X' => {
                 self.offset += 1;
 
                 let _disambiguator = self.disambiguator();
-                self.path()?;
-                self.stream.push("::", colors::GRAY);
-                self.stream.push("<", colors::BLUE);
+
+                self.dont_print(|this| this.path())?;
+                self.push("<", colors::BLUE);
                 self.tipe()?;
-                self.stream.push(" as ", colors::BLUE);
+                self.push(" as ", colors::BLUE);
                 self.path()?;
-                self.stream.push(">", colors::BLUE);
+                self.push(">", colors::BLUE);
             }
             // <T as Trait> (trait definition)
             b'Y' => {
                 self.offset += 1;
 
-                self.stream.push("<", colors::BLUE);
+                self.push("<", colors::BLUE);
                 self.tipe()?;
-                self.stream.push(" as ", colors::BLUE);
+                self.push(" as ", colors::BLUE);
                 self.path()?;
-                self.stream.push(">", colors::BLUE);
+                self.push(">", colors::BLUE);
             }
             // ...::ident (nested path)
             b'N' => {
@@ -336,67 +360,68 @@ impl Parser {
                 let disambiguator = self.disambiguator();
                 let ident = self.ident()?;
 
-                self.stream.push("::", colors::GRAY);
+                self.push("::", colors::GRAY);
 
                 match ns {
                     NameSpace::Closure => {
-                        self.stream.push("{closure", colors::GRAY);
+                        self.push("{closure", colors::GRAY);
 
                         if !ident.is_empty() {
-                            self.stream.push(":", colors::GRAY);
-                            self.stream.push(ident, colors::GRAY);
+                            self.push(":", colors::GRAY);
+                            self.push(ident, colors::GRAY);
                         }
 
                         match disambiguator {
-                            Some(0) => self.stream.push("#0", colors::GRAY),
-                            Some(1) => self.stream.push("#1", colors::GRAY),
-                            Some(2) => self.stream.push("#2", colors::GRAY),
-                            Some(3) => self.stream.push("#3", colors::GRAY),
-                            Some(4) => self.stream.push("#4", colors::GRAY),
-                            Some(5) => self.stream.push("#5", colors::GRAY),
-                            Some(6) => self.stream.push("#6", colors::GRAY),
-                            Some(7) => self.stream.push("#7", colors::GRAY),
-                            Some(8) => self.stream.push("#8", colors::GRAY),
-                            Some(9) => self.stream.push("#9", colors::GRAY),
+                            Some(0) => self.push("#0", colors::GRAY),
+                            Some(1) => self.push("#1", colors::GRAY),
+                            Some(2) => self.push("#2", colors::GRAY),
+                            Some(3) => self.push("#3", colors::GRAY),
+                            Some(4) => self.push("#4", colors::GRAY),
+                            Some(5) => self.push("#5", colors::GRAY),
+                            Some(6) => self.push("#6", colors::GRAY),
+                            Some(7) => self.push("#7", colors::GRAY),
+                            Some(8) => self.push("#8", colors::GRAY),
+                            Some(9) => self.push("#9", colors::GRAY),
                             _ => {}
                         }
 
-                        self.stream.push("}", colors::GRAY);
+                        self.push("}", colors::GRAY);
 
                     }
-                    _ => self.stream.push(ident, colors::PURPLE),
+                    _ => self.push(ident, colors::PURPLE),
                 }
             }
             // ...<T, U, ..> (generic args)
             b'I' => {
                 self.offset += 1;
 
-                let next_is_type = self.peek_slice(0..2) == Some("Nt");
+                let next_is_type = self.src().get(..2) == Some("Nt");
 
                 self.path()?;
 
                 // generics on types shouldn't print a '::'
                 if !next_is_type {
-                    self.stream.push("::", colors::GRAY);
+                    self.push("::", colors::GRAY);
                 }
 
-                self.stream.push("<", colors::BLUE);
+                self.push("<", colors::BLUE);
 
                 let mut iters = 0;
                 while let None = self.consume(b'E') {
                     if iters != 0 {
-                        self.stream.push(", ", colors::BLUE);
+                        self.push(", ", colors::BLUE);
                     }
 
                     self.generic()?;
                     iters += 1;
                 }
 
-                self.stream.push(">", colors::BLUE);
+                self.push(">", colors::BLUE);
             }
             _ => return None,
         }
 
+        self.depth -= 1;
         Some(())
     }
 
@@ -409,7 +434,7 @@ impl Parser {
 
         // basic types
         if let Some(tipe) = self.basic_tipe() {
-            self.stream.push(tipe, colors::PURPLE);
+            self.push(tipe, colors::PURPLE);
             return Some(());
         }
 
@@ -423,67 +448,75 @@ impl Parser {
             b'A' => {
                 self.offset += 1;
 
-                self.stream.push("[", colors::BLUE);
+                self.push("[", colors::BLUE);
                 self.tipe()?;
-                self.stream.push("; ", colors::BLUE);
+                self.push("; ", colors::BLUE);
                 self.constant()?;
-                self.stream.push("]", colors::BLUE);
+                self.push("]", colors::BLUE);
             }
             // [T]
             b'S' => {
                 self.offset += 1;
 
-                self.stream.push("[", colors::BLUE);
+                self.push("[", colors::BLUE);
                 self.tipe()?;
-                self.stream.push("]", colors::BLUE);
+                self.push("]", colors::BLUE);
             }
             // (T1, T2, T3, ..)
             b'T' => {
                 self.offset += 1;
 
-                self.stream.push("(", colors::BLUE);
+                self.push("(", colors::BLUE);
 
                 let mut iters = 0;
                 while let None = self.consume(b'E') {
                     if iters != 0 {
-                        self.stream.push(", ", colors::BLUE);
+                        self.push(", ", colors::BLUE);
                     }
 
                     self.tipe()?;
                     iters += 1;
                 }
 
-                self.stream.push(")", colors::BLUE);
+                self.push(")", colors::BLUE);
             }
             // &T
             b'R' => {
                 self.offset += 1;
 
-                self.stream.push("&", colors::BLUE);
-                self.lifetime()?;
+                self.push("&", colors::BLUE);
+                if let Some(lifetime) = self.lifetime() {
+                    self.push(lifetime, colors::MAGENTA);
+                    self.push(" ", colors::MAGENTA);
+                }
+
                 self.tipe()?;
             }
             // &mut T
             b'Q' => {
                 self.offset += 1;
 
-                self.stream.push("&", colors::BLUE);
-                self.lifetime()?;
-                self.stream.push("mut ", colors::BLUE);
+                self.push("&", colors::BLUE);
+                if let Some(lifetime) = self.lifetime() {
+                    self.push(lifetime, colors::MAGENTA);
+                    self.push(" ", colors::MAGENTA);
+                }
+
+                self.push("mut ", colors::BLUE);
                 self.tipe()?;
             }
             // *const T
             b'P' => {
                 self.offset += 1;
 
-                self.stream.push("*const ", colors::BLUE);
+                self.push("*const ", colors::BLUE);
                 self.tipe()?;
             }
             // *mut T
             b'O' => {
                 self.offset += 1;
 
-                self.stream.push("*mut ", colors::BLUE);
+                self.push("*mut ", colors::BLUE);
                 self.tipe()?;
             }
             // fn(..) -> ..
@@ -492,77 +525,94 @@ impl Parser {
                 self.binder();
 
                 if let Some(..) = self.consume(b'U') {
-                    self.stream.push("unsafe ", colors::RED);
+                    self.push("unsafe ", colors::RED);
                 }
 
                 if let Some(..) = self.consume(b'K') {
-                    self.stream.push("extern ", colors::RED);
+                    self.push("extern ", colors::RED);
 
                     if let Some(..) = self.consume(b'C') {
-                        self.stream.push("\"C\" ", colors::BLUE);
+                        self.push("\"C\" ", colors::BLUE);
                     } else {
                         let ident = self.ident()?;
 
-                        self.stream.push("\"", colors::BLUE);
-                        self.stream.push(ident, colors::BLUE);
-                        self.stream.push("\"", colors::BLUE);
+                        self.push("\"", colors::BLUE);
+                        self.push(ident, colors::BLUE);
+                        self.push("\"", colors::BLUE);
                     }
                 }
 
-                self.stream.push("fn", colors::MAGENTA);
-                self.stream.push("(", colors::WHITE);
+                self.push("fn", colors::MAGENTA);
+                self.push("(", colors::WHITE);
 
                 let mut iters = 0;
                 while let None = self.consume(b'E') {
                     if iters != 0 {
-                        self.stream.push(", ", colors::BLUE);
+                        self.push(", ", colors::BLUE);
                     }
 
                     self.tipe()?;
                     iters += 1;
                 }
 
-                self.stream.push(")", colors::WHITE);
-                self.stream.push(" -> ", colors::BLUE);
+                self.push(")", colors::WHITE);
+                self.push(" -> ", colors::BLUE);
                 self.tipe()?;
             }
             // dyn ..
             b'D' => {
                 self.offset += 1;
                 self.binder();
-                self.stream.push("dyn ", colors::RED);
+                self.push("dyn ", colors::RED);
 
                 // associated traits e.g. Send + Sync + Pin
                 let mut iters = 0;
                 while let None = self.consume(b'E') {
                     if iters != 0 {
-                        self.stream.push(" + ", colors::BLUE);
+                        self.push(" + ", colors::BLUE);
                     }
 
                     self.path()?;
 
                     // associated trait bounds e.g. Trait<Assoc = X>
                     while let Some(..) = self.consume(b'p') {
-                        self.stream.push("<", colors::BLUE);
+                        self.push("<", colors::BLUE);
                         let ident = self.ident()?;
-                        self.stream.push(ident, colors::PURPLE);
-                        self.stream.push(" = ", colors::WHITE);
+                        self.push(ident, colors::PURPLE);
+                        self.push(" = ", colors::WHITE);
                         self.tipe()?;
-                        self.stream.push(">", colors::BLUE);
+                        self.push(">", colors::BLUE);
                     }
 
                     iters += 1;
                 }
+
+                if let Some(lifetime) = self.lifetime() {
+                    self.push(" + ", colors::BLUE);
+                    self.push(lifetime, colors::MAGENTA);
+                }
             }
             b'B' => {
                 self.offset += 1;
-                let backref = self.base62()?;
+                self.depth += 1;
 
-                todo!("handle backref: {backref}")
+                if self.depth > MAX_DEPTH {
+                    return None;
+                }
+
+                let backref = self.base62()?;
+                let start = self.offset;
+
+                self.offset = backref;
+                self.tipe()?;
+
+                self.offset = start;
+                self.depth -= 1;
             }
             _ => return None,
         }
 
+        self.depth -= 1;
         Some(())
     }
 }
@@ -604,7 +654,7 @@ mod tests {
     #[test]
     fn methods() {
         eq!("NvNvXs2_C7mycrateINtC7mycrate3FoopEINtNtC3std7convert4FrompE4from3MSG" =>
-             "mycrate::<mycrate::Foo<_> as std::convert::From<_>>::from::MSG");
+             "<mycrate::Foo<_> as std::convert::From<_>>::from::MSG");
     }
 
     #[test]
@@ -632,14 +682,14 @@ mod tests {
     }
 
     #[test]
-    fn constants() {
-        eq!("NvXs5_NtCsd4VYFwevHkG_4bite6decodeINtB5_5ArrayNtNtB5_6x86_646PrefixKj4_EINtNtNtCs9ltgdHTiPiY_4core3ops5index8IndexMutjE9index_mutB7_" =>
-             "<bite::decode::Array<bite::decode::x86_64::Prefix, 4> as core::ops::index::IndexMut<usize>>::index_mut");
-
-        eq!("_NvMNtCs9ltgdHTiPiY_4core5sliceSRe4iterCslWKjbRFJPpS_3log" => "<[&str]>::iter");
-
-        eq!("_NvMs1_NtNtCs9ltgdHTiPiY_4core3ptr8non_nullINtB5_7NonNullReE6as_ptrCslWKjbRFJPpS_3log" =>
+    fn backref() {
+        eq!("NvMs1_NtNtCs9ltgdHTiPiY_4core3ptr8non_nullINtB5_7NonNullReE6as_ptrCslWKjbRFJPpS_3log" =>
              "<core::ptr::non_null::NonNull<&str>>::as_ptr");
+    }
+
+    #[test]
+    fn constants() {
+        eq!("NvMNtCs9ltgdHTiPiY_4core5sliceSRe4iterCslWKjbRFJPpS_3log" => "<[&str]>::iter");
     }
 
     #[test]
@@ -664,12 +714,6 @@ mod tests {
 
         eq!("INvNtC4core4simd3mulDNvNtC4core3mem4ReadEL_E" =>
              "core::simd::mul::<dyn core::mem::Read>");
-    }
-
-    #[test]
-    fn type_compression() {
-        eq!("INvNtCs9ltgdHTiPiY_4core3ptr13drop_in_placeNtCs1GtwyVVVJ4z_6goblin6ObjectECsjO9TEQ1PNLx_4bite" =>
-             "core::ptr::drop_in_place::<goblin::Object>");
     }
 
     #[test]

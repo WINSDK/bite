@@ -81,11 +81,6 @@ impl Index {
         }
 
         let parser = |s: &str| -> TokenStream {
-            // ignore common invalid symbols
-            if s.starts_with("GCC_except_table") || s.contains("cgu") {
-                return TokenStream::new(s);
-            }
-
             // parse rust symbols that match the v0 mangling scheme
             if let Some(s) = strip_prefixes(s, &["__R", "_R", "R"]) {
                 return rust_modern::parse(s).unwrap_or_else(|| TokenStream::new(s));
@@ -111,6 +106,15 @@ impl Index {
             // return the original mangled symbol on failure
             TokenStream::new(s)
         };
+
+        // let valid = |s: &str| {
+        //     !s.starts_with("GCC_except_table") && !s.contains("cgu") && !s.is_empty()
+        // };
+
+        // let tree = symbols
+        //     .iter()
+        //     .filter(|(_, s)| valid(s))
+        //     .map(|(addr, symbol)| (*addr, parser(symbol)));
 
         let tree = spawn_threaded(symbols, move |(addr, symbol)| (addr, parser(symbol))).await;
 
