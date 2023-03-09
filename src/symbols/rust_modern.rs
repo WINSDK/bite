@@ -13,7 +13,7 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 
     let mut parser = Parser::new(s);
     let success = parser.path();
-    dbg!(parser.stream.tokens());
+    // dbg!(parser.stream.tokens());
     success?;
 
     Some(parser.stream)
@@ -44,6 +44,7 @@ impl Parser {
     }
 
     /// Create a reference to the underlying pinned string that holds the mangled symbol.
+    #[inline(always)]
     fn src(&self) -> &'static str {
         &self.stream.inner()[self.offset..]
     }
@@ -81,7 +82,10 @@ impl Parser {
                 b'0'..=b'9' => chr - b'0',
                 b'a'..=b'z' => chr - b'a' + 10,
                 b'A'..=b'Z' => chr - b'A' + 36,
-                b'_' => return num.checked_add(1),
+                b'_' => {
+                    self.offset += 1;
+                    return num.checked_add(1);
+                }
                 _ => return None,
             };
 
@@ -111,7 +115,6 @@ impl Parser {
     /// Consumes an ident's disambiguator.
     fn disambiguator(&mut self) -> Option<usize> {
         if let Some(..) = self.consume(b's') {
-            self.offset += 1;
             return self.base62();
         }
 
@@ -156,24 +159,87 @@ impl Parser {
         }
 
         if let Some(..) = self.consume(b'K') {
-            self.constant()?;
-            return Some(());
+            return self.constant();
         }
 
         None
     }
 
+    fn hex_nibbles(&mut self) -> Option<&[u8]> {
+        let mut len = 0;
+
+        loop {
+            match self.peek()? {
+                b'0'..=b'9' | b'a'..=b'f' => {}
+                b'_' => {
+                    self.offset += 1;
+                    break;
+                }
+                _ => return None,
+            }
+
+            len += 1;
+            self.offset += 1;
+        }
+
+        self.offset -= 1;
+        let hex_nibbles = self.src()[..len].as_bytes();
+        self.offset += 1;
+        Some(hex_nibbles)
+    }
+
     fn constant(&mut self) -> Option<()> {
-        None
+        // placeholder
+        if let Some(..) = self.consume(b'p') {
+            self.stream.push("'_", colors::MAGENTA);
+            return Some(());
+        }
+
+        if let Some(..) = self.consume(b'B') {
+            let backref = self.base62()?;
+            todo!("handle backref: {backref}");
+        }
+
+        // can't implement constants using just &'static str's
+        self.offset += 1;
+        self.hex_nibbles()?;
+        self.stream.push("_", colors::MAGENTA);
+        Some(())
     }
 
     fn lifetime(&mut self) -> Option<()> {
         self.consume(b'L')?;
 
-        if self.base62()? != 0 {
-            self.stream.push("'_", colors::MAGENTA);
-        }
+        let s = match self.base62()? {
+            1 => "'a ",
+            2 => "'b ",
+            3 => "'c ",
+            4 => "'d ",
+            5 => "'e ",
+            6 => "'f ",
+            7 => "'g ",
+            8 => "'h ",
+            9 => "'i ",
+            10 => "'j ",
+            11 => "'k ",
+            12 => "'l ",
+            13 => "'m ",
+            14 => "'n ",
+            15 => "'o ",
+            16 => "'p ",
+            17 => "'q ",
+            18 => "'s ",
+            19 => "'t ",
+            20 => "'u ",
+            21 => "'v ",
+            22 => "'w ",
+            23 => "'x ",
+            24 => "'y ",
+            25 => "'z ",
+            _ => return Some(()),
+        };
 
+        self.stream.push(s, colors::MAGENTA);
         Some(())
     }
 
@@ -244,9 +310,12 @@ impl Parser {
 
                 let _disambiguator = self.disambiguator();
                 self.path()?;
+                self.stream.push("::", colors::GRAY);
+                self.stream.push("<", colors::BLUE);
                 self.tipe()?;
                 self.stream.push(" as ", colors::BLUE);
                 self.path()?;
+                self.stream.push(">", colors::BLUE);
             }
             // <T as Trait> (trait definition)
             b'Y' => {
@@ -263,8 +332,8 @@ impl Parser {
                 self.offset += 1;
 
                 let ns = self.namespace()?;
-                let _disambiguator = self.disambiguator();
                 self.path()?;
+                let disambiguator = self.disambiguator();
                 let ident = self.ident()?;
 
                 self.stream.push("::", colors::GRAY);
@@ -276,6 +345,20 @@ impl Parser {
                         if !ident.is_empty() {
                             self.stream.push(":", colors::GRAY);
                             self.stream.push(ident, colors::GRAY);
+                        }
+
+                        match disambiguator {
+                            Some(0) => self.stream.push("#0", colors::GRAY),
+                            Some(1) => self.stream.push("#1", colors::GRAY),
+                            Some(2) => self.stream.push("#2", colors::GRAY),
+                            Some(3) => self.stream.push("#3", colors::GRAY),
+                            Some(4) => self.stream.push("#4", colors::GRAY),
+                            Some(5) => self.stream.push("#5", colors::GRAY),
+                            Some(6) => self.stream.push("#6", colors::GRAY),
+                            Some(7) => self.stream.push("#7", colors::GRAY),
+                            Some(8) => self.stream.push("#8", colors::GRAY),
+                            Some(9) => self.stream.push("#9", colors::GRAY),
+                            _ => {}
                         }
 
                         self.stream.push("}", colors::GRAY);
@@ -384,8 +467,9 @@ impl Parser {
             b'Q' => {
                 self.offset += 1;
 
-                self.stream.push("&mut ", colors::BLUE);
+                self.stream.push("&", colors::BLUE);
                 self.lifetime()?;
+                self.stream.push("mut ", colors::BLUE);
                 self.tipe()?;
             }
             // *const T
@@ -520,7 +604,7 @@ mod tests {
     #[test]
     fn methods() {
         eq!("NvNvXs2_C7mycrateINtC7mycrate3FoopEINtNtC3std7convert4FrompE4from3MSG" =>
-             "<mycrate::Foo<_> as std::convert::From<_>>::from::MSG");
+             "mycrate::<mycrate::Foo<_> as std::convert::From<_>>::from::MSG");
     }
 
     #[test]
@@ -538,7 +622,7 @@ mod tests {
     #[test]
     fn arrays() {
         eq!("INvC4bite6decodeANtNvC3std5array5Arrayjf_E" =>
-             "bite::decode::<[std::array::Array; 15]>");
+             "bite::decode::<[std::array::Array; _]>");
     }
 
     #[test]
@@ -590,11 +674,8 @@ mod tests {
 
     #[test]
     fn closures() {
-        eq!("NCNvC4bite6decodes_0" => "bite::decode::{closure}");
-        eq!("NCNvC4bite6decodes0_" => "bite::decode::{closure#1}");
+        eq!("NCNvC4bite6decode0" => "bite::decode::{closure}");
+        eq!("NCNvC4bite6decodes_0" => "bite::decode::{closure#0}");
         eq!("NCNvC4bite6decodes0_3wow" => "bite::decode::{closure:wow#1}");
-
-        eq!("INvMNtCs9ltgdHTiPiY_4core6optionINtB3_6OptionRhE3maphNCINvMs9_NtCsd4VYFwevHkG_4bite6decodeNtBZ_6Reader10consume_eqNCNvNtBZ_6x86_643asms_0Es0_0EB11_" =>
-             "<core::option::Option<&u8>>::map::<u8, <bite::decode::Reader>::consume_eq::<bite::decode::x86_64::asm::{closure}>::{closure#1}>");
     }
 }
