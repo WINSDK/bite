@@ -325,10 +325,10 @@ impl Backend {
             let line_count = (self.size.height as f32 / font_size).ceil() as usize;
             let mut texts = Vec::with_capacity(line_count * 10);
 
+            let lower_bound = (ctx.listing_offset / font_size as f64) as usize;
+            let uppper_bound = dissasembly.len().min(line_count + lower_bound);
             let listing = dissasembly
-                .get((ctx.listing_offset / font_size as f64) as usize..)
-                .unwrap_or(dissasembly)
-                .get(..line_count)
+                .get(lower_bound..uppper_bound)
                 .unwrap_or(dissasembly);
 
             for line in listing {
