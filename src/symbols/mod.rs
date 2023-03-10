@@ -144,7 +144,10 @@ impl Index {
 
 #[derive(Debug)]
 pub struct TokenStream {
+    /// Unmovable string which the [Token]'s have a pointer to.
     inner: std::pin::Pin<String>,
+
+    /// Internal token representation which is unsafe to acccess outside of calling [Self::tokens].
     __tokens: Vec<Token<'static>>,
 }
 
