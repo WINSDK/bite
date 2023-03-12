@@ -255,7 +255,7 @@ impl Parser {
     /// Consumes either a regular unambiguous or a punycode enabled string.
     fn ident<'src>(&mut self) -> Option<&'src str> {
         if let Some(..) = self.consume(b'u') {
-            todo!("punycode symbols decoding");
+            eprintln!("TODO: punycode symbols decoding");
         }
 
         let len = self.base10()?;
@@ -724,7 +724,7 @@ impl Parser {
 mod tests {
     macro_rules! eq {
         ($mangled:literal => $demangled:literal) => {
-            let symbol = $crate::symbols::rust_modern::parse($mangled)
+            let symbol = super::parse($mangled)
                 .expect(&format!("Formatting '{}' failed.", $mangled));
 
             assert_eq!(
