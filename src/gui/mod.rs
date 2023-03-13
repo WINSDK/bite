@@ -115,9 +115,12 @@ pub async fn main() -> Result<(), Error> {
     };
 
     if let Some(ref path) = crate::ARGS.path {
-        Arc::clone(&ctx.dissasembly)
-            .load(path, Arc::clone(&ctx.show_donut))
-            .await;
+        let dissasembly = Arc::clone(&ctx.dissasembly);
+        let show_donut = Arc::clone(&ctx.show_donut);
+
+        tokio::spawn(async move {
+            dissasembly.load(path, show_donut).await;
+        });
     }
 
     let mut frame_time = std::time::Instant::now();

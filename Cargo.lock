@@ -164,7 +164,6 @@ dependencies = [
  "phf",
  "png",
  "rfd",
- "rustc-demangle",
  "tokio",
  "triple_accel",
  "wgpu",

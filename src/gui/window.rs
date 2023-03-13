@@ -386,11 +386,12 @@ impl Backend {
 
             // queue assembly listing text
             self.glyph_brush.queue(wgpu_glyph::Section {
-                screen_position: (ctx.scale_factor * 5.0, ctx.scale_factor * 5.0),
+                screen_position: (ctx.scale_factor * 5.0, ctx.scale_factor * 55.0),
                 text: texts,
                 ..wgpu_glyph::Section::default()
             });
 
+            // orthogonal projection
             let mut proj = glam::mat4(
                 glam::vec4(2.0 / self.size.width as f32, 0.0, 0.0, 0.0),
                 glam::vec4(0.0, -2.0 / self.size.height as f32, 0.0, 0.0),
@@ -398,11 +399,13 @@ impl Backend {
                 glam::vec4(-1.0, 1.0, 0.0, 1.0),
             );
 
-            proj *= glam::Mat4::from_translation(glam::Vec3::new(
-                0.0,
-                -ctx.listing_offset as f32 % font_size,
-                0.0,
-            ));
+            // translation of subpixels between lines
+            proj *= glam::mat4(
+                glam::Vec4::X,
+                glam::Vec4::Y,
+                glam::Vec4::Z,
+                glam::Vec4::new(0.0, -ctx.listing_offset as f32 % font_size, 0.0, 1.0),
+            );
 
             // draw assembly listing
             self.glyph_brush
