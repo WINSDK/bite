@@ -1,6 +1,7 @@
 #[allow(dead_code)]
 pub mod config;
 
+mod test;
 mod itanium;
 mod msvc;
 mod rust;
@@ -138,7 +139,7 @@ impl Index {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TokenStream {
     /// Unmovable string which the [Token]'s have a pointer to.
     inner: std::pin::Pin<String>,
@@ -171,7 +172,7 @@ impl TokenStream {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token<'a> {
     pub text: &'a str,
     pub color: Color,

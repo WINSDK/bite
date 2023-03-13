@@ -64,6 +64,7 @@
 //! ```
 //!
 //! source [MicrosoftMangle.cpp](https://github.com/llvm-mirror/clang/blob/aa231e4be75ac4759c236b755c57876f76e3cf05/lib/AST/MicrosoftMangle.cpp#L1609)
+#![allow(dead_code)]
 
 use super::TokenStream;
 use crate::colors;
@@ -131,6 +132,21 @@ impl Parser {
         None
     }
 
+    /// Increment the offset if the current byte equals the byte given.
+    fn eat(&mut self, byte: u8) -> bool {
+        let matches = self.src().bytes().next() == Some(byte);
+        self.offset += matches as usize;
+        matches
+    }
+
+    /// Increment the offset if the slices match.
+    fn eat_slice(&mut self, slice: &[u8]) -> bool {
+        let matches = self.src().as_bytes().get(..slice.len()) == Some(slice);
+
+        self.offset += slice.len() * (matches as usize);
+        matches
+    }
+
     fn calling_conv(&mut self) -> Option<()> {
         let conv = match self.peek()? {
             b'A' | b'B' => "__cdecl ",
@@ -171,7 +187,7 @@ impl Parser {
     }
 
     fn tipe(&mut self) -> Option<()> {
-        let tipe = if let Some(..) = self.consume(b'_') {
+        let tipe = if self.eat(b'_') {
             match self.peek()? {
                 b'A' => "&",
                 b'B' => "&volatile",
@@ -226,7 +242,7 @@ impl Parser {
     }
 
     fn tipe_modi(&mut self) -> Option<()> {
-        if let Some(..) = self.consume_slice(b"$$C") {
+        if self.eat_slice(b"$$C") {
             return Some(());
         }
 
@@ -241,11 +257,11 @@ impl Parser {
         };
 
         self.stream.push(modi, colors::RED);
-        self.consume_slice(b"$A");
-        self.consume_slice(b"$B");
+        self.eat_slice(b"$A");
+        self.eat_slice(b"$B");
         self.class_modi()?;
 
-        if let Some(..) = self.consume(b'Y') {
+        if self.eat(b'Y') {
             todo!();
         }
 
@@ -283,4 +299,15 @@ impl Parser {
     fn backref(&mut self) -> Option<()> {
         todo!()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::eq;
+
+    // #[test]
+    // fn simple() {
+    //     eq!("?xyz@?$abc@V?$def@H@@PAX@@YAXXZ" =>
+    //         "void __cdecl abc<class def<int>, void *>::xyz(void)");
+    // }
 }
