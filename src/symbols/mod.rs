@@ -1,8 +1,10 @@
+#[allow(dead_code)]
 pub mod config;
+
+mod test;
 mod itanium;
 mod msvc;
-mod rust_legacy;
-mod rust_modern;
+mod rust;
 
 use object::{Object, ObjectSymbol};
 use pdb::FallibleIterator;
@@ -27,7 +29,11 @@ impl Index {
     }
 
     pub async fn parse(obj: &object::File<'_>) -> pdb::Result<Index> {
-        let symbols: Vec<(usize, &str)> = obj.symbols().filter_map(symbol_addr_name).collect();
+        let symbols: Vec<(usize, &str)> = obj
+            .symbols()
+            .filter_map(symbol_addr_name)
+            .filter(|(_, sym)| is_valid_symbol(sym))
+            .collect();
 
         if let Ok(Some(pdb)) = obj.pdb_info() {
             let Ok(path) = std::str::from_utf8(pdb.path()) else {
@@ -70,7 +76,9 @@ impl Index {
 
                 if let Some(addr) = symbol.offset.to_rva(&address_map) {
                     if let Ok(name) = std::str::from_utf8(symbol.name.as_bytes()) {
-                        symbols.push((addr.0 as usize, name));
+                        if is_valid_symbol(name) {
+                            symbols.push((addr.0 as usize, name));
+                        }
                     }
                 }
             }
@@ -81,21 +89,19 @@ impl Index {
         }
 
         let parser = |s: &str| -> TokenStream {
-            // parse rust symbols that match the v0 mangling scheme
-            if let Some(s) = strip_prefixes(s, &["__R", "_R", "R"]) {
-                return rust_modern::parse(s).unwrap_or_else(|| TokenStream::new(s));
-            }
+            // symbols without leading underscores are accepted as
+            // dbghelp in windows strips them away
 
-            // try parsing legacy rust symbols first because they can also be appear as C++ symbols
-            if let Some(s) = strip_prefixes(s, &["__ZN", "_ZN", "ZN"]) {
-                if let Some(s) = rust_legacy::parse(s) {
-                    return s;
-                }
-            }
-
-            // parse gnu/llvm C/C++ symbols
-            if let Some(s) = strip_prefixes(s, &["__Z", "_Z", "Z"]) {
+            // parse gnu/llvm Rust/C/C++ symbols
+            if let Some(s) = strip_prefixes(s, &["Z", "_Z", "___Z"]) {
                 return itanium::parse(s).unwrap_or_else(|| TokenStream::new(s));
+            }
+
+            // parse rust symbols that match the v0 mangling scheme
+            //
+            // macOS prefixes symbols with an extra underscore therefore '__R' is allowed
+            if let Some(s) = strip_prefixes(s, &["R", "_R", "__R"]) {
+                return rust::parse(s).unwrap_or_else(|| TokenStream::new(s));
             }
 
             // parse windows msvc C/C++ symbols
@@ -106,15 +112,6 @@ impl Index {
             // return the original mangled symbol on failure
             TokenStream::new(s)
         };
-
-        // let valid = |s: &str| {
-        //     !s.starts_with("GCC_except_table") && !s.contains("cgu") && !s.is_empty()
-        // };
-
-        // let tree = symbols
-        //     .iter()
-        //     .filter(|(_, s)| valid(s))
-        //     .map(|(addr, symbol)| (*addr, parser(symbol)));
 
         let tree = spawn_threaded(symbols, move |(addr, symbol)| (addr, parser(symbol))).await;
 
@@ -142,9 +139,12 @@ impl Index {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TokenStream {
+    /// Unmovable string which the [Token]'s have a pointer to.
     inner: std::pin::Pin<String>,
+
+    /// Internal token representation which is unsafe to acccess outside of calling [Self::tokens].
     __tokens: Vec<Token<'static>>,
 }
 
@@ -172,7 +172,7 @@ impl TokenStream {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token<'a> {
     pub text: &'a str,
     pub color: Color,
@@ -194,4 +194,8 @@ fn symbol_addr_name<'a>(symbol: object::Symbol<'a, 'a>) -> Option<(usize, &'a st
     }
 
     None
+}
+
+fn is_valid_symbol(s: &str) -> bool {
+    !s.starts_with("GCC_except_table") && !s.contains("cgu") && !s.is_empty()
 }

@@ -1,10 +1,99 @@
 //! Rust v0 symbol demangler
+//!
+//! ```text
+//! <symbol-name> =
+//!     "_R" [<decimal-number>] <path> [<instantiating-crate>] [<vendor-specific-suffix>]
+//!
+//! <path> = "C" <identifier>                    // crate root
+//!        | "M" <impl-path> <type>              // <T> (inherent impl)
+//!        | "X" <impl-path> <type> <path>       // <T as Trait> (trait impl)
+//!        | "Y" <type> <path>                   // <T as Trait> (trait definition)
+//!        | "N" <namespace> <path> <identifier> // ...::ident (nested path)
+//!        | "I" <path> {<generic-arg>} "E"      // ...<T, U> (generic args)
+//!        | <backref>
+//!
+//! <impl-path> = [<disambiguator>] <path>
+//!
+//! <identifier> = [<disambiguator>] <undisambiguated-identifier>
+//! <disambiguator> = "s" <base-62-number>
+//! <undisambiguated-identifier> = ["u"] <decimal-number> ["_"] <bytes>
+//!
+//! <namespace> = "C"   // closure
+//!             | "S"   // shim
+//!             | <A-Z> // other special namespaces
+//!             | <a-z> // internal namespaces
+//!
+//! <generic-arg> = <lifetime>
+//!               | <type>
+//!               | "K" <const> // forward-compat for const generics
+//!
+//! <lifetime> = "L" <base-62-number>
+//! <binder> = "G" <base-62-number>
+//!
+//! <type> = <basic-type>
+//!        | <path>                      // named type
+//!        | "A" <type> <const>          // [T; N]
+//!        | "S" <type>                  // [T]
+//!        | "T" {<type>} "E"            // (T1, T2, T3, ...)
+//!        | "R" [<lifetime>] <type>     // &T
+//!        | "Q" [<lifetime>] <type>     // &mut T
+//!        | "P" <type>                  // *const T
+//!        | "O" <type>                  // *mut T
+//!        | "F" <fn-sig>                // fn(...) -> ...
+//!        | "D" <dyn-bounds> <lifetime> // dyn Trait<Assoc = X> + Send + 'a
+//!        | <backref>
+//!
+//! <basic-type> = "a"      // i8
+//!              | "b"      // bool
+//!              | "c"      // char
+//!              | "d"      // f64
+//!              | "e"      // str
+//!              | "f"      // f32
+//!              | "h"      // u8
+//!              | "i"      // isize
+//!              | "j"      // usize
+//!              | "l"      // i32
+//!              | "m"      // u32
+//!              | "n"      // i128
+//!              | "o"      // u128
+//!              | "s"      // i16
+//!              | "t"      // u16
+//!              | "u"      // ()
+//!              | "v"      // ...
+//!              | "x"      // i64
+//!              | "y"      // u64
+//!              | "z"      // !
+//!              | "p"      // placeholder (e.g. for generic params), shown as _
+//!
+//! <fn-sig> = [<binder>] ["U"] ["K" <abi>] {<type>} "E" <type>
+//!
+//! <abi> = "C"
+//!       | <undisambiguated-identifier>
+//!
+//! <dyn-bounds> = [<binder>] {<dyn-trait>} "E"
+//! <dyn-trait> = <path> {<dyn-trait-assoc-binding>}
+//! <dyn-trait-assoc-binding> = "p" <undisambiguated-identifier> <type>
+//! <const> = <type> <const-data>
+//!         | "p" // placeholder, shown as _
+//!         | <backref>
+//!
+//! <const-data> = ["n"] {<hex-digit>} "_"
+//! <base-62-number> = {<0-9a-zA-Z>} "_"
+//! <backref> = "B" <base-62-number>
+//!
+//! <instantiating-crate> = <path>
+//! <vendor-specific-suffix> = ("." | "$") <suffix>
+//! ```
+//!
+//! source [2603-rust-symbol-name-mangling-v0](https://rust-lang.github.io/rfcs/2603-rust-symbol-name-mangling-v0.html)
 
 use super::TokenStream;
 use crate::colors::{self, Color};
 
+// max recursion depth
 const MAX_DEPTH: usize = 256;
 
+/// Try to parse a rust v0 symbol
 pub fn parse(s: &str) -> Option<TokenStream> {
     // paths have to be ascii
     if !s.bytes().all(|c| c.is_ascii()) {
@@ -17,7 +106,7 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     Some(parser.stream)
 }
 
-/// Rust v0 state required to parse symbols
+/// State required to parse symbols
 struct Parser {
     stream: TokenStream,
     offset: usize,
@@ -25,11 +114,12 @@ struct Parser {
     printing: bool,
 }
 
+/// Differentiator for nested path's
 enum NameSpace {
     Closure,
     Shim,
-    Special(char),
-    Internal(char)
+    Special,
+    Internal,
 }
 
 impl Parser {
@@ -57,21 +147,27 @@ impl Parser {
     }
 
     /// View the current byte in the mangled symbol without incrementing the offset.
+    #[inline]
     fn peek(&self) -> Option<u8> {
         self.src().bytes().next()
     }
 
     /// Increment the offset if the current byte equals the byte given.
-    fn consume(&mut self, byte: u8) -> Option<()> {
-        if self.src().bytes().next() == Some(byte) {
-            self.offset += 1;
-            return Some(());
-        }
-
-        None
+    #[inline]
+    fn eat(&mut self, byte: u8) -> bool {
+        let matches = self.src().bytes().next() == Some(byte);
+        self.offset += matches as usize;
+        matches
     }
 
+    /// Fails if recursion depth is reached, otherwise increments depth.
     #[inline]
+    fn recurse_deeper(&mut self) -> Option<()> {
+        self.depth += 1;
+        (self.depth < MAX_DEPTH).then_some(())
+    }
+
+    /// Run a closure where each function called in it isn't appended to the [TokenStream].
     fn dont_print<F: FnOnce(&mut Self) -> Option<()>>(&mut self, f: F) -> Option<()> {
         self.printing = false;
         f(self)?;
@@ -80,12 +176,65 @@ impl Parser {
         Some(())
     }
 
-    /// Consumes a series of bytes that are in the range b'0' to b'Z' and converts it to base 62.
+    /// Run a closure that consumes a base64 number, modifies the offset to that backref.
+    /// If the backref is ahead of the current offset, the function fails.
+    /// If the recursion depth is greater than [MAX_DEPTH], the function fails.
+    /// Restores offset after executing the closure.
+    fn backref<F: FnOnce(&mut Self) -> Option<()>>(&mut self, f: F) -> Option<()> {
+        self.recurse_deeper()?;
+
+        let current = self.offset;
+        let backref = self.base62()?;
+
+        if backref >= current {
+            return None;
+        }
+
+        let current = self.offset;
+        self.offset = backref;
+
+        dbg!(self.src());
+        f(self)?;
+
+        self.offset = current;
+        dbg!(self.src());
+
+        self.depth -= 1;
+        Some(())
+    }
+
+    /// Run a closure repeatedly till the 'E' (end of list) character appears.
+    /// Prints the delimiter between closure calls.
+    /// Fails on iterating more than 100 items.
+    fn delimited<F: Fn(&mut Self) -> Option<()>>(
+        &mut self,
+        delimiter: &'static str,
+        f: F,
+    ) -> Option<()> {
+        if !self.eat(b'E') {
+            f(self)?;
+        }
+
+        // iterate through the first 100 items
+        for _ in 0..100 {
+            if self.eat(b'E') {
+                return Some(());
+            }
+
+            self.push(delimiter, colors::BLUE);
+            f(self)?;
+        }
+
+        // fail on too many iterations
+        None
+    }
+
+    /// Consumes a series of bytes that are in the range 0 to Z and converts it to base 62.
     /// It also consumes an underscore in the case that the base62 number happens to be zero.
     fn base62(&mut self) -> Option<usize> {
         let mut num = 0usize;
 
-        if let Some(..) = self.consume(b'_') {
+        if self.eat(b'_') {
             return Some(num);
         }
 
@@ -95,8 +244,10 @@ impl Parser {
                 b'a'..=b'z' => chr - b'a' + 10,
                 b'A'..=b'Z' => chr - b'A' + 36,
                 b'_' => {
+                    num = num.checked_add(1)?;
                     self.offset += 1;
-                    return num.checked_add(1);
+
+                    return Some(num);
                 }
                 _ => return None,
             };
@@ -110,7 +261,7 @@ impl Parser {
         None
     }
 
-    /// Consumes a series of bytes that are in the range b'0' to b'9' and converts it to base 10.
+    /// Consumes a series of bytes that are in the range 0 to 9 and converts it to base 10.
     fn base10(&mut self) -> Option<usize> {
         let mut len = 0usize;
 
@@ -125,8 +276,9 @@ impl Parser {
     }
 
     /// Consumes an ident's disambiguator.
+    #[inline]
     fn disambiguator(&mut self) -> Option<usize> {
-        if let Some(..) = self.consume(b's') {
+        if self.eat(b's') {
             return self.base62();
         }
 
@@ -135,12 +287,12 @@ impl Parser {
 
     /// Consumes either a regular unambiguous or a punycode enabled string.
     fn ident<'src>(&mut self) -> Option<&'src str> {
-        if let Some(..) = self.consume(b'u') {
-            todo!("punycode symbols decoding");
+        if self.eat(b'u') {
+            eprintln!("TODO: punycode symbols decoding");
         }
 
         let len = self.base10()?;
-        let _underscore = self.consume(b'_');
+        self.eat(b'_');
 
         self.src().get(..len).map(|slice| {
             self.offset += slice.len();
@@ -148,19 +300,21 @@ impl Parser {
         })
     }
 
+    /// Parses a path's namespace.
     fn namespace(&mut self) -> Option<NameSpace> {
         let ns = match self.peek()? {
             b'C' => Some(NameSpace::Closure),
             b'S' => Some(NameSpace::Shim),
-            c @ b'A'..=b'Z' => Some(NameSpace::Special(c as char)),
-            c @ b'a'..=b'z' => Some(NameSpace::Internal(c as char)),
-            _ => return None
+            b'A'..=b'Z' => Some(NameSpace::Special),
+            b'a'..=b'z' => Some(NameSpace::Internal),
+            _ => return None,
         };
 
         self.offset += 1;
         ns
     }
 
+    /// Appends a generic (which can be a lifetime, type or constant) out of a list of generics.
     fn generic(&mut self) -> Option<()> {
         if let Some(lifetime) = self.lifetime() {
             self.push(lifetime, colors::MAGENTA);
@@ -168,17 +322,18 @@ impl Parser {
             return Some(());
         }
 
-        if let Some(..) = self.tipe() {
+        if self.tipe().is_some() {
             return Some(());
         }
 
-        if let Some(..) = self.consume(b'K') {
+        if self.eat(b'K') {
             return self.constant();
         }
 
         None
     }
 
+    /// Parses a series of ascii hex numbers, ending in a '_'.
     fn hex_nibbles(&mut self) -> Option<&[u8]> {
         let mut len = 0;
 
@@ -202,39 +357,32 @@ impl Parser {
         Some(hex_nibbles)
     }
 
+    /// Appends a constant which is either a placeholder 'p', backref or a series of hex numbers.
     fn constant(&mut self) -> Option<()> {
         // placeholder
-        if let Some(..) = self.consume(b'p') {
+        if self.eat(b'p') {
             self.push("_", colors::MAGENTA);
             return Some(());
         }
 
-        if let Some(..) = self.consume(b'B') {
-            self.depth += 1;
-
-            if self.depth > MAX_DEPTH {
-                return None;
-            }
-
-            let backref = self.base62()?;
-            let start = self.offset;
-
-            self.offset = backref;
-            self.constant()?;
-
-            self.offset = start;
-            self.depth -= 1;
+        if self.eat(b'B') {
+            return self.backref(Self::constant);
         }
 
-        // can't implement constants using just &'static str's
+        // NOTE: can't implement generic constants using just &'static str's
+
         self.offset += 1;
         self.hex_nibbles()?;
         self.push("_", colors::MAGENTA);
         Some(())
     }
 
+    /// Parses a lifetime if it's not a '_ or a part of token that
+    /// ends up using more than 25 lifetimes.
     fn lifetime<'src>(&mut self) -> Option<&'src str> {
-        self.consume(b'L')?;
+        if !self.eat(b'L') {
+            return None;
+        }
 
         Some(match self.base62()? {
             1 => "'a",
@@ -266,11 +414,16 @@ impl Parser {
         })
     }
 
+    /// Parses a index into the lifetimes being used.
     fn binder(&mut self) -> Option<usize> {
-        self.consume(b'G')?;
+        if !self.eat(b'G') {
+            return None;
+        }
+
         self.base62()
     }
 
+    /// Parses a type that can be represented using just a single character.
     fn basic_tipe(&mut self) -> Option<&'static str> {
         let basic = match self.peek()? {
             b'b' => "bool",
@@ -301,19 +454,16 @@ impl Parser {
         Some(basic)
     }
 
+    /// Appends some generic path, failing if the recursion depth is greater than [MAX_DEPTH].
     fn path(&mut self) -> Option<()> {
-        if self.depth > MAX_DEPTH {
-            return None;
-        }
-
-        self.depth += 1;
+        self.recurse_deeper()?;
 
         match self.peek()? {
             // crate root
             b'C' => {
                 self.offset += 1;
 
-                let _disambiguator = self.disambiguator();
+                self.disambiguator();
                 let ident = self.ident()?;
                 self.push(ident, colors::PURPLE);
             }
@@ -321,9 +471,8 @@ impl Parser {
             b'M' => {
                 self.offset += 1;
 
-                let _disambiguator = self.disambiguator();
-
-                self.dont_print(|this| this.path())?;
+                self.disambiguator();
+                self.dont_print(Self::path)?;
                 self.push("<", colors::BLUE);
                 self.tipe()?;
                 self.push(">", colors::BLUE);
@@ -332,9 +481,8 @@ impl Parser {
             b'X' => {
                 self.offset += 1;
 
-                let _disambiguator = self.disambiguator();
-
-                self.dont_print(|this| this.path())?;
+                self.disambiguator();
+                self.dont_print(Self::path)?;
                 self.push("<", colors::BLUE);
                 self.tipe()?;
                 self.push(" as ", colors::BLUE);
@@ -357,6 +505,7 @@ impl Parser {
 
                 let ns = self.namespace()?;
                 self.path()?;
+
                 let disambiguator = self.disambiguator();
                 let ident = self.ident()?;
 
@@ -386,7 +535,6 @@ impl Parser {
                         }
 
                         self.push("}", colors::GRAY);
-
                     }
                     _ => self.push(ident, colors::PURPLE),
                 }
@@ -405,18 +553,12 @@ impl Parser {
                 }
 
                 self.push("<", colors::BLUE);
-
-                let mut iters = 0;
-                while let None = self.consume(b'E') {
-                    if iters != 0 {
-                        self.push(", ", colors::BLUE);
-                    }
-
-                    self.generic()?;
-                    iters += 1;
-                }
-
+                self.delimited(", ", Self::generic)?;
                 self.push(">", colors::BLUE);
+            }
+            b'B' => {
+                self.offset += 1;
+                self.backref(Self::path)?;
             }
             _ => return None,
         }
@@ -425,21 +567,21 @@ impl Parser {
         Some(())
     }
 
+    /// Appends some generic type, failing if the recursion depth is greater than [MAX_DEPTH].
     fn tipe(&mut self) -> Option<()> {
-        if self.depth > MAX_DEPTH {
-            return None;
-        }
-
-        self.depth += 1;
+        self.recurse_deeper()?;
 
         // basic types
         if let Some(tipe) = self.basic_tipe() {
             self.push(tipe, colors::PURPLE);
+
+            self.depth -= 1;
             return Some(());
         }
 
         // named type
-        if let Some(..) = self.path() {
+        if self.path().is_some() {
+            self.depth -= 1;
             return Some(());
         }
 
@@ -467,17 +609,7 @@ impl Parser {
                 self.offset += 1;
 
                 self.push("(", colors::BLUE);
-
-                let mut iters = 0;
-                while let None = self.consume(b'E') {
-                    if iters != 0 {
-                        self.push(", ", colors::BLUE);
-                    }
-
-                    self.tipe()?;
-                    iters += 1;
-                }
-
+                self.delimited(", ", Self::tipe)?;
                 self.push(")", colors::BLUE);
             }
             // &T
@@ -524,14 +656,14 @@ impl Parser {
                 self.offset += 1;
                 self.binder();
 
-                if let Some(..) = self.consume(b'U') {
+                if self.eat(b'U') {
                     self.push("unsafe ", colors::RED);
                 }
 
-                if let Some(..) = self.consume(b'K') {
+                if self.eat(b'K') {
                     self.push("extern ", colors::RED);
 
-                    if let Some(..) = self.consume(b'C') {
+                    if self.eat(b'C') {
                         self.push("\"C\" ", colors::BLUE);
                     } else {
                         let ident = self.ident()?;
@@ -544,17 +676,7 @@ impl Parser {
 
                 self.push("fn", colors::MAGENTA);
                 self.push("(", colors::WHITE);
-
-                let mut iters = 0;
-                while let None = self.consume(b'E') {
-                    if iters != 0 {
-                        self.push(", ", colors::BLUE);
-                    }
-
-                    self.tipe()?;
-                    iters += 1;
-                }
-
+                self.delimited(", ", Self::tipe)?;
                 self.push(")", colors::WHITE);
                 self.push(" -> ", colors::BLUE);
                 self.tipe()?;
@@ -566,26 +688,21 @@ impl Parser {
                 self.push("dyn ", colors::RED);
 
                 // associated traits e.g. Send + Sync + Pin
-                let mut iters = 0;
-                while let None = self.consume(b'E') {
-                    if iters != 0 {
-                        self.push(" + ", colors::BLUE);
-                    }
-
-                    self.path()?;
+                self.delimited(" + ", |this| {
+                    this.path()?;
 
                     // associated trait bounds e.g. Trait<Assoc = X>
-                    while let Some(..) = self.consume(b'p') {
-                        self.push("<", colors::BLUE);
-                        let ident = self.ident()?;
-                        self.push(ident, colors::PURPLE);
-                        self.push(" = ", colors::WHITE);
-                        self.tipe()?;
-                        self.push(">", colors::BLUE);
+                    while this.eat(b'p') {
+                        this.push("<", colors::BLUE);
+                        let ident = this.ident()?;
+                        this.push(ident, colors::PURPLE);
+                        this.push(" = ", colors::WHITE);
+                        this.tipe()?;
+                        this.push(">", colors::BLUE);
                     }
 
-                    iters += 1;
-                }
+                    Some(())
+                })?;
 
                 if let Some(lifetime) = self.lifetime() {
                     self.push(" + ", colors::BLUE);
@@ -594,20 +711,7 @@ impl Parser {
             }
             b'B' => {
                 self.offset += 1;
-                self.depth += 1;
-
-                if self.depth > MAX_DEPTH {
-                    return None;
-                }
-
-                let backref = self.base62()?;
-                let start = self.offset;
-
-                self.offset = backref;
-                self.tipe()?;
-
-                self.offset = start;
-                self.depth -= 1;
+                self.backref(Self::tipe)?;
             }
             _ => return None,
         }
@@ -619,17 +723,7 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    macro_rules! eq {
-        ($mangled:literal => $demangled:literal) => {
-            let symbol = $crate::symbols::rust_modern::parse($mangled)
-                .expect(&format!("Formatting '{}' failed.", $mangled));
-
-            assert_eq!(
-                String::from_iter(symbol.tokens().iter().map(|t| t.text)),
-                $demangled
-            )
-        };
-    }
+    use crate::eq;
 
     #[test]
     fn crate_ident() {
@@ -721,5 +815,11 @@ mod tests {
         eq!("NCNvC4bite6decode0" => "bite::decode::{closure}");
         eq!("NCNvC4bite6decodes_0" => "bite::decode::{closure#0}");
         eq!("NCNvC4bite6decodes0_3wow" => "bite::decode::{closure:wow#1}");
+    }
+
+    #[test]
+    fn complex() {
+        eq!("NvXs5_NtCsd4VYFwevHkG_4bite6decodeINtB5_5ArrayNtNtB5_6x86_646PrefixKj4_EINtNtNtCs9ltgdHTiPiY_4core3ops5index8IndexMutjE9index_mutB7_" =>
+            "<bite::decode::Array<bite::decode::x86_64::Prefix, _> as core::ops::index::IndexMut<usize>>::index_mut");
     }
 }
