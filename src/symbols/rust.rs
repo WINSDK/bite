@@ -90,7 +90,7 @@
 use super::TokenStream;
 use crate::colors::{self, Color};
 
-// max recursion depth
+/// Max recursion depth
 const MAX_DEPTH: usize = 256;
 
 /// Try to parse a rust v0 symbol
@@ -192,12 +192,8 @@ impl Parser {
 
         let current = self.offset;
         self.offset = backref;
-
-        dbg!(self.src());
         f(self)?;
-
         self.offset = current;
-        dbg!(self.src());
 
         self.depth -= 1;
         Some(())
@@ -821,5 +817,12 @@ mod tests {
     fn complex() {
         eq!("NvXs5_NtCsd4VYFwevHkG_4bite6decodeINtB5_5ArrayNtNtB5_6x86_646PrefixKj4_EINtNtNtCs9ltgdHTiPiY_4core3ops5index8IndexMutjE9index_mutB7_" =>
             "<bite::decode::Array<bite::decode::x86_64::Prefix, _> as core::ops::index::IndexMut<usize>>::index_mut");
+    }
+
+    #[test]
+    #[should_panic]
+    fn too_many_arguements() {
+        super::parse("IC3stdbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbE")
+            .unwrap();
     }
 }

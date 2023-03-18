@@ -105,8 +105,8 @@ impl Index {
             }
 
             // parse windows msvc C/C++ symbols
-            if let Some(s) = strip_prefixes(s, &["@?", "?"]) {
-                return msvc::parse(s).unwrap_or_else(|| TokenStream::new(s));
+            if let Some(s) = msvc::parse(s) {
+                return s;
             }
 
             // return the original mangled symbol on failure
@@ -144,7 +144,7 @@ pub struct TokenStream {
     /// Unmovable string which the [Token]'s have a pointer to.
     inner: std::pin::Pin<String>,
 
-    /// Internal token representation which is unsafe to acccess outside of calling [Self::tokens].
+    /// Internal token representation which is unsafe to access outside of calling [Self::tokens].
     __tokens: Vec<Token<'static>>,
 }
 
@@ -159,6 +159,13 @@ impl TokenStream {
     #[inline]
     pub fn inner(&self) -> &'static str {
         unsafe { std::mem::transmute(&*self.inner) }
+    }
+
+    // SAFETY: transmuting is safe as `std::pin::Pin` is marked with
+    // #[repr(transparent)] and a Pin is made up of just a pointer.
+    #[inline]
+    pub fn inner_string(&self) -> *mut String {
+        unsafe { std::mem::transmute(&self.inner) }
     }
 
     #[inline]
