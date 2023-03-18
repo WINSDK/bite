@@ -90,104 +90,104 @@ type Parameters<'a> = Vec<Type<'a>>;
 /// Root node of the AST.
 #[derive(Default, Debug, Clone)]
 enum Type<'src> {
-    /// ""
+    /// ``` "" ```
     #[default]
     Unit,
 
-    /// {<modifier>} nullptr
+    /// ``` {<modifier>} nullptr ```
     Nullptr,
 
-    /// {<modifier>} void
+    /// ``` {<modifier>} void ```
     Void(Modifiers),
 
-    /// {<modifier>} bool
+    /// ``` {<modifier>} bool ```
     Bool(Modifiers),
 
-    /// {<modifier>} char
+    /// ``` {<modifier>} char ```
     Char(Modifiers),
 
-    /// {<modifier>} utf8 char
+    /// ``` {<modifier>} utf8 char ```
     Char8(Modifiers),
 
-    /// {<modifier>} utf16 char
+    /// ``` {<modifier>} utf16 char ```
     Char16(Modifiers),
 
-    /// {<modifier>} utf32 char
+    /// ``` {<modifier>} utf32 char ```
     Char32(Modifiers),
 
-    /// {<modifier>} signed char
+    /// ``` {<modifier>} signed char ```
     IChar(Modifiers),
 
-    /// {<modifier>} unsigned char
+    /// ``` {<modifier>} unsigned char ```
     UChar(Modifiers),
 
-    /// {<modifier>} utf16 char
+    /// ``` {<modifier>} utf16 char ```
     Wchar(Modifiers),
 
-    /// {<modifier>} i16
+    /// ``` {<modifier>} i16 ```
     IShort(Modifiers),
 
-    /// {<modifier>} u16
+    /// ``` {<modifier>} u16 ```
     UShort(Modifiers),
 
-    /// {<modifier>} int
+    /// ``` {<modifier>} int ```
     Int(Modifiers),
 
-    /// {<modifier>} unsigned
+    /// ``` {<modifier>} unsigned ```
     Uint(Modifiers),
 
-    /// {<modifier>} float
+    /// ``` {<modifier>} float ```
     Float(Modifiers),
 
-    /// {<modifier>} double
+    /// ``` {<modifier>} double ```
     Double(Modifiers),
 
-    /// {<modifier>} long double
+    /// ``` {<modifier>} long double ```
     LDouble(Modifiers),
 
-    /// {<modifier>} long
+    /// ``` {<modifier>} long ```
     Long(Modifiers),
 
-    /// {<modifier>} unsigned long
+    /// ``` {<modifier>} unsigned long ```
     Ulong(Modifiers),
 
-    /// {<modifier>} i64
+    /// ``` {<modifier>} i64 ```
     I64(Modifiers),
 
-    /// {<modifier>} u64
+    /// ``` {<modifier>} u64 ```
     U64(Modifiers),
 
-    /// {<modifier>} i128
+    /// ``` {<modifier>} i128 ```
     I128(Modifiers),
 
-    /// {<modifier>} u128
+    /// ``` {<modifier>} u128 ```
     U128(Modifiers),
 
-    /// {<modifier>} union <path>
+    /// ``` {<modifier>} union <path> ```
     Union(Modifiers, Ident<'src>),
 
-    /// {<modifier>} enum <path>
+    /// ``` {<modifier>} enum <path> ```
     Enum(Modifiers, Ident<'src>),
 
-    /// {<modifier>} struct <path>
+    /// ``` {<modifier>} struct <path> ```
     Struct(Modifiers, Ident<'src>),
 
-    /// {<modifier>} class <path>
+    /// ``` {<modifier>} class <path> ```
     Class(Modifiers, Ident<'src>),
 
-    /// {<modifier>} & <type>
+    /// ``` {<modifier>} & <type> ```
     Ref(Modifiers, Box<Type<'src>>),
 
-    /// {<modifier>} && <type>
+    /// ``` {<modifier>} && <type> ```
     RValueRef(Modifiers, Box<Type<'src>>),
 
-    /// {<modifier>} * <path>
+    /// ``` {<modifier>} * <path> ```
     Ptr(Modifiers, Box<Type<'src>>),
 
-    /// <calling-conv> {<modifier>} <return-type> ({<type>})
+    /// ``` <calling-conv> {<modifier>} <return-type> ({<type>}) ```
     Function(CallingConv, Modifiers, Box<Type<'src>>, Parameters<'src>),
 
-    /// <scope>: <class> <calling-conv> {<modifier>} <return-type> ({<type>})
+    /// ``` <scope>: <class> <calling-conv> {<modifier>} <return-type> ({<type>}) ```
     MemberFunctionPtr(
         Scope,
         Ident<'src>,
@@ -197,13 +197,13 @@ enum Type<'src> {
         Parameters<'src>,
     ),
 
-    /// <number>
+    /// ``` <number> ```
     Constant(isize),
 
-    /// ???
+    /// ``` ??? ```
     TemplateParameterIdx(isize),
 
-    /// {<modifier>} <ident>
+    /// ``` {<modifier>} <ident> ```
     Ident(Modifiers, Ident<'src>),
 }
 
@@ -791,8 +791,10 @@ impl<'src> Parser {
         }
     }
 
+    /// ```
     /// <return-type> = <type>
     ///               | @      // structors (they have no declared return type)
+    /// ```
     fn function_return_type(&mut self) -> Option<Type<'src>> {
         let modi = self.return_modifiers();
 
@@ -848,8 +850,10 @@ impl<'src> Parser {
         self.tipe(modi)
     }
 
+    /// ```
     /// <variable-type> ::= <type> <cvr-qualifiers>
     ///                 ::= <type> <pointee-cvr-qualifiers> # pointers, references
+    /// ```
     fn tipe(&mut self, mut modi: Modifiers) -> Option<Type<'src>> {
         match self.peek_slice(0..2)? {
             b"W4" => {
@@ -1050,10 +1054,12 @@ impl<'src> Parser {
         Modifiers::union(modi, qual)
     }
 
+    /// ```
     /// = <operator-name>
     /// | <ctor-dtor-name>
     /// | <source-name>
     /// | <template-name>
+    /// ```
     fn operator(&mut self) -> Option<Operator<'src>> {
         // TODO: this doesn't handle all cases
         let op = match self.peek()? {
@@ -1269,7 +1275,7 @@ impl<'src> Parser {
         Some(Ident::Sequence(full_path))
     }
 
-    /// ? <name> <type-encoding>
+    /// ``` ? <name> <type-encoding> ```
     fn parse(&mut self) -> Option<Symbol<'src>> {
         self.recurse_deeper()?;
         self.consume(b'?')?;
@@ -1319,6 +1325,9 @@ impl<'src> Parser {
             b'Y' => {
                 let conv = self.calling_conv()?;
                 let modi = self.modifiers();
+                let return_modi = self.return_modifiers();
+                let return_tipe = self.tipe(modi)?;
+                let params = self.params();
 
                 todo!()
             }
