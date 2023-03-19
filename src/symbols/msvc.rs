@@ -64,7 +64,6 @@
 //! ```
 //!
 //! source [MicrosoftMangle.cpp](https://github.com/llvm-mirror/clang/blob/aa231e4be75ac4759c236b755c57876f76e3cf05/lib/AST/MicrosoftMangle.cpp#L1609)
-// #![allow(dead_code)]
 
 use std::borrow::Cow;
 
@@ -552,7 +551,7 @@ impl<'src> Ast {
     fn try_memorizing_param(&mut self, tipe: &Type<'static>) {
         let memorized = &self.backrefs.params[..self.backrefs.param_count];
 
-        if !memorized.contains(tipe) && self.backrefs.param_count != 10{
+        if !memorized.contains(tipe) && self.backrefs.param_count != 10 {
             self.backrefs.params[self.backrefs.param_count] = tipe.clone();
             self.backrefs.param_count += 1;
         }
@@ -767,6 +766,7 @@ impl<'src> Ast {
         Modifiers::union(modi, qual)
     }
 
+    /// ["X" <void>] <parameters> "Z"
     fn function_params(&mut self) -> Option<Parameters<'src>> {
         if self.eat(b'X') {
             return Some(vec![Type::Void(Modifiers::empty())]);
@@ -777,6 +777,7 @@ impl<'src> Ast {
         Some(params)
     }
 
+    /// <this-cvr-qualifiers> <calling-convention> <return-type> <argument-list> <throw-spec>
     fn function_tipe(&mut self, qualifiers: bool) -> Option<Type<'src>> {
         let mut quali = Modifiers::empty();
         let mut return_quali = Modifiers::empty();
@@ -891,8 +892,8 @@ impl<'src> Ast {
     }
 
     /// ```
-    /// <variable-type> ::= <type> <cvr-qualifiers>
-    ///                 ::= <type> <pointee-cvr-qualifiers> # pointers, references
+    /// <variable-type> = <type> <cvr-qualifiers>
+    ///                 | <type> <pointee-cvr-qualifiers> // pointers, references
     /// ```
     fn tipe(&mut self, mut modi: Modifiers) -> Option<Type<'src>> {
         self.recurse_deeper()?;
@@ -1032,20 +1033,18 @@ impl<'src> Ast {
             b'M' => Type::Float(modi),
             b'N' => Type::Double(modi),
             b'O' => Type::LDouble(modi),
-            b'_' => {
-                match self.take()? {
-                    b'N' => Type::Bool(modi),
-                    b'J' => Type::I64(modi),
-                    b'K' => Type::U64(modi),
-                    b'L' => Type::I128(modi),
-                    b'M' => Type::U128(modi),
-                    b'W' => Type::Wchar(modi),
-                    b'Q' => Type::Char8(modi),
-                    b'S' => Type::Char16(modi),
-                    b'U' => Type::Char32(modi),
-                    _ => return None,
-                }
-            }
+            b'_' => match self.take()? {
+                b'N' => Type::Bool(modi),
+                b'J' => Type::I64(modi),
+                b'K' => Type::U64(modi),
+                b'L' => Type::I128(modi),
+                b'M' => Type::U128(modi),
+                b'W' => Type::Wchar(modi),
+                b'Q' => Type::Char8(modi),
+                b'S' => Type::Char16(modi),
+                b'U' => Type::Char32(modi),
+                _ => return None,
+            },
             _ => return None,
         };
 
@@ -1053,6 +1052,12 @@ impl<'src> Ast {
         Some(tipe)
     }
 
+    /// ```
+    /// | <const>
+    /// | <volatile>
+    /// | <const> <volatile>
+    /// | nothing
+    /// ```
     fn qualifiers(&mut self) -> Modifiers {
         let quali = match self.peek() {
             Some(b'B' | b'R') => Modifiers::CONST,
@@ -1066,6 +1071,14 @@ impl<'src> Ast {
         quali
     }
 
+    /// ```
+    /// = <far> <const>
+    /// | <far> <volatile>
+    /// | <const>
+    /// | <volatile>
+    /// | <const> <volatile>
+    /// | nothing
+    /// ```
     fn modifiers(&mut self) -> Modifiers {
         let modi = match self.peek() {
             Some(b'F') => Modifiers::FAR | Modifiers::CONST,
@@ -1082,6 +1095,12 @@ impl<'src> Ast {
         modi
     }
 
+    /// ```
+    /// = <const>
+    /// | <volatile>
+    /// | <const> <volatile>
+    /// | nothing
+    /// ```
     fn return_modifiers(&mut self) -> Modifiers {
         if !self.eat(b'?') {
             return Modifiers::empty();
@@ -1106,7 +1125,7 @@ impl<'src> Ast {
     /// ```
     fn operator(&mut self) -> Option<Operator<'src>> {
         // TODO: this doesn't handle all cases
-        let op = match self.peek()? {
+        let op = match self.take()? {
             b'0' => Operator::Ctor,
             b'1' => Operator::Dtor,
             b'2' => Operator::New,
@@ -1142,7 +1161,7 @@ impl<'src> Ast {
             b'X' => Operator::TimesEquals,
             b'Y' => Operator::PlusEquals,
             b'Z' => Operator::MinusEquals,
-            b'_' => match self.peek()? {
+            b'_' => match self.take()? {
                 b'0' => Operator::DivideEquals,
                 b'1' => Operator::ModulusEquals,
                 b'2' => Operator::ShiftRightEquals,
@@ -1165,13 +1184,10 @@ impl<'src> Ast {
                 b'T' => Operator::LocalVftableCtorClosure,
                 b'U' => Operator::NewArray,
                 b'V' => Operator::DeleteArray,
-                b'_' => match self.peek()? {
+                b'_' => match self.take()? {
                     b'L' => Operator::CoAwait,
                     b'M' => Operator::Spaceship,
-                    b'K' => {
-                        self.offset += 1;
-                        return self.ident().map(Cow::Borrowed).map(Operator::SourceName);
-                    }
+                    b'K' => return self.ident().map(Cow::Borrowed).map(Operator::SourceName),
                     _ => return None,
                 },
                 _ => return None,
@@ -1179,7 +1195,6 @@ impl<'src> Ast {
             _ => return None,
         };
 
-        self.offset += 1;
         Some(op)
     }
 
@@ -1425,13 +1440,7 @@ impl<'src> Ast {
                 let return_type = self.function_return_type()?;
                 let params = self.function_params()?;
 
-                Type::MemberFunction(
-                    scope,
-                    conv,
-                    quali,
-                    Box::new(return_type),
-                    params,
-                )
+                Type::MemberFunction(scope, conv, quali, Box::new(return_type), params)
             }
         };
 
@@ -1447,16 +1456,12 @@ struct Formatter<'src> {
 
 impl<'src> Formatter<'src> {
     fn fmt(stream: &'src mut TokenStream, sym: Symbol<'src>) {
-        let mut this = Formatter {
-            stream,
-            sym
-        };
+        let mut this = Formatter { stream, sym };
 
         this.path();
     }
 
-    fn path(&mut self) {
-    }
+    fn path(&mut self) {}
 }
 
 #[cfg(test)]
@@ -1468,24 +1473,21 @@ mod tests {
         let mut parser = Ast::new("?x@@YAXMH@Z");
         let tree = parser.parse().unwrap();
 
-        assert_eq!(tree, Symbol {
-            root: Ident::Sequence(
-                vec![
-                    Ident::Literal(
-                        Cow::Borrowed("x"),
-                    ),
-                ],
-            ),
-            tipe: Type::Function(
-                CallingConv::Cdecl,
-                Modifiers::empty(),
-                Box::new(Type::Void(Modifiers::empty())),
-                vec![
-                    Type::Float(Modifiers::empty()),
-                    Type::Int(Modifiers::empty()),
-                ],
-            ),
-        });
+        assert_eq!(
+            tree,
+            Symbol {
+                root: Ident::Sequence(vec![Ident::Literal(Cow::Borrowed("x"),),],),
+                tipe: Type::Function(
+                    CallingConv::Cdecl,
+                    Modifiers::empty(),
+                    Box::new(Type::Void(Modifiers::empty())),
+                    vec![
+                        Type::Float(Modifiers::empty()),
+                        Type::Int(Modifiers::empty()),
+                    ],
+                ),
+            }
+        );
     }
 
     #[test]
