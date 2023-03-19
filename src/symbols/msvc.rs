@@ -75,7 +75,7 @@ use crate::colors::Color;
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(s: &str) -> Option<TokenStream> {
-    let mut parser = AST::new(s);
+    let mut parser = Ast::new(s);
 
     // llvm appears to generate a '.' prefix on some symbols
     parser.eat(b'.');
@@ -296,10 +296,10 @@ enum Operator<'src> {
     ModulusEquals,
 
     /// operator^
-    XOR,
+    Xor,
 
     /// operator^=
-    XOREquals,
+    XorEquals,
 
     /// operator&
     ArithmeticAND,
@@ -473,11 +473,11 @@ struct Symbol<'src> {
     tipe: Type<'src>,
 }
 
-impl<'src> Into<Symbol<'src>> for Ident<'src> {
+impl<'src> From<Ident<'src>> for Symbol<'src> {
     #[inline]
-    fn into(self) -> Symbol<'src> {
+    fn from(root: Ident<'src>) -> Symbol<'src> {
         Symbol {
-            root: self,
+            root,
             tipe: Type::Unit,
         }
     }
@@ -498,14 +498,14 @@ struct Backrefs<'src> {
     param_count: usize,
 }
 
-struct AST {
+struct Ast {
     stream: TokenStream,
     offset: usize,
     depth: usize,
     backrefs: Backrefs<'static>,
 }
 
-impl<'src> AST {
+impl<'src> Ast {
     /// Create an initialized parser that hasn't started parsing yet.
     fn new(s: &str) -> Self {
         Self {
@@ -536,11 +536,9 @@ impl<'src> AST {
     fn try_memorizing_ident(&mut self, ident: &Cow<'static, str>) {
         let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
 
-        if !memorized.contains(&ident) {
-            if self.backrefs.memorized_count != 10 {
-                self.backrefs.memorized[self.backrefs.memorized_count] = ident.clone();
-                self.backrefs.memorized_count += 1;
-            }
+        if !memorized.contains(ident) && self.backrefs.memorized_count != 10 {
+            self.backrefs.memorized[self.backrefs.memorized_count] = ident.clone();
+            self.backrefs.memorized_count += 1;
         }
     }
 
@@ -548,17 +546,15 @@ impl<'src> AST {
         let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
         let memorized = memorized.get(idx).cloned()?;
 
-        return Some(Ident::Literal(memorized));
+        Some(Ident::Literal(memorized))
     }
 
     fn try_memorizing_param(&mut self, tipe: &Type<'static>) {
         let memorized = &self.backrefs.params[..self.backrefs.param_count];
 
-        if !memorized.contains(&tipe) {
-            if self.backrefs.param_count != 10 {
-                self.backrefs.params[self.backrefs.param_count] = tipe.clone();
-                self.backrefs.param_count += 1;
-            }
+        if !memorized.contains(tipe) && self.backrefs.param_count != 10{
+            self.backrefs.params[self.backrefs.param_count] = tipe.clone();
+            self.backrefs.param_count += 1;
         }
     }
 
@@ -566,7 +562,7 @@ impl<'src> AST {
         let memorized = &self.backrefs.params[..self.backrefs.param_count];
         let memorized = memorized.get(idx).cloned()?;
 
-        return Some(memorized);
+        Some(memorized)
     }
 
     /// View the current byte in the mangled symbol without incrementing the offset.
@@ -737,10 +733,7 @@ impl<'src> AST {
             params.push(tipe);
         }
 
-        if self.eat(b'Z') {
-        } else if self.src().is_empty() {
-            // ???
-        } else {
+        if !(self.eat(b'Z') || self.src().is_empty()) {
             self.consume(b'@')?;
         }
 
@@ -1142,7 +1135,7 @@ impl<'src> AST {
             b'Q' => Operator::Comma,
             b'R' => Operator::Calling,
             b'S' => Operator::ArithmeticNot,
-            b'T' => Operator::XOR,
+            b'T' => Operator::Xor,
             b'U' => Operator::ArithmeticOR,
             b'V' => Operator::LogicalAND,
             b'W' => Operator::LogicalOR,
@@ -1156,7 +1149,7 @@ impl<'src> AST {
                 b'3' => Operator::ShiftLeftEquals,
                 b'4' => Operator::ANDEquals,
                 b'5' => Operator::OREquals,
-                b'6' => Operator::XOREquals,
+                b'6' => Operator::XorEquals,
                 b'D' => Operator::VBaseDtor,
                 b'E' => Operator::VectorDeletingDtor,
                 b'F' => Operator::DefaultCtorClosure,
@@ -1305,7 +1298,7 @@ impl<'src> AST {
                         let mut len = 0;
 
                         // skip over anonymous namespace disambiguator
-                        while let Some(_) = self.peek().filter(|c| c.is_ascii_hexdigit()) {
+                        while self.peek().filter(|c| c.is_ascii_hexdigit()).is_some() {
                             len += 1;
                             self.offset += 1;
                         }
@@ -1472,7 +1465,7 @@ mod tests {
 
     #[test]
     fn simple_ast() {
-        let mut parser = AST::new("?x@@YAXMH@Z");
+        let mut parser = Ast::new("?x@@YAXMH@Z");
         let tree = parser.parse().unwrap();
 
         assert_eq!(tree, Symbol {
@@ -1497,6 +1490,6 @@ mod tests {
 
     #[test]
     fn instance() {
-        dbg!(AST::new("?x@ns@@3PEAV?$klass@HH@1@EA").parse().unwrap());
+        dbg!(Ast::new("?x@ns@@3PEAV?$klass@HH@1@EA").parse().unwrap());
     }
 }

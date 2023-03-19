@@ -6,7 +6,7 @@ macro_rules! eq {
             .expect(&format!("Formatting '{}' failed.", $mangled));
 
         assert_eq!(
-            String::from_iter(symbol.tokens().iter().map(|t| t.text)),
+            String::from_iter(symbol.tokens().iter().map(|t| &t.text[..])),
             $demangled
         )
     };
