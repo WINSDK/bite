@@ -1,16 +1,18 @@
 #[allow(dead_code)]
 pub mod config;
 
-mod test;
 mod itanium;
 mod msvc;
 mod rust;
+mod test;
 
 use object::{Object, ObjectSymbol};
 use pdb::FallibleIterator;
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::borrow::Cow;
 
-use crate::colors::Color;
+use crate::colors::{self, Color, Token};
 use crate::disassembler::Line;
 use crate::threading::spawn_threaded;
 
@@ -18,7 +20,7 @@ pub use config::Config;
 
 #[derive(Debug)]
 pub struct Index {
-    tree: BTreeMap<usize, TokenStream>,
+    tree: BTreeMap<usize, Arc<TokenStream>>,
 }
 
 impl Index {
@@ -39,7 +41,7 @@ impl Index {
             let Ok(path) = std::str::from_utf8(pdb.path()) else {
                 let tree = symbols
                     .into_iter()
-                    .map(|(addr, symbol)| (addr, TokenStream::new(symbol)))
+                    .map(|(addr, symbol)| (addr, Arc::new(TokenStream::new(symbol))))
                     .collect();
 
                 return Ok(Self { tree });
@@ -48,7 +50,7 @@ impl Index {
             let Ok(file) = std::fs::File::open(path) else {
                 let tree = symbols
                     .into_iter()
-                    .map(|(addr, symbol)| (addr, TokenStream::new(symbol)))
+                    .map(|(addr, symbol)| (addr, Arc::new(TokenStream::new(symbol))))
                     .collect();
 
                 return Ok(Self { tree });
@@ -94,14 +96,14 @@ impl Index {
 
             // parse gnu/llvm Rust/C/C++ symbols
             if let Some(s) = strip_prefixes(s, &["Z", "_Z", "___Z"]) {
-                return itanium::parse(s).unwrap_or_else(|| TokenStream::new(s));
+                return itanium::parse(s).unwrap_or_else(|| TokenStream::simple(s));
             }
 
             // parse rust symbols that match the v0 mangling scheme
             //
             // macOS prefixes symbols with an extra underscore therefore '__R' is allowed
             if let Some(s) = strip_prefixes(s, &["R", "_R", "__R"]) {
-                return rust::parse(s).unwrap_or_else(|| TokenStream::new(s));
+                return rust::parse(s).unwrap_or_else(|| TokenStream::simple(s));
             }
 
             // parse windows msvc C/C++ symbols
@@ -110,17 +112,20 @@ impl Index {
             }
 
             // return the original mangled symbol on failure
-            TokenStream::new(s)
+            TokenStream::simple(s)
         };
 
-        let tree = spawn_threaded(symbols, move |(addr, symbol)| (addr, parser(symbol))).await;
+        let tree = spawn_threaded(symbols, move |(addr, symbol)| {
+            (addr, Arc::new(parser(symbol)))
+        })
+        .await;
 
         Ok(Self {
             tree: BTreeMap::from_iter(tree),
         })
     }
 
-    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, TokenStream> {
+    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Arc<TokenStream>> {
         self.tree.values()
     }
 
@@ -132,20 +137,18 @@ impl Index {
         self.tree.clear();
     }
 
-    pub fn get_by_line(&self, line: &Line) -> Option<&[Token]> {
-        self.tree
-            .get(&(line.section_base + line.offset))
-            .map(TokenStream::tokens)
+    pub fn get_by_line(&self, line: &Line) -> Option<Arc<TokenStream>> {
+        self.tree.get(&(line.section_base + line.offset)).cloned()
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TokenStream {
     /// Unmovable string which the [Token]'s have a pointer to.
     inner: std::pin::Pin<String>,
 
     /// Internal token representation which is unsafe to access outside of calling [Self::tokens].
-    __tokens: Vec<Token<'static>>,
+    __tokens: Vec<Token>,
 }
 
 impl TokenStream {
@@ -156,6 +159,20 @@ impl TokenStream {
         }
     }
 
+    fn simple(s: &str) -> Self {
+        let mut this = Self {
+            inner: std::pin::Pin::new(s.to_string()) ,
+            __tokens: Vec::with_capacity(1),
+        };
+
+        this.__tokens.push(Token {
+            text: Cow::Borrowed(this.inner()),
+            color: colors::TEAL
+        });
+
+        this
+    }
+
     /// SAFETY: must downcast &'static str to a lifetime that matches the lifetime of self.
     #[inline]
     fn inner<'a>(&self) -> &'a str {
@@ -164,19 +181,16 @@ impl TokenStream {
 
     #[inline]
     fn push(&mut self, text: &'static str, color: Color) {
-        self.__tokens.push(Token { text, color })
+        self.__tokens.push(Token {
+            text: std::borrow::Cow::Borrowed(text),
+            color,
+        })
     }
 
     #[inline]
-    pub fn tokens<'src>(&'src self) -> &'src [Token<'src>] {
+    pub fn tokens<'src>(&'src self) -> &'src [Token] {
         self.__tokens.as_slice()
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Token<'a> {
-    pub text: &'a str,
-    pub color: Color,
 }
 
 fn strip_prefixes<'a>(s: &'a str, prefixes: &[&str]) -> Option<&'a str> {

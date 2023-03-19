@@ -6,6 +6,7 @@ mod lookup;
 #[allow(dead_code, unused_variables, unused_assignments)]
 mod x86_64;
 
+use crate::colors::{EMPTY_TOKEN, Token, LineKind};
 use crate::symbols::Index;
 use crate::warning;
 use object::Architecture;
@@ -34,7 +35,7 @@ pub enum Error {
 }
 
 pub struct Dissasembly {
-    lines: Mutex<Vec<Line>>,
+    lines: Mutex<Vec<LineKind>>,
     pub symbols: Mutex<Index>,
 }
 
@@ -86,18 +87,28 @@ impl Dissasembly {
             });
 
             // TODO: optimize for lazy chunk loading
-            let lines = tokio::spawn(async move {
+            tokio::spawn(async move {
                 let base_offset = section.address() as usize;
+                let stream = InstructionStream::new(&raw[..], arch, base_offset)
+                    .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")?;
 
-                InstructionStream::new(&raw[..], arch, base_offset)
-                    .map(|stream| stream.collect())
-                    .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")
-            });
+                let mut lines = Vec::with_capacity(1024);
+                let symbols = symbols.await.unwrap()?;
 
-            *self.symbols.lock().unwrap() = symbols.await.unwrap()?;
-            *self.lines.lock().unwrap() = lines.await.unwrap()?;
+                for line in stream {
+                    if let Some(label) = symbols.get_by_line(&line) {
+                        lines.push(LineKind::Newline);
+                        lines.push(LineKind::Label(label));
+                    }
 
-            Ok::<(), &str>(())
+                    lines.push(LineKind::Instruction(line.tokens));
+                }
+
+                *self.symbols.lock().unwrap() = symbols;
+                *self.lines.lock().unwrap() = lines;
+
+                Ok::<(), &str>(())
+            }).await.unwrap()
         });
 
         match task.await.unwrap() {
@@ -106,7 +117,7 @@ impl Dissasembly {
         };
     }
 
-    pub fn lines(&self) -> Option<std::sync::MutexGuard<Vec<Line>>> {
+    pub fn lines(&self) -> Option<std::sync::MutexGuard<Vec<LineKind>>> {
         if let Ok(lines) = self.lines.try_lock() {
             if !lines.is_empty() {
                 return Some(lines);
@@ -133,22 +144,15 @@ trait Streamable {
     fn next(&mut self) -> Result<Self::Item, Error>;
 }
 
-pub struct InstructionToken {
-    pub text: Cow<'static, str>,
-    pub color: crate::colors::Color,
-}
-
-impl InstructionToken {
-    pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
-        wgpu_glyph::Text::new(&self.text)
-            .with_color(self.color)
-            .with_scale(scale)
-    }
-}
-
 pub struct TokenStream {
-    inner: [InstructionToken; 5],
+    inner: [Token; 5],
     token_count: usize,
+}
+
+impl TokenStream {
+    pub fn tokens(&self) -> &[Token] {
+        &self.inner[..self.token_count]
+    }
 }
 
 pub struct Line {
@@ -184,8 +188,8 @@ impl ToString for Line {
 }
 
 impl Line {
-    pub fn tokens(&self) -> &[InstructionToken] {
-        &self.tokens.inner[..self.tokens.token_count]
+    pub fn tokens(&self) -> &[Token] {
+        self.tokens.tokens()
     }
 }
 
@@ -257,7 +261,7 @@ impl Iterator for InstructionStream<'_> {
             Err(err) => {
                 let mut tokens = [EMPTY_TOKEN; 5];
 
-                tokens[0] = InstructionToken {
+                tokens[0] = Token {
                     text: Cow::Owned(format!("<{err:?}>")),
                     color: crate::colors::RED,
                 };
@@ -380,8 +384,3 @@ fn encode_hex(mut imm: i64) -> String {
 }
 
 const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");
-
-const EMPTY_TOKEN: InstructionToken = InstructionToken {
-    color: crate::colors::WHITE,
-    text: std::borrow::Cow::Borrowed(""),
-};

@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         for symbol in index.symbols() {
-            let symbol = symbol.tokens().iter().map(|s| s.text);
+            let symbol = symbol.tokens().iter().map(|s| &s.text[..]);
             let symbol = String::from_iter(symbol);
 
             println!("{symbol}");

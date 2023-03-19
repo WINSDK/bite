@@ -1,4 +1,7 @@
-use crate::gui::{texture::Texture, uniforms, Error};
+use crate::{
+    colors::LineKind,
+    gui::{texture::Texture, uniforms, Error},
+};
 use std::mem::size_of;
 use std::sync::atomic::Ordering;
 
@@ -309,8 +312,6 @@ impl Backend {
         if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
             ctx.show_donut.store(false, Ordering::Relaxed);
 
-            let symbols = ctx.dissasembly.symbols.lock().unwrap();
-
             let pad = "        ";
             let line_count = (self.size.height as f32 / font_size).ceil() as usize;
             let mut texts = Vec::with_capacity(line_count * 10);
@@ -322,66 +323,66 @@ impl Backend {
                 .unwrap_or(dissasembly);
 
             for line in listing {
-                if let Some(label) = symbols.get_by_line(line) {
-                    texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
-
-                    texts.push(
-                        wgpu_glyph::Text::new("<")
-                            .with_scale(font_size)
-                            .with_color(crate::colors::TEAL),
-                    );
-
-                    for token in label {
+                match line {
+                    LineKind::Newline => {
+                        texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size))
+                    }
+                    LineKind::Label(label) => {
                         texts.push(
-                            wgpu_glyph::Text::new(token.text)
+                            wgpu_glyph::Text::new("<")
                                 .with_scale(font_size)
-                                .with_color(token.color),
+                                .with_color(crate::colors::TEAL),
+                        );
+
+                        for token in label.tokens() {
+                            texts.push(token.text(font_size));
+                        }
+
+                        texts.push(
+                            wgpu_glyph::Text::new(">:\n")
+                                .with_scale(font_size)
+                                .with_color(crate::colors::TEAL),
                         );
                     }
+                    LineKind::Instruction(line) => {
+                        let tokens = line.tokens();
 
-                    texts.push(
-                        wgpu_glyph::Text::new(">:\n")
-                            .with_scale(font_size)
-                            .with_color(crate::colors::TEAL),
-                    );
-                }
+                        // pad
+                        texts.push(wgpu_glyph::Text::new("        ").with_scale(font_size));
 
-                let tokens = line.tokens();
+                        // mnemomic
+                        texts.push(tokens[0].text(font_size));
 
-                // pad
-                texts.push(wgpu_glyph::Text::new("        ").with_scale(font_size));
+                        // mnemomic padding up to 8 character wide instructions
+                        let pad = &pad[std::cmp::min(tokens[0].text.len(), pad.len())..];
+                        texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
 
-                // mnemomic
-                texts.push(tokens[0].text(font_size));
-
-                // mnemomic padding up to 8 character wide instructions
-                let pad = &pad[std::cmp::min(tokens[0].text.len(), pad.len())..];
-                texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
-
-                if tokens.len() > 1 {
-                    // separator
-                    texts.push(wgpu_glyph::Text::new(" ").with_scale(font_size));
-
-                    if tokens.len() > 2 {
-                        for token in &tokens[..tokens.len() - 1][1..] {
-                            // operand
-                            texts.push(token.text(font_size));
-
+                        if tokens.len() > 1 {
                             // separator
-                            texts.push(
-                                wgpu_glyph::Text::new(", ")
-                                    .with_scale(font_size)
-                                    .with_color(crate::colors::WHITE),
-                            );
+                            texts.push(wgpu_glyph::Text::new(" ").with_scale(font_size));
+
+                            if tokens.len() > 2 {
+                                for token in &tokens[..tokens.len() - 1][1..] {
+                                    // operand
+                                    texts.push(token.text(font_size));
+
+                                    // separator
+                                    texts.push(
+                                        wgpu_glyph::Text::new(", ")
+                                            .with_scale(font_size)
+                                            .with_color(crate::colors::WHITE),
+                                    );
+                                }
+                            }
+
+                            // last operand, which doesn't require a comma
+                            texts.push(tokens[tokens.len() - 1].text(font_size));
                         }
+
+                        // next instruction
+                        texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
                     }
-
-                    // last operand, which doesn't require a comma
-                    texts.push(tokens[tokens.len() - 1].text(font_size));
                 }
-
-                // next instruction
-                texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
             }
 
             // queue assembly listing text

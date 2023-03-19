@@ -24,3 +24,28 @@ impl From<Color> for [f32; 4] {
         val.0
     }
 }
+
+pub enum LineKind {
+    Newline,
+    Label(std::sync::Arc<crate::symbols::TokenStream>),
+    Instruction(crate::disassembler::TokenStream),
+}
+
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub text: std::borrow::Cow<'static, str>,
+    pub color: Color,
+}
+
+impl Token {
+    pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
+        wgpu_glyph::Text::new(&self.text)
+            .with_color(self.color)
+            .with_scale(scale)
+    }
+}
+
+pub const EMPTY_TOKEN: Token = Token {
+    color: WHITE,
+    text: std::borrow::Cow::Borrowed(""),
+};
