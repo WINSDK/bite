@@ -1,17 +1,17 @@
 //! Microsoft Visual Studio symbol demangler
 //!
 //! ```text
-//! <mangled-name> = ? <name> <type-encoding>
+//! <mangled-name> = ? <path> <type-encoding>
 //!
-//! <name> = <unscoped-name> {[<named-scope>]+ | [<nested-name>]}? @
+//! <path> = <unscoped-path> {[<named-scope>]+ | [<nested-path>]}? @
 //!
-//! <unqualified-name> = <operator-name>
+//! <unqualified-path> = <operator-name>
 //!                    | <ctor-dtor-name>
 //!                    | <source-name>
 //!                    | <template-name>
 //!
-//! <operator-name> = ???
-//!                 | ?B // cast, the target type is encoded as the return type.
+//! <operator> = ???
+//!            | ?B // cast, the target type is encoded as the return type.
 //!
 //! <source-name> = <identifier> @
 //!
@@ -75,20 +75,19 @@ use crate::colors::Color;
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(s: &str) -> Option<TokenStream> {
-    let mut parser = Parser::new(s);
+    let mut parser = AST::new(s);
 
     // llvm appears to generate a '.' prefix on some symbols
     parser.eat(b'.');
 
-    dbg!(parser.parse()?);
-
+    dbg!(parser.parse());
     Some(parser.stream)
 }
 
 type Parameters<'a> = Vec<Type<'a>>;
 
 /// Root node of the AST.
-#[derive(Default, Debug, Clone)]
+#[derive(Default, PartialEq, Debug, Clone)]
 enum Type<'src> {
     /// ``` "" ```
     #[default]
@@ -187,7 +186,16 @@ enum Type<'src> {
     /// ``` <calling-conv> {<modifier>} <return-type> ({<type>}) ```
     Function(CallingConv, Modifiers, Box<Type<'src>>, Parameters<'src>),
 
-    /// ``` <scope>: <class> <calling-conv> {<modifier>} <return-type> ({<type>}) ```
+    /// ``` <scope>: <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
+    MemberFunction(
+        Scope,
+        CallingConv,
+        Modifiers,
+        Box<Type<'src>>,
+        Parameters<'src>,
+    ),
+
+    /// ``` <scope>: <class> <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
     MemberFunctionPtr(
         Scope,
         Ident<'src>,
@@ -208,7 +216,7 @@ enum Type<'src> {
 }
 
 /// Either a well known operator of a class or some C++ internal operator implementation.
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 enum Operator<'src> {
     /// Constructor
     Ctor,
@@ -392,7 +400,7 @@ enum Operator<'src> {
 }
 
 /// Calling conventions supported by MSVC
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum CallingConv {
     Cdecl,
     Pascal,
@@ -402,11 +410,10 @@ enum CallingConv {
     Clrcall,
     Eabi,
     Vectorcall,
-    Regcall,
 }
 
 bitflags::bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
     struct Scope: u32 {
         const PUBLIC     = 0b000000001;
         const PRIVATE    = 0b000000010;
@@ -419,7 +426,7 @@ bitflags::bitflags! {
         const ADJUST     = 0b100000000;
     }
 
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
     struct Modifiers: u32 {
         /// const ..
         const CONST     = 0b0000001;
@@ -444,19 +451,18 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 enum Ident<'src> {
-    Empty,
     Literal(Cow<'src, str>),
     Interface(Cow<'src, str>),
-    Template(Box<Ident<'src>>),
+    Template(Box<Ident<'src>>, Parameters<'src>),
     Operator(Operator<'src>),
     Sequence(Vec<Ident<'src>>),
     Nested(Box<Symbol<'src>>),
     Disambiguator(isize),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 struct Symbol<'src> {
     root: Ident<'src>,
     tipe: Type<'src>,
@@ -481,20 +487,20 @@ struct Backrefs<'src> {
     memorized_count: usize,
 
     /// A max of 10 function parameters is supported.
-    function_params: [Type<'src>; 10],
+    params: [Type<'src>; 10],
 
     /// Number of so far encountered function parameters.
-    function_param_count: usize,
+    param_count: usize,
 }
 
-struct Parser {
+struct AST {
     stream: TokenStream,
     offset: usize,
     depth: usize,
     backrefs: Backrefs<'static>,
 }
 
-impl<'src> Parser {
+impl<'src> AST {
     /// Create an initialized parser that hasn't started parsing yet.
     fn new(s: &str) -> Self {
         Self {
@@ -516,44 +522,39 @@ impl<'src> Parser {
         &self.backrefs.memorized[..self.backrefs.memorized_count]
     }
 
-    #[inline]
     fn memorize_ident(&mut self, ident: &Cow<'static, str>) {
         if !self.memorized_idents().contains(&ident) {
-            self.push_memorized(ident);
+            if self.backrefs.memorized_count != 10 {
+                self.backrefs.memorized[self.backrefs.memorized_count] = ident.clone();
+                self.backrefs.memorized_count += 1;
+            }
         }
     }
 
     #[inline]
-    fn get_memorized(&mut self, idx: usize) -> Option<Ident<'src>> {
+    fn get_memorized_ident(&mut self, idx: usize) -> Option<Ident<'src>> {
         let memorized = self.memorized_idents().get(idx).cloned()?;
         return Some(Ident::Literal(memorized));
     }
 
     #[inline]
-    fn push_memorized(&mut self, ident: &Cow<'static, str>) {
-        if self.backrefs.memorized_count != 10 {
-            self.backrefs.memorized[self.backrefs.memorized_count] = ident.clone();
-            self.backrefs.memorized_count += 1;
+    fn memorized_params(&self) -> &[Type<'src>] {
+        &self.backrefs.params[..self.backrefs.param_count]
+    }
+
+    fn memorize_param(&mut self, tipe: &Type<'static>) {
+        if !self.memorized_params().contains(&tipe) {
+            if self.backrefs.param_count != 10 {
+                self.backrefs.params[self.backrefs.param_count] = tipe.clone();
+                self.backrefs.param_count += 1;
+            }
         }
     }
 
     #[inline]
-    fn memorized_function_params(&self) -> &[Type<'src>] {
-        &self.backrefs.function_params[..self.backrefs.function_param_count]
-    }
-
-    #[inline]
-    fn get_function_params(&self, idx: usize) -> Option<Type<'src>> {
-        let memorized = self.memorized_function_params().get(idx).cloned()?;
+    fn get_memorized_param(&self, idx: usize) -> Option<Type<'src>> {
+        let memorized = self.memorized_params().get(idx).cloned()?;
         return Some(memorized);
-    }
-
-    #[inline]
-    fn push_function_params(&mut self, tipe: &Type<'static>) {
-        if self.backrefs.function_param_count != 10 {
-            self.backrefs.function_params[self.backrefs.function_param_count] = tipe.clone();
-            self.backrefs.function_param_count += 1;
-        }
     }
 
     /// View the current byte in the mangled symbol without incrementing the offset.
@@ -630,20 +631,26 @@ impl<'src> Parser {
 
     #[inline]
     fn base10(&mut self) -> Option<usize> {
-        Some(match self.take()? {
+        let n = match self.peek()? {
             c @ b'0'..=b'9' => (c - b'0') as usize,
             _ => return None,
-        })
+        };
+
+        self.offset += 1;
+        Some(n)
     }
 
     #[inline]
     fn base16(&mut self) -> Option<usize> {
-        Some(match self.take()? {
+        let n = match self.peek()? {
             c @ b'0'..=b'9' => (c - b'0') as usize,
             c @ b'a'..=b'f' => (c - b'a') as usize,
             c @ b'A'..=b'F' => (c - b'A') as usize,
             _ => return None,
-        })
+        };
+
+        self.offset += 1;
+        Some(n)
     }
 
     fn number(&mut self) -> Option<isize> {
@@ -712,6 +719,7 @@ impl<'src> Parser {
             b'A' | b'B' => CallingConv::Cdecl,
             b'C' | b'D' => CallingConv::Pascal,
             b'E' | b'F' => CallingConv::Fastcall,
+            b'G' | b'H' => CallingConv::Stdcall,
             b'I' | b'J' => CallingConv::Thiscall,
             b'M' | b'N' => CallingConv::Clrcall,
             b'O' | b'P' => CallingConv::Eabi,
@@ -724,7 +732,39 @@ impl<'src> Parser {
     }
 
     fn params(&mut self) -> Option<Parameters<'src>> {
-        todo!()
+        let mut params = Vec::new();
+
+        loop {
+            if let Some(b'@') | Some(b'Z') | None = self.peek() {
+                break;
+            }
+
+            if let Some(digit) = self.base10() {
+                params.push(self.get_memorized_param(digit)?);
+                continue;
+            }
+
+            let start = self.src().len();
+            let tipe = self.tipe(Modifiers::empty())?;
+            let end = self.src().len();
+
+            // single-letter types are ignored for backref's because
+            // memorizing them doesn't save anything.
+            if start - end > 1 {
+                self.memorize_param(&tipe);
+            }
+
+            params.push(tipe);
+        }
+
+        if self.eat(b'Z') {
+        } else if self.src().is_empty() {
+            // ???
+        } else {
+            self.consume(b'@')?;
+        }
+
+        Some(params)
     }
 
     fn function_params(&mut self) -> Option<Parameters<'src>> {
@@ -732,9 +772,9 @@ impl<'src> Parser {
             return Some(vec![Type::Void(Modifiers::empty())]);
         }
 
-        let params = self.params();
-        self.consume(b'z')?;
-        todo!()
+        let params = self.params()?;
+        self.consume(b'Z')?;
+        Some(params)
     }
 
     fn function_tipe(&mut self, qualifiers: bool) -> Option<Type<'src>> {
@@ -742,7 +782,7 @@ impl<'src> Parser {
         let mut return_quali = Modifiers::empty();
 
         if qualifiers {
-            quali |= self.qualfiers();
+            quali |= self.qualifiers();
         }
 
         let conv = self.calling_conv()?;
@@ -758,7 +798,7 @@ impl<'src> Parser {
     }
 
     fn function_scope(&mut self) -> Scope {
-        let Some(scope) = self.peek() else {
+        let Some(scope) = self.take() else {
             return Scope::empty();
         };
 
@@ -815,7 +855,7 @@ impl<'src> Parser {
         }
 
         if qualifiers {
-            quali |= self.qualfiers();
+            quali |= self.qualifiers();
         } else {
             scope |= self.function_scope();
         }
@@ -823,7 +863,7 @@ impl<'src> Parser {
         let conv = self.calling_conv()?;
         let return_modi = self.return_modifiers();
         let return_type = self.function_return_type()?;
-        let params = self.params()?;
+        let params = self.function_params()?;
 
         Some(Type::MemberFunctionPtr(
             scope,
@@ -894,7 +934,7 @@ impl<'src> Parser {
                 }
 
                 if self.eat(b'C') {
-                    modi = self.qualfiers();
+                    modi = self.qualifiers();
                 }
 
                 if self.eat(b'T') {
@@ -927,8 +967,7 @@ impl<'src> Parser {
                 return Some(Type::Unit);
             }
 
-            if let Some(b'1' | b'H' | b'I' | b'J') = self.peek() {
-                self.offset += 1;
+            if let Some(b'1' | b'H' | b'I' | b'J') = self.take() {
                 self.consume(b'?')?;
                 return self.member_function_ptr_type(false);
             }
@@ -940,7 +979,7 @@ impl<'src> Parser {
         }
 
         if let Some(digit) = self.base10() {
-            return self.get_function_params(digit);
+            return self.get_memorized_param(digit);
         }
 
         let tipe = match self.peek()? {
@@ -993,21 +1032,15 @@ impl<'src> Parser {
     }
 
     fn modifiers(&mut self) -> Modifiers {
-        let mut modi = Modifiers::empty();
-        let prefix = self.peek();
+        let modi = match self.peek() {
+            Some(b'B' | b'R') => Modifiers::CONST,
+            Some(b'C' | b'S') => Modifiers::VOLATILE,
+            Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
+            Some(b'A' | b'Q') => Modifiers::empty(),
+            _ => return Modifiers::empty(),
+        };
 
-        if let Some(b'B' | b'D' | b'H' | b'R' | b'T') = prefix {
-            modi |= Modifiers::CONST;
-        }
-
-        if let Some(b'C' | b'D' | b'G' | b'S' | b'T') = prefix {
-            modi |= Modifiers::VOLATILE;
-        }
-
-        if prefix.is_some() {
-            self.offset += 1;
-        }
-
+        self.offset += 1;
         modi
     }
 
@@ -1027,7 +1060,7 @@ impl<'src> Parser {
         modi
     }
 
-    fn qualfiers(&mut self) -> Modifiers {
+    fn qualifiers(&mut self) -> Modifiers {
         let mut qual = Modifiers::empty();
 
         if self.eat(b'E') {
@@ -1141,9 +1174,37 @@ impl<'src> Parser {
 
     fn ident(&mut self) -> Option<&'src str> {
         let len = self.src().bytes().position(|c| c == b'@')?;
-        self.offset += len;
+        let ident = &self.src()[..len];
+        self.offset += len + 1;
+        Some(ident)
+    }
 
-        Some(&self.src()[..len])
+    /// Doesn't return anything as there is no easy way to decode this.
+    fn encoded_ident(&mut self) -> Option<Type<'src>> {
+        let width = self.base10()?;
+        if width > 2 {
+            return None;
+        }
+
+        let len = std::cmp::min(self.number()? as usize, width * 32);
+        self.number()?;
+
+        for _ in 0..len {
+            let chr = self.take()?;
+
+            if let b'0'..=b'9' | b'a'..=b'z' | b'_' | b'$' = chr {
+                continue;
+            }
+
+            if chr == b'?' {
+                self.take()?;
+                continue;
+            }
+
+            return None;
+        }
+
+        Some(Type::Unit)
     }
 
     #[inline]
@@ -1159,10 +1220,12 @@ impl<'src> Parser {
         self.recurse_deeper()?;
 
         let backrefs = std::mem::take(&mut self.backrefs);
-
+        let name = self.unqualified_path()?;
+        let params = self.params()?;
         self.backrefs = backrefs;
+
         self.depth -= 1;
-        todo!()
+        Some(Ident::Template(Box::new(name), params))
     }
 
     fn unqualified_path(&mut self) -> Option<Ident<'src>> {
@@ -1171,7 +1234,7 @@ impl<'src> Parser {
         // memorized ident
         if let Some(digit) = self.base10() {
             self.depth -= 1;
-            return self.get_memorized(digit);
+            return self.get_memorized_ident(digit);
         }
 
         if self.eat(b'?') {
@@ -1190,7 +1253,7 @@ impl<'src> Parser {
 
     fn nested_path(&mut self) -> Option<Ident<'src>> {
         if let Some(digit) = self.base10() {
-            return self.get_memorized(digit);
+            return self.get_memorized_ident(digit);
         }
 
         if self.eat(b'?') {
@@ -1255,23 +1318,23 @@ impl<'src> Parser {
     }
 
     fn path(&mut self) -> Option<Ident<'src>> {
-        self.recurse_deeper()?;
-
         let mut full_path = Vec::new();
         let tail = self.unqualified_path()?;
 
         while !self.eat(b'@') {
+            self.recurse_deeper()?;
             let segment = self.nested_path()?;
 
             match segment {
                 Ident::Sequence(inner) => full_path.extend(inner),
                 _ => full_path.push(segment),
             }
+
+            self.depth -= 1;
         }
 
         full_path.push(tail);
 
-        self.depth -= 1;
         Some(Ident::Sequence(full_path))
     }
 
@@ -1307,13 +1370,13 @@ impl<'src> Parser {
             return self.template().map(Ident::into);
         }
 
-        let path = self.path()?;
+        let root = self.path()?;
         let prefix = self.peek();
         self.offset += 1;
 
         // either no type of a C style type
         if let None | Some(b'9') = prefix {
-            return Some(path).map(Ident::into);
+            return Some(root).map(Ident::into);
         }
 
         let tipe = match prefix? {
@@ -1326,25 +1389,64 @@ impl<'src> Parser {
                 let conv = self.calling_conv()?;
                 let modi = self.modifiers();
                 let return_modi = self.return_modifiers();
-                let return_tipe = self.tipe(modi)?;
-                let params = self.params();
+                let return_tipe = self.tipe(return_modi)?;
+                let params = self.function_params()?;
 
-                todo!()
+                Type::Function(conv, modi, Box::new(return_tipe), params)
             }
-            _ => return None,
+            b'_' => self.encoded_ident()?,
+            _ => {
+                let mut quali = Modifiers::empty();
+                let scope = self.function_scope();
+
+                if !scope.contains(Scope::STATIC) {
+                    quali |= self.qualifiers();
+                }
+
+                let conv = self.calling_conv()?;
+                let return_type = self.function_return_type()?;
+                let params = self.function_params()?;
+
+                Type::MemberFunction(
+                    scope,
+                    conv,
+                    quali,
+                    Box::new(return_type),
+                    params,
+                )
+            }
         };
 
-        Some(Symbol { root: path, tipe })
+        Some(Symbol { root, tipe })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::eq;
+    use super::*;
 
     #[test]
-    fn simple() {
-        eq!("?xyz@?$abc@V?$def@H@@PAX@@YAXXZ" =>
-            "void __cdecl abc<class def<int>, void *>::xyz(void)");
+    fn simple_ast() {
+        let mut parser = AST::new("?x@@YAXMH@Z");
+        let tree = parser.parse().unwrap();
+
+        assert_eq!(tree, Symbol {
+            root: Ident::Sequence(
+                vec![
+                    Ident::Literal(
+                        Cow::Borrowed("x"),
+                    ),
+                ],
+            ),
+            tipe: Type::Function(
+                CallingConv::Cdecl,
+                Modifiers::empty(),
+                Box::new(Type::Void(Modifiers::empty())),
+                vec![
+                    Type::Float(Modifiers::empty()),
+                    Type::Int(Modifiers::empty()),
+                ],
+            ),
+        });
     }
 }
