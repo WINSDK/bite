@@ -122,7 +122,7 @@ enum NameSpace {
     Internal,
 }
 
-impl Parser {
+impl<'src> Parser {
     /// Create an initialized parser that hasn't started parsing yet.
     fn new(s: &str) -> Self {
         Self {
@@ -135,7 +135,7 @@ impl Parser {
 
     /// Create a reference to the underlying pinned string that holds the mangled symbol.
     #[inline]
-    fn src(&self) -> &'static str {
+    fn src(&self) -> &'src str {
         &self.stream.inner()[self.offset..]
     }
 
@@ -282,7 +282,7 @@ impl Parser {
     }
 
     /// Consumes either a regular unambiguous or a punycode enabled string.
-    fn ident<'src>(&mut self) -> Option<&'src str> {
+    fn ident(&mut self) -> Option<&'src str> {
         if self.eat(b'u') {
             eprintln!("TODO: punycode symbols decoding");
         }
@@ -375,7 +375,7 @@ impl Parser {
 
     /// Parses a lifetime if it's not a '_ or a part of token that
     /// ends up using more than 25 lifetimes.
-    fn lifetime<'src>(&mut self) -> Option<&'src str> {
+    fn lifetime(&mut self) -> Option<&'src str> {
         if !self.eat(b'L') {
             return None;
         }

@@ -518,7 +518,7 @@ impl<'src> AST {
 
     /// Create a reference to the underlying pinned string that holds the mangled symbol.
     #[inline]
-    fn src(&self) -> &'static str {
+    fn src(&self) -> &'src str {
         &self.stream.inner()[self.offset..]
     }
 

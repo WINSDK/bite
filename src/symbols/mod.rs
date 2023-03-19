@@ -149,33 +149,27 @@ pub struct TokenStream {
 }
 
 impl TokenStream {
-    pub fn new(s: &str) -> Self {
+    fn new(s: &str) -> Self {
         Self {
             inner: std::pin::Pin::new(s.to_string()),
             __tokens: Vec::with_capacity(128),
         }
     }
 
+    /// SAFETY: must downcast &'static str to a lifetime that matches the lifetime of self.
     #[inline]
-    pub fn inner(&self) -> &'static str {
-        unsafe { std::mem::transmute(&*self.inner) }
+    fn inner<'a>(&self) -> &'a str {
+        unsafe { std::mem::transmute(self.inner.as_ref()) }
     }
 
-    // SAFETY: transmuting is safe as `std::pin::Pin` is marked with
-    // #[repr(transparent)] and a Pin is made up of just a pointer.
     #[inline]
-    pub fn inner_string(&self) -> *mut String {
-        unsafe { std::mem::transmute(&self.inner) }
+    fn push(&mut self, text: &'static str, color: Color) {
+        self.__tokens.push(Token { text, color })
     }
 
     #[inline]
     pub fn tokens<'src>(&'src self) -> &'src [Token<'src>] {
         self.__tokens.as_slice()
-    }
-
-    #[inline]
-    pub fn push(&mut self, text: &'static str, color: Color) {
-        self.__tokens.push(Token { text, color })
     }
 }
 
