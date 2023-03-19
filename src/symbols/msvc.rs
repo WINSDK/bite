@@ -80,7 +80,9 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     // llvm appears to generate a '.' prefix on some symbols
     parser.eat(b'.');
 
-    dbg!(parser.parse());
+    let sym = dbg!(parser.parse())?;
+    Formatter::fmt(&mut parser.stream, sym);
+
     Some(parser.stream)
 }
 
@@ -429,25 +431,28 @@ bitflags::bitflags! {
     #[derive(Debug, PartialEq, Clone, Copy)]
     struct Modifiers: u32 {
         /// const ..
-        const CONST     = 0b0000001;
+        const CONST     = 0b00000001;
 
         /// volatile ..
-        const VOLATILE  = 0b0000010;
+        const VOLATILE  = 0b00000010;
+
+        /// __far ..
+        const FAR       = 0b00000100;
 
         /// __ptr64 ..
-        const PTR64     = 0b0000100;
+        const PTR64     = 0b00001000;
 
         /// __unaligned ..
-        const UNALIGNED = 0b0001000;
+        const UNALIGNED = 0b00010000;
 
         /// restrict ..
-        const RESTRICT  = 0b0010000;
+        const RESTRICT  = 0b00100000;
 
         /// & ..
-        const LVALUE    = 0b0100000;
+        const LVALUE    = 0b01000000;
 
         /// && ..
-        const RVALUE    = 0b1000000;
+        const RVALUE    = 0b10000000;
     }
 }
 
@@ -518,12 +523,20 @@ impl<'src> AST {
     }
 
     #[inline]
-    fn memorized_idents(&self) -> &[Cow<'src, str>] {
-        &self.backrefs.memorized[..self.backrefs.memorized_count]
+    fn push(&mut self, text: &'static str, color: Color) {
+        self.stream.push(text, color);
     }
 
-    fn memorize_ident(&mut self, ident: &Cow<'static, str>) {
-        if !self.memorized_idents().contains(&ident) {
+    #[inline]
+    fn recurse_deeper(&mut self) -> Option<()> {
+        self.depth += 1;
+        (self.depth < MAX_DEPTH).then_some(())
+    }
+
+    fn try_memorizing_ident(&mut self, ident: &Cow<'static, str>) {
+        let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
+
+        if !memorized.contains(&ident) {
             if self.backrefs.memorized_count != 10 {
                 self.backrefs.memorized[self.backrefs.memorized_count] = ident.clone();
                 self.backrefs.memorized_count += 1;
@@ -531,19 +544,17 @@ impl<'src> AST {
         }
     }
 
-    #[inline]
     fn get_memorized_ident(&mut self, idx: usize) -> Option<Ident<'src>> {
-        let memorized = self.memorized_idents().get(idx).cloned()?;
+        let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
+        let memorized = memorized.get(idx).cloned()?;
+
         return Some(Ident::Literal(memorized));
     }
 
-    #[inline]
-    fn memorized_params(&self) -> &[Type<'src>] {
-        &self.backrefs.params[..self.backrefs.param_count]
-    }
+    fn try_memorizing_param(&mut self, tipe: &Type<'static>) {
+        let memorized = &self.backrefs.params[..self.backrefs.param_count];
 
-    fn memorize_param(&mut self, tipe: &Type<'static>) {
-        if !self.memorized_params().contains(&tipe) {
+        if !memorized.contains(&tipe) {
             if self.backrefs.param_count != 10 {
                 self.backrefs.params[self.backrefs.param_count] = tipe.clone();
                 self.backrefs.param_count += 1;
@@ -551,9 +562,10 @@ impl<'src> AST {
         }
     }
 
-    #[inline]
     fn get_memorized_param(&self, idx: usize) -> Option<Type<'src>> {
-        let memorized = self.memorized_params().get(idx).cloned()?;
+        let memorized = &self.backrefs.params[..self.backrefs.param_count];
+        let memorized = memorized.get(idx).cloned()?;
+
         return Some(memorized);
     }
 
@@ -585,16 +597,6 @@ impl<'src> AST {
         None
     }
 
-    /// Increment the offset if the slices match.
-    fn consume_slice(&mut self, slice: &[u8]) -> Option<()> {
-        if self.src().as_bytes().get(..slice.len()) == Some(slice) {
-            self.offset += slice.len();
-            return Some(());
-        }
-
-        None
-    }
-
     /// Increment the offset if the current byte equals the byte given.
     fn eat(&mut self, byte: u8) -> bool {
         let matches = self.src().bytes().next() == Some(byte);
@@ -609,27 +611,6 @@ impl<'src> AST {
         matches
     }
 
-    #[inline]
-    fn push(&mut self, text: &'static str, color: Color) {
-        self.stream.push(text, color);
-    }
-
-    #[inline]
-    fn recurse_deeper(&mut self) -> Option<()> {
-        self.depth += 1;
-        (self.depth < MAX_DEPTH).then_some(())
-    }
-
-    fn pop(&mut self) -> Option<u8> {
-        // SAFETY: the read value is forgot before the end of the scope preventing
-        // the String from being dropped.
-        let mut string = unsafe { std::ptr::read(self.stream.inner_string()) };
-        let chr = string.pop().map(|c| c as u8);
-        std::mem::forget(string);
-        chr
-    }
-
-    #[inline]
     fn base10(&mut self) -> Option<usize> {
         let n = match self.peek()? {
             c @ b'0'..=b'9' => (c - b'0') as usize,
@@ -640,7 +621,6 @@ impl<'src> AST {
         Some(n)
     }
 
-    #[inline]
     fn base16(&mut self) -> Option<usize> {
         let n = match self.peek()? {
             c @ b'0'..=b'9' => (c - b'0') as usize,
@@ -751,7 +731,7 @@ impl<'src> AST {
             // single-letter types are ignored for backref's because
             // memorizing them doesn't save anything.
             if start - end > 1 {
-                self.memorize_param(&tipe);
+                self.try_memorizing_param(&tipe);
             }
 
             params.push(tipe);
@@ -765,6 +745,33 @@ impl<'src> AST {
         }
 
         Some(params)
+    }
+
+    fn function_qualifiers(&mut self) -> Modifiers {
+        let mut qual = Modifiers::empty();
+
+        if self.eat(b'E') {
+            qual |= Modifiers::PTR64;
+        }
+
+        if self.eat(b'I') {
+            qual |= Modifiers::RESTRICT;
+        }
+
+        if self.eat(b'F') {
+            qual |= Modifiers::UNALIGNED;
+        }
+
+        if self.eat(b'G') {
+            qual |= Modifiers::LVALUE;
+        }
+
+        if self.eat(b'H') {
+            qual |= Modifiers::RVALUE;
+        }
+
+        let modi = self.modifiers();
+        Modifiers::union(modi, qual)
     }
 
     fn function_params(&mut self) -> Option<Parameters<'src>> {
@@ -782,7 +789,7 @@ impl<'src> AST {
         let mut return_quali = Modifiers::empty();
 
         if qualifiers {
-            quali |= self.qualifiers();
+            quali |= self.function_qualifiers();
         }
 
         let conv = self.calling_conv()?;
@@ -895,24 +902,34 @@ impl<'src> AST {
     ///                 ::= <type> <pointee-cvr-qualifiers> # pointers, references
     /// ```
     fn tipe(&mut self, mut modi: Modifiers) -> Option<Type<'src>> {
+        self.recurse_deeper()?;
+
         match self.peek_slice(0..2)? {
             b"W4" => {
                 self.offset += 2;
+                self.depth -= 1;
+
                 let name = self.name(false)?;
                 return Some(Type::Enum(modi, name));
             }
             b"A6" => {
                 self.offset += 2;
+                self.depth -= 1;
+
                 let fn_type = self.function_tipe(false)?;
                 return Some(Type::Ref(modi, Box::new(fn_type)));
             }
             b"P6" => {
                 self.offset += 2;
+                self.depth -= 1;
+
                 let fn_type = self.function_tipe(false)?;
                 return Some(Type::Ptr(modi, Box::new(fn_type)));
             }
             b"P8" => {
                 self.offset += 2;
+                self.depth -= 1;
+
                 return self.member_function_ptr_type(true);
             }
             _ => {}
@@ -920,15 +937,18 @@ impl<'src> AST {
 
         if self.eat(b'$') {
             if self.eat(b'0') {
+                self.depth -= 1;
                 return self.number().map(Type::Constant);
             }
 
             if self.eat(b'D') {
+                self.depth -= 1;
                 return self.number().map(Type::TemplateParameterIdx);
             }
 
             if self.eat(b'$') {
                 if self.eat(b'Y') {
+                    self.depth -= 1;
                     let name = self.name(true)?;
                     return Some(Type::Ident(modi, name));
                 }
@@ -938,23 +958,29 @@ impl<'src> AST {
                 }
 
                 if self.eat(b'T') {
+                    self.depth -= 1;
                     return Some(Type::Nullptr);
                 }
 
                 if self.eat(b'Q') {
+                    self.depth -= 1;
+
                     let fn_type = self.function_tipe(false)?;
                     return Some(Type::RValueRef(modi, Box::new(fn_type)));
                 }
 
                 if self.eat_slice(b"BY") {
+                    self.depth -= 1;
                     return self.array();
                 }
 
                 if self.eat_slice(b"A6") {
+                    self.depth -= 1;
                     return self.function_tipe(false);
                 }
 
                 if self.eat_slice(b"A8@@") {
+                    self.depth -= 1;
                     return self.function_tipe(true);
                 }
             }
@@ -964,25 +990,29 @@ impl<'src> AST {
                 || self.eat_slice(b"$Z")
                 || self.eat_slice(b"$$V")
             {
+                self.depth -= 1;
                 return Some(Type::Unit);
             }
 
             if let Some(b'1' | b'H' | b'I' | b'J') = self.take() {
+                self.depth -= 1;
                 self.consume(b'?')?;
                 return self.member_function_ptr_type(false);
             }
         }
 
         if self.eat(b'?') {
+            self.depth -= 1;
             let idx = self.number()?;
             return Some(Type::TemplateParameterIdx(-idx));
         }
 
         if let Some(digit) = self.base10() {
+            self.depth -= 1;
             return self.get_memorized_param(digit);
         }
 
-        let tipe = match self.peek()? {
+        let tipe = match self.take()? {
             b'T' => Type::Union(modi, self.name(false)?),
             b'U' => Type::Struct(modi, self.name(false)?),
             b'V' => Type::Class(modi, self.name(false)?),
@@ -1010,8 +1040,7 @@ impl<'src> AST {
             b'N' => Type::Double(modi),
             b'O' => Type::LDouble(modi),
             b'_' => {
-                self.offset += 1;
-                match self.peek()? {
+                match self.take()? {
                     b'N' => Type::Bool(modi),
                     b'J' => Type::I64(modi),
                     b'K' => Type::U64(modi),
@@ -1027,12 +1056,28 @@ impl<'src> AST {
             _ => return None,
         };
 
-        self.offset += 1;
+        self.depth -= 1;
         Some(tipe)
+    }
+
+    fn qualifiers(&mut self) -> Modifiers {
+        let quali = match self.peek() {
+            Some(b'B' | b'R') => Modifiers::CONST,
+            Some(b'C' | b'S') => Modifiers::VOLATILE,
+            Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
+            Some(b'A' | b'Q') => Modifiers::empty(),
+            _ => return Modifiers::empty(),
+        };
+
+        self.offset += 1;
+        quali
     }
 
     fn modifiers(&mut self) -> Modifiers {
         let modi = match self.peek() {
+            Some(b'F') => Modifiers::FAR | Modifiers::CONST,
+            Some(b'G') => Modifiers::FAR | Modifiers::VOLATILE,
+            Some(b'H') => Modifiers::FAR | Modifiers::VOLATILE | Modifiers::CONST,
             Some(b'B' | b'R') => Modifiers::CONST,
             Some(b'C' | b'S') => Modifiers::VOLATILE,
             Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
@@ -1058,33 +1103,6 @@ impl<'src> AST {
 
         self.offset += 1;
         modi
-    }
-
-    fn qualifiers(&mut self) -> Modifiers {
-        let mut qual = Modifiers::empty();
-
-        if self.eat(b'E') {
-            qual |= Modifiers::PTR64;
-        }
-
-        if self.eat(b'I') {
-            qual |= Modifiers::RESTRICT;
-        }
-
-        if self.eat(b'F') {
-            qual |= Modifiers::UNALIGNED;
-        }
-
-        if self.eat(b'G') {
-            qual |= Modifiers::LVALUE;
-        }
-
-        if self.eat(b'H') {
-            qual |= Modifiers::RVALUE;
-        }
-
-        let modi = self.modifiers();
-        Modifiers::union(modi, qual)
     }
 
     /// ```
@@ -1211,7 +1229,7 @@ impl<'src> AST {
     fn name(&mut self, memorize: bool) -> Option<Ident<'src>> {
         let ident = Cow::Borrowed(self.ident()?);
         if memorize {
-            self.memorize_ident(&ident);
+            self.try_memorizing_ident(&ident);
         }
         Some(Ident::Literal(ident))
     }
@@ -1252,15 +1270,20 @@ impl<'src> AST {
     }
 
     fn nested_path(&mut self) -> Option<Ident<'src>> {
+        self.recurse_deeper()?;
+
         if let Some(digit) = self.base10() {
+            self.depth -= 1;
             return self.get_memorized_ident(digit);
         }
 
         if self.eat(b'?') {
             if self.eat(b'?') {
+                self.depth -= 1;
                 return self.parse().map(Box::new).map(Ident::Nested);
             }
 
+            self.depth -= 1;
             return match self.peek()? {
                 // templated nested path segment
                 b'$' => {
@@ -1268,7 +1291,7 @@ impl<'src> AST {
 
                     self.template().and_then(|ident| match ident {
                         Ident::Literal(ref literal) => {
-                            self.memorize_ident(literal);
+                            self.try_memorizing_ident(literal);
                             Some(ident)
                         }
                         _ => None,
@@ -1287,7 +1310,7 @@ impl<'src> AST {
                             self.offset += 1;
                         }
 
-                        self.memorize_ident(&Cow::Borrowed(&self.src()[..len]));
+                        self.try_memorizing_ident(&Cow::Borrowed(&self.src()[..len]));
                     }
 
                     self.consume(b'@')?;
@@ -1299,7 +1322,7 @@ impl<'src> AST {
 
                     let ident = Cow::Borrowed(self.ident()?);
                     self.consume(b'@')?;
-                    self.memorize_ident(&ident);
+                    self.try_memorizing_ident(&ident);
 
                     Some(Ident::Interface(ident))
                 }
@@ -1312,8 +1335,9 @@ impl<'src> AST {
         }
 
         let ident = Cow::Borrowed(self.ident()?);
-        self.memorize_ident(&ident);
+        self.try_memorizing_ident(&ident);
 
+        self.depth -= 1;
         Some(Ident::Literal(ident))
     }
 
@@ -1376,6 +1400,7 @@ impl<'src> AST {
 
         // either no type of a C style type
         if let None | Some(b'9') = prefix {
+            self.depth -= 1;
             return Some(root).map(Ident::into);
         }
 
@@ -1400,7 +1425,7 @@ impl<'src> AST {
                 let scope = self.function_scope();
 
                 if !scope.contains(Scope::STATIC) {
-                    quali |= self.qualifiers();
+                    quali |= self.function_qualifiers();
                 }
 
                 let conv = self.calling_conv()?;
@@ -1417,7 +1442,27 @@ impl<'src> AST {
             }
         };
 
+        self.depth -= 1;
         Some(Symbol { root, tipe })
+    }
+}
+
+struct Formatter<'src> {
+    stream: &'src mut TokenStream,
+    sym: Symbol<'src>,
+}
+
+impl<'src> Formatter<'src> {
+    fn fmt(stream: &'src mut TokenStream, sym: Symbol<'src>) {
+        let mut this = Formatter {
+            stream,
+            sym
+        };
+
+        this.path();
+    }
+
+    fn path(&mut self) {
     }
 }
 
@@ -1448,5 +1493,10 @@ mod tests {
                 ],
             ),
         });
+    }
+
+    #[test]
+    fn instance() {
+        dbg!(AST::new("?x@ns@@3PEAV?$klass@HH@1@EA").parse().unwrap());
     }
 }
