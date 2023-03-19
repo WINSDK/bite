@@ -32,3 +32,7 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
 - [ ] AArch64/AArch32 support
 - [x] Riscv64gc/Riscv32gc support
 - [x] MIPS-V support
+- [ ] Demangling support for most targets
+  - [x] MSVC
+  - [ ] Itanium
+  - [x] Rust

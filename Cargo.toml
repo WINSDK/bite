@@ -18,6 +18,7 @@ tokio = { version = "1.2", features = ["rt-multi-thread", "fs", "io-util", "macr
 png = "0.17"
 ab_glyph = { version = "0.2", default-features = false }
 rfd = "0.11"
+bitflags = "2"
 
 [dependencies.wgpu_glyph]
 git = "https://github.com/WINSDK/wgpu_glyph.git"

@@ -90,7 +90,7 @@
 use super::TokenStream;
 use crate::colors::{self, Color};
 
-// max recursion depth
+/// Max recursion depth
 const MAX_DEPTH: usize = 256;
 
 /// Try to parse a rust v0 symbol
@@ -122,7 +122,7 @@ enum NameSpace {
     Internal,
 }
 
-impl Parser {
+impl<'src> Parser {
     /// Create an initialized parser that hasn't started parsing yet.
     fn new(s: &str) -> Self {
         Self {
@@ -135,7 +135,7 @@ impl Parser {
 
     /// Create a reference to the underlying pinned string that holds the mangled symbol.
     #[inline]
-    fn src(&self) -> &'static str {
+    fn src(&self) -> &'src str {
         &self.stream.inner()[self.offset..]
     }
 
@@ -192,12 +192,8 @@ impl Parser {
 
         let current = self.offset;
         self.offset = backref;
-
-        dbg!(self.src());
         f(self)?;
-
         self.offset = current;
-        dbg!(self.src());
 
         self.depth -= 1;
         Some(())
@@ -286,7 +282,7 @@ impl Parser {
     }
 
     /// Consumes either a regular unambiguous or a punycode enabled string.
-    fn ident<'src>(&mut self) -> Option<&'src str> {
+    fn ident(&mut self) -> Option<&'src str> {
         if self.eat(b'u') {
             eprintln!("TODO: punycode symbols decoding");
         }
@@ -379,7 +375,7 @@ impl Parser {
 
     /// Parses a lifetime if it's not a '_ or a part of token that
     /// ends up using more than 25 lifetimes.
-    fn lifetime<'src>(&mut self) -> Option<&'src str> {
+    fn lifetime(&mut self) -> Option<&'src str> {
         if !self.eat(b'L') {
             return None;
         }
@@ -821,5 +817,12 @@ mod tests {
     fn complex() {
         eq!("NvXs5_NtCsd4VYFwevHkG_4bite6decodeINtB5_5ArrayNtNtB5_6x86_646PrefixKj4_EINtNtNtCs9ltgdHTiPiY_4core3ops5index8IndexMutjE9index_mutB7_" =>
             "<bite::decode::Array<bite::decode::x86_64::Prefix, _> as core::ops::index::IndexMut<usize>>::index_mut");
+    }
+
+    #[test]
+    #[should_panic]
+    fn too_many_arguements() {
+        super::parse("IC3stdbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbE")
+            .unwrap();
     }
 }

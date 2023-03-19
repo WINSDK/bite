@@ -105,8 +105,8 @@ impl Index {
             }
 
             // parse windows msvc C/C++ symbols
-            if let Some(s) = strip_prefixes(s, &["@?", "?"]) {
-                return msvc::parse(s).unwrap_or_else(|| TokenStream::new(s));
+            if let Some(s) = msvc::parse(s) {
+                return s;
             }
 
             // return the original mangled symbol on failure
@@ -144,31 +144,32 @@ pub struct TokenStream {
     /// Unmovable string which the [Token]'s have a pointer to.
     inner: std::pin::Pin<String>,
 
-    /// Internal token representation which is unsafe to acccess outside of calling [Self::tokens].
+    /// Internal token representation which is unsafe to access outside of calling [Self::tokens].
     __tokens: Vec<Token<'static>>,
 }
 
 impl TokenStream {
-    pub fn new(s: &str) -> Self {
+    fn new(s: &str) -> Self {
         Self {
             inner: std::pin::Pin::new(s.to_string()),
             __tokens: Vec::with_capacity(128),
         }
     }
 
+    /// SAFETY: must downcast &'static str to a lifetime that matches the lifetime of self.
     #[inline]
-    pub fn inner(&self) -> &'static str {
-        unsafe { std::mem::transmute(&*self.inner) }
+    fn inner<'a>(&self) -> &'a str {
+        unsafe { std::mem::transmute(self.inner.as_ref()) }
+    }
+
+    #[inline]
+    fn push(&mut self, text: &'static str, color: Color) {
+        self.__tokens.push(Token { text, color })
     }
 
     #[inline]
     pub fn tokens<'src>(&'src self) -> &'src [Token<'src>] {
         self.__tokens.as_slice()
-    }
-
-    #[inline]
-    pub fn push(&mut self, text: &'static str, color: Color) {
-        self.__tokens.push(Token { text, color })
     }
 }
 
