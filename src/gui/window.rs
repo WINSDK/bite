@@ -331,7 +331,7 @@ impl Backend {
                         texts.push(
                             wgpu_glyph::Text::new("<")
                                 .with_scale(font_size)
-                                .with_color(crate::colors::TEAL),
+                                .with_color(crate::colors::BLUE),
                         );
 
                         for token in label.tokens() {
@@ -341,7 +341,7 @@ impl Backend {
                         texts.push(
                             wgpu_glyph::Text::new(">:\n")
                                 .with_scale(font_size)
-                                .with_color(crate::colors::TEAL),
+                                .with_color(crate::colors::BLUE),
                         );
                     }
                     LineKind::Instruction(line) => {

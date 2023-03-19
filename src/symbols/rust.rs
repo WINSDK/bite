@@ -115,11 +115,14 @@ struct Parser {
 }
 
 /// Differentiator for nested path's
+#[derive(PartialEq)]
 enum NameSpace {
     Closure,
     Shim,
     Special,
     Internal,
+    Type,
+    Value,
 }
 
 impl<'src> Parser {
@@ -217,7 +220,7 @@ impl<'src> Parser {
                 return Some(());
             }
 
-            self.push(delimiter, colors::BLUE);
+            self.push(delimiter, colors::GRAY40);
             f(self)?;
         }
 
@@ -302,6 +305,8 @@ impl<'src> Parser {
             b'C' => Some(NameSpace::Closure),
             b'S' => Some(NameSpace::Shim),
             b'A'..=b'Z' => Some(NameSpace::Special),
+            b't' => Some(NameSpace::Type),
+            b'v' => Some(NameSpace::Value),
             b'a'..=b'z' => Some(NameSpace::Internal),
             _ => return None,
         };
@@ -505,34 +510,34 @@ impl<'src> Parser {
                 let disambiguator = self.disambiguator();
                 let ident = self.ident()?;
 
-                self.push("::", colors::GRAY);
+                self.push("::", colors::GRAY20);
 
                 match ns {
                     NameSpace::Closure => {
-                        self.push("{closure", colors::GRAY);
+                        self.push("{closure", colors::GRAY40);
 
                         if !ident.is_empty() {
-                            self.push(":", colors::GRAY);
-                            self.push(ident, colors::GRAY);
+                            self.push(":", colors::GRAY40);
+                            self.push(ident, colors::GRAY40);
                         }
 
                         match disambiguator {
-                            Some(0) => self.push("#0", colors::GRAY),
-                            Some(1) => self.push("#1", colors::GRAY),
-                            Some(2) => self.push("#2", colors::GRAY),
-                            Some(3) => self.push("#3", colors::GRAY),
-                            Some(4) => self.push("#4", colors::GRAY),
-                            Some(5) => self.push("#5", colors::GRAY),
-                            Some(6) => self.push("#6", colors::GRAY),
-                            Some(7) => self.push("#7", colors::GRAY),
-                            Some(8) => self.push("#8", colors::GRAY),
-                            Some(9) => self.push("#9", colors::GRAY),
+                            Some(0) => self.push("#0", colors::GRAY40),
+                            Some(1) => self.push("#1", colors::GRAY40),
+                            Some(2) => self.push("#2", colors::GRAY40),
+                            Some(3) => self.push("#3", colors::GRAY40),
+                            Some(4) => self.push("#4", colors::GRAY40),
+                            Some(5) => self.push("#5", colors::GRAY40),
+                            Some(6) => self.push("#6", colors::GRAY40),
+                            Some(7) => self.push("#7", colors::GRAY40),
+                            Some(8) => self.push("#8", colors::GRAY40),
+                            Some(9) => self.push("#9", colors::GRAY40),
                             _ => {}
                         }
 
-                        self.push("}", colors::GRAY);
+                        self.push("}", colors::GRAY40);
                     }
-                    _ => self.push(ident, colors::PURPLE),
+                    _ => self.push(ident, colors::MAGENTA),
                 }
             }
             // ...<T, U, ..> (generic args)
@@ -545,7 +550,7 @@ impl<'src> Parser {
 
                 // generics on types shouldn't print a '::'
                 if !next_is_type {
-                    self.push("::", colors::GRAY);
+                    self.push("::", colors::GRAY20);
                 }
 
                 self.push("<", colors::BLUE);
@@ -586,27 +591,27 @@ impl<'src> Parser {
             b'A' => {
                 self.offset += 1;
 
-                self.push("[", colors::BLUE);
+                self.push("[", colors::GRAY40);
                 self.tipe()?;
-                self.push("; ", colors::BLUE);
+                self.push("; ", colors::GRAY40);
                 self.constant()?;
-                self.push("]", colors::BLUE);
+                self.push("]", colors::GRAY40);
             }
             // [T]
             b'S' => {
                 self.offset += 1;
 
-                self.push("[", colors::BLUE);
+                self.push("[", colors::GRAY40);
                 self.tipe()?;
-                self.push("]", colors::BLUE);
+                self.push("]", colors::GRAY40);
             }
             // (T1, T2, T3, ..)
             b'T' => {
                 self.offset += 1;
 
-                self.push("(", colors::BLUE);
+                self.push("(", colors::GRAY40);
                 self.delimited(", ", Self::tipe)?;
-                self.push(")", colors::BLUE);
+                self.push(")", colors::GRAY40);
             }
             // &T
             b'R' => {
@@ -671,9 +676,9 @@ impl<'src> Parser {
                 }
 
                 self.push("fn", colors::MAGENTA);
-                self.push("(", colors::WHITE);
+                self.push("(", colors::GRAY40);
                 self.delimited(", ", Self::tipe)?;
-                self.push(")", colors::WHITE);
+                self.push(")", colors::GRAY40);
                 self.push(" -> ", colors::BLUE);
                 self.tipe()?;
             }
@@ -692,7 +697,7 @@ impl<'src> Parser {
                         this.push("<", colors::BLUE);
                         let ident = this.ident()?;
                         this.push(ident, colors::PURPLE);
-                        this.push(" = ", colors::WHITE);
+                        this.push(" = ", colors::GRAY40);
                         this.tipe()?;
                         this.push(">", colors::BLUE);
                     }
@@ -701,7 +706,7 @@ impl<'src> Parser {
                 })?;
 
                 if let Some(lifetime) = self.lifetime() {
-                    self.push(" + ", colors::BLUE);
+                    self.push(" + ", colors::GRAY40);
                     self.push(lifetime, colors::MAGENTA);
                 }
             }

@@ -167,7 +167,7 @@ impl TokenStream {
 
         this.__tokens.push(Token {
             text: Cow::Borrowed(this.inner()),
-            color: colors::TEAL
+            color: colors::BLUE
         });
 
         this

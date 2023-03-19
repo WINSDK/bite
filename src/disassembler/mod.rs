@@ -6,7 +6,7 @@ mod lookup;
 #[allow(dead_code, unused_variables, unused_assignments)]
 mod x86_64;
 
-use crate::colors::{EMPTY_TOKEN, Token, LineKind};
+use crate::colors::{LineKind, Token, EMPTY_TOKEN};
 use crate::symbols::Index;
 use crate::warning;
 use object::Architecture;
@@ -80,35 +80,30 @@ impl Dissasembly {
                 .uncompressed_data()
                 .map_err(|_| "Failed to decompress .text section.")?;
 
-            let symbols = tokio::spawn(async move {
-                Index::parse(&obj)
-                    .await
-                    .map_err(|_| "Failed to parse symbols table.")
-            });
+            let symbols = Index::parse(&obj)
+                .await
+                .map_err(|_| "Failed to parse symbols table.")?;
 
             // TODO: optimize for lazy chunk loading
-            tokio::spawn(async move {
-                let base_offset = section.address() as usize;
-                let stream = InstructionStream::new(&raw[..], arch, base_offset)
-                    .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")?;
+            let base_offset = section.address() as usize;
+            let stream = InstructionStream::new(&raw[..], arch, base_offset)
+                .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")?;
 
-                let mut lines = Vec::with_capacity(1024);
-                let symbols = symbols.await.unwrap()?;
+            let mut lines = Vec::with_capacity(1024);
 
-                for line in stream {
-                    if let Some(label) = symbols.get_by_line(&line) {
-                        lines.push(LineKind::Newline);
-                        lines.push(LineKind::Label(label));
-                    }
-
-                    lines.push(LineKind::Instruction(line.tokens));
+            for line in stream {
+                if let Some(label) = symbols.get_by_line(&line) {
+                    lines.push(LineKind::Newline);
+                    lines.push(LineKind::Label(label));
                 }
 
-                *self.symbols.lock().unwrap() = symbols;
-                *self.lines.lock().unwrap() = lines;
+                lines.push(LineKind::Instruction(line.tokens));
+            }
 
-                Ok::<(), &str>(())
-            }).await.unwrap()
+            *self.symbols.lock().unwrap() = symbols;
+            *self.lines.lock().unwrap() = lines;
+
+            Ok::<(), &str>(())
         });
 
         match task.await.unwrap() {
@@ -164,7 +159,7 @@ pub struct Line {
 impl ToString for Line {
     fn to_string(&self) -> String {
         let mut fmt = String::with_capacity(30);
-        let tokens = self.tokens();
+        let tokens = self.tokens.tokens();
         let operands = &tokens[1..];
 
         fmt += &tokens[0].text;
@@ -184,12 +179,6 @@ impl ToString for Line {
 
         fmt += &operands[operands.len() - 1].text;
         fmt
-    }
-}
-
-impl Line {
-    pub fn tokens(&self) -> &[Token] {
-        self.tokens.tokens()
     }
 }
 
@@ -225,7 +214,7 @@ impl<'data> InstructionStream<'data> {
                 is_64: true,
                 section_base,
             }),
-            _ => return Err(Error::UnsupportedArchitecture),
+            _ => { warning!("{arch:?}"); return Err(Error::UnsupportedArchitecture) },
         };
 
         Ok(Self { inner })
