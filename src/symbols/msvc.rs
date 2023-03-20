@@ -68,7 +68,7 @@
 use std::borrow::Cow;
 
 use super::TokenStream;
-use crate::colors::Color;
+use crate::colors::{self, Color};
 
 /// Max recursion depth
 const MAX_DEPTH: usize = 256;
@@ -122,7 +122,7 @@ enum Type<'src> {
     UChar(Modifiers),
 
     /// ``` {<modifier>} utf16 char ```
-    Wchar(Modifiers),
+    WChar(Modifiers),
 
     /// ``` {<modifier>} i16 ```
     IShort(Modifiers),
@@ -134,7 +134,7 @@ enum Type<'src> {
     Int(Modifiers),
 
     /// ``` {<modifier>} unsigned ```
-    Uint(Modifiers),
+    UInt(Modifiers),
 
     /// ``` {<modifier>} float ```
     Float(Modifiers),
@@ -149,7 +149,7 @@ enum Type<'src> {
     Long(Modifiers),
 
     /// ``` {<modifier>} unsigned long ```
-    Ulong(Modifiers),
+    ULong(Modifiers),
 
     /// ``` {<modifier>} i64 ```
     I64(Modifiers),
@@ -164,16 +164,16 @@ enum Type<'src> {
     U128(Modifiers),
 
     /// ``` {<modifier>} union <path> ```
-    Union(Modifiers, Ident<'src>),
+    Union(Modifiers, Path<'src>),
 
     /// ``` {<modifier>} enum <path> ```
-    Enum(Modifiers, Ident<'src>),
+    Enum(Modifiers, Path<'src>),
 
     /// ``` {<modifier>} struct <path> ```
-    Struct(Modifiers, Ident<'src>),
+    Struct(Modifiers, Path<'src>),
 
     /// ``` {<modifier>} class <path> ```
-    Class(Modifiers, Ident<'src>),
+    Class(Modifiers, Path<'src>),
 
     /// ``` {<modifier>} & <type> ```
     Ref(Modifiers, Box<Type<'src>>),
@@ -181,7 +181,7 @@ enum Type<'src> {
     /// ``` {<modifier>} && <type> ```
     RValueRef(Modifiers, Box<Type<'src>>),
 
-    /// ``` {<modifier>} * <path> ```
+    /// ``` {<modifier>} * <type> ```
     Ptr(Modifiers, Box<Type<'src>>),
 
     /// ``` <calling-conv> {<modifier>} <return-type> ({<type>}) ```
@@ -196,10 +196,10 @@ enum Type<'src> {
         Parameters<'src>,
     ),
 
-    /// ``` <scope>: <class> <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
+    /// ``` <scope>: <path> <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
     MemberFunctionPtr(
         Scope,
-        Ident<'src>,
+        Path<'src>,
         CallingConv,
         Modifiers,
         Box<Type<'src>>,
@@ -212,8 +212,8 @@ enum Type<'src> {
     /// ``` ??? ```
     TemplateParameterIdx(isize),
 
-    /// ``` {<modifier>} <ident> ```
-    Ident(Modifiers, Ident<'src>),
+    /// ``` {<modifier>} <path> ```
+    Ident(Modifiers, Path<'src>),
 }
 
 /// Either a well known operator of a class or some C++ internal operator implementation.
@@ -367,7 +367,7 @@ enum Operator<'src> {
     DefaultCtorClosure,
 
     /// scalar deleting destructor
-    ScalarDelDtor,
+    ScalarDeletingDtor,
 
     /// vector constructor iterator
     VecCtorIter,
@@ -414,7 +414,7 @@ enum CallingConv {
 }
 
 bitflags::bitflags! {
-    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     struct Scope: u32 {
         const PUBLIC     = 0b000000001;
         const PRIVATE    = 0b000000010;
@@ -427,7 +427,7 @@ bitflags::bitflags! {
         const ADJUST     = 0b100000000;
     }
 
-    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     struct Modifiers: u32 {
         /// const ..
         const CONST     = 0b00000001;
@@ -456,27 +456,27 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Ident<'src> {
+enum Path<'src> {
     Literal(Cow<'src, str>),
     Interface(Cow<'src, str>),
-    Template(Box<Ident<'src>>, Parameters<'src>),
+    Template(Box<Path<'src>>, Parameters<'src>),
     Operator(Operator<'src>),
-    Sequence(Vec<Ident<'src>>),
+    Sequence(Vec<Path<'src>>),
     Nested(Box<Symbol<'src>>),
     Disambiguator(isize),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 struct Symbol<'src> {
-    root: Ident<'src>,
+    path: Path<'src>,
     tipe: Type<'src>,
 }
 
-impl<'src> From<Ident<'src>> for Symbol<'src> {
+impl<'src> From<Path<'src>> for Symbol<'src> {
     #[inline]
-    fn from(root: Ident<'src>) -> Symbol<'src> {
+    fn from(path: Path<'src>) -> Symbol<'src> {
         Symbol {
-            root,
+            path,
             tipe: Type::Unit,
         }
     }
@@ -522,11 +522,6 @@ impl<'src> Ast {
     }
 
     #[inline]
-    fn push(&mut self, text: &'static str, color: Color) {
-        self.stream.push(text, color);
-    }
-
-    #[inline]
     fn recurse_deeper(&mut self) -> Option<()> {
         self.depth += 1;
         (self.depth < MAX_DEPTH).then_some(())
@@ -541,11 +536,11 @@ impl<'src> Ast {
         }
     }
 
-    fn get_memorized_ident(&mut self, idx: usize) -> Option<Ident<'src>> {
+    fn get_memorized_ident(&mut self, idx: usize) -> Option<Path<'src>> {
         let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
         let memorized = memorized.get(idx).cloned()?;
 
-        Some(Ident::Literal(memorized))
+        Some(Path::Literal(memorized))
     }
 
     fn try_memorizing_param(&mut self, tipe: &Type<'static>) {
@@ -673,7 +668,7 @@ impl<'src> Ast {
         Some(&self.src()[..len])
     }
 
-    fn md5(&mut self) -> Option<Ident<'src>> {
+    fn md5(&mut self) -> Option<Path<'src>> {
         let data = self.hex_nibbles()?;
 
         // the md5 string must be of length 32
@@ -686,7 +681,7 @@ impl<'src> Ast {
             return None;
         }
 
-        Some(Ident::Literal(Cow::Borrowed(data)))
+        Some(Path::Literal(Cow::Borrowed(data)))
     }
 
     fn calling_conv(&mut self) -> Option<CallingConv> {
@@ -1027,9 +1022,9 @@ impl<'src> Ast {
             b'F' => Type::IShort(modi),
             b'G' => Type::UShort(modi),
             b'H' => Type::Int(modi),
-            b'I' => Type::Uint(modi),
+            b'I' => Type::UInt(modi),
             b'J' => Type::Long(modi),
-            b'K' => Type::Ulong(modi),
+            b'K' => Type::ULong(modi),
             b'M' => Type::Float(modi),
             b'N' => Type::Double(modi),
             b'O' => Type::LDouble(modi),
@@ -1039,7 +1034,7 @@ impl<'src> Ast {
                 b'K' => Type::U64(modi),
                 b'L' => Type::I128(modi),
                 b'M' => Type::U128(modi),
-                b'W' => Type::Wchar(modi),
+                b'W' => Type::WChar(modi),
                 b'Q' => Type::Char8(modi),
                 b'S' => Type::Char16(modi),
                 b'U' => Type::Char32(modi),
@@ -1172,7 +1167,7 @@ impl<'src> Ast {
                 b'D' => Operator::VBaseDtor,
                 b'E' => Operator::VectorDeletingDtor,
                 b'F' => Operator::DefaultCtorClosure,
-                b'G' => Operator::ScalarDelDtor,
+                b'G' => Operator::ScalarDeletingDtor,
                 b'H' => Operator::VecCtorIter,
                 b'I' => Operator::VecDtorIter,
                 b'J' => Operator::VecVbaseCtorIter,
@@ -1234,15 +1229,15 @@ impl<'src> Ast {
     }
 
     #[inline]
-    fn name(&mut self, memorize: bool) -> Option<Ident<'src>> {
+    fn name(&mut self, memorize: bool) -> Option<Path<'src>> {
         let ident = Cow::Borrowed(self.ident()?);
         if memorize {
             self.try_memorizing_ident(&ident);
         }
-        Some(Ident::Literal(ident))
+        Some(Path::Literal(ident))
     }
 
-    fn template(&mut self) -> Option<Ident<'src>> {
+    fn template(&mut self) -> Option<Path<'src>> {
         self.recurse_deeper()?;
 
         let backrefs = std::mem::take(&mut self.backrefs);
@@ -1251,10 +1246,10 @@ impl<'src> Ast {
         self.backrefs = backrefs;
 
         self.depth -= 1;
-        Some(Ident::Template(Box::new(name), params))
+        Some(Path::Template(Box::new(name), params))
     }
 
-    fn unqualified_path(&mut self) -> Option<Ident<'src>> {
+    fn unqualified_path(&mut self) -> Option<Path<'src>> {
         self.recurse_deeper()?;
 
         // memorized ident
@@ -1270,14 +1265,14 @@ impl<'src> Ast {
             }
 
             self.depth -= 1;
-            return self.operator().map(Ident::Operator);
+            return self.operator().map(Path::Operator);
         }
 
         self.depth -= 1;
         self.name(false)
     }
 
-    fn nested_path(&mut self) -> Option<Ident<'src>> {
+    fn nested_path(&mut self) -> Option<Path<'src>> {
         self.recurse_deeper()?;
 
         if let Some(digit) = self.base10() {
@@ -1288,7 +1283,7 @@ impl<'src> Ast {
         if self.eat(b'?') {
             if self.eat(b'?') {
                 self.depth -= 1;
-                return self.parse().map(Box::new).map(Ident::Nested);
+                return self.parse().map(Box::new).map(Path::Nested);
             }
 
             self.depth -= 1;
@@ -1298,7 +1293,7 @@ impl<'src> Ast {
                     self.offset += 1;
 
                     self.template().and_then(|ident| match ident {
-                        Ident::Literal(ref literal) => {
+                        Path::Literal(ref literal) => {
                             self.try_memorizing_ident(literal);
                             Some(ident)
                         }
@@ -1322,7 +1317,7 @@ impl<'src> Ast {
                     }
 
                     self.consume(b'@')?;
-                    Some(Ident::Literal(Cow::Borrowed("`anonymous namespace'")))
+                    Some(Path::Literal(Cow::Borrowed("`anonymous namespace'")))
                 }
                 // interface
                 b'Q' => {
@@ -1332,12 +1327,12 @@ impl<'src> Ast {
                     self.consume(b'@')?;
                     self.try_memorizing_ident(&ident);
 
-                    Some(Ident::Interface(ident))
+                    Some(Path::Interface(ident))
                 }
                 // disambiguator
                 _ => {
                     let disambiguator = self.number()?;
-                    Some(Ident::Disambiguator(disambiguator))
+                    Some(Path::Disambiguator(disambiguator))
                 }
             };
         }
@@ -1346,10 +1341,10 @@ impl<'src> Ast {
         self.try_memorizing_ident(&ident);
 
         self.depth -= 1;
-        Some(Ident::Literal(ident))
+        Some(Path::Literal(ident))
     }
 
-    fn path(&mut self) -> Option<Ident<'src>> {
+    fn path(&mut self) -> Option<Path<'src>> {
         let mut full_path = Vec::new();
         let tail = self.unqualified_path()?;
 
@@ -1358,7 +1353,7 @@ impl<'src> Ast {
             let segment = self.nested_path()?;
 
             match segment {
-                Ident::Sequence(inner) => full_path.extend(inner),
+                Path::Sequence(inner) => full_path.extend(inner),
                 _ => full_path.push(segment),
             }
 
@@ -1367,7 +1362,7 @@ impl<'src> Ast {
 
         full_path.push(tail);
 
-        Some(Ident::Sequence(full_path))
+        Some(Path::Sequence(full_path))
     }
 
     /// ``` ? <name> <type-encoding> ```
@@ -1378,7 +1373,7 @@ impl<'src> Ast {
         // unparseable MD5 encoded symbol
         if self.eat_slice(b"?@") {
             self.depth -= 1;
-            return self.md5().map(Ident::into);
+            return self.md5().map(Path::into);
         }
 
         // scoped template instantiation?
@@ -1399,7 +1394,7 @@ impl<'src> Ast {
         // any other template instantiation
         if self.eat(b'$') {
             self.depth -= 1;
-            return self.template().map(Ident::into);
+            return self.template().map(Path::into);
         }
 
         let root = self.path()?;
@@ -1409,7 +1404,7 @@ impl<'src> Ast {
         // either no type of a C style type
         if let None | Some(b'9') = prefix {
             self.depth -= 1;
-            return Some(root).map(Ident::into);
+            return Some(root).map(Path::into);
         }
 
         let tipe = match prefix? {
@@ -1445,38 +1440,486 @@ impl<'src> Ast {
         };
 
         self.depth -= 1;
-        Some(Symbol { root, tipe })
+        Some(Symbol { path: root, tipe })
     }
 }
 
 struct Formatter<'src> {
     stream: &'src mut TokenStream,
-    sym: Symbol<'src>,
 }
 
 impl<'src> Formatter<'src> {
-    fn fmt(stream: &'src mut TokenStream, sym: Symbol<'src>) {
-        let mut this = Formatter { stream, sym };
+    fn fmt(stream: &'src mut TokenStream, sym: Symbol<'static>) {
+        let mut this = Formatter { stream };
 
-        this.path();
+        this.symbol(sym);
     }
 
-    fn path(&mut self) {}
+    #[inline]
+    fn push(&mut self, text: &'static str, color: Color) {
+        self.stream.push(text, color);
+    }
+
+    #[inline]
+    fn push_cow(&mut self, text: Cow<'static, str>, color: Color) {
+        self.stream.push_cow(text, color);
+    }
+
+    fn operator(&mut self, op: Operator<'static>) {
+        let literal = match op {
+            Operator::Ctor => "constructor",
+            Operator::Dtor => "destructor",
+            Operator::New => "operator new",
+            Operator::Delete => "operator delete",
+            Operator::Assign => "operator=",
+            Operator::ShiftRight => "operator>>",
+            Operator::ShiftLeft => "operator<<",
+            Operator::LogicalNot => "operator!",
+            Operator::Equals => "operator=",
+            Operator::NotEquals => "operator!=",
+            Operator::Array => "operator[]",
+            Operator::Pointer => "operator->",
+            Operator::Dereference => "operator*",
+            Operator::MemberDereference => "operator->*",
+            Operator::Increment => "operator++",
+            Operator::Decrement => "operator--",
+            Operator::Minus => "operator-",
+            Operator::Plus => "operator+",
+            Operator::ArithmeticAND => "operator&",
+            Operator::Divide => "operator/",
+            Operator::Modulus => "operator%",
+            Operator::Less => "operator<",
+            Operator::LessEqual => "operator<=",
+            Operator::Greater => "operator>",
+            Operator::GreaterEqual => "operator>=",
+            Operator::Comma => "operator,",
+            Operator::Calling => "operator()",
+            Operator::ArithmeticNot => "operator~",
+            Operator::Xor => "operator^",
+            Operator::ArithmeticOR => "operator|",
+            Operator::LogicalAND => "operator&&",
+            Operator::LogicalOR => "operator||",
+            Operator::TimesEquals => "operator*=",
+            Operator::PlusEquals => "operator+=",
+            Operator::MinusEquals => "operator-=",
+            Operator::DivideEquals => "operator/=",
+            Operator::ModulusEquals => "operator%=",
+            Operator::ShiftRightEquals => "operator>>=",
+            Operator::ShiftLeftEquals => "operator<<=",
+            Operator::ANDEquals => "operator&=",
+            Operator::OREquals => "operator|=",
+            Operator::XorEquals => "operator^=",
+            Operator::VBaseDtor => "`vbase destructor'",
+            Operator::VectorDeletingDtor => "`vector deleting destructor'",
+            Operator::DefaultCtorClosure => "`default constructor closure'",
+            Operator::ScalarDeletingDtor => "`scalar deleting destructor'",
+            Operator::VecCtorIter => "`vector constructor iterator'",
+            Operator::VecDtorIter => "`vector destructor iterator'",
+            Operator::VecVbaseCtorIter => "`vector vbase constructor iterator'",
+            Operator::VdispMap => "`virtual displacement map'",
+            Operator::EHVecCtorIter => "`eh vector constructor iterator'",
+            Operator::EHVecDtorIter => "`eh vector destructor iterator'",
+            Operator::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
+            Operator::CopyCtorClosure => "`copy constructor closure'",
+            Operator::LocalVftableCtorClosure => "`local vftable constructor closure'",
+            Operator::NewArray => "operator new[]",
+            Operator::DeleteArray => "operator delete[]",
+            Operator::CoAwait => "co_await",
+            Operator::Spaceship => "operator<=>",
+            Operator::SourceName(source) => return self.push_cow(source, colors::PURPLE),
+        };
+
+        self.push(literal, colors::MAGENTA);
+    }
+
+    fn path(&mut self, ident: Path<'static>) {
+        match ident {
+            Path::Literal(text) => self.push_cow(text, colors::PURPLE),
+            Path::Interface(text) => {
+                self.push("[", colors::GRAY40);
+                self.push_cow(text, colors::PURPLE);
+                self.push("]", colors::GRAY40);
+            }
+            Path::Template(ident, params) => {
+                self.path(*ident);
+                self.push("<", colors::GRAY40);
+                self.delimited(", ", params, |this, param| this.tipe(param));
+                self.push(">", colors::GRAY40);
+            }
+            Path::Operator(operator) => self.operator(operator),
+            Path::Sequence(path) => {
+                let count = path.len();
+                let mut parts = path.into_iter();
+
+                if count == 1 {
+                    return self.path(parts.next().unwrap());
+                }
+
+                for (idx, part) in parts.enumerate() {
+                    if idx != count - 1 {
+                        self.push("::", colors::GRAY20);
+                    }
+
+                    self.path(part);
+                }
+            }
+            Path::Nested(inner) => self.symbol(*inner),
+            Path::Disambiguator(val) => {
+                self.push("`", colors::GRAY20);
+                self.push_cow(Cow::Owned(format!("{val:?}")), colors::GRAY20);
+                self.push("'", colors::GRAY20);
+            }
+        }
+    }
+
+    fn modifiers(&mut self, modi: Modifiers) {
+        let color = colors::BLUE;
+
+        if modi.contains(Modifiers::CONST) {
+            self.push("const ", color);
+        }
+
+        if modi.contains(Modifiers::VOLATILE) {
+            self.push("volatile ", color);
+        }
+
+        if modi.contains(Modifiers::FAR) {
+            self.push("__far ", color);
+        }
+
+        if modi.contains(Modifiers::PTR64) {
+            self.push("__ptr64 ", color);
+        }
+
+        if modi.contains(Modifiers::UNALIGNED) {
+            self.push("__unaligned ", color);
+        }
+
+        if modi.contains(Modifiers::RESTRICT) {
+            self.push("restrict  ", color);
+        }
+
+        if modi.contains(Modifiers::LVALUE) {
+            self.push("& ", color);
+        }
+
+        if modi.contains(Modifiers::RVALUE) {
+            self.push("&& ", color);
+        }
+    }
+
+    fn calling_conv(&mut self, conv: CallingConv) {
+        let literal = match conv {
+            CallingConv::Cdecl => "__cdecl ",
+            CallingConv::Pascal => "__pascal ",
+            CallingConv::Thiscall => "__thiscall ",
+            CallingConv::Stdcall => "__stdcall ",
+            CallingConv::Fastcall => "__fastcall ",
+            CallingConv::Clrcall => "__clrcall ",
+            CallingConv::Eabi => "__eabicall ",
+            CallingConv::Vectorcall => "__vectorcall ",
+        };
+
+        self.push(literal, colors::GRAY40);
+    }
+
+    fn scope(&mut self, scope: Scope) {
+        let literal = match scope {
+            Scope::PUBLIC => "public: ",
+            Scope::PRIVATE => "private: ",
+            Scope::PROTECTED => "protected: ",
+            Scope::GLOBAL => "global: ",
+            Scope::STATIC => "static: ",
+            Scope::VIRTUAL => "virtual: ",
+            Scope::FAR => "far: ",
+            Scope::THUNK => "thunk: ",
+            _ => return,
+        };
+
+        self.push(literal, colors::WHITE);
+    }
+
+    fn delimited<F: Fn(&mut Self, Type<'src>)>(
+        &mut self,
+        delimiter: &'static str,
+        params: Parameters<'src>,
+        f: F,
+    ) {
+        let mut params = params.into_iter();
+
+        if let Some(param) = params.next() {
+            f(self, param);
+        }
+
+        for param in params {
+            self.push(delimiter, colors::GRAY40);
+            f(self, param);
+        }
+    }
+
+    fn tipe(&mut self, tipe: Type<'src>) {
+        match tipe {
+            Type::Unit => {}
+            Type::Nullptr => self.push("nullptr", colors::PURPLE),
+            Type::Void(modi) => {
+                self.modifiers(modi);
+                self.push("void", colors::PURPLE);
+            }
+            Type::Bool(modi) => {
+                self.modifiers(modi);
+                self.push("bool", colors::PURPLE);
+            }
+            Type::Char(modi) => {
+                self.modifiers(modi);
+                self.push("char", colors::PURPLE);
+            }
+            Type::Char8(modi) => {
+                self.modifiers(modi);
+                self.push("char_utf8", colors::PURPLE);
+            }
+            Type::Char16(modi) => {
+                self.modifiers(modi);
+                self.push("char_utf16", colors::PURPLE);
+            }
+            Type::Char32(modi) => {
+                self.modifiers(modi);
+                self.push("char_utf32", colors::PURPLE);
+            }
+            Type::IChar(modi) => {
+                self.modifiers(modi);
+                self.push("signed char", colors::PURPLE);
+            }
+            Type::UChar(modi) => {
+                self.modifiers(modi);
+                self.push("unsigned char", colors::PURPLE);
+            }
+            Type::WChar(modi) => {
+                self.modifiers(modi);
+                self.push("wchar", colors::PURPLE);
+            }
+            Type::IShort(modi) => {
+                self.modifiers(modi);
+                self.push("i16", colors::PURPLE);
+            }
+            Type::UShort(modi) => {
+                self.modifiers(modi);
+                self.push("u16", colors::PURPLE);
+            }
+            Type::Int(modi) => {
+                self.modifiers(modi);
+                self.push("int", colors::PURPLE);
+            }
+            Type::UInt(modi) => {
+                self.modifiers(modi);
+                self.push("unsigned", colors::PURPLE);
+            }
+            Type::Float(modi) => {
+                self.modifiers(modi);
+                self.push("float", colors::PURPLE);
+            }
+            Type::Double(modi) => {
+                self.modifiers(modi);
+                self.push("double", colors::PURPLE);
+            }
+            Type::LDouble(modi) => {
+                self.modifiers(modi);
+                self.push("long double", colors::PURPLE);
+            }
+            Type::ULong(modi) => {
+                self.modifiers(modi);
+                self.push("unsigned long", colors::PURPLE);
+            }
+            Type::I64(modi) => {
+                self.modifiers(modi);
+                self.push("i64", colors::PURPLE);
+            }
+            Type::U64(modi) => {
+                self.modifiers(modi);
+                self.push("u64", colors::PURPLE);
+            }
+            Type::I128(modi) => {
+                self.modifiers(modi);
+                self.push("i128", colors::PURPLE);
+            }
+            Type::U128(modi) => {
+                self.modifiers(modi);
+                self.push("u128", colors::PURPLE);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn symbol(&mut self, sym: Symbol<'static>) {
+        match sym.tipe {
+            Type::Unit => {}
+            Type::Nullptr => self.push("nullptr", colors::PURPLE),
+            Type::Void(modi) => {
+                self.modifiers(modi);
+                self.push("void", colors::PURPLE);
+            }
+            Type::Bool(modi) => {
+                self.modifiers(modi);
+                self.push("bool", colors::PURPLE);
+            }
+            Type::Char(modi) => {
+                self.modifiers(modi);
+                self.push("char", colors::PURPLE);
+            }
+            Type::Char8(modi) => {
+                self.modifiers(modi);
+                self.push("char_utf8", colors::PURPLE);
+            }
+            Type::Char16(modi) => {
+                self.modifiers(modi);
+                self.push("char_utf16", colors::PURPLE);
+            }
+            Type::Char32(modi) => {
+                self.modifiers(modi);
+                self.push("char_utf32", colors::PURPLE);
+            }
+            Type::IChar(modi) => {
+                self.modifiers(modi);
+                self.push("signed char", colors::PURPLE);
+            }
+            Type::UChar(modi) => {
+                self.modifiers(modi);
+                self.push("unsigned char", colors::PURPLE);
+            }
+            Type::WChar(modi) => {
+                self.modifiers(modi);
+                self.push("wchar", colors::PURPLE);
+            }
+            Type::IShort(modi) => {
+                self.modifiers(modi);
+                self.push("i16", colors::PURPLE);
+            }
+            Type::UShort(modi) => {
+                self.modifiers(modi);
+                self.push("u16", colors::PURPLE);
+            }
+            Type::Int(modi) => {
+                self.modifiers(modi);
+                self.push("int", colors::PURPLE);
+            }
+            Type::UInt(modi) => {
+                self.modifiers(modi);
+                self.push("unsigned", colors::PURPLE);
+            }
+            Type::Float(modi) => {
+                self.modifiers(modi);
+                self.push("float", colors::PURPLE);
+            }
+            Type::Double(modi) => {
+                self.modifiers(modi);
+                self.push("double", colors::PURPLE);
+            }
+            Type::LDouble(modi) => {
+                self.modifiers(modi);
+                self.push("long double", colors::PURPLE);
+            }
+            Type::ULong(modi) => {
+                self.modifiers(modi);
+                self.push("unsigned long", colors::PURPLE);
+            }
+            Type::I64(modi) => {
+                self.modifiers(modi);
+                self.push("i64", colors::PURPLE);
+            }
+            Type::U64(modi) => {
+                self.modifiers(modi);
+                self.push("u64", colors::PURPLE);
+            }
+            Type::I128(modi) => {
+                self.modifiers(modi);
+                self.push("i128", colors::PURPLE);
+            }
+            Type::U128(modi) => {
+                self.modifiers(modi);
+                self.push("u128", colors::PURPLE);
+            }
+            Type::Union(modi, path) => {
+                self.modifiers(modi);
+                self.push("enum ", colors::MAGENTA);
+                self.path(path);
+            }
+            Type::Struct(modi, path) => {
+                self.modifiers(modi);
+                self.push("struct ", colors::MAGENTA);
+                self.path(path);
+            }
+            Type::Class(modi, path) => {
+                self.modifiers(modi);
+                self.push("class ", colors::MAGENTA);
+                self.path(path);
+            }
+            Type::Ref(modi, tipe) => {
+                self.modifiers(modi);
+                self.push("&", colors::BLUE);
+                self.tipe(*tipe);
+            }
+            Type::RValueRef(modi, tipe) => {
+                self.modifiers(modi);
+                self.push("&&", colors::BLUE);
+                self.tipe(*tipe);
+            }
+            Type::Ptr(modi, tipe) => {
+                self.modifiers(modi);
+                self.push("*", colors::BLUE);
+                self.tipe(*tipe);
+            }
+            Type::Function(conv, modi, ret, args) => {
+                self.tipe(*ret);
+                self.push(" ", colors::WHITE);
+                self.calling_conv(conv);
+                self.modifiers(modi);
+                self.path(sym.path);
+                self.push("(", colors::GRAY40);
+                self.delimited(", ", args, |this, arg| this.tipe(arg));
+                self.push(")", colors::GRAY40);
+            }
+            Type::MemberFunction(scope, conv, modi, ret, args) => {
+                self.scope(scope);
+                self.tipe(*ret);
+                self.push(" ", colors::WHITE);
+                self.calling_conv(conv);
+                self.modifiers(modi);
+                self.path(sym.path);
+                self.push("(", colors::GRAY40);
+                self.delimited(", ", args, |this, arg| this.tipe(arg));
+                self.push(")", colors::GRAY40);
+            }
+            Type::MemberFunctionPtr(scope, class, conv, modi, ret, args) => {
+                self.scope(scope);
+                self.path(class); // don't know if this is correctly formatted
+                self.push(" ", colors::WHITE);
+                self.tipe(*ret);
+                self.push(" ", colors::WHITE);
+                self.calling_conv(conv);
+                self.modifiers(modi);
+                self.path(sym.path);
+                self.push("(", colors::GRAY40);
+                self.delimited(", ", args, |this, arg| this.tipe(arg));
+                self.push(")", colors::GRAY40);
+            }
+            _ => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eq;
 
     #[test]
-    fn simple_ast() {
+    fn simple() {
         let mut parser = Ast::new("?x@@YAXMH@Z");
         let tree = parser.parse().unwrap();
 
         assert_eq!(
             tree,
             Symbol {
-                root: Ident::Sequence(vec![Ident::Literal(Cow::Borrowed("x"),),],),
+                path: Path::Sequence(vec![Path::Literal(Cow::Borrowed("x"))]),
                 tipe: Type::Function(
                     CallingConv::Cdecl,
                     Modifiers::empty(),
@@ -1488,6 +1931,8 @@ mod tests {
                 ),
             }
         );
+
+        eq!("?x@@YAXMH@Z" => "void __cdecl x(float, int)");
     }
 
     #[test]

@@ -214,7 +214,10 @@ impl<'data> InstructionStream<'data> {
                 is_64: true,
                 section_base,
             }),
-            _ => { warning!("{arch:?}"); return Err(Error::UnsupportedArchitecture) },
+            _ => {
+                warning!("{arch:?}");
+                return Err(Error::UnsupportedArchitecture);
+            }
         };
 
         Ok(Self { inner })

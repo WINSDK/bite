@@ -8,9 +8,9 @@ mod test;
 
 use object::{Object, ObjectSymbol};
 use pdb::FallibleIterator;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::borrow::Cow;
 
 use crate::colors::{self, Color, Token};
 use crate::disassembler::Line;
@@ -161,13 +161,13 @@ impl TokenStream {
 
     fn simple(s: &str) -> Self {
         let mut this = Self {
-            inner: std::pin::Pin::new(s.to_string()) ,
+            inner: std::pin::Pin::new(s.to_string()),
             __tokens: Vec::with_capacity(1),
         };
 
         this.__tokens.push(Token {
             text: Cow::Borrowed(this.inner()),
-            color: colors::BLUE
+            color: colors::BLUE,
         });
 
         this
@@ -182,9 +182,14 @@ impl TokenStream {
     #[inline]
     fn push(&mut self, text: &'static str, color: Color) {
         self.__tokens.push(Token {
-            text: std::borrow::Cow::Borrowed(text),
+            text: Cow::Borrowed(text),
             color,
         })
+    }
+
+    #[inline]
+    fn push_cow(&mut self, text: Cow<'static, str>, color: Color) {
+        self.__tokens.push(Token { text, color })
     }
 
     #[inline]
