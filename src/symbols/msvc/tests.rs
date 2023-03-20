@@ -198,7 +198,7 @@ fn WhiteSpaceFormatting1() {
 #[test]
 fn WhiteSpaceFormatting2() {
     eq!("?name0@name1@@MAEPAPAP6GJPAUname2@@IIJ@ZXZ" =>
-        "protected: virtual long (__stdcall** * __thiscall name1::name0(void))(struct name2 *,unsigned int,unsigned int,long)");
+        "protected: virtual long (__stdcall** * __thiscall name1::name0(void))(struct name2 *, unsigned int, unsigned int, long)");
 }
 
 #[test]
@@ -402,13 +402,13 @@ fn ExternC_2_J_9() {
 
 #[test]
 fn ExternC_3() {
-    eq!("?name0@@$$J0YMXP6MXPAX@Z0@Z" => "extern \"C\" void __clrcall name0(void (__clrcall*)(void *),void *)");
+    eq!("?name0@@$$J0YMXP6MXPAX@Z0@Z" => "extern \"C\" void __clrcall name0(void (__clrcall*)(void *), void *)");
 }
 
 #[test]
 fn FileOneSample_2() {
     eq!("??1?$name0@PEAUname1@@$0A@P6APEAXPEAX@Z$1?name2@@$$FYAPEAX0@ZP6AAEAPEAU1@AEAPEAU1@@Z$1?name3@?$name4@PEAUname1@@@@$$FSAAEAPEAU1@1@Z@@$$FMEAA@XZ" =>
-        "protected: virtual __cdecl name0<struct name1 * ,0,void * (__cdecl*)(void * ),&void * __cdecl name2(void * ),struct name1 * & (__cdecl*)(struct name1 * & ),&public: static struct name1 * & __cdecl name4<struct name1 * >::name3(struct name1 * & )>::~name0<struct name1 * ,0,void * (__cdecl*)(void * ),&void * __cdecl name2(void * ),struct name1 * & (__cdecl*)(struct name1 * & ),&public: static struct name1 * & __cdecl name4<struct name1 * >::name3(struct name1 * & )>(void) ");
+        "protected: virtual __cdecl name0<struct name1 *, 0, void * (__cdecl*)(void * ), &void * __cdecl name2(void * ), struct name1 * & (__cdecl*)(struct name1 * & ), &public: static struct name1 * & __cdecl name4<struct name1 * >::name3(struct name1 * & )>::~name0<struct name1 *, 0, void * (__cdecl*)(void * ), &void * __cdecl name2(void * ), struct name1 * & (__cdecl*)(struct name1 * & ), &public: static struct name1 * & __cdecl name4<struct name1 * >::name3(struct name1 * & )>(void) ");
 }
 
 #[test]
@@ -445,7 +445,7 @@ fn CastOperator6() {
 #[test]
 fn CastOperator7() {
     eq!("??$?BPEAEU?$name0@U?$name1@Uname2@name3@@Uname4@2@Uname5@2@U?$name6@U?$name7@Uname8@name3@@@name3@@Uname9@name10@2@@2@U?$name11@$0A@@2@Uname12@2@@name3@@@name3@@@?$name13@PEAEU?$name0@U?$name1@Uname2@name3@@Uname4@2@Uname5@2@U?$name6@U?$name7@Uname8@name3@@@name3@@Uname9@name10@2@@2@U?$name11@$0A@@2@Uname12@2@@name3@@@name3@@@name3@@QEAA?AU?$name14@PEAEU?$name0@U?$name1@Uname2@name3@@Uname4@2@Uname5@2@U?$name6@U?$name7@Uname8@name3@@@name3@@Uname9@name10@2@@2@U?$name11@$0A@@2@Uname12@2@@name3@@@name3@@@1@XZ" =>
-        "public: __cdecl name3::name13<unsigned char * ,struct name3::name0<struct name3::name1<struct name3::name2,struct name3::name4,struct name3::name5,struct name3::name6<struct name3::name7<struct name3::name8>,struct name3::name10::name9>,struct name3::name11<0>,struct name3::name12> > >::operator<unsigned char * ,struct name3::name0<struct name3::name1<struct name3::name2,struct name3::name4,struct name3::name5,struct name3::name6<struct name3::name7<struct name3::name8>,struct name3::name10::name9>,struct name3::name11<0>,struct name3::name12> > > struct name3::name14<unsigned char * ,struct name3::name0<struct name3::name1<struct name3::name2,struct name3::name4,struct name3::name5,struct name3::name6<struct name3::name7<struct name3::name8>,struct name3::name10::name9>,struct name3::name11<0>,struct name3::name12> > >(void) ");
+        "public: __cdecl name3::name13<unsigned char *, struct name3::name0<struct name3::name1<struct name3::name2, struct name3::name4, struct name3::name5, struct name3::name6<struct name3::name7<struct name3::name8>, struct name3::name10::name9>, struct name3::name11<0>, struct name3::name12> > >::operator<unsigned char *, struct name3::name0<struct name3::name1<struct name3::name2, struct name3::name4, struct name3::name5, struct name3::name6<struct name3::name7<struct name3::name8>, struct name3::name10::name9>, struct name3::name11<0>, struct name3::name12> > > struct name3::name14<unsigned char *, struct name3::name0<struct name3::name1<struct name3::name2, struct name3::name4, struct name3::name5, struct name3::name6<struct name3::name7<struct name3::name8>, struct name3::name10::name9>, struct name3::name11<0>, struct name3::name12> > >(void) ");
 }
 
 #[test]
@@ -534,19 +534,19 @@ fn InterestingArrayArray_O_c() {
 #[test]
 fn BackRefX1() {
     eq!("??0name0@name1@name2@@QEAA@AEBV?$name3@_WU?$name4@_W@name5@@V?$name6@_W@2@Vname7@@@name5@@V?$name8@PEAXU?$name9@U?$name10@U?$name11@P6AHPEAX@Z$1?name12@@YAH0@Z@name13@@Uname14@2@Uname15@2@U?$name16@U?$name17@U?$name18@PEAX$0?0@name13@@@name13@@Uname19@name20@2@@2@U?$name21@$0A@@2@Uname22@2@@name13@@@name13@@@name13@@@Z" =>
-        "public: __cdecl name2::name1::name0::name0(class name5::name3<wchar_t,struct name5::name4<wchar_t>,class name5::name6<wchar_t>,class name7> const & ,class name13::name8<void * ,struct name13::name9<struct name13::name10<struct name13::name11<int (__cdecl*)(void * ),&int __cdecl name12(void * )>,struct name13::name14,struct name13::name15,struct name13::name16<struct name13::name17<struct name13::name18<void * ,-1> >,struct name13::name20::name19>,struct name13::name21<0>,struct name13::name22> > >)");
+        "public: __cdecl name2::name1::name0::name0(class name5::name3<wchar_t, struct name5::name4<wchar_t>, class name5::name6<wchar_t>, class name7> const &, class name13::name8<void *, struct name13::name9<struct name13::name10<struct name13::name11<int (__cdecl*)(void * ), &int __cdecl name12(void * )>, struct name13::name14, struct name13::name15, struct name13::name16<struct name13::name17<struct name13::name18<void *, -1> >, struct name13::name20::name19>, struct name13::name21<0>, struct name13::name22> > >)");
 }
 
 #[test]
 fn BackRefX2() {
     eq!("??0name0@?1??name1@name2@@UAEXXZ@QAE@V?$name3@GU?$name4@G@name5@@V?$name6@G@2@@name5@@0@Z" =>
-        "public: __thiscall `public: virtual void __thiscall name2::name1(void)'::`2'::name0::name0(class name5::name3<unsigned short,struct name5::name4<unsigned short>,class name5::name6<unsigned short> >,class name5::name3<unsigned short,struct name5::name4<unsigned short>,class name5::name6<unsigned short> >)");
+        "public: __thiscall `public: virtual void __thiscall name2::name1(void)'::`2'::name0::name0(class name5::name3<unsigned short, struct name5::name4<unsigned short>, class name5::name6<unsigned short> >, class name5::name3<unsigned short, struct name5::name4<unsigned short>, class name5::name6<unsigned short> >)");
 }
 
 #[test]
 fn Special__F() {
     eq!("??__Fname0@?1??name1@name2@name3@name4@@CAXPEAUname5@@P84@EAAJPEAPEAG@ZW4name6@@PEAUname7@@@Z@YAXXZ" =>
-        "void __cdecl `private: static void __cdecl name4::name3::name2::name1(struct name5 * ,long (__cdecl name4::*)(unsigned short * * ) ,enum name6,struct name7 * )'::`2'::`dynamic atexit destructor for 'name0''(void)");
+        "void __cdecl `private: static void __cdecl name4::name3::name2::name1(struct name5 *, long (__cdecl name4::*)(unsigned short * * ), enum name6, struct name7 * )'::`2'::`dynamic atexit destructor for 'name0''(void)");
 }
 
 #[test]
@@ -587,13 +587,13 @@ fn NestedFunctionPointer1c() {
 #[test]
 fn NestedFunctionPointer2() {
     eq!("?name0@@3P6AP6AHPEAXIPEBG@ZP6AH0I1@ZK0@ZEA" =>
-        "int (__cdecl*(__cdecl* name0)(int (__cdecl*)(void * ,unsigned int,unsigned short const * ),unsigned long,void * ))(void * ,unsigned int,unsigned short const * )");
+        "int (__cdecl*(__cdecl* name0)(int (__cdecl*)(void *, unsigned int, unsigned short const * ), unsigned long, void * ))(void *, unsigned int, unsigned short const * )");
 }
 
 #[test]
 fn NestedFunctionPointer3() {
     eq!("?name0@name1@@0P6AP6AHPEAXIPEBG@ZP6AH0I1@ZK0@ZEA" =>
-        "private: static int (__cdecl*(__cdecl* name1::name0)(int (__cdecl*)(void * ,unsigned int,unsigned short const * ),unsigned long,void * ))(void * ,unsigned int,unsigned short const * )");
+        "private: static int (__cdecl*(__cdecl* name1::name0)(int (__cdecl*)(void *, unsigned int, unsigned short const * ), unsigned long, void * ))(void *, unsigned int, unsigned short const * )");
 }
 
 #[test]
@@ -601,7 +601,7 @@ fn OtherFunctionPointerWithElipses() {
     //Demonstrates that varargs ("...") is not a complex type, as if it was,
     //  it would be put on the BackrefParameters list and change the backref used
     eq!("?name0@name1@@QEAAKP6AKPEAXKZZP6AKPEBGZZ1@Z" =>
-        "public: unsigned long __cdecl name1::name0(unsigned long (__cdecl*)(void * ,unsigned long,...),unsigned long (__cdecl*)(unsigned short const * ,...),unsigned long (__cdecl*)(void * ,unsigned long,...)) ");
+        "public: unsigned long __cdecl name1::name0(unsigned long (__cdecl*)(void *, unsigned long, ...), unsigned long (__cdecl*)(unsigned short const *, ...), unsigned long (__cdecl*)(void *, unsigned long, ...)) ");
 }
 
 #[test]
@@ -617,7 +617,7 @@ fn NormalRTTI_R0() {
 #[test]
 fn Derelict1() {
     eq!("??1?$name0@PEAXV?$name1@PEAX$1??$name2@PEAX@@YAXPEAX@Z$1?name3@@YAX0@Z$01@@$0?0$1??$name4@PEAX@@YAHPEAX0@Z$01@@QEAA@XZ" =>
-        "public: __cdecl name0<void * ,class name1<void * ,&void __cdecl name2<void * >(void * ),&void __cdecl name3(void * ),2>,-1,&int __cdecl name4<void * >(void * ,void * ),2>::~name0<void * ,class name1<void * ,&void __cdecl name2<void * >(void * ),&void __cdecl name3(void * ),2>,-1,&int __cdecl name4<void * >(void * ,void * ),2>(void) ");
+        "public: __cdecl name0<void *, class name1<void *, &void __cdecl name2<void * >(void * ), &void __cdecl name3(void * ), 2>, -1, &int __cdecl name4<void * >(void *, void * ), 2>::~name0<void *, class name1<void *, &void __cdecl name2<void * >(void * ), &void __cdecl name3(void * ), 2>, -1, &int __cdecl name4<void * >(void *, void * ), 2>(void) ");
 }
 
 #[test]
@@ -628,7 +628,7 @@ fn ScopeWithInterface() {
 #[test]
 fn Derelict3() {
     eq!("??$?8GU?$name0@G@name1@@V?$name2@G@1@@name1@@YA_NAEBV?$name3@GU?$name0@G@name1@@V?$name2@G@2@Vname4@@@0@0@Z" =>
-        "bool __cdecl name1::operator==<unsigned short,struct name1::name0<unsigned short>,class name1::name2<unsigned short> >(class name1::name3<unsigned short,struct name1::name0<unsigned short>,class name1::name2<unsigned short>,class name4> const & ,class name1::name3<unsigned short,struct name1::name0<unsigned short>,class name1::name2<unsigned short>,class name4> const & )");
+        "bool __cdecl name1::operator==<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short> >(class name1::name3<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short>, class name4> const &, class name1::name3<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short>, class name4> const & )");
 }
 
 #[test]
@@ -662,7 +662,7 @@ fn Derelict4related_diff1other() {
 #[test]
 fn Derelict20140818() {
     eq!("??_7?$name0@V?$name1@PAVname2@name3@@@name4@@$0A@V?$name5@$1?name6@?$name7@PAVname2@name3@@@name8@name4@@SGPAUname9@4@XZ@2@@name4@@6Bname9@1@@" =>
-        "const name4::name0<class name4::name1<class name3::name2 *>,0,class name4::name5<&public: static struct name4::name9 * __stdcall name4::name8::name7<class name3::name2 *>::name6(void)> >::`vftable'{for `name4::name9'}");
+        "const name4::name0<class name4::name1<class name3::name2 *>, 0, class name4::name5<&public: static struct name4::name9 * __stdcall name4::name8::name7<class name3::name2 *>::name6(void)> >::`vftable'{for `name4::name9'}");
 }
 
 //Manufactured (modification)
@@ -675,7 +675,7 @@ fn StdNullptrArg() {
 #[test]
 fn StdNullptrArgReal() {
     eq!("??$?9$$A6A_NABW4name0@name1@@@Z@name2@@YA_NABV?$name3@$$A6A_NABW4name0@name1@@@Z@0@$$T@Z" =>
-        "bool __cdecl name2::operator!=<bool __cdecl(enum name1::name0 const &)>(class name2::name3<bool __cdecl(enum name1::name0 const &)> const &,std::nullptr_t)");
+        "bool __cdecl name2::operator!=<bool __cdecl(enum name1::name0 const &)>(class name2::name3<bool __cdecl(enum name1::name0 const &)> const &, std::nullptr_t)");
 }
 
 #[test]
@@ -1600,7 +1600,7 @@ fn AccessLevels_1b() {
     eq!("?name0@name1@@1PAUname2@1@A" => "protected: static struct name1::name2 * name1::name0");
 }
 
-// O,P (don't have a P yet) block
+// O, P (don't have a P yet) block
 #[test]
 fn AccessLevels_Oa() {
     eq!("?name0@name1@@O7EAAKXZ" =>
@@ -1613,7 +1613,7 @@ fn AccessLevels_Ob() {
         "[thunk]:protected: virtual unsigned long __cdecl name1::name0`adjustor{16}' (void) ");
 }
 
-// W,X (don't have an X yet) block
+// W, X (don't have an X yet) block
 #[test]
 fn AccessLevels_Wa() {
     eq!("?name0@name1@@W7EAAJAEBUname2@@@Z" =>
@@ -1625,107 +1625,107 @@ fn AccessLevels_Wb() {
     eq!("?name0@name1@@W7EAAJXZ" => "[thunk]:public: virtual long __cdecl name1::name0`adjustor{8}' (void) ");
 }
 
-// $0,$1 (don't have a $1 yet) block
+// $0, $1 (don't have a $1 yet) block
 #[test]
 fn AccessLevels_dollar0() {
     eq!("?name0@name1@@$0PPPPPPPM@A@EAAKAEAKAEAPEAG@Z" =>
-        "[thunk]:private: virtual unsigned long __cdecl name1::name0`vtordisp{4294967292,0}' (unsigned long & ,unsigned short * & ) ");
+        "[thunk]:private: virtual unsigned long __cdecl name1::name0`vtordisp{4294967292, 0}' (unsigned long &, unsigned short * & ) ");
 }
 
-// $2,$3 (don't have a $3 yet) block
+// $2, $3 (don't have a $3 yet) block
 #[test]
 fn AccessLevels_dollar2a() {
     eq!("?name0@name1@@$2PPPPPPPM@7EAAJXZ" =>
-        "[thunk]:protected: virtual long __cdecl name1::name0`vtordisp{4294967292,8}' (void) ");
+        "[thunk]:protected: virtual long __cdecl name1::name0`vtordisp{4294967292, 8}' (void) ");
 }
 
 #[test]
 fn AccessLevels_dollar2b() {
     eq!("?name0@name1@@$2PPPPPPPM@BI@EAAJXZ" =>
-        "[thunk]:protected: virtual long __cdecl name1::name0`vtordisp{4294967292,24}' (void) ");
+        "[thunk]:protected: virtual long __cdecl name1::name0`vtordisp{4294967292, 24}' (void) ");
 }
 
 //$R2, real a
 #[test]
 fn AccessLevels_dollarR2a() {
     eq!("?name0@name1@name2@@$R2BAA@7PPPPPPPM@BAI@EAAXXZ" =>
-        "[thunk]:protected: virtual void __cdecl name2::name1::name0`vtordispex{256,8,4294967292,264}' (void) ");
+        "[thunk]:protected: virtual void __cdecl name2::name1::name0`vtordispex{256, 8, 4294967292, 264}' (void) ");
 }
 
 //$R2, real b
 #[test]
 fn AccessLevels_dollarR2b() {
     eq!("?name0@name1@name2@@$R2BI@7PPPPPPPM@BAI@EAAXXZ" =>
-        "[thunk]:protected: virtual void __cdecl name2::name1::name0`vtordispex{24,8,4294967292,264}' (void) ");
+        "[thunk]:protected: virtual void __cdecl name2::name1::name0`vtordispex{24, 8, 4294967292, 264}' (void) ");
 }
 
 //$R3, manufactured from $R2
 #[test]
 fn AccessLevels_dollarR3() {
     eq!("?name0@name1@name2@@$R3BI@7PPPPPPPM@BAI@EAAXXZ" =>
-        "[thunk]:protected: virtual void __cdecl name2::name1::name0`vtordispex{24,8,4294967292,264}' (void) ");
+        "[thunk]:protected: virtual void __cdecl name2::name1::name0`vtordispex{24, 8, 4294967292, 264}' (void) ");
 }
 
 //$R0, manufactured from $R2
 #[test]
 fn AccessLevels_dollarR0() {
     eq!("?name0@name1@name2@@$R0BI@7PPPPPPPM@BAI@EAAXXZ" =>
-        "[thunk]:private: virtual void __cdecl name2::name1::name0`vtordispex{24,8,4294967292,264}' (void) ");
+        "[thunk]:private: virtual void __cdecl name2::name1::name0`vtordispex{24, 8, 4294967292, 264}' (void) ");
 }
 
 //$R1, manufactured from $R2
 #[test]
 fn AccessLevels_dollarR1() {
     eq!("?name0@name1@name2@@$R1BI@7PPPPPPPM@BAI@EAAXXZ" =>
-        "[thunk]:private: virtual void __cdecl name2::name1::name0`vtordispex{24,8,4294967292,264}' (void) ");
+        "[thunk]:private: virtual void __cdecl name2::name1::name0`vtordispex{24, 8, 4294967292, 264}' (void) ");
 }
 
 //$R4, manufactured from $R2
 #[test]
 fn AccessLevels_dollarR4() {
     eq!("?name0@name1@name2@@$R4BI@7PPPPPPPM@BAI@EAAXXZ" =>
-        "[thunk]:public: virtual void __cdecl name2::name1::name0`vtordispex{24,8,4294967292,264}' (void) ");
+        "[thunk]:public: virtual void __cdecl name2::name1::name0`vtordispex{24, 8, 4294967292, 264}' (void) ");
 }
 
 //$R5, manufactured from $R2
 #[test]
 fn AccessLevels_dollarR5() {
     eq!("?name0@name1@name2@@$R5BI@7PPPPPPPM@BAI@EAAXXZ" =>
-        "[thunk]:public: virtual void __cdecl name2::name1::name0`vtordispex{24,8,4294967292,264}' (void) ");
+        "[thunk]:public: virtual void __cdecl name2::name1::name0`vtordispex{24, 8, 4294967292, 264}' (void) ");
 }
 
 //$B, real a
 #[test]
 fn AccessLevels_dollarBa() {
-    eq!("??_9name0@@$BBII@AA" => "[thunk]: __cdecl name0::`vcall'{392,{flat}}' }'");
+    eq!("??_9name0@@$BBII@AA" => "[thunk]: __cdecl name0::`vcall'{392, {flat}}' }'");
 }
 
 //$B, real b
 #[test]
 fn AccessLevels_dollarBb() {
     eq!("??_7?$name0@H$H??_9name1@@$BHI@AAA@@?$name2@Vname1@@@@6B@" =>
-        "const name2<class name1>::name0<int,{[thunk]: __cdecl name1::`vcall'{120,{flat}}' }',0}>::`vftable'");
+        "const name2<class name1>::name0<int, {[thunk]: __cdecl name1::`vcall'{120, {flat}}' }', 0}>::`vftable'");
 }
 
 //$B, real c
 #[test]
 fn AccessLevels_dollarBc() {
     eq!("??1?$name0@Uname1@@P81@EAAJXZ$1??_91@$BCA@AA@@QEAA@XZ" =>
-        "public: __cdecl name0<struct name1,long (__cdecl name1::*)(void) ,&[thunk]: __cdecl name1::`vcall'{32,{flat}}' }'>::~name0<struct name1,long (__cdecl name1::*)(void) ,&[thunk]: __cdecl name1::`vcall'{32,{flat}}' }'>(void) ");
+        "public: __cdecl name0<struct name1, long (__cdecl name1::*)(void), &[thunk]: __cdecl name1::`vcall'{32, {flat}}' }'>::~name0<struct name1, long (__cdecl name1::*)(void), &[thunk]: __cdecl name1::`vcall'{32, {flat}}' }'>(void) ");
 }
 
 //Manufactured from other.
 #[test]
 fn AccessLevels_underscore_based0_vtordisp() {
     eq!("?name0@name1@@_$40PPPPPPPM@A@EAAJUname2@@HPEBGPEAPEAGK2KK1PEAEKPEAVname3@@@Z" =>
-        "[thunk]:public: virtual long __cdecl __based(void) name1::name0`vtordisp{4294967292,0}' (struct name2,int,unsigned short const * ,unsigned short * * ,unsigned long,unsigned short * * ,unsigned long,unsigned long,unsigned short const * ,unsigned char * ,unsigned long,class name3 * ) ");
+        "[thunk]:public: virtual long __cdecl __based(void) name1::name0`vtordisp{4294967292, 0}' (struct name2, int, unsigned short const *, unsigned short * *, unsigned long, unsigned short * *, unsigned long, unsigned long, unsigned short const *, unsigned char *, unsigned long, class name3 * ) ");
 }
 
 //Manufactured from other.
 #[test]
 fn AccessLevels_underscore_based0_vtordispex() {
     eq!("??_9testAccessLevel@@_$R50A@B@C@D@AA@H@HH@" =>
-        "[thunk]:public: virtual __cdecl __based(void) testAccessLevel::`vcall'`vtordispex{0,1,2,3}' (int) throw(int,int)");
+        "[thunk]:public: virtual __cdecl __based(void) testAccessLevel::`vcall'`vtordispex{0, 1, 2, 3}' (int) throw(int, int)");
 }
 
 #[test]
@@ -1781,7 +1781,7 @@ fn SimpleTemplateMain() {
 
 #[test]
 fn SimpleTemplateMainBetter() {
-    eq!("?$Tc@HH" => "Tc<int,int>");
+    eq!("?$Tc@HH" => "Tc<int, int>");
 }
 
 #[test]
@@ -1799,21 +1799,21 @@ fn TemplateInReusableInQual() {
 #[test]
 fn SpecialTemplateParameters_questionnumber() {
     eq!("??0?$name0@?0Uname1@@@name2@@QEAA@XZ" =>
-        "public: __cdecl name2::name0<`template-parameter-1',struct name1>::name0<`template-parameter-1',struct name1>(void) ");
+        "public: __cdecl name2::name0<`template-parameter-1', struct name1>::name0<`template-parameter-1', struct name1>(void) ");
 }
 
 //real symbol: $0
 #[test]
 fn SpecialTemplateParameters_dollar0() {
     eq!("??$?0V?$A@_NABW4B@C@@@D@E@@@?$F@V?$G@U?$H@Q6A_NABW4B@C@@@Z$0A@@D@E@@_NABW4B@C@@@D@E@@@E@@QAE@ABV?$F@V?$A@_NABW4B@C@@@D@E@@@1@@Z" =>
-        "public: __thiscall E::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &),0>,bool,enum C::B const &> >::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &),0>,bool,enum C::B const &> ><class E::D::A<bool,enum C::B const &> >(class E::F<class E::D::A<bool,enum C::B const &> > const &)");
+        "public: __thiscall E::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &), 0>, bool, enum C::B const &> >::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &), 0>, bool, enum C::B const &> ><class E::D::A<bool, enum C::B const &> >(class E::F<class E::D::A<bool, enum C::B const &> > const &)");
 }
 
 //real symbol: $1
 #[test]
 fn SpecialTemplateParameters_dollar1() {
     eq!("??0?$name0@Vname1@@$1?name2@@3Uname3@@B$1?name4@@3QBGB@@QEAA@XZ" =>
-        "public: __cdecl name0<class name1,&struct name3 const name2,&unsigned short const * const name4>::name0<class name1,&struct name3 const name2,&unsigned short const * const name4>(void) ");
+        "public: __cdecl name0<class name1, &struct name3 const name2, &unsigned short const * const name4>::name0<class name1, &struct name3 const name2, &unsigned short const * const name4>(void) ");
 }
 
 //manufactured symbol: $2 Blank (zero) exponent
@@ -1898,80 +1898,80 @@ fn SpecialTemplateParameters_dollar2_simplenegblankzeromant_simplenegblankzeroex
 #[test]
 fn SpecialTemplateParameters_dollarD() {
     eq!("??0?$name0@$D0Uname1@@@name2@@QEAA@XZ" =>
-        "public: __cdecl name2::name0<`template-parameter1',struct name1>::name0<`template-parameter1',struct name1>(void) ");
+        "public: __cdecl name2::name0<`template-parameter1', struct name1>::name0<`template-parameter1', struct name1>(void) ");
 }
 
 //real symbol: $E
 #[test]
 fn SpecialTemplateParameters_dollarE() {
     eq!("??0?$name0@V?$name1@Vname2@@$E?name3@@3Uname4@@B@@@name5@@QEAA@PEAX@Z" =>
-        "public: __cdecl name5::name0<class name1<class name2,struct name4 const name3> >::name0<class name1<class name2,struct name4 const name3> >(void * ) ");
+        "public: __cdecl name5::name0<class name1<class name2, struct name4 const name3> >::name0<class name1<class name2, struct name4 const name3> >(void * ) ");
 }
 
 //manufactured symbol: $F Simple zero and zero parameters
 #[test]
 fn SpecialTemplateParameters_dollarF_zero_zero() {
-    eq!("??$F@$FA@A@@@QAE@@Z" => "public: __thiscall F<{0,0}>()");
+    eq!("??$F@$FA@A@@@QAE@@Z" => "public: __thiscall F<{0, 0}>()");
 }
 
 //manufactured symbol: $F Simple negative zero and negative zero parameters
 #[test]
 fn SpecialTemplateParameters_dollarF_negzero_negzero() {
-    eq!("??$F@$F?A@?A@@@QAE@@Z" => "public: __thiscall F<{-0,-0}>()");
+    eq!("??$F@$F?A@?A@@@QAE@@Z" => "public: __thiscall F<{-0, -0}>()");
 }
 
 //manufactured symbol: $G Simple zero, zero, and zero parameters
 #[test]
 fn SpecialTemplateParameters_dollarF_zero_zero_zero() {
-    eq!("??$F@$GA@A@A@@@QAE@@Z" => "public: __thiscall F<{0,0,0}>()");
+    eq!("??$F@$GA@A@A@@@QAE@@Z" => "public: __thiscall F<{0, 0, 0}>()");
 }
 
 //manufactured symbol: $G Simple negative zero, negative zero, and negative zero parameters
 #[test]
 fn SpecialTemplateParameters_dollarF_negzero_negzero_negzero() {
-    eq!("??$F@$G?A@?A@?A@@@QAE@@Z" => "public: __thiscall F<{-0,-0,-0}>()");
+    eq!("??$F@$G?A@?A@?A@@@QAE@@Z" => "public: __thiscall F<{-0, -0, -0}>()");
 }
 
 //real symbol: $H
 #[test]
 fn SpecialTemplateParameters_dollarH_zero() {
     eq!("??_7?$name0@H$H??_9name1@@$BHI@AA?B@@?$name2@Vname1@@@@6B@" =>
-        "const name2<class name1>::name0<int,{[thunk]: __cdecl name1::`vcall'{120,{flat}}' }',-1}>::`vftable'");
+        "const name2<class name1>::name0<int, {[thunk]: __cdecl name1::`vcall'{120, {flat}}' }', -1}>::`vftable'");
 }
 
 //manufactured symbol: $H (from $H)
 #[test]
 fn SpecialTemplateParameters_dollarH_one() {
     eq!("??_7?$name0@H$H??_9name1@@$BHI@AA?B@@?$name2@Vname1@@@@6B@" =>
-        "const name2<class name1>::name0<int,{[thunk]: __cdecl name1::`vcall'{120,{flat}}' }',-1}>::`vftable'");
+        "const name2<class name1>::name0<int, {[thunk]: __cdecl name1::`vcall'{120, {flat}}' }', -1}>::`vftable'");
 }
 
 //manufactured symbol: $I (from $H)
 #[test]
 fn SpecialTemplateParameters_dollarH_one_one() {
     eq!("??_7?$name0@H$I??_9name1@@$BHI@AAB@B@@?$name2@Vname1@@@@6B@" =>
-        "const name2<class name1>::name0<int,{[thunk]: __cdecl name1::`vcall'{120,{flat}}' }',1,1}>::`vftable'");
+        "const name2<class name1>::name0<int, {[thunk]: __cdecl name1::`vcall'{120, {flat}}' }', 1, 1}>::`vftable'");
 }
 
 //manufactured symbol: $I (from $H)
 #[test]
 fn SpecialTemplateParameters_dollarH_negone_negone() {
     eq!("??_7?$name0@H$I??_9name1@@$BHI@AA?B@?B@@?$name2@Vname1@@@@6B@" =>
-        "const name2<class name1>::name0<int,{[thunk]: __cdecl name1::`vcall'{120,{flat}}' }',-1,-1}>::`vftable'");
+        "const name2<class name1>::name0<int, {[thunk]: __cdecl name1::`vcall'{120, {flat}}' }', -1, -1}>::`vftable'");
 }
 
 //manufactured symbol: $J (from $H)
 #[test]
 fn SpecialTemplateParameters_dollarJ() {
     eq!("??_7?$name0@H$J??_9name1@@$BHI@AAB@B@B@@?$name2@Vname1@@@@6B@" =>
-        "const name2<class name1>::name0<int,{[thunk]: __cdecl name1::`vcall'{120,{flat}}' }',1,1,1}>::`vftable'");
+        "const name2<class name1>::name0<int, {[thunk]: __cdecl name1::`vcall'{120, {flat}}' }', 1, 1, 1}>::`vftable'");
 }
 
 //manufactured symbol: $J (from $H)
 #[test]
 fn SpecialTemplateParameters_dollarJ_with_negs() {
     eq!("??_7?$name0@H$J??_9name1@@$BHI@AA?B@?B@?B@@?$name2@Vname1@@@@6B@" =>
-        "const name2<class name1>::name0<int,{[thunk]: __cdecl name1::`vcall'{120,{flat}}' }',-1,-1,-1}>::`vftable'");
+        "const name2<class name1>::name0<int, {[thunk]: __cdecl name1::`vcall'{120, {flat}}' }', -1, -1, -1}>::`vftable'");
 
 }
 
@@ -1981,7 +1981,7 @@ fn SpecialTemplateParameters_dollarJ_with_negs() {
 #[test]
 fn SpecialTemplateParameters_dollarQ() {
     eq!("??0?$name0@$Q0Uname1@@@name2@@QEAA@XZ" =>
-        "public: __cdecl name2::name0<`non-type-template-parameter1',struct name1>::name0<`non-type-template-parameter1',struct name1>(void) ");
+        "public: __cdecl name2::name0<`non-type-template-parameter1', struct name1>::name0<`non-type-template-parameter1', struct name1>(void) ");
 }
 
 //real symbol: $R
@@ -1996,15 +1996,15 @@ fn SpecialTemplateParameters_dollarR() {
 fn FunctionParameter_BQRS_DirectArgModifiers() {
     //BQRS modifiers are only valid on direct arguments of functions and templates.
     eq!("?main@@YAHHPEAPEADQEAPEADREAPEADSEAPEADAEAPEADBEAPEAD@Z" =>
-        "int __cdecl main(int,char * * ,char * * const,char * * volatile,char * * const volatile,char * & ,char * & volatile)");
+        "int __cdecl main(int, char * *, char * * const, char * * volatile, char * * const volatile, char * &, char * & volatile)");
 }
 
 //Manufactured; Keep.
 #[test]
 fn FunctionParameter_BQRS_NonDirectArgModifiers() {
     //BQRS modifiers are only valid on direct arguments of functions and templates.
-    // Cannot have "pointer to reference" or "reference to reference," so cannot test these non-direct cases.
-    eq!("?main@@YAHHPEAPEADPEAQEADPEAREADPEASEAD@Z" => "int __cdecl main(int,char * * ,char * * ,char * * ,char * * )");
+    // Cannot have "pointer to reference" or "reference to reference, " so cannot test these non-direct cases.
+    eq!("?main@@YAHHPEAPEADPEAQEADPEAREADPEASEAD@Z" => "int __cdecl main(int, char * *, char * *, char * *, char * * )");
 }
 
 //Manufactured; Keep.
@@ -2012,33 +2012,33 @@ fn FunctionParameter_BQRS_NonDirectArgModifiers() {
 fn TemplateParameter_BQRS_DirectArgModifiers() {
     //BQRS modifiers are only valid on direct arguments of functions and templates.
     eq!("?Ti@@3V?$Tc@PEAPEADQEAPEADREAPEADSEAPEADAEAPEADBEAPEAD@@A" =>
-        "class Tc<char * * ,char * * const,char * * volatile,char * * const volatile,char * & ,char * & volatile> Ti");
+        "class Tc<char * *, char * * const, char * * volatile, char * * const volatile, char * &, char * & volatile> Ti");
 }
 
 //Manufactured; Keep.
 #[test]
 fn TemplateParameter_BQRS_NonDirectArgModifiers() {
     //BQRS modifiers are only valid on direct arguments of functions and templates.
-    // Cannot have "pointer to reference" or "reference to reference," so cannot test these non-direct cases.
-    eq!("?Ti@@3V?$Tc@PEAPEADPEAQEADPEAREADPEASEAD@@A" => "class Tc<char * * ,char * * ,char * * ,char * * > Ti");
+    // Cannot have "pointer to reference" or "reference to reference, " so cannot test these non-direct cases.
+    eq!("?Ti@@3V?$Tc@PEAPEADPEAQEADPEAREADPEASEAD@@A" => "class Tc<char * *, char * *, char * *, char * * > Ti");
 }
 
 #[test]
 fn ParameterConst_FunctionDirectArg() {
-    //When can P,Q:const,R:volatile,S:const volatile be seen in arguments emission?
+    //When can P, Q:const, R:volatile, S:const volatile be seen in arguments emission?
     // Seems that these are used and stored when Direct Argument (not a referred to type within an argument)
     //  of a function.  TODO: seems that for a modified type in a template, there is an issue--checking this 20140521
     // $$H
-    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int,char * * const)");
+    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int, char * * const)");
 }
 
 #[test]
 fn ParameterConst_TemplateDirectArg() {
-    //When can P,Q:const,R:volatile,S:const volatile be seen in arguments emission?
+    //When can P, Q:const, R:volatile, S:const volatile be seen in arguments emission?
     // Seems that these are used and stored when Direct Argument (not a referred to type within an argument)
     //  of a function.  TODO: seems that for a modified type in a template, there is an issue--checking this 20140521
     eq!("??0?$name0@Vname1@@$1?name2@@3Uname3@@B$1?name4@@3QBGB@@QEAA@XZ" =>
-        "public: __cdecl name0<class name1,&struct name3 const name2,&unsigned short const * const name4>::name0<class name1,&struct name3 const name2,&unsigned short const * const name4>(void) ");
+        "public: __cdecl name0<class name1, &struct name3 const name2, &unsigned short const * const name4>::name0<class name1, &struct name3 const name2, &unsigned short const * const name4>(void) ");
 }
 
 //Manufactured; Keep.
@@ -2052,10 +2052,10 @@ fn TemplateParameterVoid() {
 #[test]
 fn TemplateParameterVoidVoid() {
     //Testing "void" as the first and second arguments of a template.
-    eq!("?Ti@@3V?$Tc@XX@@A" => "class Tc<void,void> Ti");
+    eq!("?Ti@@3V?$Tc@XX@@A" => "class Tc<void, void> Ti");
 }
 
-//A,B: __cdecl block
+//A, B: __cdecl block
 #[test]
 fn FunctionCallingConventions_A__cdecl() {
     eq!("?fnii@@YAHH@Z" => "int __cdecl fnii(int)");
@@ -2066,7 +2066,7 @@ fn FunctionCallingConventions_B__cdecl() {
     eq!("?fnii@@YBHH@Z" => "int __cdecl fnii(int)");
 }
 
-//C,D: __pascal block
+//C, D: __pascal block
 #[test]
 fn FunctionCallingConventions_C__pascal() {
     eq!("?fnii@@YCHH@Z" => "int __pascal fnii(int)");
@@ -2077,7 +2077,7 @@ fn FunctionCallingConventions_D__pascal() {
     eq!("?fnii@@YDHH@Z" => "int __pascal fnii(int)");
 }
 
-//E,F: __thiscall block
+//E, F: __thiscall block
 #[test]
 fn FunctionCallingConventions_E__thiscall() {
     eq!("?fnii@@YEHH@Z" => "int __thiscall fnii(int)");
@@ -2088,7 +2088,7 @@ fn FunctionCallingConventions_F__thiscall() {
     eq!("?fnii@@YFHH@Z" => "int __thiscall fnii(int)");
 }
 
-//G,H: __stdcall block
+//G, H: __stdcall block
 #[test]
 fn FunctionCallingConventions_G__stdcall() {
     eq!("?fnii@@YGHH@Z" => "int __stdcall fnii(int)");
@@ -2099,7 +2099,7 @@ fn FunctionCallingConventions_H__stdcall() {
     eq!("?fnii@@YHHH@Z" => "int __stdcall fnii(int)");
 }
 
-//I,J: __fastcall block
+//I, J: __fastcall block
 #[test]
 fn FunctionCallingConventions_I__fastcall() {
     eq!("?fnii@@YIHH@Z" => "int __fastcall fnii(int)");
@@ -2110,7 +2110,7 @@ fn FunctionCallingConventions_J__fastcall() {
     eq!("?fnii@@YJHH@Z" => "int __fastcall fnii(int)");
 }
 
-//K,L: blank block
+//K, L: blank block
 #[test]
 fn FunctionCallingConventions_K() {
     eq!("?fnii@@YKHH@Z" => "int fnii(int)");
@@ -2121,7 +2121,7 @@ fn FunctionCallingConventions_L() {
     eq!("?fnii@@YLHH@Z" => "int fnii(int)");
 }
 
-//M,N: __clrcall block
+//M, N: __clrcall block
 #[test]
 fn FunctionCallingConventions_M__clrcall() {
     eq!("?fnii@@YMHH@Z" => "int __clrcall fnii(int)");
@@ -2132,7 +2132,7 @@ fn FunctionCallingConventions_N__clrcall() {
     eq!("?fnii@@YNHH@Z" => "int __clrcall fnii(int)");
 }
 
-//O,P: __eabi block
+//O, P: __eabi block
 #[test]
 fn FunctionCallingConventions_O__eabi() {
     eq!("?fnii@@YOHH@Z" => "int __eabi fnii(int)");
@@ -2156,7 +2156,7 @@ fn FunctionThrow_a() {
 
 #[test]
 fn FunctionThrow_b() {
-    eq!("?fnii@@YAHH@HH@" => "int __cdecl fnii(int) throw(int,int)");
+    eq!("?fnii@@YAHH@HH@" => "int __cdecl fnii(int) throw(int, int)");
 }
 
 #[test]
@@ -2173,28 +2173,28 @@ fn FunctionArgumentsVoidOnlyNoList() {
 //Having Void (X) after the first argument is allows, and it does not terminate the list.
 #[test]
 fn FunctionArgumentsVoidNotFirstInList() {
-    eq!("?fn@@YAHHXH@Z" => "int __cdecl fn(int,void,int)");
+    eq!("?fn@@YAHHXH@Z" => "int __cdecl fn(int, void, int)");
 }
 
 //Manufactured; Keep.
 #[test]
 fn FunctionBackrefArgs_0() {
     eq!("?fn@@YAHAAHBAHCDEFGHIJKLabc@@MNOPAHQAHRAHSAHTdef@@Ughi@@Vjkl@@0123456789@Z" =>
-        "int __cdecl fn(int &,int & volatile,signed char,char,unsigned char,short,unsigned short,int,unsigned int,long,unsigned long,abc,float,double,long double,int *,int * const,int * volatile,int * const volatile,union def,struct ghi,class jkl,int &,int & volatile,abc,int *,int * const,int * volatile,int * const volatile,union def,struct ghi,class jkl)");
+        "int __cdecl fn(int &, int & volatile, signed char, char, unsigned char, short, unsigned short, int, unsigned int, long, unsigned long, abc, float, double, long double, int *, int * const, int * volatile, int * const volatile, union def, struct ghi, class jkl, int &, int & volatile, abc, int *, int * const, int * volatile, int * const volatile, union def, struct ghi, class jkl)");
 }
 
 //Manufactured; Keep.
 #[test]
 fn FunctionBackrefArgs_1() {
     eq!("?fn@@YAHW0mno@@XYpqr@@_$H_D_E_F_G_H_I_J0123456789@Z" =>
-        "int __cdecl fn(enum char mno,void,cointerface pqr,__w64 int,__int8,unsigned __int8,__int16,unsigned __int16,__int32,unsigned __int32,__int64,enum char mno,cointerface pqr,__w64 int,__int8,unsigned __int8,__int16,unsigned __int16,__int32,unsigned __int32,__int64)");
+        "int __cdecl fn(enum char mno, void, cointerface pqr, __w64 int, __int8, unsigned __int8, __int16, unsigned __int16, __int32, unsigned __int32, __int64, enum char mno, cointerface pqr, __w64 int, __int8, unsigned __int8, __int16, unsigned __int16, __int32, unsigned __int32, __int64)");
 }
 
 //Manufactured; Keep.
 #[test]
 fn FunctionBackrefArgs_2() {
     eq!("?fn@@YAH_K_L_M_N_OAH_W_Xstu@@_Yvwx@@01234567@Z" =>
-        "int __cdecl fn(unsigned __int64,__int128,unsigned __int128,bool,int[],wchar_t,coclass stu,cointerface vwx,unsigned __int64,__int128,unsigned __int128,bool,int[],wchar_t,coclass stu,cointerface vwx)");
+        "int __cdecl fn(unsigned __int64, __int128, unsigned __int128, bool, int[], wchar_t, coclass stu, cointerface vwx, unsigned __int64, __int128, unsigned __int128, bool, int[], wchar_t, coclass stu, cointerface vwx)");
 }
 
 //Manufactured; demonstrates problem in TemplateBackrefArgs more succinctly.
@@ -2207,21 +2207,21 @@ fn TemplateBackrefArgs_comma_problem() {
 #[test]
 fn TemplateBackrefArgs_0() {
     eq!("?Ti@@3V?$Tc@AAHBAHCDEFGHIJKLabc@@MNOPAHQAHRAHSAHTdef@@Ughi@@Vjkl@@0123456789@@A" =>
-        "class Tc<int &,int & volatile,signed char,char,unsigned char,short,unsigned short,int,unsigned int,long,unsigned long,abc,float,double,long double,int *,int * const,int * volatile,int * const volatile,union def,struct ghi,class jklint &int & volatileabcint *int * constint * volatileint * const volatileunion defstruct ghiclass jkl> Ti");
+        "class Tc<int &, int & volatile, signed char, char, unsigned char, short, unsigned short, int, unsigned int, long, unsigned long, abc, float, double, long double, int *, int * const, int * volatile, int * const volatile, union def, struct ghi, class jklint &int & volatileabcint *int * constint * volatileint * const volatileunion defstruct ghiclass jkl> Ti");
 }
 
 //Manufactured; Keep. Have not seen real examples, but undname works this way.
 #[test]
 fn TemplateBackrefArgs_1() {
     eq!("?Ti@@3V?$Tc@W0mno@@XYpqr@@_$H_D_E_F_G_H_I_J0123456789@@A" =>
-        "class Tc<enum char mno,void,cointerface pqr,__w64 int,__int8,unsigned __int8,__int16,unsigned __int16,__int32,unsigned __int32,__int64enum char mnocointerface pqr__w64 int__int8unsigned __int8__int16unsigned __int16__int32unsigned __int32__int64> Ti");
+        "class Tc<enum char mno, void, cointerface pqr, __w64 int, __int8, unsigned __int8, __int16, unsigned __int16, __int32, unsigned __int32, __int64enum char mnocointerface pqr__w64 int__int8unsigned __int8__int16unsigned __int16__int32unsigned __int32__int64> Ti");
 }
 
 //Manufactured; Keep. Have not seen real examples, but undname works this way.
 #[test]
 fn TemplateBackrefArgs_2() {
     eq!("?Ti@@3V?$Tc@H_K_L_M_N_OAH_W_Xstu@@_Yvwx@@01234567@@A" =>
-        "class Tc<int,unsigned __int64,__int128,unsigned __int128,bool,int[],wchar_t,coclass stu,cointerface vwxunsigned __int64__int128unsigned __int128boolint[]wchar_tcoclass stucointerface vwx> Ti");
+        "class Tc<int, unsigned __int64, __int128, unsigned __int128, bool, int[], wchar_t, coclass stu, cointerface vwxunsigned __int64__int128unsigned __int128boolint[]wchar_tcoclass stucointerface vwx> Ti");
 }
 
 #[test]
@@ -2397,7 +2397,7 @@ fn ClassOperators_questionP() {
 #[test]
 fn ClassOperators_questionQ() {
     eq!("??QArray@@$$FQAEAAV0@ABV0@@Z" =>
-        "public: class Array & __thiscall Array::operator,(class Array const &)");
+        "public: class Array & __thiscall Array::operator, (class Array const &)");
 }
 
 #[test]
@@ -2716,44 +2716,44 @@ fn SpecialNames_7() {
 //manufactured symbol
 #[test]
 fn SpecialNames_8() {
-    eq!("??_8testAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`vbtable'{0,{flat}}' }'");
+    eq!("??_8testAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`vbtable'{0, {flat}}' }'");
 }
 
 //real symbol
 #[test]
 fn SpecialNames_9a() {
-    eq!("??_9testAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{0,{flat}}' }'");
+    eq!("??_9testAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{0, {flat}}' }'");
 }
 
 #[test]
 fn SpecialNames_9b() {
-    eq!("??_9testAccessLevel@@$R5A@B@C@D@AA@@@" => "[thunk]:public: virtual __cdecl testAccessLevel::`vcall'`vtordispex{0,1,2,3}' () throw()");
+    eq!("??_9testAccessLevel@@$R5A@B@C@D@AA@@@" => "[thunk]:public: virtual __cdecl testAccessLevel::`vcall'`vtordispex{0, 1, 2, 3}' () throw()");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames_9c() {
-    eq!("??_9testAccessLevel@@$R5A@B@C@D@AA@H@HH@" => "[thunk]:public: virtual __cdecl testAccessLevel::`vcall'`vtordispex{0,1,2,3}' (int) throw(int,int)");
+    eq!("??_9testAccessLevel@@$R5A@B@C@D@AA@H@HH@" => "[thunk]:public: virtual __cdecl testAccessLevel::`vcall'`vtordispex{0, 1, 2, 3}' (int) throw(int, int)");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames_A() {
-    eq!("??_AtestAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`typeof'{0,{flat}}' }'");
+    eq!("??_AtestAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`typeof'{0, {flat}}' }'");
 }
 
 //real symbol
 #[test]
 fn SpecialNames_B() {
     eq!("??_B?1??name0@name1@name2@@KAHPEBGAEAG@Z@51" =>
-        "`protected: static int __cdecl name2::name1::name0(unsigned short const * ,unsigned short & )'::`2'::`local static guard'{2}'");
+        "`protected: static int __cdecl name2::name1::name0(unsigned short const *, unsigned short & )'::`2'::`local static guard'{2}'");
 }
 
 //real symbol
 #[test]
 fn SpecialNames_C() {
     eq!("??_B?1??VTFromRegType@CRegParser@ATL@@KAHPEBGAEAG@Z@51" =>
-        "`protected: static int __cdecl ATL::CRegParser::VTFromRegType(unsigned short const * ,unsigned short & )'::`2'::`local static guard'{2}'");
+        "`protected: static int __cdecl ATL::CRegParser::VTFromRegType(unsigned short const *, unsigned short & )'::`2'::`local static guard'{2}'");
 }
 
 //manufactured symbol
@@ -2784,7 +2784,7 @@ fn SpecialNames_Ga() {
 #[test]
 fn SpecialNames_Gb() {
     eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
-        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *,unsigned int,class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
+        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
 //manufactured symbol
@@ -2819,21 +2819,21 @@ fn SpecialNames_K() {
 #[test]
 fn SpecialNames_La() {
     eq!("??_L@$$FYMXPAXIHP6MX0@Z1@Z" =>
-        "void __clrcall `eh vector constructor iterator'(void *,unsigned int,int,void (__clrcall*)(void *),void (__clrcall*)(void *))");
+        "void __clrcall `eh vector constructor iterator'(void *, unsigned int, int, void (__clrcall*)(void *), void (__clrcall*)(void *))");
 }
 
 //real symbol
 #[test]
 fn SpecialNames_Lb() {
     eq!("??_L@YGXPAXIHP6EX0@Z1@Z" =>
-        "void __stdcall `eh vector constructor iterator'(void *,unsigned int,int,void (__thiscall*)(void *),void (__thiscall*)(void *))");
+        "void __stdcall `eh vector constructor iterator'(void *, unsigned int, int, void (__thiscall*)(void *), void (__thiscall*)(void *))");
 }
 
 //real symbol
 #[test]
 fn SpecialNames_M() {
     eq!("??_M@$$FYMXPAXIHP6MX0@Z@Z" =>
-        "void __clrcall `eh vector destructor iterator'(void *,unsigned int,int,void (__clrcall*)(void *))");
+        "void __clrcall `eh vector destructor iterator'(void *, unsigned int, int, void (__clrcall*)(void *))");
 }
 
 //manufactured symbol
@@ -2870,7 +2870,7 @@ fn SpecialNames_R0a() {
 
 #[test]
 fn SpecialNames_R1() {
-    eq!("??_R1A@?0A@EA@testAccessLevel@@8" => "testAccessLevel::`RTTI Base Class Descriptor at (0,-1,0,64)'");
+    eq!("??_R1A@?0A@EA@testAccessLevel@@8" => "testAccessLevel::`RTTI Base Class Descriptor at (0, -1, 0, 64)'");
 }
 
 #[test]
@@ -2940,63 +2940,63 @@ fn SpecialNames_Y() {
 #[test]
 fn SpecialNames__A() {
     eq!("??__AtestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`managed vector constructor iterator'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`managed vector constructor iterator'{0, {flat}}' }'");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames__B() {
     eq!("??__BtestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`managed vector destructor iterator'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`managed vector destructor iterator'{0, {flat}}' }'");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames__C() {
     eq!("??__CtestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`eh vector copy constructor iterator'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`eh vector copy constructor iterator'{0, {flat}}' }'");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames__D() {
     eq!("??__DtestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`eh vector vbase copy constructor iterator'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`eh vector vbase copy constructor iterator'{0, {flat}}' }'");
 }
 
 //real symbol
 #[test]
 fn SpecialNames__F() {
     eq!("??__Fname0@?1??name1@name2@name3@name4@@CAXPEAUname5@@P84@EAAJPEAPEAG@ZW4name6@@PEAUname7@@@Z@YAXXZ" =>
-        "void __cdecl `private: static void __cdecl name4::name3::name2::name1(struct name5 * ,long (__cdecl name4::*)(unsigned short * * ) ,enum name6,struct name7 * )'::`2'::`dynamic atexit destructor for 'name0''(void)");
+        "void __cdecl `private: static void __cdecl name4::name3::name2::name1(struct name5 *, long (__cdecl name4::*)(unsigned short * * ), enum name6, struct name7 * )'::`2'::`dynamic atexit destructor for 'name0''(void)");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames__G() {
     eq!("??__GtestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`vector copy constructor iterator'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`vector copy constructor iterator'{0, {flat}}' }'");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames__H() {
     eq!("??__HtestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`vector vbase copy constructor iterator'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`vector vbase copy constructor iterator'{0, {flat}}' }'");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames__I() {
     eq!("??__ItestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`managed vector copy constructor iterator'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`managed vector copy constructor iterator'{0, {flat}}' }'");
 }
 
 //manufactured symbol
 #[test]
 fn SpecialNames__J() {
     eq!("??__JtestAccessLevel@@$BA@AA" =>
-        "[thunk]: __cdecl testAccessLevel::`local static thread guard'{0,{flat}}' }'");
+        "[thunk]: __cdecl testAccessLevel::`local static thread guard'{0, {flat}}' }'");
 }
 
 //manufactured symbol
@@ -3057,84 +3057,84 @@ fn MoreFun_b() {
 #[test]
 fn MessyTemplate() {
     eq!("??$?0V?$A@_NABW4B@C@@@D@E@@@?$F@V?$G@U?$H@Q6A_NABW4B@C@@@Z$0A@@D@E@@_NABW4B@C@@@D@E@@@E@@QAE@ABV?$F@V?$A@_NABW4B@C@@@D@E@@@1@@Z" =>
-        "public: __thiscall E::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &),0>,bool,enum C::B const &> >::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &),0>,bool,enum C::B const &> ><class E::D::A<bool,enum C::B const &> >(class E::F<class E::D::A<bool,enum C::B const &> > const &)");
+        "public: __thiscall E::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &), 0>, bool, enum C::B const &> >::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &), 0>, bool, enum C::B const &> ><class E::D::A<bool, enum C::B const &> >(class E::F<class E::D::A<bool, enum C::B const &> > const &)");
 }
 
 #[test]
 fn RTTI_R1_a() {
-    eq!("??_R17?0A@EC@IUnknown@@8" => "IUnknown::`RTTI Base Class Descriptor at (8,-1,0,66)'");
+    eq!("??_R17?0A@EC@IUnknown@@8" => "IUnknown::`RTTI Base Class Descriptor at (8, -1, 0, 66)'");
 }
 
 #[test]
 fn RTTI_R1_b() {
-    eq!("??_R1A@?0A@EA@testAccessLevel@@8" => "testAccessLevel::`RTTI Base Class Descriptor at (0,-1,0,64)'");
+    eq!("??_R1A@?0A@EA@testAccessLevel@@8" => "testAccessLevel::`RTTI Base Class Descriptor at (0, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_c() {
-    eq!("??_R1BA@?0A@EA@B@@8" => "B::`RTTI Base Class Descriptor at (16,-1,0,64)'");
+    eq!("??_R1BA@?0A@EA@B@@8" => "B::`RTTI Base Class Descriptor at (16, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_d() {
-    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_e() {
-    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_f() {
-    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_g() {
-    eq!("??_R17?0A@EA@name0@@8" => "name0::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@name0@@8" => "name0::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_h() {
-    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_i() {
-    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_j() {
-    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_k() {
-    eq!("??_R17?0A@EA@name0@@8" => "name0::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@name0@@8" => "name0::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn RTTI_R1_l() {
-    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@?$name0@Vname1@name2@@@name2@@8" => "name2::name0<class name2::name1>::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
 fn Source8_s2a() {
     eq!("??$ft2@P6APEADP6APEAXPEAHPEAF@Z@ZP6APEAFP6APEAX11@Z@ZH@@$$FYAHP6APEADP6APEAXPEAHPEAF@Z@ZP6APEAFP6APEAX11@Z@Z@Z" =>
-        "int __cdecl ft2<char * (__cdecl*)(void * (__cdecl*)(int * ,short * )),short * (__cdecl*)(void * (__cdecl*)(short * ,short * )),int>(char * (__cdecl*)(void * (__cdecl*)(int * ,short * )),short * (__cdecl*)(void * (__cdecl*)(short * ,short * )))");
+        "int __cdecl ft2<char * (__cdecl*)(void * (__cdecl*)(int *, short * )), short * (__cdecl*)(void * (__cdecl*)(short *, short * )), int>(char * (__cdecl*)(void * (__cdecl*)(int *, short * )), short * (__cdecl*)(void * (__cdecl*)(short *, short * )))");
 }
 
 #[test]
 fn Source8_s2b() {
     eq!("??$ft2@P6APEAXPEAHP6APEAX0@ZP6APEADP6APEAX0PEAF@Z@ZP6APEAX2@Z2P6APEAF3@ZP6APEAFP6APEAX22@Z@ZPEAD@ZP6APEAF7@ZH@@$$FYAHP6APEAXPEAHP6APEAX0@ZP6APEADP6APEAX0PEAF@Z@ZP6APEAX2@Z2P6APEAF3@ZP6APEAFP6APEAX22@Z@ZPEAD@Z8@Z" =>
-    "int __cdecl ft2<void * (__cdecl*)(int * ,void * (__cdecl*)(int * ),char * (__cdecl*)(void * (__cdecl*)(int * ,short * )),void * (__cdecl*)(short * ),short * ,short * (__cdecl*)(void * (__cdecl*)(int * ,short * )),short * (__cdecl*)(void * (__cdecl*)(short * ,short * )),char * ),short * (__cdecl*)(void * (__cdecl*)(short * ,short * )),int>(void * (__cdecl*)(int * ,void * (__cdecl*)(int * ),char * (__cdecl*)(void * (__cdecl*)(int * ,short * )),void * (__cdecl*)(short * ),short * ,short * (__cdecl*)(void * (__cdecl*)(int * ,short * )),short * (__cdecl*)(void * (__cdecl*)(short * ,short * )),char * ),short * (__cdecl*)(void * (__cdecl*)(short * ,short * )))");
+    "int __cdecl ft2<void * (__cdecl*)(int *, void * (__cdecl*)(int * ), char * (__cdecl*)(void * (__cdecl*)(int *, short * )), void * (__cdecl*)(short * ), short *, short * (__cdecl*)(void * (__cdecl*)(int *, short * )), short * (__cdecl*)(void * (__cdecl*)(short *, short * )), char * ), short * (__cdecl*)(void * (__cdecl*)(short *, short * )), int>(void * (__cdecl*)(int *, void * (__cdecl*)(int * ), char * (__cdecl*)(void * (__cdecl*)(int *, short * )), void * (__cdecl*)(short * ), short *, short * (__cdecl*)(void * (__cdecl*)(int *, short * )), short * (__cdecl*)(void * (__cdecl*)(short *, short * )), char * ), short * (__cdecl*)(void * (__cdecl*)(short *, short * )))");
 }
 
 #[test]
 fn Source8_aa() {
-    eq!("?fai@@3P6APEAXPEAHP6APEAX0@ZP6APEADP6APEAX0PEAF@Z@ZP6APEAX2@Z2P6APEAF3@ZP6APEAFP6APEAX22@Z@ZPEAD@ZEA" => "void * (__cdecl* fai)(int *,void * (__cdecl*)(int *),char * (__cdecl*)(void * (__cdecl*)(int *,short *)),void * (__cdecl*)(short *),short *,short * (__cdecl*)(void * (__cdecl*)(int *,short *)),short * (__cdecl*)(void * (__cdecl*)(short *,short *)),char *)");
+    eq!("?fai@@3P6APEAXPEAHP6APEAX0@ZP6APEADP6APEAX0PEAF@Z@ZP6APEAX2@Z2P6APEAF3@ZP6APEAFP6APEAX22@Z@ZPEAD@ZEA" => "void * (__cdecl* fai)(int *, void * (__cdecl*)(int *), char * (__cdecl*)(void * (__cdecl*)(int *, short *)), void * (__cdecl*)(short *), short *, short * (__cdecl*)(void * (__cdecl*)(int *, short *)), short * (__cdecl*)(void * (__cdecl*)(short *, short *)), char *)");
 }
 
 #[test]
@@ -3144,12 +3144,12 @@ fn Source8_ab() {
 
 #[test]
 fn Source8_ac() {
-    eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EAAPEAVCCC@@XZ@Z" => "public: __cdecl AAA<class BBB,class CCC>::AAA<class BBB,class CCC>(class CCC * (__cdecl BBB::*)(void))");
+    eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EAAPEAVCCC@@XZ@Z" => "public: __cdecl AAA<class BBB, class CCC>::AAA<class BBB, class CCC>(class CCC * (__cdecl BBB::*)(void))");
 }
 
 #[test]
 fn Source8_ac_mod1() {
-    eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EIFDAPEAVCCC@@XZ@Z" => "public: __cdecl AAA<class BBB,class CCC>::AAA<class BBB,class CCC>(class CCC * (__cdecl BBB::*)(void)const volatile __unaligned __restrict)");
+    eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EIFDAPEAVCCC@@XZ@Z" => "public: __cdecl AAA<class BBB, class CCC>::AAA<class BBB, class CCC>(class CCC * (__cdecl BBB::*)(void)const volatile __unaligned __restrict)");
 }
 
 #[test]
@@ -3519,7 +3519,7 @@ fn Source8_cy() {
 
 #[test]
 fn Source8_cz() {
-    eq!("??_R1A@?0A@EA@testAccessLevel@@8" => "testAccessLevel::`RTTI Base Class Descriptor at (0,-1,0,64)'");
+    eq!("??_R1A@?0A@EA@testAccessLevel@@8" => "testAccessLevel::`RTTI Base Class Descriptor at (0, -1, 0, 64)'");
 }
 
 #[test]
@@ -3539,17 +3539,17 @@ fn Source8_dc() {
 
 #[test]
 fn Source8_dd() {
-    eq!("??_9testAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{0,{flat}}' }'");
+    eq!("??_9testAccessLevel@@$BA@AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{0, {flat}}' }'");
 }
 
 #[test]
 fn Source8_de() {
-    eq!("??_9testAccessLevel@@$BBA@AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{16,{flat}}' }'");
+    eq!("??_9testAccessLevel@@$BBA@AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{16, {flat}}' }'");
 }
 
 #[test]
 fn Source8_df() {
-    eq!("??_9testAccessLevel@@$B7AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{8,{flat}}' }'");
+    eq!("??_9testAccessLevel@@$B7AA" => "[thunk]: __cdecl testAccessLevel::`vcall'{8, {flat}}' }'");
 }
 
 #[test]
@@ -3609,7 +3609,7 @@ fn Source8_dr() {
 
 #[test]
 fn Source8_ds() {
-    eq!("??_R1BA@?0A@EA@B@@8" => "B::`RTTI Base Class Descriptor at (16,-1,0,64)'");
+    eq!("??_R1BA@?0A@EA@B@@8" => "B::`RTTI Base Class Descriptor at (16, -1, 0, 64)'");
 }
 
 #[test]
@@ -3706,25 +3706,25 @@ fn Source8undname_aa() {
 #[test]
 fn Source8undname_ab() {
     eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EAAPEAVCCC@@XZP81@EAAJPEAV2@@ZPEBGHZZ" =>
-        "public: __cdecl AAA<class BBB,class CCC>::AAA<class BBB,class CCC>(class CCC * (__cdecl BBB::*)(void),long (__cdecl BBB::*)(class CCC *),unsigned short const *,int,...)");
+        "public: __cdecl AAA<class BBB, class CCC>::AAA<class BBB, class CCC>(class CCC * (__cdecl BBB::*)(void), long (__cdecl BBB::*)(class CCC *), unsigned short const *, int, ...)");
 }
 
 #[test]
 fn Source8undname_ac() {
     eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EAAPEAVCCC@@XZPEBGHZZ" =>
-        "public: __cdecl AAA<class BBB,class CCC>::AAA<class BBB,class CCC>(class CCC * (__cdecl BBB::*)(void),unsigned short const *,int,...)");
+        "public: __cdecl AAA<class BBB, class CCC>::AAA<class BBB, class CCC>(class CCC * (__cdecl BBB::*)(void), unsigned short const *, int, ...)");
 }
 
 #[test]
 fn Source8undname_ad() {
     eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EAAPEAVCCC@@XZHZZ" =>
-        "public: __cdecl AAA<class BBB,class CCC>::AAA<class BBB,class CCC>(class CCC * (__cdecl BBB::*)(void),int,...)");
+        "public: __cdecl AAA<class BBB, class CCC>::AAA<class BBB, class CCC>(class CCC * (__cdecl BBB::*)(void), int, ...)");
 }
 
 #[test]
 fn Source8undname_ae() {
     eq!("??0?$AAA@VBBB@@VCCC@@@@QEAA@P8BBB@@EAAPEAVCCC@@XZZZ" =>
-        "public: __cdecl AAA<class BBB,class CCC>::AAA<class BBB,class CCC>(class CCC * (__cdecl BBB::*)(void),...)");
+        "public: __cdecl AAA<class BBB, class CCC>::AAA<class BBB, class CCC>(class CCC * (__cdecl BBB::*)(void), ...)");
 }
 
 #[test]
@@ -3846,7 +3846,7 @@ fn Source8undname_bd() {
 #[test]
 fn Source8undname_be() {
     eq!("??$?0V?$A@_NAEBW4B@C@@@D@E@@@?$F@V?$G@U?$H@Q6A_NAEBW4I@J@@@Z$0A@@K@L@@_NAEBW4M@N@@@O@P@@@Q@@QEAA@AEBV?$R@V?$T@_NAEBW4U@V@@@W@X@@@1@@Z" =>
-        "public: __cdecl Q::F<class P::O::G<struct L::K::H<bool (__cdecl*const)(enum J::I const &),0>,bool,enum N::M const &> >::F<class P::O::G<struct L::K::H<bool (__cdecl*const)(enum J::I const &),0>,bool,enum N::M const &> ><class E::D::A<bool,enum C::B const &> >(class Q::R<class X::W::T<bool,enum V::U const &> > const &)");
+        "public: __cdecl Q::F<class P::O::G<struct L::K::H<bool (__cdecl*const)(enum J::I const &), 0>, bool, enum N::M const &> >::F<class P::O::G<struct L::K::H<bool (__cdecl*const)(enum J::I const &), 0>, bool, enum N::M const &> ><class E::D::A<bool, enum C::B const &> >(class Q::R<class X::W::T<bool, enum V::U const &> > const &)");
 }
 
 #[test]
@@ -3897,7 +3897,7 @@ fn Source8undname_bn() {
 #[test]
 fn Source8undname_bo() {
     eq!("??$?0V?$A@_NABW4B@C@@@D@E@@@?$F@V?$G@U?$H@Q6A_NABW4B@C@@@Z$0A@@D@E@@_NABW4B@C@@@D@E@@@E@@QAE@ABV?$F@V?$A@_NABW4B@C@@@D@E@@@1@@Z" =>
-        "public: __thiscall E::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &),0>,bool,enum C::B const &> >::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &),0>,bool,enum C::B const &> ><class E::D::A<bool,enum C::B const &> >(class E::F<class E::D::A<bool,enum C::B const &> > const &)");
+        "public: __thiscall E::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &), 0>, bool, enum C::B const &> >::F<class E::D::G<struct E::D::H<bool (__cdecl*const)(enum C::B const &), 0>, bool, enum C::B const &> ><class E::D::A<bool, enum C::B const &> >(class E::F<class E::D::A<bool, enum C::B const &> > const &)");
 }
 
 #[test]
@@ -4164,13 +4164,13 @@ fn Source6undname_bs() {
 #[test]
 fn OrigTest_aa() {
     eq!("?name0@?1??name1@name2@name3@@KAHPEBGAEAG@Z@4QBUname4@?1??123@KAH01@Z@B" =>
-        "struct `protected: static int __cdecl name3::name2::name1(unsigned short const * ,unsigned short &)'::`2'::name4 const * const `protected: static int __cdecl name3::name2::name1(unsigned short const *, unsigned short &)'::`2'::name0");
+        "struct `protected: static int __cdecl name3::name2::name1(unsigned short const *, unsigned short &)'::`2'::name4 const * const `protected: static int __cdecl name3::name2::name1(unsigned short const *, unsigned short &)'::`2'::name0");
 }
 
 #[test]
 fn OrigTest_ab() {
     eq!("??_L@YGXPAXIHP6EX0@Z1@Z" =>
-        "void __stdcall `eh vector constructor iterator'(void *,unsigned int,int,void (__thiscall*)(void *),void (__thiscall*)(void *))");
+        "void __stdcall `eh vector constructor iterator'(void *, unsigned int, int, void (__thiscall*)(void *), void (__thiscall*)(void *))");
 }
 
 #[test]
@@ -4198,7 +4198,7 @@ fn OrigTest_af() {
 #[test]
 fn OrigTest_ag() {
     eq!("?name0@name1@@MAEPAP6GJPAUname2@@IIJ@ZXZ" =>
-        "protected: virtual long (__stdcall** __thiscall name1::name0(void))(struct name2 *,unsigned int,unsigned int,long)");
+        "protected: virtual long (__stdcall** __thiscall name1::name0(void))(struct name2 *, unsigned int, unsigned int, long)");
 }
 
 #[test]
@@ -4244,7 +4244,7 @@ fn OrigTest_ao() {
 #[test]
 fn OrigTest_ap() {
     eq!("?name0@@YAP6AXIPAUname1@@@ZP6AXI0@Z@Z" =>
-        "void (__cdecl*__cdecl name0(void (__cdecl*)(unsigned int,struct name1 *)))(unsigned int,struct name1 *)");
+        "void (__cdecl*__cdecl name0(void (__cdecl*)(unsigned int, struct name1 *)))(unsigned int, struct name1 *)");
 }
 
 #[test]
@@ -4255,7 +4255,7 @@ fn OrigTest_aq() {
 #[test]
 fn OrigTest_ar() {
     eq!("??$name0@_W@name1@@YAHPB_W000PBUname2@@@Z" =>
-        "int __cdecl name1::name0<wchar_t>(wchar_t const *,wchar_t const *,wchar_t const *,wchar_t const *,struct name2 const *)");
+        "int __cdecl name1::name0<wchar_t>(wchar_t const *, wchar_t const *, wchar_t const *, wchar_t const *, struct name2 const *)");
 }
 
 #[test]
@@ -4267,25 +4267,25 @@ fn OrigTest_as() {
 #[test]
 fn OrigTest_at() {
     eq!("??4?$name0@Uname1@@$1?name2@@3Uname3@@B@@QAEAAV0@PAUname1@@@Z" =>
-        "public: class name0<struct name1,&struct name3 const name2> & __thiscall name0<struct name1,&struct name3 const name2>::operator=(struct name1 *)");
+        "public: class name0<struct name1, &struct name3 const name2> & __thiscall name0<struct name1, &struct name3 const name2>::operator=(struct name1 *)");
 }
 
 #[test]
 fn OrigTest_au() {
     eq!("??$name0@D@name1@@YAIPAD0PBD1PBUname2@@@Z" =>
-        "unsigned int __cdecl name1::name0<char>(char *,char *,char const *,char const *,struct name2 const *)");
+        "unsigned int __cdecl name1::name0<char>(char *, char *, char const *, char const *, struct name2 const *)");
 }
 
 #[test]
 fn OrigTest_av() {
     eq!("??1?$name0@U?$name1@Vname2@?Aname3@name4@@$0A@@name5@name6@@XPAV?$name7@I@name4@@@name5@name6@@UAE@XZ" =>
-        "public: virtual __thiscall name6::name5::name0<struct name6::name5::name1<class name4::`anonymous namespace'::name2,0>,void,class name4::name7<unsigned int> *>::~name0<struct name6::name5::name1<class name4::`anonymous namespace'::name2,0>,void,class name4::name7<unsigned int> *>(void)");
+        "public: virtual __thiscall name6::name5::name0<struct name6::name5::name1<class name4::`anonymous namespace'::name2, 0>, void, class name4::name7<unsigned int> *>::~name0<struct name6::name5::name1<class name4::`anonymous namespace'::name2, 0>, void, class name4::name7<unsigned int> *>(void)");
 }
 
 #[test]
 fn OrigTest_aw() {
     eq!("??_G?$name0@U?$name1@Vname2@?Aname3@name4@@$0A@@name5@name6@@XPAV?$name7@W4name8@name4@@@name4@@@name5@name6@@UAEPAXI@Z" =>
-        "public: virtual void * __thiscall name6::name5::name0<struct name6::name5::name1<class name4::`anonymous namespace'::name2,0>,void,class name4::name7<enum name4::name8> *>::`scalar deleting destructor'(unsigned int)");
+        "public: virtual void * __thiscall name6::name5::name0<struct name6::name5::name1<class name4::`anonymous namespace'::name2, 0>, void, class name4::name7<enum name4::name8> *>::`scalar deleting destructor'(unsigned int)");
 }
 
 #[test]
@@ -4301,25 +4301,25 @@ fn OrigTest_ay() {
 #[test]
 fn OrigTest_az() {
     eq!("?name0@name1@@$4PPPPPPPM@A@EAAJUname2@@HPEBGPEAPEAGK2KK1PEAEKPEAVname3@@@Z" =>
-        "[thunk]:public: virtual long __cdecl name1::name0`vtordisp{4294967292,0}' (struct name2,int,unsigned short const *, unsigned short * *, unsigned long, unsigned short * *, unsigned long, unsigned long, unsigned short const *, unsigned char *, unsigned long, class name3 *)");
+        "[thunk]:public: virtual long __cdecl name1::name0`vtordisp{4294967292, 0}' (struct name2, int, unsigned short const *, unsigned short * *, unsigned long, unsigned short * *, unsigned long, unsigned long, unsigned short const *, unsigned char *, unsigned long, class name3 *)");
 }
 
 #[test]
 fn OrigTest_ba() {
     eq!("?name0@@YAXP6AJPEAPEAVname1@@@ZP6AJPEAVname2@@PEAPEAUname3@@@ZP6AJ3@Z@Z" =>
-        "void __cdecl name0(long (__cdecl*)(class name1 * *),long (__cdecl*)(class name2 *, struct name3 * *),long (__cdecl*)(struct name3 * *))");
+        "void __cdecl name0(long (__cdecl*)(class name1 * *), long (__cdecl*)(class name2 *, struct name3 * *), long (__cdecl*)(struct name3 * *))");
 }
 
 #[test]
 fn OrigTest_bb() {
     eq!("?name0@name1@@$4PPPPPPPM@A@EAAJUname2@@PEBGW4name3@@11PEAEK3KPEAXPEAVname4@@@Z" =>
-        "[thunk]:public: virtual long __cdecl name1::name0`vtordisp{4294967292,0}' (struct name2,unsigned short const *, enum name3,unsigned short const *, unsigned short const *, unsigned char *, unsigned long, unsigned char *, unsigned long, void *, class name4 *)");
+        "[thunk]:public: virtual long __cdecl name1::name0`vtordisp{4294967292, 0}' (struct name2, unsigned short const *, enum name3, unsigned short const *, unsigned short const *, unsigned char *, unsigned long, unsigned char *, unsigned long, void *, class name4 *)");
 }
 
 #[test]
 fn OrigTest_bc() {
     eq!("?name0@name1@@QEAAJPEAUname2@@PEAUname3@@@Z" =>
-        "public: long __cdecl name1::name0(struct name2 * ,struct name3 * ) ");
+        "public: long __cdecl name1::name0(struct name2 *, struct name3 * ) ");
 }
 
 #[test]
@@ -4335,19 +4335,19 @@ fn OrigTest_be() {
 #[test]
 fn OrigTest_bf() {
     eq!("??_Gname0@?1???$name1@I@name2@@YA_NPAV?$name3@I@1@ABI@Z@UAEPAXI@Z" =>
-        "public: virtual void * __thiscall `bool __cdecl name2::name1<unsigned int>(class name2::name3<unsigned int> *,unsigned int const &)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
+        "public: virtual void * __thiscall `bool __cdecl name2::name1<unsigned int>(class name2::name3<unsigned int> *, unsigned int const &)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
 #[test]
 fn OrigTest_bg() {
     eq!("??$?0V?$name0@_NABW4name1@name2@@@name3@name4@@@?$name5@V?$name6@U?$name7@Q6A_NABW4name1@name2@@@Z$0A@@name3@name4@@_NABW4name1@name2@@@name3@name4@@@name4@@QAE@ABV?$name5@V?$name0@_NABW4name1@name2@@@name3@name4@@@1@@Z" =>
-    "public: __thiscall name4::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &),0>,bool,enum name2::name1 const &> >::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &),0>,bool,enum name2::name1 const &> ><class name4::name3::name0<bool,enum name2::name1 const &> >(class name4::name5<class name4::name3::name0<bool,enum name2::name1 const &> > const &)");
+    "public: __thiscall name4::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &), 0>, bool, enum name2::name1 const &> >::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &), 0>, bool, enum name2::name1 const &> ><class name4::name3::name0<bool, enum name2::name1 const &> >(class name4::name5<class name4::name3::name0<bool, enum name2::name1 const &> > const &)");
 }
 
 #[test]
 fn OrigTest_bh() {
     eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
-        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *,unsigned int,class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
+        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
 #[test]
@@ -4359,24 +4359,24 @@ fn OrigTest_bi() {
 #[test]
 fn OrigTest_bj() {
     eq!("??$?0V?$name0@_NABW4name1@name2@@@name3@name4@@@?$name5@V?$name6@U?$name7@Q6A_NABW4name1@name2@@@Z$0A@@name3@name4@@_NABW4name1@name2@@@name3@name4@@@name4@@QAE@ABV?$name5@V?$name0@_NABW4name1@name2@@@name3@name4@@@1@@Z" =>
-        "public: __thiscall name4::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &),0>,bool,enum name2::name1 const &> >::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &),0>,bool,enum name2::name1 const &> ><class name4::name3::name0<bool,enum name2::name1 const &> >(class name4::name5<class name4::name3::name0<bool,enum name2::name1 const &> > const &)");
+        "public: __thiscall name4::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &), 0>, bool, enum name2::name1 const &> >::name5<class name4::name3::name6<struct name4::name3::name7<bool (__cdecl*const)(enum name2::name1 const &), 0>, bool, enum name2::name1 const &> ><class name4::name3::name0<bool, enum name2::name1 const &> >(class name4::name5<class name4::name3::name0<bool, enum name2::name1 const &> > const &)");
 }
 
 #[test]
 fn OrigTest_bk() {
     eq!("??6?Aname0@name1@@YAAAVname2@1@AAV21@ABVname3@1@@Z" =>
-        "class name1::name2 & __cdecl name1::`anonymous namespace'::operator<<(class name1::name2 &,class name1::name3 const &)");
+        "class name1::name2 & __cdecl name1::`anonymous namespace'::operator<<(class name1::name2 &, class name1::name3 const &)");
 }
 
 #[test]
 fn OrigTest_bl() {
-    eq!("??8@YAHAEBVname0@@0@Z" => "int __cdecl operator==(class name0 const &,class name0 const &)");
+    eq!("??8@YAHAEBVname0@@0@Z" => "int __cdecl operator==(class name0 const &, class name0 const &)");
 }
 
 #[test]
 fn OrigTest_bm() {
     eq!("??$?9$$A6A_NABW4name0@name1@@@Z@name2@@YA_NABV?$name3@$$A6A_NABW4name0@name1@@@Z@0@$$T@Z" =>
-        "bool __cdecl name2::operator!=<bool __cdecl(enum name1::name0 const &)>(class name2::name3<bool __cdecl(enum name1::name0 const &)> const &,std::nullptr_t)");
+        "bool __cdecl name2::operator!=<bool __cdecl(enum name1::name0 const &)>(class name2::name3<bool __cdecl(enum name1::name0 const &)> const &, std::nullptr_t)");
 }
 
 #[test]
@@ -4392,7 +4392,7 @@ fn OrigTest_bo() {
 
 #[test]
 fn OrigTest_bp() {
-    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8,-1,0,64)'");
+    eq!("??_R17?0A@EA@name0@name1@@8" => "name1::name0::`RTTI Base Class Descriptor at (8, -1, 0, 64)'");
 }
 
 #[test]
@@ -4573,13 +4573,13 @@ fn DollarDollar_22a() {
 #[test]
 fn DollarDollar_23() {
     eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
-        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *,unsigned int,class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
+        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
 #[test]
 fn DollarDollar_24() {
     eq!("??$name0@H$$A6AJPEAUname1@@PEAVname2@name3@@@Z@?$name4@HP6AJPEAUname1@@PEAVname2@name3@@@ZV?$name5@H@@V?$name5@P6AJPEAUname1@@PEAVname2@name3@@@Z@@@@QEAAJAEBHA6AJPEAUname1@@PEAVname2@name3@@@ZPEAVname6@0@@Z" =>
-    "public: long __cdecl name4<int,long (__cdecl*)(struct name1 *,class name3::name2 *),class name5<int>,class name5<long (__cdecl*)(struct name1 *,class name3::name2 *)> >::name0<int,long __cdecl(struct name1 *, class name3::name2 *)>(int const &, long (__cdecl&)(struct name1 *,class name3::name2 *),class name4<int,long (__cdecl*)(struct name1 *,class name3::name2 *),class name5<int>,class name5<long (__cdecl*)(struct name1 *,class name3::name2 *)> >::name6 *)");
+    "public: long __cdecl name4<int, long (__cdecl*)(struct name1 *, class name3::name2 *), class name5<int>, class name5<long (__cdecl*)(struct name1 *, class name3::name2 *)> >::name0<int, long __cdecl(struct name1 *, class name3::name2 *)>(int const &, long (__cdecl&)(struct name1 *, class name3::name2 *), class name4<int, long (__cdecl*)(struct name1 *, class name3::name2 *), class name5<int>, class name5<long (__cdecl*)(struct name1 *, class name3::name2 *)> >::name6 *)");
 }
 
 #[test]
@@ -4639,7 +4639,7 @@ fn ManagedProperties_And_DollarDollar_Debug_In_Progress_ap() {
 fn ManagedProperties_And_DollarDollar_Debug_In_Progress_as() {
     //found elsewhere ($$A)
     eq!("??$name0@H$$A6AJPEAUname1@@PEAVname2@name3@@@Z@?$name4@HP6AJPEAUname1@@PEAVname2@name3@@@ZV?$name5@H@@V?$name5@P6AJPEAUname1@@PEAVname2@name3@@@Z@@@@QEAAJAEBHA6AJPEAUname1@@PEAVname2@name3@@@ZPEAVname6@0@@Z" =>
-    "public: long __cdecl name4<int,long (__cdecl*)(struct name1 *,class name3::name2 *),class name5<int>,class name5<long (__cdecl*)(struct name1 *,class name3::name2 *)> >::name0<int,long __cdecl(struct name1 *, class name3::name2 *)>(int const &,long (__cdecl&)(struct name1 *,class name3::name2 *),class name4<int,long (__cdecl*)(struct name1 *, class name3::name2 *),class name5<int>,class name5<long (__cdecl*)(struct name1 *, class name3::name2 *)> >::name6 *)");
+    "public: long __cdecl name4<int, long (__cdecl*)(struct name1 *, class name3::name2 *), class name5<int>, class name5<long (__cdecl*)(struct name1 *, class name3::name2 *)> >::name0<int, long __cdecl(struct name1 *, class name3::name2 *)>(int const &, long (__cdecl&)(struct name1 *, class name3::name2 *), class name4<int, long (__cdecl*)(struct name1 *, class name3::name2 *), class name5<int>, class name5<long (__cdecl*)(struct name1 *, class name3::name2 *)> >::name6 *)");
 }
 
 #[test]
@@ -4735,7 +4735,7 @@ fn ManagedProperties_And_DollarDollar_Debug_In_Progress_bl() {
 
 #[test]
 fn ManagedProperties_And_DollarDollar_Debug_In_Progress_bo() {
-    eq!("?FN@@QEAM@PE$02AVCL@@@Z" => "public: __clrcall FN(cli::array<class CL ,2>^)");
+    eq!("?FN@@QEAM@PE$02AVCL@@@Z" => "public: __clrcall FN(cli::array<class CL, 2>^)");
 }
 
 #[test]
@@ -4759,7 +4759,7 @@ fn ManagedProperties_And_DollarDollar_Debug_In_Progress_bs() {
 #[test]
 fn ManagedProperties_And_DollarDollar_Debug_In_Progress_bt() {
     eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
-        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *,unsigned int,class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
+        "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
 #[test]
@@ -4781,7 +4781,7 @@ fn ManagedProperties_aa() {
 // Manufactured
 #[test]
 fn ManagedProperties_au() {
-    eq!("?FN@@QEAM@PE$02AVCL@@@Z" => "public: __clrcall FN(cli::array<class CL ,2>^)");
+    eq!("?FN@@QEAM@PE$02AVCL@@@Z" => "public: __clrcall FN(cli::array<class CL, 2>^)");
 }
 
 // Manufactured
@@ -4848,14 +4848,14 @@ fn ManagedProperties_be() {
 #[test]
 fn ManagedProperties_bf() {
     eq!("??1?$name0@PEAUname1@@V?$name2@PEAUname1@@$0A@P6APEAXPEAX@Z$1?name3@@$$FYAPEAX0@ZP6AAEAPEAU1@AEAPEAU1@@Z$1?name4@?$name5@PEAUname1@@@@$$FSAAEAPEAU1@1@Z@@@@$$FUEAA@XZ" =>
-        "public: virtual __cdecl name0<struct name1 *,class name2<struct name1 *, 0, void * (__cdecl*)(void *),&void * __cdecl name3(void *),struct name1 * & (__cdecl*)(struct name1 * &),&public: static struct name1 * & __cdecl name5<struct name1 *>::name4(struct name1 * &)> >::~name0<struct name1 *, class name2<struct name1 *, 0,void * (__cdecl*)(void *),&void * __cdecl name3(void *),struct name1 * & (__cdecl*)(struct name1 * & ),&public: static struct name1 * & __cdecl name5<struct name1 *>::name4(struct name1 * &)> >(void)");
+        "public: virtual __cdecl name0<struct name1 *, class name2<struct name1 *, 0, void * (__cdecl*)(void *), &void * __cdecl name3(void *), struct name1 * & (__cdecl*)(struct name1 * &), &public: static struct name1 * & __cdecl name5<struct name1 *>::name4(struct name1 * &)> >::~name0<struct name1 *, class name2<struct name1 *, 0, void * (__cdecl*)(void *), &void * __cdecl name3(void *), struct name1 * & (__cdecl*)(struct name1 * & ), &public: static struct name1 * & __cdecl name5<struct name1 *>::name4(struct name1 * &)> >(void)");
 }
 
 // Manufactured
 #[test]
 fn ManagedProperties_bg() {
     eq!("??0name0@name1@@QEAA@AEBVname2@1@U?$name3@$$A6AXU?$name4@Vname5@name1@@@name1@@@Z@1@AEBU?$name6@Vname7@name1@@@1@@Z" =>
-        "public: __cdecl name1::name0::name0(class name1::name2 const &, struct name1::name3<void __cdecl(struct name1::name4<class name1::name5>)>,struct name1::name6<class name1::name7> const &");
+        "public: __cdecl name1::name0::name0(class name1::name2 const &, struct name1::name3<void __cdecl(struct name1::name4<class name1::name5>)>, struct name1::name6<class name1::name7> const &");
 }
 
 // Manufactured
@@ -4891,13 +4891,13 @@ fn ManagedExtensions1_Single2xxx() {
 #[test]
 fn ManagedExtensions1_Single3() {
     // $$H
-    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int,char * * const)");
+    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int, char * * const)");
 }
 
 #[test]
 fn ManagedExtensions1_aa() {
     eq!("??0name0@name1@name2@name3@name4@@$$FIE$AAM@PE$AAVname5@name6@name7@name8@@Vname9@678@@Z" =>
-        "protected: __clrcall name4::name3::name2::name1::name0::name0(class name8::name7::name6::name5 ^,class name8::name7::name6::name9)");
+        "protected: __clrcall name4::name3::name2::name1::name0::name0(class name8::name7::name6::name5 ^, class name8::name7::name6::name9)");
 }
 
 #[test]
@@ -4920,7 +4920,7 @@ fn ManagedExtensions1_ae() {
 #[test]
 fn ManagedExtensions1_ae_addThrow() {
     // manufactured
-    eq!("?get@C@@$$FQEI$AAMHXHH@" => "public: int __clrcall C::get(void) __restrict throw(int,int)");
+    eq!("?get@C@@$$FQEI$AAMHXHH@" => "public: int __clrcall C::get(void) __restrict throw(int, int)");
 }
 
 #[test]
@@ -4960,7 +4960,7 @@ fn ManagedExtensions1_al() {
 
 #[test]
 fn ManagedExtensions1_am() {
-    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int,char * * const)");
+    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int, char * * const)");
 }
 
 #[test]
@@ -4987,7 +4987,7 @@ fn ManagedExtensions1_ar() {
 
 #[test]
 fn ManagedExtensions1_as() {
-    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int,char * * const)");
+    eq!("?main@@$$HYAHHQEAPEAD@Z" => "int __cdecl main(int, char * * const)");
 }
 
 #[test]
@@ -5111,7 +5111,7 @@ fn GhidraFileInfo_Basic_007() {
 #[test]
 fn GhidraFileInfo_Basic_008() {
     eq!("?_set_se_translator@@YAP6AXIPAU_EXCEPTION_POINTERS@@@ZP6AXI0@Z@Z" =>
-        "void (__cdecl*__cdecl _set_se_translator(void (__cdecl*)(unsigned int,struct _EXCEPTION_POINTERS *)))(unsigned int,struct _EXCEPTION_POINTERS *)");
+        "void (__cdecl*__cdecl _set_se_translator(void (__cdecl*)(unsigned int, struct _EXCEPTION_POINTERS *)))(unsigned int, struct _EXCEPTION_POINTERS *)");
 }
 
 #[test]
@@ -5157,7 +5157,7 @@ fn GhidraFileInfo_Basic_016() {
 
 #[test]
 fn GhidraFileInfo_Basic_017() {
-    eq!("??0exception@@QAE@ABQBDH@Z" => "public: __thiscall exception::exception(char const * const &,int)");
+    eq!("??0exception@@QAE@ABQBDH@Z" => "public: __thiscall exception::exception(char const * const &, int)");
 }
 
 #[test]
@@ -5365,12 +5365,12 @@ fn GhidraFileInfo_Basic_054() {
 
 #[test]
 fn GhidraFileInfo_Basic_055() {
-    eq!("??_U@YAPAXIHPBDH@Z" => "void * __cdecl operator new[](unsigned int,int,char const *,int)");
+    eq!("??_U@YAPAXIHPBDH@Z" => "void * __cdecl operator new[](unsigned int, int, char const *, int)");
 }
 
 #[test]
 fn GhidraFileInfo_Basic_056() {
-    eq!("??2@YAPAXIHPBDH@Z" => "void * __cdecl operator new(unsigned int,int,char const *,int)");
+    eq!("??2@YAPAXIHPBDH@Z" => "void * __cdecl operator new(unsigned int, int, char const *, int)");
 }
 
 #[test]
@@ -5436,7 +5436,7 @@ fn GhidraFileInfo_Strings_009() {
 #[test]
 fn GhidraFileInfo_OverriddenOperator_001() {
     eq!("??5@YGAAVCArchive@@AAV0@AAPAVCGWTelMenuData@@@Z" =>
-        "class CArchive & __stdcall operator>>(class CArchive &,class CGWTelMenuData * &)");
+        "class CArchive & __stdcall operator>>(class CArchive &, class CGWTelMenuData * &)");
 }
 
 #[test]
@@ -5549,7 +5549,7 @@ fn GhidraFileInfo_OverriddenOperator_022() {
 #[test]
 fn GhidraFileInfo_OverriddenOperator_023() {
     eq!("??0CFileDialog@@QAE@HPBG0K0PAVCWnd@@@Z" =>
-        "public: __thiscall CFileDialog::CFileDialog(int,unsigned short const *,unsigned short const *,unsigned long,unsigned short const *,class CWnd *)");
+        "public: __thiscall CFileDialog::CFileDialog(int, unsigned short const *, unsigned short const *, unsigned long, unsigned short const *, class CWnd *)");
 }
 
 #[test]
@@ -5636,7 +5636,7 @@ fn GhidraFileInfo_ClassMethods_011() {
 #[test]
 fn GhidraFileInfo_ClassMethods_012() {
     eq!("?OnGetCheckPosition@CCheckListBox@@UAE?AVCRect@@V2@0@Z" =>
-        "public: virtual class CRect __thiscall CCheckListBox::OnGetCheckPosition(class CRect,class CRect)");
+        "public: virtual class CRect __thiscall CCheckListBox::OnGetCheckPosition(class CRect, class CRect)");
 }
 
 #[test]
@@ -5654,7 +5654,7 @@ fn GhidraFileInfo_Other_001() {
 #[test]
 fn GhidraFileInfo_Other_002() {
     eq!("??0CEndpointDlg@@QAE@VMESSAGE_PROCESSOR_ID@CClarentMessageProcessor@@PAVCMSSRemoveDialogRecipient@@@Z" =>
-        "public: __thiscall CEndpointDlg::CEndpointDlg(class CClarentMessageProcessor::MESSAGE_PROCESSOR_ID,class CMSSRemoveDialogRecipient *)");
+        "public: __thiscall CEndpointDlg::CEndpointDlg(class CClarentMessageProcessor::MESSAGE_PROCESSOR_ID, class CMSSRemoveDialogRecipient *)");
 }
 
 #[test]
@@ -5664,30 +5664,30 @@ fn GhidraFileInfo_StaticFunctions_000() {
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_001() {
-    eq!("?SpAlloc@@YAXHPAK0@Z" => "void __cdecl SpAlloc(int,unsigned long *,unsigned long *)");
+    eq!("?SpAlloc@@YAXHPAK0@Z" => "void __cdecl SpAlloc(int, unsigned long *, unsigned long *)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_002() {
     eq!("?SpClearHBreakpoint@@YAXIIKH@Z" =>
-        "void __cdecl SpClearHBreakpoint(unsigned int,unsigned int,unsigned long,int)");
+        "void __cdecl SpClearHBreakpoint(unsigned int, unsigned int, unsigned long, int)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_003() {
     eq!("?SpClearSBreakpoint@@YAXIIKPAEHEE@Z" =>
-        "void __cdecl SpClearSBreakpoint(unsigned int,unsigned int,unsigned long,unsigned char *,int,unsigned char,unsigned char)");
+        "void __cdecl SpClearSBreakpoint(unsigned int, unsigned int, unsigned long, unsigned char *, int, unsigned char, unsigned char)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_004() {
     eq!("?SpClearSingleStep@@YAXIIPAI@Z" =>
-        "void __cdecl SpClearSingleStep(unsigned int,unsigned int,unsigned int *)");
+        "void __cdecl SpClearSingleStep(unsigned int, unsigned int, unsigned int *)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_005() {
-    eq!("?SpCtrlSetFlags@@YAXII@Z" => "void __cdecl SpCtrlSetFlags(unsigned int,unsigned int)");
+    eq!("?SpCtrlSetFlags@@YAXII@Z" => "void __cdecl SpCtrlSetFlags(unsigned int, unsigned int)");
 }
 
 #[test]
@@ -5697,12 +5697,12 @@ fn GhidraFileInfo_StaticFunctions_006() {
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_007() {
-    eq!("?SpFree@@YAXHPAK0@Z" => "void __cdecl SpFree(int,unsigned long *,unsigned long *)");
+    eq!("?SpFree@@YAXHPAK0@Z" => "void __cdecl SpFree(int, unsigned long *, unsigned long *)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_008() {
-    eq!("?SpGetContextThread@@YAXIIIPAU_CONTEXT@NT@@I@Z" => "void __cdecl SpGetContextThread(unsigned int,unsigned int,unsigned int,struct NT::_CONTEXT *,unsigned int)");
+    eq!("?SpGetContextThread@@YAXIIIPAU_CONTEXT@NT@@I@Z" => "void __cdecl SpGetContextThread(unsigned int, unsigned int, unsigned int, struct NT::_CONTEXT *, unsigned int)");
 }
 
 #[test]
@@ -5713,28 +5713,28 @@ fn GhidraFileInfo_StaticFunctions_009() {
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_010() {
-    eq!("?SpGetProcessHandle@@YAXKPAPAX@Z" => "void __cdecl SpGetProcessHandle(unsigned long,void * *)");
+    eq!("?SpGetProcessHandle@@YAXKPAPAX@Z" => "void __cdecl SpGetProcessHandle(unsigned long, void * *)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_011() {
-    eq!("?SpGetProcessName@@YAXKPAXPAE@Z" => "void __cdecl SpGetProcessName(unsigned long,void *,unsigned char *)");
+    eq!("?SpGetProcessName@@YAXKPAXPAE@Z" => "void __cdecl SpGetProcessName(unsigned long, void *, unsigned char *)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_012() {
     eq!("?SpGetProcessNameHandle@@YAXPAU_SYSTEM_PROCESS_INFORMATION@NT@@PAGPAPAX@Z" =>
-        "void __cdecl SpGetProcessNameHandle(struct NT::_SYSTEM_PROCESS_INFORMATION *,unsigned short *,void * *)");
+        "void __cdecl SpGetProcessNameHandle(struct NT::_SYSTEM_PROCESS_INFORMATION *, unsigned short *, void * *)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_013() {
-    eq!("?SpGetRegSys@@YAXIHPAT_LARGE_INTEGER@@I@Z" => "void __cdecl SpGetRegSys(unsigned int,int,union _LARGE_INTEGER *,unsigned int)");
+    eq!("?SpGetRegSys@@YAXIHPAT_LARGE_INTEGER@@I@Z" => "void __cdecl SpGetRegSys(unsigned int, int, union _LARGE_INTEGER *, unsigned int)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_014() {
-    eq!("?SpGetThreadHandle@@YAXKKPAPAX@Z" => "void __cdecl SpGetThreadHandle(unsigned long,unsigned long,void * *)");
+    eq!("?SpGetThreadHandle@@YAXKKPAPAX@Z" => "void __cdecl SpGetThreadHandle(unsigned long, unsigned long, void * *)");
 }
 
 #[test]
@@ -5749,46 +5749,46 @@ fn GhidraFileInfo_StaticFunctions_016() {
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_017() {
-    eq!("?SpReadMemory@@YAHHKPAEH@Z" => "int __cdecl SpReadMemory(int,unsigned long,unsigned char *,int)");
+    eq!("?SpReadMemory@@YAHHKPAEH@Z" => "int __cdecl SpReadMemory(int, unsigned long, unsigned char *, int)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_018() {
     eq!("?SpSetContextThread@@YAXIIIPAU_CONTEXT@NT@@I@Z" =>
-        "void __cdecl SpSetContextThread(unsigned int,unsigned int,unsigned int,struct NT::_CONTEXT *,unsigned int)");
+        "void __cdecl SpSetContextThread(unsigned int, unsigned int, unsigned int, struct NT::_CONTEXT *, unsigned int)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_019() {
     eq!("?SpSetHBreakpoint@@YAXIIKHHHH@Z" =>
-        "void __cdecl SpSetHBreakpoint(unsigned int,unsigned int,unsigned long,int,int,int,int)");
+        "void __cdecl SpSetHBreakpoint(unsigned int, unsigned int, unsigned long, int, int, int, int)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_020() {
     eq!("?SpSetRegSys@@YAXIHPAT_LARGE_INTEGER@@I@Z" =>
-        "void __cdecl SpSetRegSys(unsigned int,int,union _LARGE_INTEGER *,unsigned int)");
+        "void __cdecl SpSetRegSys(unsigned int, int, union _LARGE_INTEGER *, unsigned int)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_021() {
     eq!("?SpSetSBreakpoint@@YAXIIKKPAE0HEE@Z" =>
-        "void __cdecl SpSetSBreakpoint(unsigned int,unsigned int,unsigned long,unsigned long,unsigned char *,unsigned char *,int,unsigned char,unsigned char)");
+        "void __cdecl SpSetSBreakpoint(unsigned int, unsigned int, unsigned long, unsigned long, unsigned char *, unsigned char *, int, unsigned char, unsigned char)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_022() {
-    eq!("?SpSetSingleStep@@YAXIIPAI@Z" => "void __cdecl SpSetSingleStep(unsigned int,unsigned int,unsigned int *)");
+    eq!("?SpSetSingleStep@@YAXIIPAI@Z" => "void __cdecl SpSetSingleStep(unsigned int, unsigned int, unsigned int *)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_023() {
-    eq!("?SpWriteMemory@@YAHHKPAEH@Z" => "int __cdecl SpWriteMemory(int,unsigned long,unsigned char *,int)");
+    eq!("?SpWriteMemory@@YAHHKPAEH@Z" => "int __cdecl SpWriteMemory(int, unsigned long, unsigned char *, int)");
 }
 
 #[test]
 fn GhidraFileInfo_StaticFunctions_024() {
-    eq!("?SpGetProcessHandle@@YAXKPAPAX@Z" => "void __cdecl SpGetProcessHandle(unsigned long,void * *)");
+    eq!("?SpGetProcessHandle@@YAXKPAPAX@Z" => "void __cdecl SpGetProcessHandle(unsigned long, void * *)");
 }
 
 #[test]
@@ -5799,7 +5799,7 @@ fn GhidraFileInfo_StaticFunctions_025() {
 #[test]
 fn GhidraFileInfo_StaticFunctions_026() {
     eq!("?fseal@@YAKKKK@Z" =>
-        "unsigned long __cdecl fseal(unsigned long,unsigned long,unsigned long)");
+        "unsigned long __cdecl fseal(unsigned long, unsigned long, unsigned long)");
 }
 
 #[test]
@@ -5871,36 +5871,36 @@ fn GhidraFileInfo_RTTI_003() {
 #[test]
 fn GhidraFileInfo_RTTI_004() {
     eq!("??_R1ABCP@?40A@A@_AFX_CTL3D_STATE@@8" =>
-        "_AFX_CTL3D_STATE::A::`RTTI Base Class Descriptor at (303,-5,1,0)'");
+        "_AFX_CTL3D_STATE::A::`RTTI Base Class Descriptor at (303, -5, 1, 0)'");
 }
 
 #[test]
 fn GhidraFileInfo_RTTI_005() {
     eq!("??_R1A@?0A@A@_AFX_CTL3D_STATE@@8" =>
-        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (0,-1,0,0)'");
+        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (0, -1, 0, 0)'");
 }
 
 #[test]
 fn GhidraFileInfo_RTTI_006() {
     eq!("??_R1ABCP@?0A@A@_AFX_CTL3D_STATE@@8" =>
-        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (303,-1,0,0)'");
+        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (303, -1, 0, 0)'");
 }
 
 #[test]
 fn GhidraFileInfo_RTTI_007() {
     eq!("??_R1ABCP@?0FGHJKL@A@_AFX_CTL3D_STATE@@8" =>
-        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (303,-1,5667243,0)'");
+        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (303, -1, 5667243, 0)'");
 }
 
 #[test]
 fn GhidraFileInfo_RTTI_008() {
     eq!("??_R1ABCP@?0FGHJKL@MNOP@_AFX_CTL3D_STATE@@8" =>
-        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (303,-1,5667243,52719)'");
+        "_AFX_CTL3D_STATE::`RTTI Base Class Descriptor at (303, -1, 5667243, 52719)'");
 }
 
 #[test]
 fn GhidraFileInfo_RTTI_009() {
-    eq!("??_R1A@?0A@A@CEnumUnknown@@8" => "CEnumUnknown::`RTTI Base Class Descriptor at (0,-1,0,0)'");
+    eq!("??_R1A@?0A@A@CEnumUnknown@@8" => "CEnumUnknown::`RTTI Base Class Descriptor at (0, -1, 0, 0)'");
 }
 
 #[test]
@@ -6007,40 +6007,40 @@ fn GhidraFileInfo_Arrays_001() {
 #[test]
 fn GhidraFileInfo_Arrays_002() {
     eq!("??_L@YGXPAXIHP6EX0@Z1@Z" =>
-        "void __stdcall `eh vector constructor iterator'(void *,unsigned int,int,void (__thiscall*)(void *),void (__thiscall*)(void *))");
+        "void __stdcall `eh vector constructor iterator'(void *, unsigned int, int, void (__thiscall*)(void *), void (__thiscall*)(void *))");
 }
 
 #[test]
 fn GhidraFileInfo_Arrays_003() {
-    eq!("??_M@YGXPAXIHP6EX0@Z@Z" => "void __stdcall `eh vector destructor iterator'(void *,unsigned int,int,void (__thiscall*)(void *))");
+    eq!("??_M@YGXPAXIHP6EX0@Z@Z" => "void __stdcall `eh vector destructor iterator'(void *, unsigned int, int, void (__thiscall*)(void *))");
 }
 
 #[test]
 fn GhidraFileInfo_Arrays_004() {
     eq!("?GetSuperWndProcAddr@CWnd@@MAEPAP6GJPAUHWND__@@IIJ@ZXZ" =>
-        "protected: virtual long (__stdcall** __thiscall CWnd::GetSuperWndProcAddr(void))(struct HWND__ *,unsigned int,unsigned int,long)");
+        "protected: virtual long (__stdcall** __thiscall CWnd::GetSuperWndProcAddr(void))(struct HWND__ *, unsigned int, unsigned int, long)");
 }
 
 #[test]
 fn GhidraFileInfo_FunctionPointerParameter_000() {
-    eq!("??0CWinThread@@QAE@P6AIPAX@Z0@Z" => "public: __thiscall CWinThread::CWinThread(unsigned int (__cdecl*)(void *),void *)");
+    eq!("??0CWinThread@@QAE@P6AIPAX@Z0@Z" => "public: __thiscall CWinThread::CWinThread(unsigned int (__cdecl*)(void *), void *)");
 }
 
 #[test]
 fn GhidraFileInfo_FunctionPointerParameter_001() {
     eq!("?register_callback@ios_base@std@@QAEXP6AXW4event@12@AAV12@H@ZH@Z" =>
-        "public: void __thiscall std::ios_base::register_callback(void (__cdecl*)(enum std::ios_base::event,class std::ios_base &,int),int)");
+        "public: void __thiscall std::ios_base::register_callback(void (__cdecl*)(enum std::ios_base::event, class std::ios_base &, int), int)");
 }
 
 #[test]
 fn GhidraFileInfo_FunctionPointerParameter_002() {
-    eq!("?__ArrayUnwind@@YGXPAXIHP6EX0@Z@Z" => "void __stdcall __ArrayUnwind(void *,unsigned int,int,void (__thiscall*)(void *))");
+    eq!("?__ArrayUnwind@@YGXPAXIHP6EX0@Z@Z" => "void __stdcall __ArrayUnwind(void *, unsigned int, int, void (__thiscall*)(void *))");
 }
 
 #[test]
 fn GhidraFileInfo_Templates_000() {
     eq!("??4?$_CIP@UIBindHost@@$1?IID_IBindHost@@3U_GUID@@B@@QAEAAV0@PAUIBindHost@@@Z" =>
-        "public: class _CIP<struct IBindHost,&struct _GUID const IID_IBindHost> & __thiscall _CIP<struct IBindHost,&struct _GUID const IID_IBindHost>::operator=(struct IBindHost *)");
+        "public: class _CIP<struct IBindHost, &struct _GUID const IID_IBindHost> & __thiscall _CIP<struct IBindHost, &struct _GUID const IID_IBindHost>::operator=(struct IBindHost *)");
 }
 
 #[test]
@@ -6276,7 +6276,7 @@ fn Win10_6798753_breakdown1() {
 #[test]
 fn Win10_6798753_breakdown2() {
     eq!("?_Xlen@?$vector@UVolumeWarning@@V?$allocator@UVolumeWarning@@@std@@@std@@KAXXZ" =>
-        "protected: static void __cdecl std::vector<struct VolumeWarning,class std::allocator<struct VolumeWarning> >::_Xlen(void)");
+        "protected: static void __cdecl std::vector<struct VolumeWarning, class std::allocator<struct VolumeWarning> >::_Xlen(void)");
 }
 
 #[test]
@@ -6292,7 +6292,7 @@ fn Win10_6798753_breakdown4() {
 #[test]
 fn Vcamp110msvc_1() {
     eq!("??$_Uninit_move@PEAU?$pair@PEAU_View_info@details@Concurrency@@_N@std@@PEAU12@V?$allocator@U?$pair@PEAU_View_info@details@Concurrency@@_N@std@@@2@U12@@std@@YAPEAU?$pair@PEAU_View_info@details@Concurrency@@_N@0@PEAU10@00AEAU?$_Wrap_alloc@V?$allocator@U?$pair@PEAU_View_info@details@Concurrency@@_N@std@@@std@@@0@0U_Nonscalar_ptr_iterator_tag@0@@Z" =>
-        "struct std::pair<struct Concurrency::details::_View_info *, bool> * __cdecl std::_Uninit_move<struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::pair<struct Concurrency::details::_View_info *, bool> *, class std::allocator<struct std::pair<struct Concurrency::details::_View_info *, bool> >,struct std::pair<struct Concurrency::details::_View_info *, bool> >(struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::_Wrap_alloc<class std::allocator<struct std::pair<struct Concurrency::details::_View_info *, bool> > > &, struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::_Nonscalar_ptr_iterator_tag)");
+        "struct std::pair<struct Concurrency::details::_View_info *, bool> * __cdecl std::_Uninit_move<struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::pair<struct Concurrency::details::_View_info *, bool> *, class std::allocator<struct std::pair<struct Concurrency::details::_View_info *, bool> >, struct std::pair<struct Concurrency::details::_View_info *, bool> >(struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::_Wrap_alloc<class std::allocator<struct std::pair<struct Concurrency::details::_View_info *, bool> > > &, struct std::pair<struct Concurrency::details::_View_info *, bool> *, struct std::_Nonscalar_ptr_iterator_tag)");
 }
 
 #[test]
@@ -6330,7 +6330,7 @@ fn TemplatedOperator_0() {
 #[test]
 fn TemplatedOperator_1() {
     eq!("??$?NDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@0@Z" =>
-        "bool __cdecl std::operator<=<char,struct std::char_traits<char>,class std::allocator<char>>(class std::basic_string<char, struct std::char_traits<char>, class std::allocator<char>> const &, class std::basic_string<char,struct std::char_traits<char>,class std::allocator<char> > const &)");
+        "bool __cdecl std::operator<=<char, struct std::char_traits<char>, class std::allocator<char>>(class std::basic_string<char, struct std::char_traits<char>, class std::allocator<char>> const &, class std::basic_string<char, struct std::char_traits<char>, class std::allocator<char> > const &)");
 }
 
 //From cn3.cpp
@@ -6342,7 +6342,7 @@ fn TemplatedOperator_2() {
 #[test]
 fn TemplatedOperator_3() {
     eq!("??$?MV?$myContainer@H@@@@YA_NABV?$myContainer@H@@0@Z" =>
-        "bool __cdecl operator<<class myContainer<int> >(class myContainer<int> const &,class myContainer<int> const &)");
+        "bool __cdecl operator<<class myContainer<int> >(class myContainer<int> const &, class myContainer<int> const &)");
 }
 
 // Following the model of MSFT Guard output strings even though the mangled form does not
@@ -6358,7 +6358,7 @@ fn ThreadSafeStaticGuard_1() {
 
 #[test]
 fn SimpleMainTemplateAsCounterpointToThreadSafeStaticGuard() {
-    eq!("?$TSS0@HH" => "TSS0<int,int>");
+    eq!("?$TSS0@HH" => "TSS0<int, int>");
 }
 
 // Manufactured by modifying "??_B?1??name0@name1@name2@@KAHPEBGAEAG@Z@51" which is a
@@ -6391,7 +6391,7 @@ fn ReferenceTemporary() {
 
 #[test]
 fn SimpleMainTemplateAsCounterpointToReferenceTemporary() {
-    eq!("?$RT1@HH" => "RT1<int,int>");
+    eq!("?$RT1@HH" => "RT1<int, int>");
 }
 
 #[test]
@@ -6454,7 +6454,7 @@ fn CPPManagedILFunction_1() {
 // Temporary counterpoint in trying to figure out the above.
 #[test]
 fn XXXCounterpoint2() {
-    eq!(".?AV?$name1@Vname2@@Uname3@name4@@@name4@@" => "class name4::name1<class name2,struct name4::name3>");
+    eq!(".?AV?$name1@Vname2@@Uname3@name4@@@name4@@" => "class name4::name1<class name2, struct name4::name3>");
 }
 
 // Temporary test for trying to fuzz solutions for the above.
