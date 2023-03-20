@@ -4,7 +4,6 @@ pub mod config;
 mod itanium;
 mod msvc;
 mod rust;
-mod test;
 
 use object::{Object, ObjectSymbol};
 use pdb::FallibleIterator;

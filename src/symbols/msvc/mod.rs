@@ -64,6 +64,7 @@
 //! ```
 //!
 //! source [MicrosoftMangle.cpp](https://github.com/llvm-mirror/clang/blob/aa231e4be75ac4759c236b755c57876f76e3cf05/lib/AST/MicrosoftMangle.cpp#L1609)
+mod tests;
 
 use std::borrow::Cow;
 
@@ -89,7 +90,7 @@ type Parameters<'a> = Vec<Type<'a>>;
 
 /// Root node of the AST.
 #[derive(Default, PartialEq, Debug, Clone)]
-enum Type<'src> {
+pub(super) enum Type<'src> {
     /// ``` "" ```
     #[default]
     Unit,
@@ -151,16 +152,16 @@ enum Type<'src> {
     /// ``` {<modifier>} unsigned long ```
     ULong(Modifiers),
 
-    /// ``` {<modifier>} i64 ```
+    /// ``` {<modifier>} int64_t ```
     I64(Modifiers),
 
-    /// ``` {<modifier>} u64 ```
+    /// ``` {<modifier>} uint64_t ```
     U64(Modifiers),
 
-    /// ``` {<modifier>} i128 ```
+    /// ``` {<modifier>} int128_t ```
     I128(Modifiers),
 
-    /// ``` {<modifier>} u128 ```
+    /// ``` {<modifier>} uint128_t ```
     U128(Modifiers),
 
     /// ``` {<modifier>} union <path> ```
@@ -213,12 +214,12 @@ enum Type<'src> {
     TemplateParameterIdx(isize),
 
     /// ``` {<modifier>} <path> ```
-    Ident(Modifiers, Path<'src>),
+    Path(Modifiers, Path<'src>),
 }
 
 /// Either a well known operator of a class or some C++ internal operator implementation.
 #[derive(Debug, PartialEq, Clone)]
-enum Operator<'src> {
+pub(super) enum Operator<'src> {
     /// Constructor
     Ctor,
 
@@ -402,7 +403,7 @@ enum Operator<'src> {
 
 /// Calling conventions supported by MSVC
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum CallingConv {
+pub(super) enum CallingConv {
     Cdecl,
     Pascal,
     Thiscall,
@@ -415,7 +416,7 @@ enum CallingConv {
 
 bitflags::bitflags! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    struct Scope: u32 {
+    pub(super) struct Scope: u32 {
         const PUBLIC     = 0b000000001;
         const PRIVATE    = 0b000000010;
         const PROTECTED  = 0b000000100;
@@ -428,7 +429,7 @@ bitflags::bitflags! {
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    struct Modifiers: u32 {
+    pub(super) struct Modifiers: u32 {
         /// const ..
         const CONST     = 0b00000001;
 
@@ -456,7 +457,7 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Path<'src> {
+pub(super) enum Path<'src> {
     Literal(Cow<'src, str>),
     Interface(Cow<'src, str>),
     Template(Box<Path<'src>>, Parameters<'src>),
@@ -467,9 +468,9 @@ enum Path<'src> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-struct Symbol<'src> {
-    path: Path<'src>,
-    tipe: Type<'src>,
+pub(super) struct Symbol<'src> {
+    pub path: Path<'src>,
+    pub tipe: Type<'src>,
 }
 
 impl<'src> From<Path<'src>> for Symbol<'src> {
@@ -497,7 +498,7 @@ struct Backrefs<'src> {
     param_count: usize,
 }
 
-struct Ast {
+pub(super) struct Ast {
     stream: TokenStream,
     offset: usize,
     depth: usize,
@@ -506,7 +507,7 @@ struct Ast {
 
 impl<'src> Ast {
     /// Create an initialized parser that hasn't started parsing yet.
-    fn new(s: &str) -> Self {
+    pub fn new(s: &str) -> Self {
         Self {
             stream: TokenStream::new(s),
             offset: 0,
@@ -527,7 +528,7 @@ impl<'src> Ast {
         (self.depth < MAX_DEPTH).then_some(())
     }
 
-    fn try_memorizing_ident(&mut self, ident: &Cow<'static, str>) {
+    fn try_memorizing_path(&mut self, ident: &Cow<'static, str>) {
         let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
 
         if !memorized.contains(ident) && self.backrefs.memorized_count != 10 {
@@ -536,7 +537,7 @@ impl<'src> Ast {
         }
     }
 
-    fn get_memorized_ident(&mut self, idx: usize) -> Option<Path<'src>> {
+    fn get_memorized_path(&mut self, idx: usize) -> Option<Path<'src>> {
         let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
         let memorized = memorized.get(idx).cloned()?;
 
@@ -737,10 +738,6 @@ impl<'src> Ast {
     fn function_qualifiers(&mut self) -> Modifiers {
         let mut qual = Modifiers::empty();
 
-        if self.eat(b'E') {
-            qual |= Modifiers::PTR64;
-        }
-
         if self.eat(b'I') {
             qual |= Modifiers::RESTRICT;
         }
@@ -828,8 +825,8 @@ impl<'src> Ast {
     }
 
     /// ```
-    /// <return-type> = <type>
-    ///               | @      // structors (they have no declared return type)
+    /// = <type>
+    /// | @      // structors (they have no declared return type)
     /// ```
     fn function_return_type(&mut self) -> Option<Type<'src>> {
         let modi = self.return_modifiers();
@@ -887,8 +884,8 @@ impl<'src> Ast {
     }
 
     /// ```
-    /// <variable-type> = <type> <cvr-qualifiers>
-    ///                 | <type> <pointee-cvr-qualifiers> // pointers, references
+    /// = <type> <cvr-qualifiers>
+    /// | <type> <pointee-cvr-qualifiers> # pointers, references
     /// ```
     fn tipe(&mut self, mut modi: Modifiers) -> Option<Type<'src>> {
         self.recurse_deeper()?;
@@ -939,7 +936,7 @@ impl<'src> Ast {
                 if self.eat(b'Y') {
                     self.depth -= 1;
                     let name = self.name(true)?;
-                    return Some(Type::Ident(modi, name));
+                    return Some(Type::Path(modi, name));
                 }
 
                 if self.eat(b'C') {
@@ -1232,7 +1229,7 @@ impl<'src> Ast {
     fn name(&mut self, memorize: bool) -> Option<Path<'src>> {
         let ident = Cow::Borrowed(self.ident()?);
         if memorize {
-            self.try_memorizing_ident(&ident);
+            self.try_memorizing_path(&ident);
         }
         Some(Path::Literal(ident))
     }
@@ -1255,7 +1252,7 @@ impl<'src> Ast {
         // memorized ident
         if let Some(digit) = self.base10() {
             self.depth -= 1;
-            return self.get_memorized_ident(digit);
+            return self.get_memorized_path(digit);
         }
 
         if self.eat(b'?') {
@@ -1277,7 +1274,7 @@ impl<'src> Ast {
 
         if let Some(digit) = self.base10() {
             self.depth -= 1;
-            return self.get_memorized_ident(digit);
+            return self.get_memorized_path(digit);
         }
 
         if self.eat(b'?') {
@@ -1294,7 +1291,7 @@ impl<'src> Ast {
 
                     self.template().and_then(|ident| match ident {
                         Path::Literal(ref literal) => {
-                            self.try_memorizing_ident(literal);
+                            self.try_memorizing_path(literal);
                             Some(ident)
                         }
                         _ => None,
@@ -1313,7 +1310,7 @@ impl<'src> Ast {
                             self.offset += 1;
                         }
 
-                        self.try_memorizing_ident(&Cow::Borrowed(&self.src()[..len]));
+                        self.try_memorizing_path(&Cow::Borrowed(&self.src()[..len]));
                     }
 
                     self.consume(b'@')?;
@@ -1325,7 +1322,7 @@ impl<'src> Ast {
 
                     let ident = Cow::Borrowed(self.ident()?);
                     self.consume(b'@')?;
-                    self.try_memorizing_ident(&ident);
+                    self.try_memorizing_path(&ident);
 
                     Some(Path::Interface(ident))
                 }
@@ -1338,7 +1335,7 @@ impl<'src> Ast {
         }
 
         let ident = Cow::Borrowed(self.ident()?);
-        self.try_memorizing_ident(&ident);
+        self.try_memorizing_path(&ident);
 
         self.depth -= 1;
         Some(Path::Literal(ident))
@@ -1366,7 +1363,7 @@ impl<'src> Ast {
     }
 
     /// ``` ? <name> <type-encoding> ```
-    fn parse(&mut self) -> Option<Symbol<'src>> {
+    pub fn parse(&mut self) -> Option<Symbol<'src>> {
         self.recurse_deeper()?;
         self.consume(b'?')?;
 
@@ -1444,7 +1441,7 @@ impl<'src> Ast {
     }
 }
 
-struct Formatter<'src> {
+pub(super) struct Formatter<'src> {
     stream: &'src mut TokenStream,
 }
 
@@ -1587,10 +1584,6 @@ impl<'src> Formatter<'src> {
             self.push("__far ", color);
         }
 
-        if modi.contains(Modifiers::PTR64) {
-            self.push("__ptr64 ", color);
-        }
-
         if modi.contains(Modifiers::UNALIGNED) {
             self.push("__unaligned ", color);
         }
@@ -1675,15 +1668,15 @@ impl<'src> Formatter<'src> {
             }
             Type::Char8(modi) => {
                 self.modifiers(modi);
-                self.push("char_utf8", colors::PURPLE);
+                self.push("char8_t", colors::PURPLE);
             }
             Type::Char16(modi) => {
                 self.modifiers(modi);
-                self.push("char_utf16", colors::PURPLE);
+                self.push("char16_t", colors::PURPLE);
             }
             Type::Char32(modi) => {
                 self.modifiers(modi);
-                self.push("char_utf32", colors::PURPLE);
+                self.push("char32_t", colors::PURPLE);
             }
             Type::IChar(modi) => {
                 self.modifiers(modi);
@@ -1695,15 +1688,15 @@ impl<'src> Formatter<'src> {
             }
             Type::WChar(modi) => {
                 self.modifiers(modi);
-                self.push("wchar", colors::PURPLE);
+                self.push("wchar_t", colors::PURPLE);
             }
             Type::IShort(modi) => {
                 self.modifiers(modi);
-                self.push("i16", colors::PURPLE);
+                self.push("short", colors::PURPLE);
             }
             Type::UShort(modi) => {
                 self.modifiers(modi);
-                self.push("u16", colors::PURPLE);
+                self.push("unsigned short", colors::PURPLE);
             }
             Type::Int(modi) => {
                 self.modifiers(modi);
@@ -1731,19 +1724,19 @@ impl<'src> Formatter<'src> {
             }
             Type::I64(modi) => {
                 self.modifiers(modi);
-                self.push("i64", colors::PURPLE);
+                self.push("int64_t", colors::PURPLE);
             }
             Type::U64(modi) => {
                 self.modifiers(modi);
-                self.push("u64", colors::PURPLE);
+                self.push("uint64_t", colors::PURPLE);
             }
             Type::I128(modi) => {
                 self.modifiers(modi);
-                self.push("i128", colors::PURPLE);
+                self.push("int128_t", colors::PURPLE);
             }
             Type::U128(modi) => {
                 self.modifiers(modi);
-                self.push("u128", colors::PURPLE);
+                self.push("uint128_t", colors::PURPLE);
             }
             _ => unreachable!(),
         }
@@ -1767,15 +1760,15 @@ impl<'src> Formatter<'src> {
             }
             Type::Char8(modi) => {
                 self.modifiers(modi);
-                self.push("char_utf8", colors::PURPLE);
+                self.push("char8_t", colors::PURPLE);
             }
             Type::Char16(modi) => {
                 self.modifiers(modi);
-                self.push("char_utf16", colors::PURPLE);
+                self.push("char16_t", colors::PURPLE);
             }
             Type::Char32(modi) => {
                 self.modifiers(modi);
-                self.push("char_utf32", colors::PURPLE);
+                self.push("char32_t", colors::PURPLE);
             }
             Type::IChar(modi) => {
                 self.modifiers(modi);
@@ -1787,15 +1780,15 @@ impl<'src> Formatter<'src> {
             }
             Type::WChar(modi) => {
                 self.modifiers(modi);
-                self.push("wchar", colors::PURPLE);
+                self.push("wchar_t", colors::PURPLE);
             }
             Type::IShort(modi) => {
                 self.modifiers(modi);
-                self.push("i16", colors::PURPLE);
+                self.push("short", colors::PURPLE);
             }
             Type::UShort(modi) => {
                 self.modifiers(modi);
-                self.push("u16", colors::PURPLE);
+                self.push("unsigned short", colors::PURPLE);
             }
             Type::Int(modi) => {
                 self.modifiers(modi);
@@ -1823,19 +1816,19 @@ impl<'src> Formatter<'src> {
             }
             Type::I64(modi) => {
                 self.modifiers(modi);
-                self.push("i64", colors::PURPLE);
+                self.push("int64_t", colors::PURPLE);
             }
             Type::U64(modi) => {
                 self.modifiers(modi);
-                self.push("u64", colors::PURPLE);
+                self.push("uint64_t", colors::PURPLE);
             }
             Type::I128(modi) => {
                 self.modifiers(modi);
-                self.push("i128", colors::PURPLE);
+                self.push("int128_t", colors::PURPLE);
             }
             Type::U128(modi) => {
                 self.modifiers(modi);
-                self.push("u128", colors::PURPLE);
+                self.push("uint128_t", colors::PURPLE);
             }
             Type::Union(modi, path) => {
                 self.modifiers(modi);
@@ -1903,40 +1896,5 @@ impl<'src> Formatter<'src> {
             }
             _ => todo!(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::eq;
-
-    #[test]
-    fn simple() {
-        let mut parser = Ast::new("?x@@YAXMH@Z");
-        let tree = parser.parse().unwrap();
-
-        assert_eq!(
-            tree,
-            Symbol {
-                path: Path::Sequence(vec![Path::Literal(Cow::Borrowed("x"))]),
-                tipe: Type::Function(
-                    CallingConv::Cdecl,
-                    Modifiers::empty(),
-                    Box::new(Type::Void(Modifiers::empty())),
-                    vec![
-                        Type::Float(Modifiers::empty()),
-                        Type::Int(Modifiers::empty()),
-                    ],
-                ),
-            }
-        );
-
-        eq!("?x@@YAXMH@Z" => "void __cdecl x(float, int)");
-    }
-
-    #[test]
-    fn instance() {
-        dbg!(Ast::new("?x@ns@@3PEAV?$klass@HH@1@EA").parse().unwrap());
     }
 }
