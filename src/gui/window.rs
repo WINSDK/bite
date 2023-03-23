@@ -209,10 +209,7 @@ impl Backend {
         let font = ab_glyph::FontArc::try_from_slice(font).unwrap();
         let glyph_brush = GlyphBrushBuilder::using_font(font).build(&device, surface_format);
 
-        let quad_pipeline = crate::gui::quad::Pipeline::new(
-            &device,
-            surface_format,
-        );
+        let quad_pipeline = crate::gui::quad::Pipeline::new(&device, surface_format);
 
         Ok(Self {
             size,
@@ -414,7 +411,8 @@ impl Backend {
                 0.0,
             ));
 
-            let bar_height = (self.size.height * self.size.height) as f32 / (dissasembly.len() as f32 * font_size);
+            let bar_height = (self.size.height * self.size.height) as f32
+                / (dissasembly.len() as f32 * font_size);
             let bar_height = bar_height.max(20.0);
             let offset = ctx.listing_offset / (dissasembly.len() as f32 * font_size);
             let screen_offset = offset * (self.size.height as f32 - bar_height);
@@ -426,10 +424,7 @@ impl Backend {
                     color: [0.1, 0.1, 0.12],
                 },
                 quad::Instance {
-                    position: [
-                        self.size.width as f32 - 10.0,
-                        screen_offset
-                    ],
+                    position: [self.size.width as f32 - 10.0, screen_offset],
                     size: [10.0, bar_height],
                     color: [0.3, 0.3, 0.35],
                 },

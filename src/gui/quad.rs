@@ -3,12 +3,6 @@ use std::mem;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-}
-
-#[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Instance {
     pub position: [f32; 2],
@@ -18,29 +12,24 @@ pub struct Instance {
 
 const MAX_INSTANCES: u64 = 10;
 
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.0, 0.0, 0.0] },
-    Vertex { position: [0.0, -1.0, 0.0] },
-    Vertex { position: [1.0, -1.0, 0.0] },
-    Vertex { position: [1.0, 0.0, 0.0] },
+const VERTICES: &[glam::Vec3] = &[
+    glam::vec3(0.0, 0.0, 0.0),
+    glam::vec3(0.0, -1.0, 0.0),
+    glam::vec3(1.0, -1.0, 0.0),
+    glam::vec3(1.0, 0.0, 0.0),
 ];
 
-const INDICES: &[u16] = &[
-    0, 1, 2,
-    0, 2, 3,
-];
+const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 struct Uniforms {
-    window_size: [f32; 2]
+    window_size: [f32; 2],
 }
 
 impl Uniforms {
     fn new(window_size: [f32; 2]) -> Self {
-        Uniforms {
-            window_size,
-        }
+        Uniforms { window_size }
     }
 }
 
@@ -55,22 +44,21 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
-        let constant_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("quad uniforms layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(
-                            mem::size_of::<Uniforms>() as wgpu::BufferAddress,
-                        ),
-                    },
-                    count: None,
-                }],
-            });
+        let constant_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("quad uniforms layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(
+                        mem::size_of::<Uniforms>() as wgpu::BufferAddress
+                    ),
+                },
+                count: None,
+            }],
+        });
 
         let constant_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quad uniforms buffer"),
@@ -94,13 +82,12 @@ impl Pipeline {
             bind_group_layouts: &[&constant_layout],
         });
 
-
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/quad.wgsl").into()),
         });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor { 
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("quad pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -108,7 +95,7 @@ impl Pipeline {
                 entry_point: "vs_main",
                 buffers: &[
                     wgpu::VertexBufferLayout {
-                        array_stride: mem::size_of::<Vertex>() as u64,
+                        array_stride: mem::size_of::<glam::Vec3>() as u64,
                         step_mode: wgpu::VertexStepMode::Vertex,
                         attributes: &wgpu::vertex_attr_array![
                             0 => Float32x3,
@@ -152,21 +139,17 @@ impl Pipeline {
             multiview: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("quad vertex buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("quad vertex buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("quad index buffer"),
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("quad index buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quad instance buffer"),
@@ -196,23 +179,27 @@ impl Pipeline {
     ) {
         let uniforms = Uniforms::new([size.width as f32, size.height as f32]);
 
-        staging_belt.write_buffer(
-            encoder,
-            &self.constant_buffer,
-            0,
-            wgpu::BufferSize::new(mem::size_of::<Uniforms>() as u64).unwrap(),
-            device
-        ).copy_from_slice(bytemuck::bytes_of(&uniforms));
+        staging_belt
+            .write_buffer(
+                encoder,
+                &self.constant_buffer,
+                0,
+                wgpu::BufferSize::new(mem::size_of::<Uniforms>() as u64).unwrap(),
+                device,
+            )
+            .copy_from_slice(bytemuck::bytes_of(&uniforms));
 
         let instance_bytes = bytemuck::cast_slice(&instances);
 
-        staging_belt.write_buffer(
-            encoder,
-            &self.instance_buffer,
-            0,
-            wgpu::BufferSize::new(instance_bytes.len() as u64).unwrap(),
-            device
-        ).copy_from_slice(instance_bytes);
+        staging_belt
+            .write_buffer(
+                encoder,
+                &self.instance_buffer,
+                0,
+                wgpu::BufferSize::new(instance_bytes.len() as u64).unwrap(),
+                device,
+            )
+            .copy_from_slice(instance_bytes);
 
         // drop(instance_buffer);
         // staging_belt.finish();

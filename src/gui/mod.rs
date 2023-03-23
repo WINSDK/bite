@@ -1,10 +1,10 @@
 mod controls;
 mod donut;
+mod quad;
 mod texture;
 mod uniforms;
 mod utils;
 mod window;
-mod quad;
 
 use winit::dpi::{PhysicalPosition, PhysicalSize, Size};
 use winit::event::{
@@ -170,12 +170,15 @@ pub async fn main() -> Result<(), Error> {
                     let delta = -match delta {
                         // I'm assuming a line is about 100 pixels
                         MouseScrollDelta::LineDelta(_, scroll) => scroll * 100.0,
-                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => scroll as f32,
+                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => {
+                            scroll as f32
+                        }
                     };
 
                     ctx.listing_offset = f32::max(0.0, ctx.listing_offset + delta);
                     if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
-                        ctx.listing_offset = ctx.listing_offset
+                        ctx.listing_offset = ctx
+                            .listing_offset
                             .min(dissasembly.len() as f32 * ctx.font_size);
                     }
                 }
