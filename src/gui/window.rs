@@ -85,7 +85,7 @@ impl Backend {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode,
             view_formats: Vec::new(),
         };
@@ -325,7 +325,7 @@ impl Backend {
             let line_count = (self.size.height as f32 / font_size).ceil() as usize;
             let mut texts = Vec::with_capacity(line_count * 10);
 
-            let lower_bound = (ctx.listing_offset / font_size as f64) as usize;
+            let lower_bound = (ctx.listing_offset / font_size) as usize;
             let uppper_bound = dissasembly.len().min(line_count + lower_bound);
             let listing = dissasembly
                 .get(lower_bound..uppper_bound)
@@ -413,6 +413,36 @@ impl Backend {
                 -ctx.listing_offset as f32 % font_size,
                 0.0,
             ));
+
+            let bar_height = (self.size.height * self.size.height) as f32 / (dissasembly.len() as f32 * font_size);
+            let bar_height = bar_height.max(20.0);
+            let offset = ctx.listing_offset / (dissasembly.len() as f32 * font_size);
+            let screen_offset = offset * (self.size.height as f32 - bar_height);
+
+            let instances = [
+                quad::Instance {
+                    position: [self.size.width as f32 - 10.0, 0.0],
+                    size: [10.0, 10000.0],
+                    color: [0.1, 0.1, 0.12],
+                },
+                quad::Instance {
+                    position: [
+                        self.size.width as f32 - 10.0,
+                        screen_offset
+                    ],
+                    size: [10.0, bar_height],
+                    color: [0.3, 0.3, 0.35],
+                },
+            ];
+
+            self.quad_pipeline.draw(
+                &mut encoder,
+                &instances,
+                &self.device,
+                &view,
+                &mut self.staging_belt,
+                self.size,
+            );
 
             // draw assembly listing
             self.glyph_brush
