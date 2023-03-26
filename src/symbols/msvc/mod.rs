@@ -66,31 +66,39 @@
 //! source [MicrosoftMangle.cpp](https://github.com/llvm-mirror/clang/blob/aa231e4be75ac4759c236b755c57876f76e3cf05/lib/AST/MicrosoftMangle.cpp#L1609)
 mod tests;
 
-use std::borrow::Cow;
+use std::fmt;
 
 use super::TokenStream;
 use crate::colors::{self, Color};
+use bitflags::bitflags;
 
 /// Max recursion depth
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(s: &str) -> Option<TokenStream> {
-    let mut parser = Ast::new(s);
+    let mut parser = Context::new(s);
+    let mut backrefs = Backrefs::default();
 
     // llvm appears to generate a '.' prefix on some symbols
     parser.eat(b'.');
 
-    let sym = dbg!(parser.parse())?;
-    Formatter::fmt(&mut parser.stream, sym);
+    let sym = dbg!(Symbol::parse(&mut parser, &mut backrefs)?);
+    sym.demangle(&mut parser, &mut backrefs);
 
     Some(parser.stream)
 }
 
-type Parameters<'a> = Vec<Type<'a>>;
+trait Format<'b> {
+    fn demangle(&'b self, ctx: &'b mut Context, backrefs: &mut Backrefs);
+}
+
+trait Parse<'a, 'b>: Sized {
+    fn parse(ctx: &'b mut Context, backrefs: &'a mut Backrefs) -> Option<Self>;
+}
 
 /// Root node of the AST.
-#[derive(Default, PartialEq, Debug, Clone)]
-pub(super) enum Type<'src> {
+#[derive(Default, Debug, Clone, PartialEq)]
+enum Type {
     /// ``` "" ```
     #[default]
     Unit,
@@ -164,48 +172,35 @@ pub(super) enum Type<'src> {
     /// ``` {<modifier>} uint128_t ```
     U128(Modifiers),
 
-    /// ``` {<modifier>} union <path> ```
-    Union(Modifiers, Path<'src>),
+    /// ``` {<modifier>} union <ident> ```
+    Union(Modifiers, Literal),
 
-    /// ``` {<modifier>} enum <path> ```
-    Enum(Modifiers, Path<'src>),
+    /// ``` {<modifier>} enum <ident> ```
+    Enum(Modifiers, Literal),
 
-    /// ``` {<modifier>} struct <path> ```
-    Struct(Modifiers, Path<'src>),
+    /// ``` {<modifier>} struct <ident> ```
+    Struct(Modifiers, Literal),
 
-    /// ``` {<modifier>} class <path> ```
-    Class(Modifiers, Path<'src>),
+    /// ``` {<modifier>} class <ident> ```
+    Class(Modifiers, Literal),
 
     /// ``` {<modifier>} & <type> ```
-    Ref(Modifiers, Box<Type<'src>>),
+    Ref(Modifiers, Box<Pointee>),
 
     /// ``` {<modifier>} && <type> ```
-    RValueRef(Modifiers, Box<Type<'src>>),
+    RValueRef(Modifiers, Box<Pointee>),
 
     /// ``` {<modifier>} * <type> ```
-    Ptr(Modifiers, Box<Type<'src>>),
+    Ptr(Modifiers, Box<Pointee>),
 
     /// ``` <calling-conv> {<modifier>} <return-type> ({<type>}) ```
-    Function(CallingConv, Modifiers, Box<Type<'src>>, Parameters<'src>),
+    Function(Function),
 
     /// ``` <scope>: <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
-    MemberFunction(
-        Scope,
-        CallingConv,
-        Modifiers,
-        Box<Type<'src>>,
-        Parameters<'src>,
-    ),
+    MemberFunction(MemberFunction),
 
     /// ``` <scope>: <path> <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
-    MemberFunctionPtr(
-        Scope,
-        Path<'src>,
-        CallingConv,
-        Modifiers,
-        Box<Type<'src>>,
-        Parameters<'src>,
-    ),
+    MemberFunctionPtr(MemberFunctionPtr),
 
     /// ``` <number> ```
     Constant(isize),
@@ -214,12 +209,350 @@ pub(super) enum Type<'src> {
     TemplateParameterIdx(isize),
 
     /// ``` {<modifier>} <path> ```
-    Path(Modifiers, Path<'src>),
+    Typedef(Modifiers, Literal),
+
+    /// ``` <storage> {<modifier>} ```
+    Variable(StorageVariable, Modifiers, Box<Type>),
+
+    /// Index into the parameter substitution table.
+    Indexed(usize),
+
+    /// String encoded using a format we don't know.
+    Encoded(EncodedIdent),
+
+    /// ???
+    Array(Array),
+}
+
+impl<'a, 'b> Parse<'a, 'b> for Type {
+    fn parse(ctx: &'b mut Context, backrefs: &'a mut Backrefs) -> Option<Self> {
+        match ctx.peek_slice(0..2)? {
+            b"W4" => {
+                ctx.offset += 2;
+                ctx.memorizing = false;
+
+                let name = Literal::parse(ctx, backrefs)?;
+                return Some(Type::Enum(ctx.modifiers, name));
+            }
+            b"A6" => {
+                ctx.offset += 2;
+                ctx.parsing_qualifiers = false;
+
+                let func = Function::parse(ctx, backrefs)
+                    .map(Type::Function)
+                    .map(Pointee)?;
+
+                return Some(Type::Ref(ctx.modifiers, Box::new(func)));
+            }
+            b"P6" => {
+                ctx.offset += 2;
+                ctx.parsing_qualifiers = false;
+
+                let func = Function::parse(ctx, backrefs)
+                    .map(Type::Function)
+                    .map(Pointee)?;
+
+                return Some(Type::Ptr(ctx.modifiers, Box::new(func)));
+            }
+            b"P8" => {
+                ctx.offset += 2;
+
+                return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
+            }
+            _ => {}
+        }
+
+        if ctx.eat(b'$') {
+            if ctx.eat(b'0') {
+                return ctx.number().map(Type::Constant);
+            }
+
+            if ctx.eat(b'D') {
+                return ctx.number().map(Type::TemplateParameterIdx);
+            }
+
+            if ctx.eat(b'$') {
+                if ctx.eat(b'Y') {
+                    ctx.memorizing = false;
+                    let name = Literal::parse(ctx, backrefs)?;
+                    return Some(Type::Typedef(ctx.modifiers, name));
+                }
+
+                if ctx.eat(b'T') {
+                    return Some(Type::Nullptr);
+                }
+
+                if ctx.eat(b'Q') {
+                    ctx.parsing_qualifiers = false;
+
+                    let func = Function::parse(ctx, backrefs)
+                        .map(Type::Function)
+                        .map(Pointee)?;
+
+                    return Some(Type::RValueRef(ctx.modifiers, Box::new(func)));
+                }
+
+                if ctx.eat_slice(b"BY") {
+                    return Array::parse(ctx, backrefs).map(Type::Array);
+                }
+
+                if ctx.eat_slice(b"A6") {
+                    ctx.parsing_qualifiers = false;
+                    return Function::parse(ctx, backrefs).map(Type::Function);
+                }
+
+                if ctx.eat_slice(b"A8@@") {
+                    ctx.parsing_qualifiers = true;
+                    return Function::parse(ctx, backrefs).map(Type::Function);
+                }
+
+                if ctx.eat(b'V') || ctx.eat(b'Z') || ctx.eat_slice(b"$V") {
+                    return Some(Type::Unit);
+                }
+
+                if ctx.eat(b'C') {
+                    ctx.modifiers = Qualifiers::parse(ctx, backrefs)?.0;
+                }
+            }
+
+            if ctx.eat(b'S') {
+                return Some(Type::Unit);
+            }
+
+            if let Some(b'1' | b'H' | b'I' | b'J') = ctx.take() {
+                ctx.consume(b'?')?;
+                return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
+            }
+        }
+
+        if ctx.eat(b'?') {
+            let idx = ctx.number()?;
+            return Some(Type::TemplateParameterIdx(-idx));
+        }
+
+        if let Some(digit) = ctx.base10() {
+            return backrefs.get_memorized_param(digit);
+        }
+
+        ctx.memorizing = false;
+        let tipe = match ctx.take()? {
+            b'T' => Type::Union(ctx.modifiers, Literal::parse(ctx, backrefs)?),
+            b'U' => Type::Struct(ctx.modifiers, Literal::parse(ctx, backrefs)?),
+            b'V' => Type::Class(ctx.modifiers, Literal::parse(ctx, backrefs)?),
+            b'A' => Type::Ref(ctx.modifiers, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'B' => Type::Ref(
+                Modifiers::VOLATILE,
+                Box::new(Pointee::parse(ctx, backrefs)?),
+            ),
+            b'P' => Type::Ptr(ctx.modifiers, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'Q' => Type::Ptr(Modifiers::CONST, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'R' => Type::Ptr(
+                Modifiers::VOLATILE,
+                Box::new(Pointee::parse(ctx, backrefs)?),
+            ),
+            b'S' => Type::Ptr(
+                Modifiers::CONST | Modifiers::VOLATILE,
+                Box::new(Pointee::parse(ctx, backrefs)?),
+            ),
+            b'Y' => Type::Array(Array::parse(ctx, backrefs)?),
+            b'X' => Type::Void(ctx.modifiers),
+            b'D' => Type::Char(ctx.modifiers),
+            b'C' => Type::IChar(ctx.modifiers),
+            b'E' => Type::UChar(ctx.modifiers),
+            b'F' => Type::IShort(ctx.modifiers),
+            b'G' => Type::UShort(ctx.modifiers),
+            b'H' => Type::Int(ctx.modifiers),
+            b'I' => Type::UInt(ctx.modifiers),
+            b'J' => Type::Long(ctx.modifiers),
+            b'K' => Type::ULong(ctx.modifiers),
+            b'M' => Type::Float(ctx.modifiers),
+            b'N' => Type::Double(ctx.modifiers),
+            b'O' => Type::LDouble(ctx.modifiers),
+            b'_' => match ctx.take()? {
+                b'N' => Type::Bool(ctx.modifiers),
+                b'J' => Type::I64(ctx.modifiers),
+                b'K' => Type::U64(ctx.modifiers),
+                b'L' => Type::I128(ctx.modifiers),
+                b'M' => Type::U128(ctx.modifiers),
+                b'W' => Type::WChar(ctx.modifiers),
+                b'Q' => Type::Char8(ctx.modifiers),
+                b'S' => Type::Char16(ctx.modifiers),
+                b'U' => Type::Char32(ctx.modifiers),
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        Some(tipe)
+    }
+}
+
+impl<'b> Format<'b> for Type {
+    fn demangle(&self, _ctx: &mut Context, _backrefs: &mut Backrefs) {
+        todo!()
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct Function {
+    calling_conv: CallingConv,
+    qualifiers: FunctionQualifiers,
+    return_type: Box<FunctionReturnType>,
+    params: FunctionParameters,
+}
+
+impl<'a, 'b> Parse<'a, 'b> for Function {
+    fn parse(ctx: &'b mut Context, backrefs: &'a mut Backrefs) -> Option<Self> {
+        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
+
+        if ctx.parsing_qualifiers {
+            qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
+        }
+
+        let calling_conv = CallingConv::parse(ctx, backrefs)?;
+
+        if ctx.eat(b'?') {
+            ctx.modifiers = Modifiers::parse(ctx, backrefs)?;
+        }
+
+        let return_type = FunctionReturnType::parse(ctx, backrefs)?;
+        let params = FunctionParameters::parse(ctx, backrefs)?;
+
+        Some(Function {
+            calling_conv,
+            qualifiers,
+            return_type: Box::new(return_type),
+            params,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct MemberFunction {
+    storage_scope: StorageScope,
+    calling_conv: CallingConv,
+    qualifiers: FunctionQualifiers,
+    return_type: Box<FunctionReturnType>,
+    params: FunctionParameters,
+}
+
+impl<'a, 'b> Parse<'a, 'b> for MemberFunction {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
+        let storage_scope = StorageScope::parse(ctx, backrefs)?;
+
+        if !storage_scope.contains(StorageScope::STATIC) {
+            qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
+        }
+
+        let calling_conv = CallingConv::parse(ctx, backrefs)?;
+        let return_type = FunctionReturnType::parse(ctx, backrefs)?;
+        let params = FunctionParameters::parse(ctx, backrefs)?;
+
+        Some(MemberFunction {
+            storage_scope,
+            calling_conv,
+            qualifiers,
+            return_type: Box::new(return_type),
+            params,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct MemberFunctionPtr {
+    storage_scope: StorageScope,
+    class_name: Path,
+    calling_conv: CallingConv,
+    qualifiers: FunctionQualifiers,
+    return_type: Box<FunctionReturnType>,
+    params: FunctionParameters,
+}
+
+impl<'a, 'b> Parse<'a, 'b> for MemberFunctionPtr {
+    fn parse(ctx: &'b mut Context, backrefs: &'a mut Backrefs) -> Option<Self> {
+        let class_name = Path::parse(ctx, backrefs)?;
+        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
+        let mut storage_scope = StorageScope::empty();
+
+        if ctx.eat(b'E') {
+            qualifiers = FunctionQualifiers(Modifiers::PTR64);
+        }
+
+        if ctx.parsing_qualifiers {
+            qualifiers.0 |= FunctionQualifiers::parse(ctx, backrefs)?.0;
+        } else {
+            storage_scope = StorageScope::parse(ctx, backrefs)?;
+        }
+
+        let calling_conv = CallingConv::parse(ctx, backrefs)?;
+
+        ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
+
+        let return_type = FunctionReturnType::parse(ctx, backrefs)?;
+        let params = FunctionParameters::parse(ctx, backrefs)?;
+
+        Some(MemberFunctionPtr {
+            storage_scope,
+            class_name,
+            calling_conv,
+            qualifiers,
+            return_type: Box::new(return_type),
+            params,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct Array(Vec<Type>);
+
+impl<'a, 'b> Parse<'a, 'b> for Array {
+    fn parse(_: &'b mut Context, _: &'a mut Backrefs) -> Option<Self> {
+        todo!()
+    }
+}
+
+impl<'a, 'b> Format<'a> for Array {
+    fn demangle(&self, _ctx: &mut Context, _backrefs: &mut Backrefs) {
+        todo!()
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct Pointee(Type);
+
+impl<'a, 'b> Parse<'a, 'b> for Pointee {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        if ctx.eat(b'E') {
+            ctx.modifiers |= Modifiers::PTR64;
+        }
+
+        let pointer_modi = Modifiers::parse(ctx, backrefs)?;
+
+        ctx.modifiers |= pointer_modi;
+
+        Type::parse(ctx, backrefs).map(Pointee)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct FunctionReturnType(Type);
+
+impl<'a, 'b> Parse<'a, 'b> for FunctionReturnType {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
+
+        if ctx.eat(b'@') {
+            return Some(FunctionReturnType(Type::Unit));
+        }
+
+        Type::parse(ctx, backrefs).map(FunctionReturnType)
+    }
 }
 
 /// Either a well known operator of a class or some C++ internal operator implementation.
 #[derive(Debug, PartialEq, Clone)]
-pub(super) enum Operator<'src> {
+enum Operator {
     /// Constructor
     Ctor,
 
@@ -398,12 +731,229 @@ pub(super) enum Operator<'src> {
     LocalVftableCtorClosure,
 
     /// Source name???
-    SourceName(Cow<'src, str>),
+    SourceName(Literal),
+}
+
+impl<'a, 'b> Parse<'a, 'b> for Operator {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        // FIXME: this doesn't handle all cases
+        let op = match ctx.take()? {
+            b'0' => Operator::Ctor,
+            b'1' => Operator::Dtor,
+            b'2' => Operator::New,
+            b'3' => Operator::Delete,
+            b'4' => Operator::Assign,
+            b'5' => Operator::ShiftRight,
+            b'6' => Operator::ShiftLeft,
+            b'7' => Operator::LogicalNot,
+            b'8' => Operator::Equals,
+            b'9' => Operator::NotEquals,
+            b'A' => Operator::Array,
+            b'C' => Operator::Pointer,
+            b'D' => Operator::Dereference,
+            b'E' => Operator::Increment,
+            b'F' => Operator::Decrement,
+            b'G' => Operator::Minus,
+            b'H' => Operator::Plus,
+            b'I' => Operator::ArithmeticAND,
+            b'J' => Operator::MemberDereference,
+            b'K' => Operator::Divide,
+            b'L' => Operator::Modulus,
+            b'M' => Operator::Less,
+            b'N' => Operator::LessEqual,
+            b'O' => Operator::Greater,
+            b'P' => Operator::GreaterEqual,
+            b'Q' => Operator::Comma,
+            b'R' => Operator::Calling,
+            b'S' => Operator::ArithmeticNot,
+            b'T' => Operator::Xor,
+            b'U' => Operator::ArithmeticOR,
+            b'V' => Operator::LogicalAND,
+            b'W' => Operator::LogicalOR,
+            b'X' => Operator::TimesEquals,
+            b'Y' => Operator::PlusEquals,
+            b'Z' => Operator::MinusEquals,
+            b'_' => match ctx.take()? {
+                b'0' => Operator::DivideEquals,
+                b'1' => Operator::ModulusEquals,
+                b'2' => Operator::ShiftRightEquals,
+                b'3' => Operator::ShiftLeftEquals,
+                b'4' => Operator::ANDEquals,
+                b'5' => Operator::OREquals,
+                b'6' => Operator::XorEquals,
+                b'D' => Operator::VBaseDtor,
+                b'E' => Operator::VectorDeletingDtor,
+                b'F' => Operator::DefaultCtorClosure,
+                b'G' => Operator::ScalarDeletingDtor,
+                b'H' => Operator::VecCtorIter,
+                b'I' => Operator::VecDtorIter,
+                b'J' => Operator::VecVbaseCtorIter,
+                b'K' => Operator::VdispMap,
+                b'L' => Operator::EHVecCtorIter,
+                b'M' => Operator::EHVecDtorIter,
+                b'N' => Operator::EHVecVbaseCtorIter,
+                b'O' => Operator::CopyCtorClosure,
+                b'T' => Operator::LocalVftableCtorClosure,
+                b'U' => Operator::NewArray,
+                b'V' => Operator::DeleteArray,
+                b'_' => match ctx.take()? {
+                    b'L' => Operator::CoAwait,
+                    b'M' => Operator::Spaceship,
+                    b'K' => return ctx.ident().map(Operator::SourceName),
+                    _ => return None,
+                },
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        Some(op)
+    }
+}
+
+impl<'b> Format<'b> for Operator {
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        let literal = match *self {
+            Operator::Ctor => "constructor",
+            Operator::Dtor => "destructor",
+            Operator::New => "operator new",
+            Operator::Delete => "operator delete",
+            Operator::Assign => "operator=",
+            Operator::ShiftRight => "operator>>",
+            Operator::ShiftLeft => "operator<<",
+            Operator::LogicalNot => "operator!",
+            Operator::Equals => "operator=",
+            Operator::NotEquals => "operator!=",
+            Operator::Array => "operator[]",
+            Operator::Pointer => "operator->",
+            Operator::Dereference => "operator*",
+            Operator::MemberDereference => "operator->*",
+            Operator::Increment => "operator++",
+            Operator::Decrement => "operator--",
+            Operator::Minus => "operator-",
+            Operator::Plus => "operator+",
+            Operator::ArithmeticAND => "operator&",
+            Operator::Divide => "operator/",
+            Operator::Modulus => "operator%",
+            Operator::Less => "operator<",
+            Operator::LessEqual => "operator<=",
+            Operator::Greater => "operator>",
+            Operator::GreaterEqual => "operator>=",
+            Operator::Comma => "operator,",
+            Operator::Calling => "operator()",
+            Operator::ArithmeticNot => "operator~",
+            Operator::Xor => "operator^",
+            Operator::ArithmeticOR => "operator|",
+            Operator::LogicalAND => "operator&&",
+            Operator::LogicalOR => "operator||",
+            Operator::TimesEquals => "operator*=",
+            Operator::PlusEquals => "operator+=",
+            Operator::MinusEquals => "operator-=",
+            Operator::DivideEquals => "operator/=",
+            Operator::ModulusEquals => "operator%=",
+            Operator::ShiftRightEquals => "operator>>=",
+            Operator::ShiftLeftEquals => "operator<<=",
+            Operator::ANDEquals => "operator&=",
+            Operator::OREquals => "operator|=",
+            Operator::XorEquals => "operator^=",
+            Operator::VBaseDtor => "`vbase destructor'",
+            Operator::VectorDeletingDtor => "`vector deleting destructor'",
+            Operator::DefaultCtorClosure => "`default constructor closure'",
+            Operator::ScalarDeletingDtor => "`scalar deleting destructor'",
+            Operator::VecCtorIter => "`vector constructor iterator'",
+            Operator::VecDtorIter => "`vector destructor iterator'",
+            Operator::VecVbaseCtorIter => "`vector vbase constructor iterator'",
+            Operator::VdispMap => "`virtual displacement map'",
+            Operator::EHVecCtorIter => "`eh vector constructor iterator'",
+            Operator::EHVecDtorIter => "`eh vector destructor iterator'",
+            Operator::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
+            Operator::CopyCtorClosure => "`copy constructor closure'",
+            Operator::LocalVftableCtorClosure => "`local vftable constructor closure'",
+            Operator::NewArray => "operator new[]",
+            Operator::DeleteArray => "operator delete[]",
+            Operator::CoAwait => "co_await",
+            Operator::Spaceship => "operator<=>",
+            Operator::SourceName(ref src) => {
+                return ctx.push_literal(backrefs, src, colors::MAGENTA)
+            }
+        };
+
+        ctx.stream.push(literal, colors::MAGENTA);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Parameters(Vec<Type>);
+
+impl<'a, 'b> Parse<'a, 'b> for Parameters {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let mut types = Vec::new();
+
+        loop {
+            if let Some(b'@') | Some(b'Z') | None = ctx.peek() {
+                break;
+            }
+
+            if let Some(digit) = ctx.base10() {
+                types.push(backrefs.get_memorized_param(digit)?);
+                continue;
+            }
+
+            let start = ctx.src().len();
+            let tipe = Type::parse(ctx, backrefs)?;
+            let end = ctx.src().len();
+
+            // single-letter types are ignored for backref's because
+            // memorizing them doesn't save anything.
+            if start - end > 1 {
+                backrefs.try_memorizing_param(&tipe);
+            }
+
+            types.push(tipe);
+        }
+
+        if !(ctx.eat(b'Z') || ctx.src().is_empty()) {
+            ctx.consume(b'@')?;
+        }
+
+        Some(Parameters(types))
+    }
+}
+
+impl<'b> Format<'b> for Parameters {
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        let mut params = self.0.iter();
+
+        if let Some(param) = params.next() {
+            param.demangle(ctx, backrefs);
+        }
+
+        for param in params {
+            ctx.stream.push(", ", colors::GRAY40);
+            param.demangle(ctx, backrefs);
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct FunctionParameters(Parameters);
+
+impl<'a, 'b> Parse<'a, 'b> for FunctionParameters {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        if ctx.eat(b'X') {
+            let tipe = vec![Type::Void(Modifiers::empty())];
+            return Some(FunctionParameters(Parameters(tipe)));
+        }
+
+        let params = Parameters::parse(ctx, backrefs)?;
+        ctx.consume(b'Z')?;
+        Some(FunctionParameters(params))
+    }
 }
 
 /// Calling conventions supported by MSVC
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub(super) enum CallingConv {
+enum CallingConv {
     Cdecl,
     Pascal,
     Thiscall,
@@ -414,9 +964,66 @@ pub(super) enum CallingConv {
     Vectorcall,
 }
 
-bitflags::bitflags! {
+impl<'a, 'b> Parse<'a, 'b> for CallingConv {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        let conv = match ctx.peek()? {
+            b'A' | b'B' => CallingConv::Cdecl,
+            b'C' | b'D' => CallingConv::Pascal,
+            b'E' | b'F' => CallingConv::Fastcall,
+            b'G' | b'H' => CallingConv::Stdcall,
+            b'I' | b'J' => CallingConv::Thiscall,
+            b'M' | b'N' => CallingConv::Clrcall,
+            b'O' | b'P' => CallingConv::Eabi,
+            b'Q' => CallingConv::Vectorcall,
+            _ => return None,
+        };
+
+        ctx.offset += 1;
+        Some(conv)
+    }
+}
+
+impl<'b> Format<'b> for CallingConv {
+    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+        let literal = match self {
+            CallingConv::Cdecl => "__cdecl",
+            CallingConv::Pascal => "__pascal",
+            CallingConv::Thiscall => "__thiscall",
+            CallingConv::Stdcall => "__stdcall",
+            CallingConv::Fastcall => "__fastcall",
+            CallingConv::Clrcall => "__clrcall",
+            CallingConv::Eabi => "__eabicall",
+            CallingConv::Vectorcall => "__vectorcall",
+        };
+
+        ctx.stream.push(literal, colors::GRAY40);
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum StorageVariable {
+    PrivateStatic,
+    ProtectedStatic,
+    PublicStatic,
+    Global,
+}
+
+impl<'b> Format<'b> for StorageVariable {
+    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+        let literal = match self {
+            StorageVariable::PrivateStatic => "private: static ",
+            StorageVariable::ProtectedStatic => "protected: static ",
+            StorageVariable::PublicStatic => "public: static ",
+            StorageVariable::Global => return,
+        };
+
+        ctx.stream.push(literal, colors::PURPLE);
+    }
+}
+
+bitflags! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    pub(super) struct Scope: u32 {
+    struct StorageScope: u32 {
         const PUBLIC     = 0b000000001;
         const PRIVATE    = 0b000000010;
         const PROTECTED  = 0b000000100;
@@ -427,55 +1034,638 @@ bitflags::bitflags! {
         const THUNK      = 0b010000000;
         const ADJUST     = 0b100000000;
     }
+}
 
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    pub(super) struct Modifiers: u32 {
-        /// const ..
+impl<'a, 'b> Parse<'a, 'b> for StorageScope {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        Some(match ctx.take()? {
+            b'A' => StorageScope::PRIVATE,
+            b'B' => StorageScope::PRIVATE | StorageScope::FAR,
+            b'C' | b'D' => StorageScope::PRIVATE | StorageScope::STATIC,
+            b'E' | b'F' => StorageScope::PRIVATE | StorageScope::VIRTUAL,
+            b'G' => StorageScope::PRIVATE | StorageScope::ADJUST,
+            b'H' => StorageScope::PRIVATE | StorageScope::ADJUST | StorageScope::FAR,
+            b'I' => StorageScope::PROTECTED,
+            b'J' => StorageScope::PROTECTED | StorageScope::FAR,
+            b'K' => StorageScope::PROTECTED | StorageScope::STATIC,
+            b'L' => StorageScope::PROTECTED | StorageScope::STATIC | StorageScope::FAR,
+            b'M' => StorageScope::PROTECTED | StorageScope::VIRTUAL,
+            b'N' => StorageScope::PROTECTED | StorageScope::ADJUST | StorageScope::FAR,
+            b'O' => StorageScope::PROTECTED | StorageScope::ADJUST,
+            b'P' => StorageScope::PROTECTED | StorageScope::ADJUST | StorageScope::FAR,
+            b'Q' => StorageScope::PUBLIC,
+            b'R' => StorageScope::PUBLIC | StorageScope::FAR,
+            b'S' => StorageScope::PUBLIC | StorageScope::STATIC,
+            b'T' => StorageScope::PUBLIC | StorageScope::STATIC | StorageScope::FAR,
+            b'U' => StorageScope::PUBLIC | StorageScope::VIRTUAL,
+            b'V' => StorageScope::PUBLIC | StorageScope::VIRTUAL | StorageScope::FAR,
+            b'W' => StorageScope::PUBLIC | StorageScope::ADJUST,
+            b'X' => StorageScope::PUBLIC | StorageScope::ADJUST | StorageScope::FAR,
+            b'Y' => StorageScope::GLOBAL,
+            b'Z' => StorageScope::GLOBAL | StorageScope::FAR,
+            _ => return None,
+        })
+    }
+}
+
+impl<'b> Format<'b> for StorageScope {
+    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+        let literal = match *self {
+            StorageScope::PUBLIC => "public: ",
+            StorageScope::PRIVATE => "private: ",
+            StorageScope::PROTECTED => "protected: ",
+            StorageScope::GLOBAL => "global: ",
+            StorageScope::STATIC => "static: ",
+            StorageScope::VIRTUAL => "virtual: ",
+            StorageScope::FAR => "[far]: ",
+            StorageScope::THUNK => "[thunk]: ",
+            _ => return,
+        };
+
+        ctx.stream.push(literal, colors::WHITE);
+    }
+}
+
+bitflags! {
+    #[derive(PartialEq, Eq, Clone, Copy)]
+    struct Modifiers: u32 {
+        /// const
         const CONST     = 0b00000001;
 
-        /// volatile ..
+        /// volatile
         const VOLATILE  = 0b00000010;
 
-        /// __far ..
+        /// __far
         const FAR       = 0b00000100;
 
-        /// __ptr64 ..
+        /// __ptr64
         const PTR64     = 0b00001000;
 
-        /// __unaligned ..
+        /// __unaligned
         const UNALIGNED = 0b00010000;
 
-        /// restrict ..
+        /// restrict
         const RESTRICT  = 0b00100000;
 
-        /// & ..
+        /// &
         const LVALUE    = 0b01000000;
 
-        /// && ..
+        /// &&
         const RVALUE    = 0b10000000;
     }
 }
 
+impl<'a, 'b> Parse<'a, 'b> for Modifiers {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        let modi = match ctx.peek() {
+            Some(b'F') => Modifiers::FAR | Modifiers::CONST,
+            Some(b'G') => Modifiers::FAR | Modifiers::VOLATILE,
+            Some(b'H') => Modifiers::FAR | Modifiers::VOLATILE | Modifiers::CONST,
+            Some(b'B' | b'R') => Modifiers::CONST,
+            Some(b'C' | b'S') => Modifiers::VOLATILE,
+            Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
+            _ => return Some(Modifiers::empty()),
+        };
+
+        ctx.offset += 1;
+        Some(modi)
+    }
+}
+
+impl<'b> Format<'b> for Modifiers {
+    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+        let color = colors::BLUE;
+
+        if self.contains(Modifiers::CONST) {
+            ctx.stream.push(" const", color);
+        }
+
+        if self.contains(Modifiers::VOLATILE) {
+            ctx.stream.push(" volatile", color);
+        }
+
+        if self.contains(Modifiers::FAR) {
+            ctx.stream.push(" __far", color);
+        }
+
+        if self.contains(Modifiers::UNALIGNED) {
+            ctx.stream.push(" __unaligned", color);
+        }
+
+        if self.contains(Modifiers::RESTRICT) {
+            ctx.stream.push(" restrict", color);
+        }
+
+        if self.contains(Modifiers::LVALUE) {
+            ctx.stream.push(" &", color);
+        }
+
+        if self.contains(Modifiers::RVALUE) {
+            ctx.stream.push(" &&", color);
+        }
+    }
+}
+
+impl fmt::Debug for Modifiers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let literal = match *self {
+            Modifiers::CONST => "Modifiers::CONST",
+            Modifiers::VOLATILE => "Modifiers::VOLATILE",
+            Modifiers::FAR => "Modifiers::FAR",
+            Modifiers::PTR64 => "Modifiers::PTR64",
+            Modifiers::UNALIGNED => "Modifiers::UNALIGNED",
+            Modifiers::RESTRICT => "Modifiers::RESTRICT",
+            Modifiers::LVALUE => "Modifiers::LVALUE",
+            Modifiers::RVALUE => "Modifiers::RVALUE",
+            _ => "Modifiers::empty()",
+        };
+
+        f.write_str(literal)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ReturnModifiers(Modifiers);
+
+impl<'a, 'b> Parse<'a, 'b> for ReturnModifiers {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        if !ctx.eat(b'?') {
+            return Some(ReturnModifiers(Modifiers::empty()));
+        }
+
+        let modi = match ctx.take()? {
+            b'B' => Modifiers::CONST,
+            b'C' => Modifiers::VOLATILE,
+            b'D' => Modifiers::CONST | Modifiers::VOLATILE,
+            _ => return None,
+        };
+
+        Some(ReturnModifiers(modi))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Qualifiers(Modifiers);
+
+impl<'a, 'b> Parse<'a, 'b> for Qualifiers {
+    fn parse(ctx: &'b mut Context, _: &'a mut Backrefs) -> Option<Self> {
+        let quali = match ctx.peek() {
+            Some(b'B' | b'R') => Modifiers::CONST,
+            Some(b'C' | b'S') => Modifiers::VOLATILE,
+            Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
+            Some(b'A' | b'Q') => Modifiers::empty(),
+            _ => return Some(Qualifiers(Modifiers::empty())),
+        };
+
+        ctx.offset += 1;
+        Some(Qualifiers(quali))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct FunctionQualifiers(Modifiers);
+
+impl<'a, 'b> Parse<'a, 'b> for FunctionQualifiers {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let mut quali = Modifiers::empty();
+
+        if ctx.eat(b'I') {
+            quali |= Modifiers::RESTRICT;
+        }
+
+        if ctx.eat(b'F') {
+            quali |= Modifiers::UNALIGNED;
+        }
+
+        if ctx.eat(b'G') {
+            quali |= Modifiers::LVALUE;
+        }
+
+        if ctx.eat(b'H') {
+            quali |= Modifiers::RVALUE;
+        }
+
+        let modi = Qualifiers::parse(ctx, backrefs)?.0;
+        Some(FunctionQualifiers(Modifiers::union(modi, modi)))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Literal {
+    /// Handle to an memorized literal.
+    Indexed(usize),
+
+    /// Borrowed string.
+    Borrowed { start: usize, end: usize },
+}
+
+impl<'a, 'b> Parse<'a, 'b> for Literal {
+    fn parse(ctx: &'b mut Context, backrefs: &'a mut Backrefs) -> Option<Self> {
+        let ident = ctx.ident()?;
+        if ctx.memorizing {
+            backrefs.try_memorizing_ident(&ident);
+        }
+        Some(ident)
+    }
+}
+
+impl Literal {
+    fn len(&self) -> usize {
+        match self {
+            Self::Indexed(..) => unreachable!(),
+            Self::Borrowed { start, end } => end - start,
+        }
+    }
+}
+
+impl Default for Literal {
+    fn default() -> Self {
+        Self::Borrowed { start: 0, end: 0 }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
-pub(super) enum Path<'src> {
-    Literal(Cow<'src, str>),
-    Interface(Cow<'src, str>),
-    Template(Box<Path<'src>>, Parameters<'src>),
-    Operator(Operator<'src>),
-    Sequence(Vec<Path<'src>>),
-    Nested(Box<Symbol<'src>>),
+struct MD5(Literal);
+
+impl<'a, 'b> Parse<'a, 'b> for MD5 {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        let data = ctx.hex_nibbles()?;
+
+        // the md5 string must be of length 32
+        if data.len() != 32 {
+            return None;
+        }
+
+        // md5 string must be terminated with a '@'
+        if !ctx.eat(b'@') {
+            return None;
+        }
+
+        Some(Self(data))
+    }
+}
+
+impl<'b> Format<'b> for MD5 {
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        ctx.stream.push("??@", colors::GRAY20);
+        ctx.push_literal(backrefs, &self.0, colors::GRAY20);
+        ctx.stream.push("@", colors::GRAY20);
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct Scope(Vec<NestedPath>);
+
+impl<'a, 'b> Parse<'a, 'b> for Scope {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let mut paths = Vec::new();
+
+        while !ctx.eat(b'@') {
+            let segment = NestedPath::parse(ctx, backrefs)?;
+            paths.push(segment);
+        }
+
+        Some(Scope(paths))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Path {
+    name: NestedPath,
+    scope: Scope,
+}
+
+impl<'a, 'b> Parse<'a, 'b> for Path {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let name = NestedPath::parse(ctx, backrefs)?;
+        let scope = Scope::parse(ctx, backrefs)?;
+
+        Some(Path { name, scope })
+    }
+}
+
+impl<'b> Format<'b> for Path {
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        self.name.demangle(ctx, backrefs);
+
+        for part in self.scope.0.iter() {
+            ctx.stream.push("::", colors::GRAY20);
+            part.demangle(ctx, backrefs);
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum NestedPath {
+    Literal(Literal),
+    Interface(Literal),
+    Template(Template),
+    Operator(Operator),
+    Symbol(Box<Symbol>),
     Disambiguator(isize),
+    MD5(MD5),
+    Anonymous,
+}
+
+impl<'a, 'b> Parse<'a, 'b> for NestedPath {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        ctx.descent()?;
+
+        if let Some(digit) = ctx.base10() {
+            ctx.ascent();
+            return backrefs.get_memorized_ident(digit).map(NestedPath::Literal);
+        }
+
+        if ctx.eat(b'?') {
+            ctx.ascent();
+            return match ctx.peek()? {
+                // nested symbol
+                b'?' => Symbol::parse(ctx, backrefs)
+                    .map(Box::new)
+                    .map(NestedPath::Symbol),
+                // templated nested path segment
+                b'$' => {
+                    ctx.offset += 1;
+
+                    Template::parse(ctx, backrefs).and_then(|template| {
+                        let name = template.name.0;
+
+                        if let NestedPath::Literal(ref literal) = name {
+                            backrefs.try_memorizing_ident(literal);
+                            return Some(name);
+                        }
+
+                        None
+                    })
+                }
+                // anonymous namespace
+                b'A' => {
+                    ctx.offset += 1;
+
+                    if let Some(b"0x") = ctx.peek_slice(0..2) {
+                        let mut len = 0;
+
+                        // skip over anonymous namespace disambiguator
+                        while let Some(b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F') = ctx.peek() {
+                            len += 1;
+                            ctx.offset += 1;
+                        }
+
+                        backrefs.try_memorizing_ident(&Literal::Borrowed {
+                            start: ctx.offset,
+                            end: ctx.offset + len,
+                        });
+                    }
+
+                    ctx.consume(b'@')?;
+                    Some(NestedPath::Anonymous)
+                }
+                // interface
+                b'Q' => {
+                    ctx.offset += 1;
+
+                    let ident = ctx.ident()?;
+                    ctx.consume(b'@')?;
+                    backrefs.try_memorizing_ident(&ident);
+
+                    Some(NestedPath::Interface(ident))
+                }
+                // disambiguator
+                _ => {
+                    let disambiguator = ctx.number()?;
+                    Some(NestedPath::Disambiguator(disambiguator))
+                }
+            };
+        }
+
+        let ident = ctx.ident()?;
+        backrefs.try_memorizing_ident(&ident);
+
+        ctx.ascent();
+        Some(NestedPath::Literal(ident))
+    }
+}
+
+impl<'b> Format<'b> for NestedPath {
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        match self {
+            NestedPath::Literal(ident) => {
+                ctx.push_literal(backrefs, ident, colors::GRAY40);
+            }
+            NestedPath::Interface(ident) => {
+                ctx.stream.push("[", colors::GRAY40);
+                ctx.push_literal(backrefs, ident, colors::BLUE);
+                ctx.stream.push("]", colors::GRAY40);
+            }
+            NestedPath::Template(template) => template.demangle(ctx, backrefs),
+            NestedPath::Operator(operator) => operator.demangle(ctx, backrefs),
+            NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
+            NestedPath::Disambiguator(val) => {
+                let val = std::borrow::Cow::Owned(format!("{val:?}"));
+
+                ctx.stream.push("`", colors::GRAY20);
+                ctx.stream.push_cow(val, colors::GRAY20);
+                ctx.stream.push("'", colors::GRAY20);
+            }
+            NestedPath::MD5(md5) => md5.demangle(ctx, backrefs),
+            NestedPath::Anonymous => ctx.stream.push("`anonymous namespace'", colors::GRAY40),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub(super) struct Symbol<'src> {
-    pub path: Path<'src>,
-    pub tipe: Type<'src>,
+struct UnqualifiedPath(NestedPath);
+
+impl<'a, 'b> Parse<'a, 'b> for UnqualifiedPath {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        ctx.descent()?;
+
+        // memorized ident
+        if let Some(digit) = ctx.base10() {
+            ctx.ascent();
+            return backrefs
+                .get_memorized_ident(digit)
+                .map(NestedPath::Literal)
+                .map(UnqualifiedPath);
+        }
+
+        if ctx.eat(b'?') {
+            if ctx.eat(b'$') {
+                ctx.ascent();
+                return Template::parse(ctx, backrefs)
+                    .map(NestedPath::Template)
+                    .map(UnqualifiedPath);
+            }
+
+            ctx.ascent();
+            return Operator::parse(ctx, backrefs)
+                .map(NestedPath::Operator)
+                .map(UnqualifiedPath);
+        }
+
+        ctx.ascent();
+        ctx.ident().map(NestedPath::Literal).map(UnqualifiedPath)
+    }
 }
 
-impl<'src> From<Path<'src>> for Symbol<'src> {
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct EncodedIdent;
+
+impl<'a, 'b> Parse<'a, 'b> for EncodedIdent {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        let width = ctx.base10()?;
+        if width > 2 {
+            return None;
+        }
+
+        let len = std::cmp::min(ctx.number()? as usize, width * 32);
+        ctx.number()?;
+
+        for _ in 0..len {
+            let chr = ctx.take()?;
+
+            if let b'0'..=b'9' | b'a'..=b'z' | b'_' | b'$' = chr {
+                continue;
+            }
+
+            if chr == b'?' {
+                ctx.take()?;
+                continue;
+            }
+
+            return None;
+        }
+
+        Some(EncodedIdent)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct Template {
+    name: Box<UnqualifiedPath>,
+    params: Parameters,
+}
+
+impl<'a, 'b> Parse<'a, 'b> for Template {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        let mut temp = Backrefs::default();
+        let name = Box::new(UnqualifiedPath::parse(ctx, &mut temp)?);
+        let params = Parameters::parse(ctx, &mut temp)?;
+
+        Some(Template { name, params })
+    }
+}
+
+impl<'b> Format<'b> for Template {
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        self.name.0.demangle(ctx, backrefs);
+        ctx.stream.push("<", colors::GRAY40);
+        self.params.demangle(ctx, backrefs);
+        ctx.stream.push(">", colors::GRAY40);
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct Symbol {
+    path: Path,
+    tipe: Type,
+}
+
+impl<'a, 'b> Parse<'a, 'b> for Symbol {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        ctx.descent()?;
+        ctx.consume(b'?')?;
+
+        // unparseable MD5 encoded symbol
+        if ctx.eat_slice(b"?@") {
+            ctx.ascent();
+            return MD5::parse(ctx, backrefs)
+                .map(NestedPath::MD5)
+                .map(NestedPath::into)
+                .map(Path::into);
+        }
+
+        // scoped template instantiation?
+        if ctx.eat_slice(b"$TSS") {
+            let mut n = 0usize;
+
+            while !ctx.eat(b'@') {
+                let digit = ctx.base10()?;
+
+                n = n.checked_mul(10)?;
+                n = n.checked_add(digit)?;
+            }
+
+            ctx.ascent();
+            // let name = NestedPath::parse(ctx, backrefs)?;
+            // let scope = Scope::parse(ctx, backrefs)?;
+            todo!("TODO: return thread safe static guard")
+        }
+
+        // any other template instantiation
+        if ctx.eat(b'$') {
+            ctx.ascent();
+            return Template::parse(ctx, backrefs)
+                .map(NestedPath::Template)
+                .map(NestedPath::into)
+                .map(Path::into);
+        }
+
+        let path = Path::parse(ctx, backrefs)?;
+
+        // no type
+        if ctx.peek().is_none() {
+            ctx.ascent();
+            return Some(path).map(Path::into);
+        }
+
+        ctx.modifiers = Modifiers::empty();
+
+        let tipe = match ctx.take()? {
+            // C style type
+            b'9' => return Some(path).map(Path::into),
+            // <type> <cvr-qualifiers>
+            b'0' => {
+                let tipe = Type::parse(ctx, backrefs)?;
+                let modi = Modifiers::parse(ctx, backrefs)?;
+                Type::Variable(StorageVariable::PrivateStatic, modi, Box::new(tipe))
+            }
+            // <type> <cvr-qualifiers>
+            b'1' => {
+                let tipe = Type::parse(ctx, backrefs)?;
+                let modi = Modifiers::parse(ctx, backrefs)?;
+                Type::Variable(StorageVariable::ProtectedStatic, modi, Box::new(tipe))
+            }
+            // <type> <cvr-qualifiers>
+            b'2' => {
+                let tipe = Type::parse(ctx, backrefs)?;
+                let modi = Modifiers::parse(ctx, backrefs)?;
+                Type::Variable(StorageVariable::PublicStatic, modi, Box::new(tipe))
+            }
+            b'3' => {
+                let tipe = Type::parse(ctx, backrefs)?;
+                let modi = Modifiers::parse(ctx, backrefs)?;
+                Type::Variable(StorageVariable::Global, modi, Box::new(tipe))
+            }
+            b'Y' => Type::Function(Function::parse(ctx, backrefs)?),
+            b'_' => EncodedIdent::parse(ctx, backrefs).map(Type::Encoded)?,
+            _ => MemberFunction::parse(ctx, backrefs).map(Type::MemberFunction)?,
+        };
+
+        ctx.ascent();
+        Some(Symbol { path, tipe })
+    }
+}
+
+impl<'b> Format<'b> for Symbol {
+    fn demangle(&self, _ctx: &mut Context, _backrefs: &mut Backrefs) {
+        todo!()
+    }
+}
+
+impl<'b> From<Path> for Symbol {
     #[inline]
-    fn from(path: Path<'src>) -> Symbol<'src> {
+    fn from(path: Path) -> Symbol {
         Symbol {
             path,
             tipe: Type::Unit,
@@ -483,81 +1673,108 @@ impl<'src> From<Path<'src>> for Symbol<'src> {
     }
 }
 
+impl<'b> From<NestedPath> for Path {
+    #[inline]
+    fn from(name: NestedPath) -> Path {
+        Path {
+            name,
+            scope: Scope(Vec::new()),
+        }
+    }
+}
+
 #[derive(Default)]
-struct Backrefs<'src> {
+struct Backrefs {
     /// Up to 10 idents can be memorized for lookup using backref's: ?0, ?1, ..
-    memorized: [Cow<'src, str>; 10],
+    memorized: [Literal; 10],
 
     /// Number of so far memorized idents.
     memorized_count: usize,
 
     /// A max of 10 function parameters is supported.
-    params: [Type<'src>; 10],
+    params: [Type; 10],
 
     /// Number of so far encountered function parameters.
     param_count: usize,
 }
 
-pub(super) struct Ast {
+impl<'a> Backrefs {
+    // TODO: change interface to not be cloning a type
+    fn try_memorizing_ident<'b>(&'b mut self, ident: &'b Literal) {
+        let memorized = &self.memorized[..self.memorized_count];
+
+        if !memorized.contains(ident) && self.memorized_count != 10 {
+            self.memorized[self.memorized_count] = ident.clone();
+            self.memorized_count += 1;
+        }
+    }
+
+    fn get_memorized_ident(&mut self, idx: usize) -> Option<Literal> {
+        if idx >= self.memorized_count {
+            return None;
+        }
+
+        Some(Literal::Indexed(idx))
+    }
+
+    // TODO: change interface to not be cloning a type
+    fn try_memorizing_param<'b>(&'b mut self, tipe: &'b Type) {
+        let memorized = &self.params[..self.param_count];
+
+        if !memorized.contains(tipe) && self.param_count != 10 {
+            self.params[self.param_count] = tipe.clone();
+            self.param_count += 1;
+        }
+    }
+
+    fn get_memorized_param(&self, idx: usize) -> Option<Type> {
+        if idx >= self.param_count {
+            return None;
+        }
+
+        Some(Type::Indexed(idx))
+    }
+}
+
+struct Context {
     stream: TokenStream,
     offset: usize,
     depth: usize,
-    backrefs: Backrefs<'static>,
+    modifiers: Modifiers,
+    parsing_qualifiers: bool,
+    memorizing: bool,
 }
 
-impl<'src> Ast {
+impl<'b> Context {
     /// Create an initialized parser that hasn't started parsing yet.
     pub fn new(s: &str) -> Self {
         Self {
             stream: TokenStream::new(s),
             offset: 0,
             depth: 0,
-            backrefs: Backrefs::default(),
+            modifiers: Modifiers::empty(),
+            memorizing: true,
+            parsing_qualifiers: true,
         }
+    }
+
+    fn push_literal(&mut self, backrefs: &Backrefs, literal: &Literal, color: Color) {
+        let literal = match literal {
+            Literal::Borrowed { start, end } => &self.stream.inner()[*start..*end],
+            Literal::Indexed(idx) => {
+                return self.push_literal(backrefs, &backrefs.memorized[*idx], color);
+            }
+        };
+
+        let literal: &'static str = unsafe { std::mem::transmute(literal) };
+
+        self.stream.push(literal, color);
     }
 
     /// Create a reference to the underlying pinned string that holds the mangled symbol.
     #[inline]
-    fn src(&self) -> &'src str {
+    fn src(&self) -> &'b str {
         &self.stream.inner()[self.offset..]
-    }
-
-    #[inline]
-    fn recurse_deeper(&mut self) -> Option<()> {
-        self.depth += 1;
-        (self.depth < MAX_DEPTH).then_some(())
-    }
-
-    fn try_memorizing_path(&mut self, ident: &Cow<'static, str>) {
-        let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
-
-        if !memorized.contains(ident) && self.backrefs.memorized_count != 10 {
-            self.backrefs.memorized[self.backrefs.memorized_count] = ident.clone();
-            self.backrefs.memorized_count += 1;
-        }
-    }
-
-    fn get_memorized_path(&mut self, idx: usize) -> Option<Path<'src>> {
-        let memorized = &self.backrefs.memorized[..self.backrefs.memorized_count];
-        let memorized = memorized.get(idx).cloned()?;
-
-        Some(Path::Literal(memorized))
-    }
-
-    fn try_memorizing_param(&mut self, tipe: &Type<'static>) {
-        let memorized = &self.backrefs.params[..self.backrefs.param_count];
-
-        if !memorized.contains(tipe) && self.backrefs.param_count != 10 {
-            self.backrefs.params[self.backrefs.param_count] = tipe.clone();
-            self.backrefs.param_count += 1;
-        }
-    }
-
-    fn get_memorized_param(&self, idx: usize) -> Option<Type<'src>> {
-        let memorized = &self.backrefs.params[..self.backrefs.param_count];
-        let memorized = memorized.get(idx).cloned()?;
-
-        Some(memorized)
     }
 
     /// View the current byte in the mangled symbol without incrementing the offset.
@@ -566,7 +1783,7 @@ impl<'src> Ast {
     }
 
     /// View a slice in the mangled symbol without incrementing the offset.
-    fn peek_slice(&self, range: std::ops::Range<usize>) -> Option<&[u8]> {
+    fn peek_slice(&self, range: std::ops::Range<usize>) -> Option<&'b [u8]> {
         self.src().as_bytes().get(range)
     }
 
@@ -658,1243 +1875,44 @@ impl<'src> Ast {
         }
     }
 
-    fn hex_nibbles(&mut self) -> Option<&'src str> {
+    fn hex_nibbles(&mut self) -> Option<Literal> {
         let mut len = 0;
+        let start = self.offset;
 
         while let Some(b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F') = self.peek() {
             self.offset += 1;
             len += 1;
         }
 
-        Some(&self.src()[..len])
+        Some(Literal::Borrowed {
+            start,
+            end: start + len,
+        })
     }
 
-    fn md5(&mut self) -> Option<Path<'src>> {
-        let data = self.hex_nibbles()?;
-
-        // the md5 string must be of length 32
-        if data.len() != 32 {
-            return None;
-        }
-
-        // md5 string must be terminated with a '@'
-        if !self.eat(b'@') {
-            return None;
-        }
-
-        Some(Path::Literal(Cow::Borrowed(data)))
-    }
-
-    fn calling_conv(&mut self) -> Option<CallingConv> {
-        let conv = match self.peek()? {
-            b'A' | b'B' => CallingConv::Cdecl,
-            b'C' | b'D' => CallingConv::Pascal,
-            b'E' | b'F' => CallingConv::Fastcall,
-            b'G' | b'H' => CallingConv::Stdcall,
-            b'I' | b'J' => CallingConv::Thiscall,
-            b'M' | b'N' => CallingConv::Clrcall,
-            b'O' | b'P' => CallingConv::Eabi,
-            b'Q' => CallingConv::Vectorcall,
-            _ => return None,
-        };
-
-        self.offset += 1;
-        Some(conv)
-    }
-
-    fn params(&mut self) -> Option<Parameters<'src>> {
-        let mut params = Vec::new();
-
-        loop {
-            if let Some(b'@') | Some(b'Z') | None = self.peek() {
-                break;
-            }
-
-            if let Some(digit) = self.base10() {
-                params.push(self.get_memorized_param(digit)?);
-                continue;
-            }
-
-            let start = self.src().len();
-            let tipe = self.tipe(Modifiers::empty())?;
-            let end = self.src().len();
-
-            // single-letter types are ignored for backref's because
-            // memorizing them doesn't save anything.
-            if start - end > 1 {
-                self.try_memorizing_param(&tipe);
-            }
-
-            params.push(tipe);
-        }
-
-        if !(self.eat(b'Z') || self.src().is_empty()) {
-            self.consume(b'@')?;
-        }
-
-        Some(params)
-    }
-
-    fn function_qualifiers(&mut self) -> Modifiers {
-        let mut qual = Modifiers::empty();
-
-        if self.eat(b'I') {
-            qual |= Modifiers::RESTRICT;
-        }
-
-        if self.eat(b'F') {
-            qual |= Modifiers::UNALIGNED;
-        }
-
-        if self.eat(b'G') {
-            qual |= Modifiers::LVALUE;
-        }
-
-        if self.eat(b'H') {
-            qual |= Modifiers::RVALUE;
-        }
-
-        let modi = self.modifiers();
-        Modifiers::union(modi, qual)
-    }
-
-    /// ["X" <void>] <parameters> "Z"
-    fn function_params(&mut self) -> Option<Parameters<'src>> {
-        if self.eat(b'X') {
-            return Some(vec![Type::Void(Modifiers::empty())]);
-        }
-
-        let params = self.params()?;
-        self.consume(b'Z')?;
-        Some(params)
-    }
-
-    /// <this-cvr-qualifiers> <calling-convention> <return-type> <argument-list> <throw-spec>
-    fn function_tipe(&mut self, qualifiers: bool) -> Option<Type<'src>> {
-        let mut quali = Modifiers::empty();
-        let mut return_quali = Modifiers::empty();
-
-        if qualifiers {
-            quali |= self.function_qualifiers();
-        }
-
-        let conv = self.calling_conv()?;
-
-        if self.eat(b'?') {
-            return_quali |= self.modifiers();
-        }
-
-        let return_type = self.tipe(return_quali)?;
-        let params = self.function_params()?;
-
-        Some(Type::Function(conv, quali, Box::new(return_type), params))
-    }
-
-    fn function_scope(&mut self) -> Scope {
-        let Some(scope) = self.take() else {
-            return Scope::empty();
-        };
-
-        match scope {
-            b'A' => Scope::PRIVATE,
-            b'B' => Scope::PRIVATE | Scope::FAR,
-            b'C' | b'D' => Scope::PRIVATE | Scope::STATIC,
-            b'E' | b'F' => Scope::PRIVATE | Scope::VIRTUAL,
-            b'G' => Scope::PRIVATE | Scope::ADJUST,
-            b'H' => Scope::PRIVATE | Scope::ADJUST | Scope::FAR,
-            b'I' => Scope::PROTECTED,
-            b'J' => Scope::PROTECTED | Scope::FAR,
-            b'K' => Scope::PROTECTED | Scope::STATIC,
-            b'L' => Scope::PROTECTED | Scope::STATIC | Scope::FAR,
-            b'M' => Scope::PROTECTED | Scope::VIRTUAL,
-            b'N' => Scope::PROTECTED | Scope::ADJUST | Scope::FAR,
-            b'O' => Scope::PROTECTED | Scope::ADJUST,
-            b'P' => Scope::PROTECTED | Scope::ADJUST | Scope::FAR,
-            b'Q' => Scope::PUBLIC,
-            b'R' => Scope::PUBLIC | Scope::FAR,
-            b'S' => Scope::PUBLIC | Scope::STATIC,
-            b'T' => Scope::PUBLIC | Scope::STATIC | Scope::FAR,
-            b'U' => Scope::PUBLIC | Scope::VIRTUAL,
-            b'V' => Scope::PUBLIC | Scope::VIRTUAL | Scope::FAR,
-            b'W' => Scope::PUBLIC | Scope::ADJUST,
-            b'X' => Scope::PUBLIC | Scope::ADJUST | Scope::FAR,
-            b'Y' => Scope::GLOBAL,
-            b'Z' => Scope::GLOBAL | Scope::FAR,
-            _ => Scope::empty(),
-        }
-    }
-
-    /// ```
-    /// = <type>
-    /// | @      // structors (they have no declared return type)
-    /// ```
-    fn function_return_type(&mut self) -> Option<Type<'src>> {
-        let modi = self.return_modifiers();
-
-        if self.eat(b'@') {
-            return Some(Type::Unit);
-        }
-
-        self.tipe(modi)
-    }
-
-    fn member_function_ptr_type(&mut self, qualifiers: bool) -> Option<Type<'src>> {
-        let class = self.name(true)?;
-        let mut quali = Modifiers::empty();
-        let mut scope = Scope::empty();
-
-        if self.eat(b'E') {
-            quali |= Modifiers::PTR64;
-        }
-
-        if qualifiers {
-            quali |= self.qualifiers();
-        } else {
-            scope |= self.function_scope();
-        }
-
-        let conv = self.calling_conv()?;
-        let return_modi = self.return_modifiers();
-        let return_type = self.function_return_type()?;
-        let params = self.function_params()?;
-
-        Some(Type::MemberFunctionPtr(
-            scope,
-            class,
-            conv,
-            return_modi,
-            Box::new(return_type),
-            params,
-        ))
-    }
-
-    fn array(&mut self) -> Option<Type<'src>> {
-        todo!()
-    }
-
-    fn pointee(&mut self) -> Option<Type<'src>> {
-        let mut modi = Modifiers::empty();
-
-        if self.eat(b'E') {
-            modi |= Modifiers::PTR64;
-        }
-
-        modi |= self.modifiers();
-        self.tipe(modi)
-    }
-
-    /// ```
-    /// = <type> <cvr-qualifiers>
-    /// | <type> <pointee-cvr-qualifiers> # pointers, references
-    /// ```
-    fn tipe(&mut self, mut modi: Modifiers) -> Option<Type<'src>> {
-        self.recurse_deeper()?;
-
-        match self.peek_slice(0..2)? {
-            b"W4" => {
-                self.offset += 2;
-                self.depth -= 1;
-
-                let name = self.name(false)?;
-                return Some(Type::Enum(modi, name));
-            }
-            b"A6" => {
-                self.offset += 2;
-                self.depth -= 1;
-
-                let fn_type = self.function_tipe(false)?;
-                return Some(Type::Ref(modi, Box::new(fn_type)));
-            }
-            b"P6" => {
-                self.offset += 2;
-                self.depth -= 1;
-
-                let fn_type = self.function_tipe(false)?;
-                return Some(Type::Ptr(modi, Box::new(fn_type)));
-            }
-            b"P8" => {
-                self.offset += 2;
-                self.depth -= 1;
-
-                return self.member_function_ptr_type(true);
-            }
-            _ => {}
-        }
-
-        if self.eat(b'$') {
-            if self.eat(b'0') {
-                self.depth -= 1;
-                return self.number().map(Type::Constant);
-            }
-
-            if self.eat(b'D') {
-                self.depth -= 1;
-                return self.number().map(Type::TemplateParameterIdx);
-            }
-
-            if self.eat(b'$') {
-                if self.eat(b'Y') {
-                    self.depth -= 1;
-                    let name = self.name(true)?;
-                    return Some(Type::Path(modi, name));
-                }
-
-                if self.eat(b'C') {
-                    modi = self.qualifiers();
-                }
-
-                if self.eat(b'T') {
-                    self.depth -= 1;
-                    return Some(Type::Nullptr);
-                }
-
-                if self.eat(b'Q') {
-                    self.depth -= 1;
-
-                    let fn_type = self.function_tipe(false)?;
-                    return Some(Type::RValueRef(modi, Box::new(fn_type)));
-                }
-
-                if self.eat_slice(b"BY") {
-                    self.depth -= 1;
-                    return self.array();
-                }
-
-                if self.eat_slice(b"A6") {
-                    self.depth -= 1;
-                    return self.function_tipe(false);
-                }
-
-                if self.eat_slice(b"A8@@") {
-                    self.depth -= 1;
-                    return self.function_tipe(true);
-                }
-            }
-
-            if self.eat(b'S')
-                || self.eat_slice(b"$V")
-                || self.eat_slice(b"$Z")
-                || self.eat_slice(b"$$V")
-            {
-                self.depth -= 1;
-                return Some(Type::Unit);
-            }
-
-            if let Some(b'1' | b'H' | b'I' | b'J') = self.take() {
-                self.depth -= 1;
-                self.consume(b'?')?;
-                return self.member_function_ptr_type(false);
-            }
-        }
-
-        if self.eat(b'?') {
-            self.depth -= 1;
-            let idx = self.number()?;
-            return Some(Type::TemplateParameterIdx(-idx));
-        }
-
-        if let Some(digit) = self.base10() {
-            self.depth -= 1;
-            return self.get_memorized_param(digit);
-        }
-
-        let tipe = match self.take()? {
-            b'T' => Type::Union(modi, self.name(false)?),
-            b'U' => Type::Struct(modi, self.name(false)?),
-            b'V' => Type::Class(modi, self.name(false)?),
-            b'A' => Type::Ref(modi, Box::new(self.pointee()?)),
-            b'B' => Type::Ref(Modifiers::VOLATILE, Box::new(self.pointee()?)),
-            b'P' => Type::Ptr(modi, Box::new(self.pointee()?)),
-            b'Q' => Type::Ptr(Modifiers::CONST, Box::new(self.pointee()?)),
-            b'R' => Type::Ptr(Modifiers::VOLATILE, Box::new(self.pointee()?)),
-            b'S' => Type::Ptr(
-                Modifiers::CONST | Modifiers::VOLATILE,
-                Box::new(self.pointee()?),
-            ),
-            b'Y' => self.array()?,
-            b'X' => Type::Void(modi),
-            b'D' => Type::Char(modi),
-            b'C' => Type::IChar(modi),
-            b'E' => Type::UChar(modi),
-            b'F' => Type::IShort(modi),
-            b'G' => Type::UShort(modi),
-            b'H' => Type::Int(modi),
-            b'I' => Type::UInt(modi),
-            b'J' => Type::Long(modi),
-            b'K' => Type::ULong(modi),
-            b'M' => Type::Float(modi),
-            b'N' => Type::Double(modi),
-            b'O' => Type::LDouble(modi),
-            b'_' => match self.take()? {
-                b'N' => Type::Bool(modi),
-                b'J' => Type::I64(modi),
-                b'K' => Type::U64(modi),
-                b'L' => Type::I128(modi),
-                b'M' => Type::U128(modi),
-                b'W' => Type::WChar(modi),
-                b'Q' => Type::Char8(modi),
-                b'S' => Type::Char16(modi),
-                b'U' => Type::Char32(modi),
-                _ => return None,
-            },
-            _ => return None,
-        };
-
-        self.depth -= 1;
-        Some(tipe)
-    }
-
-    /// ```
-    /// | <const>
-    /// | <volatile>
-    /// | <const> <volatile>
-    /// | nothing
-    /// ```
-    fn qualifiers(&mut self) -> Modifiers {
-        let quali = match self.peek() {
-            Some(b'B' | b'R') => Modifiers::CONST,
-            Some(b'C' | b'S') => Modifiers::VOLATILE,
-            Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
-            Some(b'A' | b'Q') => Modifiers::empty(),
-            _ => return Modifiers::empty(),
-        };
-
-        self.offset += 1;
-        quali
-    }
-
-    /// ```
-    /// = <far> <const>
-    /// | <far> <volatile>
-    /// | <const>
-    /// | <volatile>
-    /// | <const> <volatile>
-    /// | nothing
-    /// ```
-    fn modifiers(&mut self) -> Modifiers {
-        let modi = match self.peek() {
-            Some(b'F') => Modifiers::FAR | Modifiers::CONST,
-            Some(b'G') => Modifiers::FAR | Modifiers::VOLATILE,
-            Some(b'H') => Modifiers::FAR | Modifiers::VOLATILE | Modifiers::CONST,
-            Some(b'B' | b'R') => Modifiers::CONST,
-            Some(b'C' | b'S') => Modifiers::VOLATILE,
-            Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
-            Some(b'A' | b'Q') => Modifiers::empty(),
-            _ => return Modifiers::empty(),
-        };
-
-        self.offset += 1;
-        modi
-    }
-
-    /// ```
-    /// = <const>
-    /// | <volatile>
-    /// | <const> <volatile>
-    /// | nothing
-    /// ```
-    fn return_modifiers(&mut self) -> Modifiers {
-        if !self.eat(b'?') {
-            return Modifiers::empty();
-        }
-
-        let modi = match self.peek() {
-            Some(b'B') => Modifiers::CONST,
-            Some(b'C') => Modifiers::VOLATILE,
-            Some(b'D') => Modifiers::CONST | Modifiers::VOLATILE,
-            _ => return Modifiers::empty(),
-        };
-
-        self.offset += 1;
-        modi
-    }
-
-    /// ```
-    /// = <operator-name>
-    /// | <ctor-dtor-name>
-    /// | <source-name>
-    /// | <template-name>
-    /// ```
-    fn operator(&mut self) -> Option<Operator<'src>> {
-        // TODO: this doesn't handle all cases
-        let op = match self.take()? {
-            b'0' => Operator::Ctor,
-            b'1' => Operator::Dtor,
-            b'2' => Operator::New,
-            b'3' => Operator::Delete,
-            b'4' => Operator::Assign,
-            b'5' => Operator::ShiftRight,
-            b'6' => Operator::ShiftLeft,
-            b'7' => Operator::LogicalNot,
-            b'8' => Operator::Equals,
-            b'9' => Operator::NotEquals,
-            b'A' => Operator::Array,
-            b'C' => Operator::Pointer,
-            b'D' => Operator::Dereference,
-            b'E' => Operator::Increment,
-            b'F' => Operator::Decrement,
-            b'G' => Operator::Minus,
-            b'H' => Operator::Plus,
-            b'I' => Operator::ArithmeticAND,
-            b'J' => Operator::MemberDereference,
-            b'K' => Operator::Divide,
-            b'L' => Operator::Modulus,
-            b'M' => Operator::Less,
-            b'N' => Operator::LessEqual,
-            b'O' => Operator::Greater,
-            b'P' => Operator::GreaterEqual,
-            b'Q' => Operator::Comma,
-            b'R' => Operator::Calling,
-            b'S' => Operator::ArithmeticNot,
-            b'T' => Operator::Xor,
-            b'U' => Operator::ArithmeticOR,
-            b'V' => Operator::LogicalAND,
-            b'W' => Operator::LogicalOR,
-            b'X' => Operator::TimesEquals,
-            b'Y' => Operator::PlusEquals,
-            b'Z' => Operator::MinusEquals,
-            b'_' => match self.take()? {
-                b'0' => Operator::DivideEquals,
-                b'1' => Operator::ModulusEquals,
-                b'2' => Operator::ShiftRightEquals,
-                b'3' => Operator::ShiftLeftEquals,
-                b'4' => Operator::ANDEquals,
-                b'5' => Operator::OREquals,
-                b'6' => Operator::XorEquals,
-                b'D' => Operator::VBaseDtor,
-                b'E' => Operator::VectorDeletingDtor,
-                b'F' => Operator::DefaultCtorClosure,
-                b'G' => Operator::ScalarDeletingDtor,
-                b'H' => Operator::VecCtorIter,
-                b'I' => Operator::VecDtorIter,
-                b'J' => Operator::VecVbaseCtorIter,
-                b'K' => Operator::VdispMap,
-                b'L' => Operator::EHVecCtorIter,
-                b'M' => Operator::EHVecDtorIter,
-                b'N' => Operator::EHVecVbaseCtorIter,
-                b'O' => Operator::CopyCtorClosure,
-                b'T' => Operator::LocalVftableCtorClosure,
-                b'U' => Operator::NewArray,
-                b'V' => Operator::DeleteArray,
-                b'_' => match self.take()? {
-                    b'L' => Operator::CoAwait,
-                    b'M' => Operator::Spaceship,
-                    b'K' => return self.ident().map(Cow::Borrowed).map(Operator::SourceName),
-                    _ => return None,
-                },
-                _ => return None,
-            },
-            _ => return None,
-        };
-
-        Some(op)
-    }
-
-    fn ident(&mut self) -> Option<&'src str> {
+    fn ident(&mut self) -> Option<Literal> {
+        let start = self.offset;
         let len = self.src().bytes().position(|c| c == b'@')?;
-        let ident = &self.src()[..len];
         self.offset += len + 1;
-        Some(ident)
+        Some(Literal::Borrowed {
+            start,
+            end: start + len,
+        })
     }
 
-    /// Doesn't return anything as there is no easy way to decode this.
-    fn encoded_ident(&mut self) -> Option<Type<'src>> {
-        let width = self.base10()?;
-        if width > 2 {
+    #[inline]
+    fn descent(&mut self) -> Option<()> {
+        self.depth += 1;
+
+        if self.depth > MAX_DEPTH {
             return None;
         }
 
-        let len = std::cmp::min(self.number()? as usize, width * 32);
-        self.number()?;
-
-        for _ in 0..len {
-            let chr = self.take()?;
-
-            if let b'0'..=b'9' | b'a'..=b'z' | b'_' | b'$' = chr {
-                continue;
-            }
-
-            if chr == b'?' {
-                self.take()?;
-                continue;
-            }
-
-            return None;
-        }
-
-        Some(Type::Unit)
+        Some(())
     }
 
     #[inline]
-    fn name(&mut self, memorize: bool) -> Option<Path<'src>> {
-        let ident = Cow::Borrowed(self.ident()?);
-        if memorize {
-            self.try_memorizing_path(&ident);
-        }
-        Some(Path::Literal(ident))
-    }
-
-    fn template(&mut self) -> Option<Path<'src>> {
-        self.recurse_deeper()?;
-
-        let backrefs = std::mem::take(&mut self.backrefs);
-        let name = self.unqualified_path()?;
-        let params = self.params()?;
-        self.backrefs = backrefs;
-
+    fn ascent(&mut self) {
         self.depth -= 1;
-        Some(Path::Template(Box::new(name), params))
-    }
-
-    fn unqualified_path(&mut self) -> Option<Path<'src>> {
-        self.recurse_deeper()?;
-
-        // memorized ident
-        if let Some(digit) = self.base10() {
-            self.depth -= 1;
-            return self.get_memorized_path(digit);
-        }
-
-        if self.eat(b'?') {
-            if self.eat(b'$') {
-                self.depth -= 1;
-                return self.template();
-            }
-
-            self.depth -= 1;
-            return self.operator().map(Path::Operator);
-        }
-
-        self.depth -= 1;
-        self.name(false)
-    }
-
-    fn nested_path(&mut self) -> Option<Path<'src>> {
-        self.recurse_deeper()?;
-
-        if let Some(digit) = self.base10() {
-            self.depth -= 1;
-            return self.get_memorized_path(digit);
-        }
-
-        if self.eat(b'?') {
-            if self.eat(b'?') {
-                self.depth -= 1;
-                return self.parse().map(Box::new).map(Path::Nested);
-            }
-
-            self.depth -= 1;
-            return match self.peek()? {
-                // templated nested path segment
-                b'$' => {
-                    self.offset += 1;
-
-                    self.template().and_then(|ident| match ident {
-                        Path::Literal(ref literal) => {
-                            self.try_memorizing_path(literal);
-                            Some(ident)
-                        }
-                        _ => None,
-                    })
-                }
-                // anonymous namespace
-                b'A' => {
-                    self.offset += 1;
-
-                    if let Some(b"0x") = self.peek_slice(0..2) {
-                        let mut len = 0;
-
-                        // skip over anonymous namespace disambiguator
-                        while self.peek().filter(|c| c.is_ascii_hexdigit()).is_some() {
-                            len += 1;
-                            self.offset += 1;
-                        }
-
-                        self.try_memorizing_path(&Cow::Borrowed(&self.src()[..len]));
-                    }
-
-                    self.consume(b'@')?;
-                    Some(Path::Literal(Cow::Borrowed("`anonymous namespace'")))
-                }
-                // interface
-                b'Q' => {
-                    self.offset += 1;
-
-                    let ident = Cow::Borrowed(self.ident()?);
-                    self.consume(b'@')?;
-                    self.try_memorizing_path(&ident);
-
-                    Some(Path::Interface(ident))
-                }
-                // disambiguator
-                _ => {
-                    let disambiguator = self.number()?;
-                    Some(Path::Disambiguator(disambiguator))
-                }
-            };
-        }
-
-        let ident = Cow::Borrowed(self.ident()?);
-        self.try_memorizing_path(&ident);
-
-        self.depth -= 1;
-        Some(Path::Literal(ident))
-    }
-
-    fn path(&mut self) -> Option<Path<'src>> {
-        let mut full_path = Vec::new();
-        let tail = self.unqualified_path()?;
-
-        while !self.eat(b'@') {
-            self.recurse_deeper()?;
-            let segment = self.nested_path()?;
-
-            match segment {
-                Path::Sequence(inner) => full_path.extend(inner),
-                _ => full_path.push(segment),
-            }
-
-            self.depth -= 1;
-        }
-
-        full_path.push(tail);
-
-        Some(Path::Sequence(full_path))
-    }
-
-    /// ``` ? <name> <type-encoding> ```
-    pub fn parse(&mut self) -> Option<Symbol<'src>> {
-        self.recurse_deeper()?;
-        self.consume(b'?')?;
-
-        // unparseable MD5 encoded symbol
-        if self.eat_slice(b"?@") {
-            self.depth -= 1;
-            return self.md5().map(Path::into);
-        }
-
-        // scoped template instantiation?
-        if self.eat_slice(b"$TSS") {
-            let mut n = 0usize;
-
-            while !self.eat(b'@') {
-                let digit = self.base10()?;
-
-                n = n.checked_mul(10)?;
-                n = n.checked_add(digit)?;
-            }
-
-            self.depth -= 1;
-            todo!("TODO: return thread safe static guard")
-        }
-
-        // any other template instantiation
-        if self.eat(b'$') {
-            self.depth -= 1;
-            return self.template().map(Path::into);
-        }
-
-        let root = self.path()?;
-        let prefix = self.peek();
-        self.offset += 1;
-
-        // either no type of a C style type
-        if let None | Some(b'9') = prefix {
-            self.depth -= 1;
-            return Some(root).map(Path::into);
-        }
-
-        let tipe = match prefix? {
-            b'0'..=b'4' => {
-                let tipe = self.tipe(Modifiers::empty())?;
-                self.modifiers();
-                tipe
-            }
-            b'Y' => {
-                let conv = self.calling_conv()?;
-                let modi = self.modifiers();
-                let return_modi = self.return_modifiers();
-                let return_tipe = self.tipe(return_modi)?;
-                let params = self.function_params()?;
-
-                Type::Function(conv, modi, Box::new(return_tipe), params)
-            }
-            b'_' => self.encoded_ident()?,
-            _ => {
-                let mut quali = Modifiers::empty();
-                let scope = self.function_scope();
-
-                if !scope.contains(Scope::STATIC) {
-                    quali |= self.function_qualifiers();
-                }
-
-                let conv = self.calling_conv()?;
-                let return_type = self.function_return_type()?;
-                let params = self.function_params()?;
-
-                Type::MemberFunction(scope, conv, quali, Box::new(return_type), params)
-            }
-        };
-
-        self.depth -= 1;
-        Some(Symbol { path: root, tipe })
-    }
-}
-
-pub(super) struct Formatter<'src> {
-    stream: &'src mut TokenStream,
-}
-
-impl<'src> Formatter<'src> {
-    fn fmt(stream: &'src mut TokenStream, sym: Symbol<'static>) {
-        let mut this = Formatter { stream };
-
-        this.symbol(sym);
-    }
-
-    #[inline]
-    fn push(&mut self, text: &'static str, color: Color) {
-        self.stream.push(text, color);
-    }
-
-    #[inline]
-    fn push_cow(&mut self, text: Cow<'static, str>, color: Color) {
-        self.stream.push_cow(text, color);
-    }
-
-    fn operator(&mut self, op: Operator<'static>) {
-        let literal = match op {
-            Operator::Ctor => "constructor",
-            Operator::Dtor => "destructor",
-            Operator::New => "operator new",
-            Operator::Delete => "operator delete",
-            Operator::Assign => "operator=",
-            Operator::ShiftRight => "operator>>",
-            Operator::ShiftLeft => "operator<<",
-            Operator::LogicalNot => "operator!",
-            Operator::Equals => "operator=",
-            Operator::NotEquals => "operator!=",
-            Operator::Array => "operator[]",
-            Operator::Pointer => "operator->",
-            Operator::Dereference => "operator*",
-            Operator::MemberDereference => "operator->*",
-            Operator::Increment => "operator++",
-            Operator::Decrement => "operator--",
-            Operator::Minus => "operator-",
-            Operator::Plus => "operator+",
-            Operator::ArithmeticAND => "operator&",
-            Operator::Divide => "operator/",
-            Operator::Modulus => "operator%",
-            Operator::Less => "operator<",
-            Operator::LessEqual => "operator<=",
-            Operator::Greater => "operator>",
-            Operator::GreaterEqual => "operator>=",
-            Operator::Comma => "operator,",
-            Operator::Calling => "operator()",
-            Operator::ArithmeticNot => "operator~",
-            Operator::Xor => "operator^",
-            Operator::ArithmeticOR => "operator|",
-            Operator::LogicalAND => "operator&&",
-            Operator::LogicalOR => "operator||",
-            Operator::TimesEquals => "operator*=",
-            Operator::PlusEquals => "operator+=",
-            Operator::MinusEquals => "operator-=",
-            Operator::DivideEquals => "operator/=",
-            Operator::ModulusEquals => "operator%=",
-            Operator::ShiftRightEquals => "operator>>=",
-            Operator::ShiftLeftEquals => "operator<<=",
-            Operator::ANDEquals => "operator&=",
-            Operator::OREquals => "operator|=",
-            Operator::XorEquals => "operator^=",
-            Operator::VBaseDtor => "`vbase destructor'",
-            Operator::VectorDeletingDtor => "`vector deleting destructor'",
-            Operator::DefaultCtorClosure => "`default constructor closure'",
-            Operator::ScalarDeletingDtor => "`scalar deleting destructor'",
-            Operator::VecCtorIter => "`vector constructor iterator'",
-            Operator::VecDtorIter => "`vector destructor iterator'",
-            Operator::VecVbaseCtorIter => "`vector vbase constructor iterator'",
-            Operator::VdispMap => "`virtual displacement map'",
-            Operator::EHVecCtorIter => "`eh vector constructor iterator'",
-            Operator::EHVecDtorIter => "`eh vector destructor iterator'",
-            Operator::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
-            Operator::CopyCtorClosure => "`copy constructor closure'",
-            Operator::LocalVftableCtorClosure => "`local vftable constructor closure'",
-            Operator::NewArray => "operator new[]",
-            Operator::DeleteArray => "operator delete[]",
-            Operator::CoAwait => "co_await",
-            Operator::Spaceship => "operator<=>",
-            Operator::SourceName(source) => return self.push_cow(source, colors::PURPLE),
-        };
-
-        self.push(literal, colors::MAGENTA);
-    }
-
-    fn path(&mut self, ident: Path<'static>) {
-        match ident {
-            Path::Literal(text) => self.push_cow(text, colors::PURPLE),
-            Path::Interface(text) => {
-                self.push("[", colors::GRAY40);
-                self.push_cow(text, colors::PURPLE);
-                self.push("]", colors::GRAY40);
-            }
-            Path::Template(ident, params) => {
-                self.path(*ident);
-                self.push("<", colors::GRAY40);
-                self.delimited(", ", params, |this, param| this.tipe(param));
-                self.push(">", colors::GRAY40);
-            }
-            Path::Operator(operator) => self.operator(operator),
-            Path::Sequence(path) => {
-                let count = path.len();
-                let mut parts = path.into_iter();
-
-                if count == 1 {
-                    return self.path(parts.next().unwrap());
-                }
-
-                for (idx, part) in parts.enumerate() {
-                    if idx != count - 1 {
-                        self.push("::", colors::GRAY20);
-                    }
-
-                    self.path(part);
-                }
-            }
-            Path::Nested(inner) => self.symbol(*inner),
-            Path::Disambiguator(val) => {
-                self.push("`", colors::GRAY20);
-                self.push_cow(Cow::Owned(format!("{val:?}")), colors::GRAY20);
-                self.push("'", colors::GRAY20);
-            }
-        }
-    }
-
-    fn modifiers(&mut self, modi: Modifiers) {
-        let color = colors::BLUE;
-
-        if modi.contains(Modifiers::CONST) {
-            self.push("const ", color);
-        }
-
-        if modi.contains(Modifiers::VOLATILE) {
-            self.push("volatile ", color);
-        }
-
-        if modi.contains(Modifiers::FAR) {
-            self.push("__far ", color);
-        }
-
-        if modi.contains(Modifiers::UNALIGNED) {
-            self.push("__unaligned ", color);
-        }
-
-        if modi.contains(Modifiers::RESTRICT) {
-            self.push("restrict  ", color);
-        }
-
-        if modi.contains(Modifiers::LVALUE) {
-            self.push("& ", color);
-        }
-
-        if modi.contains(Modifiers::RVALUE) {
-            self.push("&& ", color);
-        }
-    }
-
-    fn calling_conv(&mut self, conv: CallingConv) {
-        let literal = match conv {
-            CallingConv::Cdecl => "__cdecl ",
-            CallingConv::Pascal => "__pascal ",
-            CallingConv::Thiscall => "__thiscall ",
-            CallingConv::Stdcall => "__stdcall ",
-            CallingConv::Fastcall => "__fastcall ",
-            CallingConv::Clrcall => "__clrcall ",
-            CallingConv::Eabi => "__eabicall ",
-            CallingConv::Vectorcall => "__vectorcall ",
-        };
-
-        self.push(literal, colors::GRAY40);
-    }
-
-    fn scope(&mut self, scope: Scope) {
-        let literal = match scope {
-            Scope::PUBLIC => "public: ",
-            Scope::PRIVATE => "private: ",
-            Scope::PROTECTED => "protected: ",
-            Scope::GLOBAL => "global: ",
-            Scope::STATIC => "static: ",
-            Scope::VIRTUAL => "virtual: ",
-            Scope::FAR => "far: ",
-            Scope::THUNK => "thunk: ",
-            _ => return,
-        };
-
-        self.push(literal, colors::WHITE);
-    }
-
-    fn delimited<F: Fn(&mut Self, Type<'src>)>(
-        &mut self,
-        delimiter: &'static str,
-        params: Parameters<'src>,
-        f: F,
-    ) {
-        let mut params = params.into_iter();
-
-        if let Some(param) = params.next() {
-            f(self, param);
-        }
-
-        for param in params {
-            self.push(delimiter, colors::GRAY40);
-            f(self, param);
-        }
-    }
-
-    fn tipe(&mut self, tipe: Type<'src>) {
-        match tipe {
-            Type::Unit => {}
-            Type::Nullptr => self.push("nullptr", colors::PURPLE),
-            Type::Void(modi) => {
-                self.modifiers(modi);
-                self.push("void", colors::PURPLE);
-            }
-            Type::Bool(modi) => {
-                self.modifiers(modi);
-                self.push("bool", colors::PURPLE);
-            }
-            Type::Char(modi) => {
-                self.modifiers(modi);
-                self.push("char", colors::PURPLE);
-            }
-            Type::Char8(modi) => {
-                self.modifiers(modi);
-                self.push("char8_t", colors::PURPLE);
-            }
-            Type::Char16(modi) => {
-                self.modifiers(modi);
-                self.push("char16_t", colors::PURPLE);
-            }
-            Type::Char32(modi) => {
-                self.modifiers(modi);
-                self.push("char32_t", colors::PURPLE);
-            }
-            Type::IChar(modi) => {
-                self.modifiers(modi);
-                self.push("signed char", colors::PURPLE);
-            }
-            Type::UChar(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned char", colors::PURPLE);
-            }
-            Type::WChar(modi) => {
-                self.modifiers(modi);
-                self.push("wchar_t", colors::PURPLE);
-            }
-            Type::IShort(modi) => {
-                self.modifiers(modi);
-                self.push("short", colors::PURPLE);
-            }
-            Type::UShort(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned short", colors::PURPLE);
-            }
-            Type::Int(modi) => {
-                self.modifiers(modi);
-                self.push("int", colors::PURPLE);
-            }
-            Type::UInt(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned", colors::PURPLE);
-            }
-            Type::Float(modi) => {
-                self.modifiers(modi);
-                self.push("float", colors::PURPLE);
-            }
-            Type::Double(modi) => {
-                self.modifiers(modi);
-                self.push("double", colors::PURPLE);
-            }
-            Type::LDouble(modi) => {
-                self.modifiers(modi);
-                self.push("long double", colors::PURPLE);
-            }
-            Type::ULong(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned long", colors::PURPLE);
-            }
-            Type::I64(modi) => {
-                self.modifiers(modi);
-                self.push("int64_t", colors::PURPLE);
-            }
-            Type::U64(modi) => {
-                self.modifiers(modi);
-                self.push("uint64_t", colors::PURPLE);
-            }
-            Type::I128(modi) => {
-                self.modifiers(modi);
-                self.push("int128_t", colors::PURPLE);
-            }
-            Type::U128(modi) => {
-                self.modifiers(modi);
-                self.push("uint128_t", colors::PURPLE);
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    fn symbol(&mut self, sym: Symbol<'static>) {
-        match sym.tipe {
-            Type::Unit => {}
-            Type::Nullptr => self.push("nullptr", colors::PURPLE),
-            Type::Void(modi) => {
-                self.modifiers(modi);
-                self.push("void", colors::PURPLE);
-            }
-            Type::Bool(modi) => {
-                self.modifiers(modi);
-                self.push("bool", colors::PURPLE);
-            }
-            Type::Char(modi) => {
-                self.modifiers(modi);
-                self.push("char", colors::PURPLE);
-            }
-            Type::Char8(modi) => {
-                self.modifiers(modi);
-                self.push("char8_t", colors::PURPLE);
-            }
-            Type::Char16(modi) => {
-                self.modifiers(modi);
-                self.push("char16_t", colors::PURPLE);
-            }
-            Type::Char32(modi) => {
-                self.modifiers(modi);
-                self.push("char32_t", colors::PURPLE);
-            }
-            Type::IChar(modi) => {
-                self.modifiers(modi);
-                self.push("signed char", colors::PURPLE);
-            }
-            Type::UChar(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned char", colors::PURPLE);
-            }
-            Type::WChar(modi) => {
-                self.modifiers(modi);
-                self.push("wchar_t", colors::PURPLE);
-            }
-            Type::IShort(modi) => {
-                self.modifiers(modi);
-                self.push("short", colors::PURPLE);
-            }
-            Type::UShort(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned short", colors::PURPLE);
-            }
-            Type::Int(modi) => {
-                self.modifiers(modi);
-                self.push("int", colors::PURPLE);
-            }
-            Type::UInt(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned", colors::PURPLE);
-            }
-            Type::Float(modi) => {
-                self.modifiers(modi);
-                self.push("float", colors::PURPLE);
-            }
-            Type::Double(modi) => {
-                self.modifiers(modi);
-                self.push("double", colors::PURPLE);
-            }
-            Type::LDouble(modi) => {
-                self.modifiers(modi);
-                self.push("long double", colors::PURPLE);
-            }
-            Type::ULong(modi) => {
-                self.modifiers(modi);
-                self.push("unsigned long", colors::PURPLE);
-            }
-            Type::I64(modi) => {
-                self.modifiers(modi);
-                self.push("int64_t", colors::PURPLE);
-            }
-            Type::U64(modi) => {
-                self.modifiers(modi);
-                self.push("uint64_t", colors::PURPLE);
-            }
-            Type::I128(modi) => {
-                self.modifiers(modi);
-                self.push("int128_t", colors::PURPLE);
-            }
-            Type::U128(modi) => {
-                self.modifiers(modi);
-                self.push("uint128_t", colors::PURPLE);
-            }
-            Type::Union(modi, path) => {
-                self.modifiers(modi);
-                self.push("enum ", colors::MAGENTA);
-                self.path(path);
-            }
-            Type::Struct(modi, path) => {
-                self.modifiers(modi);
-                self.push("struct ", colors::MAGENTA);
-                self.path(path);
-            }
-            Type::Class(modi, path) => {
-                self.modifiers(modi);
-                self.push("class ", colors::MAGENTA);
-                self.path(path);
-            }
-            Type::Ref(modi, tipe) => {
-                self.modifiers(modi);
-                self.push("&", colors::BLUE);
-                self.tipe(*tipe);
-            }
-            Type::RValueRef(modi, tipe) => {
-                self.modifiers(modi);
-                self.push("&&", colors::BLUE);
-                self.tipe(*tipe);
-            }
-            Type::Ptr(modi, tipe) => {
-                self.modifiers(modi);
-                self.push("*", colors::BLUE);
-                self.tipe(*tipe);
-            }
-            Type::Function(conv, modi, ret, args) => {
-                self.tipe(*ret);
-                self.push(" ", colors::WHITE);
-                self.calling_conv(conv);
-                self.modifiers(modi);
-                self.path(sym.path);
-                self.push("(", colors::GRAY40);
-                self.delimited(", ", args, |this, arg| this.tipe(arg));
-                self.push(")", colors::GRAY40);
-            }
-            Type::MemberFunction(scope, conv, modi, ret, args) => {
-                self.scope(scope);
-                self.tipe(*ret);
-                self.push(" ", colors::WHITE);
-                self.calling_conv(conv);
-                self.modifiers(modi);
-                self.path(sym.path);
-                self.push("(", colors::GRAY40);
-                self.delimited(", ", args, |this, arg| this.tipe(arg));
-                self.push(")", colors::GRAY40);
-            }
-            Type::MemberFunctionPtr(scope, class, conv, modi, ret, args) => {
-                self.scope(scope);
-                self.path(class); // don't know if this is correctly formatted
-                self.push(" ", colors::WHITE);
-                self.tipe(*ret);
-                self.push(" ", colors::WHITE);
-                self.calling_conv(conv);
-                self.modifiers(modi);
-                self.path(sym.path);
-                self.push("(", colors::GRAY40);
-                self.delimited(", ", args, |this, arg| this.tipe(arg));
-                self.push(")", colors::GRAY40);
-            }
-            _ => todo!(),
-        }
     }
 }

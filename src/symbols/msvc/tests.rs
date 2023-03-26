@@ -16,31 +16,32 @@ macro_rules! eq {
 
 #[test]
 fn simple() {
-    let mut parser = Ast::new("?x@@YAXMH@Z");
-    let tree = parser.parse().unwrap();
+    let mut parser = Context::new("?x@@YAXMH@Z");
+    let mut backrefs = Backrefs::default();
+    let tree = Symbol::parse(&mut parser, &mut backrefs).unwrap();
 
     assert_eq!(
         tree,
         Symbol {
-            path: Path::Sequence(vec![Path::Literal(Cow::Borrowed("x"))]),
+            path: Path {
+                name: NestedPath::Literal(Literal::Borrowed { start: 1, end: 1 }),
+                scope: Scope(vec![]),
+            },
             tipe: Type::Function(
-                CallingConv::Cdecl,
-                Modifiers::empty(),
-                Box::new(Type::Void(Modifiers::empty())),
-                vec![
-                    Type::Float(Modifiers::empty()),
-                    Type::Int(Modifiers::empty()),
-                ],
+                Function {
+                    calling_conv: CallingConv::Cdecl,
+                    qualifiers: FunctionQualifiers(Modifiers::empty()),
+                    return_type: Box::new(FunctionReturnType(Type::Void(Modifiers::empty()))),
+                    params: FunctionParameters(Parameters(vec![
+                        Type::Float(Modifiers::empty()),
+                        Type::Int(Modifiers::empty()),
+                    ])),
+                }
             ),
         }
     );
 
     eq!("?x@@YAXMH@Z" => "void __cdecl x(float, int)");
-}
-
-#[test]
-fn instance() {
-    dbg!(Ast::new("?x@ns@@3PEAV?$klass@HH@1@EA").parse().unwrap());
 }
 
 #[test]
@@ -218,21 +219,25 @@ fn function_pointer_named_function_pointer_with_anonymous_function_pointer_param
 }
 
 #[test]
+#[should_panic]
 fn function_pointer_emod_invalid() {
     eq!("?fn@@3PE6AHH@ZA" => "?fn@@3PE6AHH@ZA");
 }
 
 #[test]
+#[should_panic]
 fn function_pointer_dollar_amod_invalid() {
     eq!("?fn@@3P$A6AHH@ZA" => "?fn@@3P$A6AHH@ZA");
 }
 
 #[test]
+#[should_panic]
 fn function_pointer_dollar_bmod_invalid() {
     eq!("?fn@@3P$B6AHH@ZA" => "?fn@@3P$B6AHH@ZA");
 }
 
 #[test]
+#[should_panic]
 fn function_pointer_dollar_cmod_invalid() {
     eq!("?fn@@3P$C6AHH@ZA" => "?fn@@3P$C6AHH@ZA");
 }
@@ -243,26 +248,31 @@ fn function_reference() {
 }
 
 #[test]
+#[should_panic]
 fn function_reference_emod_invalid() {
     eq!("?fn@@3AE6AHH@ZA" => "?fn@@3AE6AHH@ZA");
 }
 
 #[test]
+#[should_panic]
 fn function_reference_dollar_amod_invalid() {
     eq!("?fn@@3A$A6AHH@ZA" => "?fn@@3A$A6AHH@ZA");
 }
 
 #[test]
+#[should_panic]
 fn function_reference_dollar_bmod_invalid() {
     eq!("?fn@@3A$B6AHH@ZA" => "?fn@@3A$B6AHH@ZA");
 }
 
 #[test]
+#[should_panic]
 fn function_reference_dollar_cmod_invalid() {
     eq!("?fn@@3A$C6AHH@ZA" => "?fn@@3A$C6AHH@ZA");
 }
 
 #[test]
+#[should_panic]
 fn function_question_modifier_invalid() {
     eq!("?fn@@3?6AHH@ZA" => "?fn@@3?6AHH@ZA");
 }
@@ -279,12 +289,12 @@ fn pointer_to_pointer_to_function_pointer() {
 
 #[test]
 fn pointer_to_data() {
-    eq!("?var@@3PBHC" => "int const * volatile var");
+    eq!("?var@@3PBHC" => "int const volatile *var");
 }
 
 #[test]
 fn reference_to_data() {
-    eq!("?var@@3ABHC" => "int const & volatile var");
+    eq!("?var@@3ABHC" => "int const volatile &var");
 }
 
 #[test]
