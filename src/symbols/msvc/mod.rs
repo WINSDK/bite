@@ -403,13 +403,12 @@ struct Function {
 
 impl<'a, 'b> Parse<'a, 'b> for Function {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let calling_conv = CallingConv::parse(ctx, backrefs)?;
         let mut qualifiers = FunctionQualifiers(Modifiers::empty());
 
         if ctx.parsing_qualifiers {
             qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
         }
-
-        let calling_conv = CallingConv::parse(ctx, backrefs)?;
 
         if ctx.eat(b'?') {
             ctx.modifiers = Modifiers::parse(ctx, backrefs)?;
@@ -446,6 +445,7 @@ impl<'a, 'b> Parse<'a, 'b> for MemberFunction {
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
+        ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
@@ -486,9 +486,7 @@ impl<'a, 'b> Parse<'a, 'b> for MemberFunctionPtr {
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-
         ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
-
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
@@ -1192,6 +1190,7 @@ impl<'a, 'b> Parse<'a, 'b> for ReturnModifiers {
         }
 
         let modi = match ctx.take()? {
+            b'A' => Modifiers::empty(),
             b'B' => Modifiers::CONST,
             b'C' => Modifiers::VOLATILE,
             b'D' => Modifiers::CONST | Modifiers::VOLATILE,
