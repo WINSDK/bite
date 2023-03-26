@@ -24,7 +24,7 @@ fn simple() {
         tree,
         Symbol {
             path: Path {
-                name: NestedPath::Literal(Literal::Borrowed { start: 1, end: 1 }),
+                name: NestedPath::Literal(Literal::Borrowed { start: 1, end: 2 }),
                 scope: Scope(vec![]),
             },
             tipe: Type::Function(
@@ -210,7 +210,7 @@ fn white_space_formatting3() {
 
 #[test]
 fn function_pointer() {
-    eq!("?fn@@3P6AHH@ZA" => "int (__cdecl* fn)(int)");
+    eq!("?fn@@3P6AHH@ZA" => "int (__cdecl *fn)(int)");
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn function_pointer_dollar_cmod_invalid() {
 
 #[test]
 fn function_reference() {
-    eq!("?fn@@3A6AHH@ZA" => "int (__cdecl& fn)(int)");
+    eq!("?fn@@3A6AHH@ZA" => "int (__cdecl &fn)(int)");
 }
 
 #[test]
@@ -279,7 +279,7 @@ fn function_question_modifier_invalid() {
 
 #[test]
 fn pointer_to_function_pointer() {
-    eq!("?fn@@3PAP6AHH@ZA" => "int (__cdecl** fn)(int)");
+    eq!("?fn@@3PAP6AHH@ZA" => "int (__cdecl **fn)(int)");
 }
 
 #[test]

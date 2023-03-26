@@ -87,9 +87,8 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 
     Some(parser.stream)
 }
-
 trait Format<'a, 'b> {
-    fn demangle(&self, ctx: &'a mut Context, backrefs: &'b mut Backrefs);
+    fn demangle(&self, _ctx: &'a mut Context, _backrefs: &'b mut Backrefs) {}
 }
 
 trait Parse<'a, 'b>: Sized {
@@ -388,8 +387,267 @@ impl<'a, 'b> Parse<'a, 'b> for Type {
 }
 
 impl<'a, 'b> Format<'a, 'b> for Type {
-    fn demangle(&self, _ctx: &mut Context, _backrefs: &mut Backrefs) {
-        todo!()
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        self.demangle_pre(ctx, backrefs);
+        self.demangle_post(ctx, backrefs);
+    }
+}
+
+/// Converts an AST to a string.
+///
+/// Converting an AST representing a C++ type to a string is tricky due
+/// to the bad grammar of the C++ declaration inherited from C. You have
+/// to construct a string from inside to outside. For example, if a type
+/// X is a pointer to a function returning int, the order you create a
+/// string becomes something like this:
+///
+///   (1) X is a pointer: *X
+///   (2) (1) is a function returning int: int (*X)()
+///
+/// So you cannot construct a result just by appending strings to a result.
+///
+/// To deal with this, we split the function into two. demangle_pre() writes
+/// the "first half" of type declaration, and demangle_post() writes the
+/// "second half". For example, demangle_pre() writes a return type for a
+/// function and demangle_post() writes an parameter list.
+impl Type {
+    fn demangle_pre(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        match self {
+            Type::Unit => {}
+            Type::Nullptr => ctx.stream.push("nullptr", colors::MAGENTA),
+            Type::Void(modi) => {
+                ctx.stream.push("void", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Bool(modi) => {
+                ctx.stream.push("bool", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Char(modi) => {
+                ctx.stream.push("char", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Char8(modi) => {
+                ctx.stream.push("char8", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Char16(modi) => {
+                ctx.stream.push("char16", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Char32(modi) => {
+                ctx.stream.push("char32", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::IChar(modi) => {
+                ctx.stream.push("signed char", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::UChar(modi) => {
+                ctx.stream.push("unsigned char", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::WChar(modi) => {
+                ctx.stream.push("wchar", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::IShort(modi) => {
+                ctx.stream.push("short", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::UShort(modi) => {
+                ctx.stream.push("unsigned short", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Int(modi) => {
+                ctx.stream.push("int", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::UInt(modi) => {
+                ctx.stream.push("unsigned int", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Float(modi) => {
+                ctx.stream.push("float", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Double(modi) => {
+                ctx.stream.push("double", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::LDouble(modi) => {
+                ctx.stream.push("long double", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Long(modi) => {
+                ctx.stream.push("long", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::ULong(modi) => {
+                ctx.stream.push("unsigned long", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::I64(modi) => {
+                ctx.stream.push("int64_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::U64(modi) => {
+                ctx.stream.push("uint64_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::I128(modi) => {
+                ctx.stream.push("int128_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::U128(modi) => {
+                ctx.stream.push("uint128_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Union(modi, name) => {
+                ctx.stream.push("union ", colors::MAGENTA);
+                ctx.push_literal(backrefs, name, colors::PURPLE);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Enum(modi, name) => {
+                ctx.stream.push("enum ", colors::MAGENTA);
+                ctx.push_literal(backrefs, name, colors::PURPLE);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Struct(modi, name) => {
+                ctx.stream.push("struct ", colors::MAGENTA);
+                ctx.push_literal(backrefs, name, colors::PURPLE);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Class(modi, name) => {
+                ctx.stream.push("class ", colors::MAGENTA);
+                ctx.push_literal(backrefs, name, colors::PURPLE);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Ptr(modi, tipe) | Type::Ref(modi, tipe) | Type::RValueRef(modi, tipe) => {
+                // "[]" and "()" (for function parameters) take precedence over "*",
+                // so "int *x(int)" means "x is a function returning int *". We need
+                // parentheses to supercede the default precedence. (e.g. we want to
+                // emit something like "int (*x)(int)".)
+
+                let tipe = &tipe.0;
+                match tipe {
+                    Type::Function(func) => {
+                        func.return_type.0.demangle_pre(ctx, backrefs);
+                        ctx.stream.push(" (", colors::GRAY40);
+                        func.calling_conv.demangle(ctx, backrefs);
+                    }
+                    Type::MemberFunction(func) => {
+                        func.return_type.0.demangle_pre(ctx, backrefs);
+                        func.calling_conv.demangle(ctx, backrefs);
+                    }
+                    Type::MemberFunctionPtr(func) => {
+                        func.return_type.0.demangle_pre(ctx, backrefs);
+                        ctx.stream.push(" (", colors::GRAY40);
+                        func.calling_conv.demangle(ctx, backrefs);
+                    }
+                    Type::Array(..) => {
+                        tipe.demangle_pre(ctx, backrefs);
+                        ctx.stream.push(" (", colors::GRAY40);
+                    }
+                    _ => tipe.demangle_pre(ctx, backrefs),
+                }
+
+                match self {
+                    Type::Ptr(..) => ctx.stream.push(" *", colors::RED),
+                    Type::Ref(..) => ctx.stream.push(" &", colors::RED),
+                    Type::RValueRef(..) => ctx.stream.push(" &&", colors::RED),
+                    _ => {}
+                }
+
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Function(func) => {
+                func.return_type.0.demangle_pre(ctx, backrefs);
+                ctx.stream.push(" ", colors::WHITE);
+                func.calling_conv.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::WHITE);
+            }
+            Type::MemberFunction(func) => {
+                func.storage_scope.demangle(ctx, backrefs);
+                func.return_type.0.demangle_pre(ctx, backrefs);
+                ctx.stream.push(" ", colors::WHITE);
+                func.calling_conv.demangle(ctx, backrefs);
+            }
+            Type::MemberFunctionPtr(func) => {
+                func.return_type.0.demangle_pre(ctx, backrefs);
+                ctx.stream.push(" (", colors::GRAY40);
+                func.calling_conv.demangle(ctx, backrefs);
+                ctx.stream.push("  ", colors::WHITE);
+                func.class_name.demangle(ctx, backrefs);
+                ctx.stream.push("::*", colors::GRAY40);
+            }
+            Type::Constant(val) => {
+                let val = std::borrow::Cow::Owned(val.to_string());
+                ctx.stream.push_cow(val, colors::GRAY20);
+            }
+            Type::TemplateParameterIdx(_idx) => todo!(),
+            Type::Typedef(modi, name) => {
+                ctx.push_literal(backrefs, name, colors::PURPLE);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Variable(storage, modi, tipe) => {
+                storage.demangle(ctx, backrefs);
+                tipe.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::WHITE);
+            }
+            Type::Indexed(idx) => {
+                let literal = backrefs.get_memorized_ident(*idx).unwrap();
+                ctx.push_literal(backrefs, &literal, colors::PURPLE);
+            }
+            Type::Encoded(_) => {}
+            Type::Array(_) => todo!(),
+        }
+    }
+
+    fn demangle_post(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        match self {
+            Type::Ptr(_, tipe) | Type::Ref(_, tipe) => {
+                let tipe = &tipe.0;
+
+                match tipe {
+                    Type::Function(..) => ctx.stream.push(")", colors::GRAY40),
+                    Type::MemberFunction(..) => ctx.stream.push(")", colors::GRAY40),
+                    Type::MemberFunctionPtr(..) => ctx.stream.push(")", colors::GRAY40),
+                    Type::Array(..) => ctx.stream.push(")", colors::GRAY40),
+                    _ => {}
+                }
+
+                tipe.demangle_post(ctx, backrefs);
+            }
+            Type::Function(func) => {
+                ctx.stream.push("(", colors::GRAY40);
+                func.params.0.demangle(ctx, backrefs);
+                ctx.stream.push(")", colors::GRAY40);
+
+                func.qualifiers.0.demangle(ctx, backrefs);
+                func.return_type.0.demangle_post(ctx, backrefs);
+            }
+            Type::MemberFunction(func) => {
+                ctx.stream.push("(", colors::GRAY40);
+                func.params.0.demangle(ctx, backrefs);
+                ctx.stream.push(")", colors::GRAY40);
+
+                func.qualifiers.0.demangle(ctx, backrefs);
+                func.return_type.0.demangle_post(ctx, backrefs);
+            }
+            Type::MemberFunctionPtr(func) => {
+                ctx.stream.push("(", colors::GRAY40);
+                func.params.0.demangle(ctx, backrefs);
+                ctx.stream.push(")", colors::GRAY40);
+
+                func.qualifiers.0.demangle(ctx, backrefs);
+                func.return_type.0.demangle_post(ctx, backrefs);
+            }
+            Type::Variable(_, _, tipe) => tipe.demangle_post(ctx, backrefs),
+            Type::Array(..) => todo!(),
+            _ => {}
+        }
     }
 }
 
@@ -551,184 +809,65 @@ impl<'a, 'b> Parse<'a, 'b> for FunctionReturnType {
 /// Either a well known operator of a class or some C++ internal operator implementation.
 #[derive(Debug, PartialEq, Clone)]
 enum Operator {
-    /// Constructor
     Ctor,
-
-    /// Destructor
     Dtor,
-
-    /// operator new
     New,
-
-    /// operator new[]
     NewArray,
-
-    /// operator delete
     Delete,
-
-    /// operator delete[]
     DeleteArray,
-
-    /// operator<<
     ShiftLeft,
-
-    /// operator<<=
     ShiftLeftEquals,
-
-    /// operator>>
     ShiftRight,
-
-    /// operator>>=
     ShiftRightEquals,
-
-    /// operator[]
     Array,
-
-    /// operator->
     Pointer,
-
-    /// operator*
     Dereference,
-
-    /// operator->*
     MemberDereference,
-
-    /// operator++
     Increment,
-
-    /// operator--
     Decrement,
-
-    /// operator*=
     TimesEquals,
-
-    /// operator-
     Minus,
-
-    /// operator-=
     MinusEquals,
-
-    /// operator+
     Plus,
-
-    /// operator+=
     PlusEquals,
-
-    /// operator/
     Divide,
-
-    /// operator/=
     DivideEquals,
-
-    /// operator%
     Modulus,
-
-    /// operator%=
     ModulusEquals,
-
-    /// operator^
     Xor,
-
-    /// operator^=
     XorEquals,
-
-    /// operator&
     ArithmeticAND,
-
-    /// operator&=
     ANDEquals,
-
-    /// operator|
     ArithmeticOR,
-
-    /// operator|=
     OREquals,
-
-    /// operator~
     ArithmeticNot,
-
-    /// operator&&
     LogicalAND,
-
-    /// operator||
     LogicalOR,
-
-    /// operator!
     LogicalNot,
-
-    /// operator=
     Assign,
-
-    /// operator==
     Equals,
-
-    /// operator!=
     NotEquals,
-
-    /// operator<
     Less,
-
-    /// operator<=
     LessEqual,
-
-    /// operator>
     Greater,
-
-    /// operator>=
     GreaterEqual,
-
-    /// operator,
     Comma,
-
-    /// operator()
     Calling,
-
-    /// operator<=>
     Spaceship,
-
-    /// operator co_await (doesn't match any other operator syntax, C++ at it again) :(
     CoAwait,
-
-    /// vbase destructor
     VBaseDtor,
-
-    /// vector deleting destructor
     VectorDeletingDtor,
-
-    /// default constructor closure
     DefaultCtorClosure,
-
-    /// scalar deleting destructor
     ScalarDeletingDtor,
-
-    /// vector constructor iterator
     VecCtorIter,
-
-    /// vector destructor iterator
     VecDtorIter,
-
-    /// vector vbase constructor iterator
     VecVbaseCtorIter,
-
-    /// virtual displacement map
     VdispMap,
-
-    /// eh vector constructor iterator
     EHVecCtorIter,
-
-    /// eh vector destructor iterator
     EHVecDtorIter,
-
-    /// eh vector vbase constructor iterator
     EHVecVbaseCtorIter,
-
-    /// copy constructor closure
     CopyCtorClosure,
-
-    /// local vftable constructor closure
     LocalVftableCtorClosure,
-
-    /// Source name???
     SourceName(Literal),
 }
 
@@ -921,7 +1060,7 @@ impl<'a, 'b> Format<'a, 'b> for Parameters {
         let mut params = self.0.iter();
 
         if let Some(param) = params.next() {
-            param.demangle(ctx, backrefs);
+            param.demangle_pre(ctx, backrefs);
         }
 
         for param in params {
@@ -1376,11 +1515,9 @@ impl<'a, 'b> Parse<'a, 'b> for NestedPath {
         if ctx.eat(b'?') {
             ctx.ascent();
             return match ctx.peek()? {
-                // nested symbol
                 b'?' => Symbol::parse(ctx, backrefs)
                     .map(Box::new)
                     .map(NestedPath::Symbol),
-                // templated nested path segment
                 b'$' => {
                     ctx.offset += 1;
 
@@ -1395,7 +1532,6 @@ impl<'a, 'b> Parse<'a, 'b> for NestedPath {
                         None
                     })
                 }
-                // anonymous namespace
                 b'A' => {
                     ctx.offset += 1;
 
@@ -1417,7 +1553,6 @@ impl<'a, 'b> Parse<'a, 'b> for NestedPath {
                     ctx.consume(b'@')?;
                     Some(NestedPath::Anonymous)
                 }
-                // interface
                 b'Q' => {
                     ctx.offset += 1;
 
@@ -1427,7 +1562,6 @@ impl<'a, 'b> Parse<'a, 'b> for NestedPath {
 
                     Some(NestedPath::Interface(ident))
                 }
-                // disambiguator
                 _ => {
                     let disambiguator = ctx.number()?;
                     Some(NestedPath::Disambiguator(disambiguator))
@@ -1655,8 +1789,10 @@ impl<'a, 'b> Parse<'a, 'b> for Symbol {
 }
 
 impl<'a, 'b> Format<'a, 'b> for Symbol {
-    fn demangle(&self, _ctx: &mut Context, _backrefs: &mut Backrefs) {
-        todo!()
+    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+        self.tipe.demangle_pre(ctx, backrefs);
+        self.path.demangle(ctx, backrefs);
+        self.tipe.demangle_post(ctx, backrefs);
     }
 }
 
