@@ -1022,15 +1022,15 @@ impl<'a, 'b> Format<'a, 'b> for StorageVariable {
 bitflags! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     struct StorageScope: u32 {
-        const PUBLIC     = 0b000000001;
-        const PRIVATE    = 0b000000010;
-        const PROTECTED  = 0b000000100;
-        const GLOBAL     = 0b000001000;
-        const STATIC     = 0b000010000;
-        const VIRTUAL    = 0b000100000;
-        const FAR        = 0b001000000;
-        const THUNK      = 0b010000000;
-        const ADJUST     = 0b100000000;
+        const PUBLIC    = 1;
+        const PRIVATE   = 1 << 1;
+        const PROTECTED = 1 << 2;
+        const GLOBAL    = 1 << 3;
+        const STATIC    = 1 << 4;
+        const VIRTUAL   = 1 << 5;
+        const FAR       = 1 << 6;
+        const THUNK     = 1 << 7;
+        const ADJUST    = 1 << 8;
     }
 }
 
@@ -1088,28 +1088,28 @@ bitflags! {
     #[derive(PartialEq, Eq, Clone, Copy)]
     struct Modifiers: u32 {
         /// const
-        const CONST     = 0b00000001;
+        const CONST     = 1;
 
         /// volatile
-        const VOLATILE  = 0b00000010;
+        const VOLATILE  = 1 << 1;
 
         /// __far
-        const FAR       = 0b00000100;
+        const FAR       = 1 << 2;
 
         /// __ptr64
-        const PTR64     = 0b00001000;
+        const PTR64     = 1 << 3;
 
         /// __unaligned
-        const UNALIGNED = 0b00010000;
+        const UNALIGNED = 1 << 4;
 
         /// restrict
-        const RESTRICT  = 0b00100000;
+        const RESTRICT  = 1 << 5;
 
         /// &
-        const LVALUE    = 0b01000000;
+        const LVALUE    = 1 << 6;
 
         /// &&
-        const RVALUE    = 0b10000000;
+        const RVALUE    = 1 << 7;
     }
 }
 
@@ -1250,7 +1250,7 @@ impl<'a, 'b> Parse<'a, 'b> for FunctionQualifiers {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Literal {
-    /// Handle to an memorized literal.
+    /// Index to a memorized string in [`Backrefs`].
     Indexed(usize),
 
     /// Borrowed string.
@@ -1697,7 +1697,6 @@ struct Backrefs {
 }
 
 impl Backrefs {
-    // TODO: change interface to not be cloning a type
     fn try_memorizing_ident<'b>(&'b mut self, ident: &'b Literal) {
         let memorized = &self.memorized[..self.memorized_count];
 
