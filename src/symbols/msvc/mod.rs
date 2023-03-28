@@ -837,6 +837,12 @@ enum Operator {
     ModulusEquals,
     Xor,
     XorEquals,
+    VFTable,
+    VBTable,
+    VCall,
+    TypeOff,
+    LocalStaticGuard,
+    String,
     ArithmeticAND,
     ANDEquals,
     ArithmeticOR,
@@ -854,6 +860,9 @@ enum Operator {
     GreaterEqual,
     Comma,
     Calling,
+    DynamicInitializer,
+    DynamicAtexitDtor,
+    LocalStaticThreadGuard,
     Spaceship,
     CoAwait,
     VBaseDtor,
@@ -868,13 +877,15 @@ enum Operator {
     EHVecDtorIter,
     EHVecVbaseCtorIter,
     CopyCtorClosure,
+    LocalVFTable,
     LocalVftableCtorClosure,
+    PlacementDeleteClosure,
+    PlacementDeleteArrayClosure,
     SourceName(Literal),
 }
 
 impl Parse for Operator {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
-        // FIXME: this doesn't handle all cases
         let op = match ctx.take()? {
             b'0' => Operator::Ctor,
             b'1' => Operator::Dtor,
@@ -919,6 +930,12 @@ impl Parse for Operator {
                 b'4' => Operator::ANDEquals,
                 b'5' => Operator::OREquals,
                 b'6' => Operator::XorEquals,
+                b'7' => Operator::VFTable,
+                b'8' => Operator::VBTable,
+                b'9' => Operator::VCall,
+                b'A' => Operator::TypeOff,
+                b'B' => Operator::LocalStaticGuard,
+                b'C' => Operator::String,
                 b'D' => Operator::VBaseDtor,
                 b'E' => Operator::VectorDeletingDtor,
                 b'F' => Operator::DefaultCtorClosure,
@@ -931,11 +948,18 @@ impl Parse for Operator {
                 b'M' => Operator::EHVecDtorIter,
                 b'N' => Operator::EHVecVbaseCtorIter,
                 b'O' => Operator::CopyCtorClosure,
+                b'R' => todo!("RTTI"),
+                b'S' => Operator::LocalVFTable,
                 b'T' => Operator::LocalVftableCtorClosure,
                 b'U' => Operator::NewArray,
                 b'V' => Operator::DeleteArray,
+                b'X' => Operator::PlacementDeleteClosure,
+                b'Y' => Operator::PlacementDeleteArrayClosure,
                 b'_' => match ctx.take()? {
                     b'L' => Operator::CoAwait,
+                    b'E' => Operator::DynamicInitializer,
+                    b'F' => Operator::DynamicAtexitDtor,
+                    b'J' => Operator::LocalStaticThreadGuard,
                     b'M' => Operator::Spaceship,
                     b'K' => return ctx.ident().map(Operator::SourceName),
                     _ => return None,
@@ -952,27 +976,63 @@ impl Parse for Operator {
 impl<'a> Format<'a> for Operator {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let literal = match *self {
-            Operator::Ctor => "constructor",
-            Operator::Dtor => "destructor",
+            Operator::Ctor => {
+                let name = ctx.scope.get(0);
+
+                return match name {
+                    Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
+                    _ => ctx.stream.push("`unnamed constructor'", colors::GRAY20),
+                };
+            }
+            Operator::Dtor => {
+                let name = ctx.scope.get(0);
+
+                ctx.stream.push("~", colors::MAGENTA);
+
+                return match name {
+                    Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
+                    _ => ctx.stream.push("`unnamed destructor'", colors::GRAY20),
+                };
+            }
+            Operator::VBTable => {
+                ctx.stream.push("`vbtable'{{for `", colors::BLUE);
+                return;
+            }
+            Operator::SourceName(src) => {
+                ctx.push_literal(backrefs, &src, colors::MAGENTA);
+                return;
+            }
             Operator::New => "operator new",
             Operator::Delete => "operator delete",
             Operator::Assign => "operator=",
             Operator::ShiftRight => "operator>>",
+            Operator::ShiftRightEquals => "operator>>=",
             Operator::ShiftLeft => "operator<<",
+            Operator::ShiftLeftEquals => "operator<<=",
             Operator::LogicalNot => "operator!",
             Operator::Equals => "operator=",
             Operator::NotEquals => "operator!=",
             Operator::Array => "operator[]",
             Operator::Pointer => "operator->",
             Operator::Dereference => "operator*",
+            Operator::TimesEquals => "operator*=",
             Operator::MemberDereference => "operator->*",
             Operator::Increment => "operator++",
             Operator::Decrement => "operator--",
             Operator::Minus => "operator-",
+            Operator::MinusEquals => "operator-=",
             Operator::Plus => "operator+",
+            Operator::PlusEquals => "operator+=",
             Operator::ArithmeticAND => "operator&",
+            Operator::ANDEquals => "operator&=",
+            Operator::LogicalAND => "operator&&",
+            Operator::ArithmeticOR => "operator|",
+            Operator::OREquals => "operator|=",
+            Operator::LogicalOR => "operator||",
             Operator::Divide => "operator/",
+            Operator::DivideEquals => "operator/=",
             Operator::Modulus => "operator%",
+            Operator::ModulusEquals => "operator%=",
             Operator::Less => "operator<",
             Operator::LessEqual => "operator<=",
             Operator::Greater => "operator>",
@@ -981,19 +1041,13 @@ impl<'a> Format<'a> for Operator {
             Operator::Calling => "operator()",
             Operator::ArithmeticNot => "operator~",
             Operator::Xor => "operator^",
-            Operator::ArithmeticOR => "operator|",
-            Operator::LogicalAND => "operator&&",
-            Operator::LogicalOR => "operator||",
-            Operator::TimesEquals => "operator*=",
-            Operator::PlusEquals => "operator+=",
-            Operator::MinusEquals => "operator-=",
-            Operator::DivideEquals => "operator/=",
-            Operator::ModulusEquals => "operator%=",
-            Operator::ShiftRightEquals => "operator>>=",
-            Operator::ShiftLeftEquals => "operator<<=",
-            Operator::ANDEquals => "operator&=",
-            Operator::OREquals => "operator|=",
             Operator::XorEquals => "operator^=",
+            Operator::VFTable => "`vftable'",
+            Operator::LocalVFTable => "`local vftable'",
+            Operator::VCall => "`vcall'",
+            Operator::TypeOff => "`typeoff'",
+            Operator::LocalStaticGuard => "`local static guard'",
+            Operator::String => "`string'",
             Operator::VBaseDtor => "`vbase destructor'",
             Operator::VectorDeletingDtor => "`vector deleting destructor'",
             Operator::DefaultCtorClosure => "`default constructor closure'",
@@ -1007,11 +1061,15 @@ impl<'a> Format<'a> for Operator {
             Operator::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
             Operator::CopyCtorClosure => "`copy constructor closure'",
             Operator::LocalVftableCtorClosure => "`local vftable constructor closure'",
+            Operator::DynamicInitializer => "`dynamic intializer'",
+            Operator::DynamicAtexitDtor => "`dynamic atexit destructor'",
+            Operator::LocalStaticThreadGuard => "`local static thread guard'",
+            Operator::PlacementDeleteClosure => "`placement delete closure'",
+            Operator::PlacementDeleteArrayClosure => "`placement delete[] closure'",
             Operator::NewArray => "operator new[]",
             Operator::DeleteArray => "operator delete[]",
             Operator::CoAwait => "co_await",
             Operator::Spaceship => "operator<=>",
-            Operator::SourceName(src) => return ctx.push_literal(backrefs, &src, colors::MAGENTA),
         };
 
         ctx.stream.push(literal, colors::MAGENTA);
@@ -1599,7 +1657,7 @@ impl<'a> Format<'a> for NestedPath {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             NestedPath::Literal(ident) => {
-                ctx.push_literal(backrefs, ident, colors::GRAY40);
+                ctx.push_literal(backrefs, ident, colors::BLUE);
             }
             NestedPath::Interface(ident) => {
                 ctx.stream.push("[", colors::GRAY40);
@@ -1607,27 +1665,7 @@ impl<'a> Format<'a> for NestedPath {
                 ctx.stream.push("]", colors::GRAY40);
             }
             NestedPath::Template(template) => template.demangle(ctx, backrefs),
-            NestedPath::Operator(op) => match op {
-                Operator::Ctor => {
-                    let name = ctx.scope.get(0);
-
-                    match name {
-                        Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
-                        _ => ctx.stream.push("`unnamed constructor'", colors::GRAY20),
-                    }
-                }
-                Operator::Dtor => {
-                    let name = ctx.scope.get(0);
-
-                    ctx.stream.push("~", colors::BLUE);
-
-                    match name {
-                        Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
-                        _ => ctx.stream.push("`unnamed destructor'", colors::GRAY20),
-                    }
-                }
-                _ => op.demangle(ctx, backrefs),
-            },
+            NestedPath::Operator(operator) => operator.demangle(ctx, backrefs),
             NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
             NestedPath::Disambiguator(val) => {
                 let val = std::borrow::Cow::Owned(format!("{val:?}"));
