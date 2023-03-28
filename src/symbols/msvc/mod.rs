@@ -161,16 +161,16 @@ enum Type {
     ULong(Modifiers),
 
     /// ``` {<modifier>} int64_t ```
-    I64(Modifiers),
+    Int64(Modifiers),
 
     /// ``` {<modifier>} uint64_t ```
-    U64(Modifiers),
+    UInt64(Modifiers),
 
     /// ``` {<modifier>} int128_t ```
-    I128(Modifiers),
+    Int128(Modifiers),
 
     /// ``` {<modifier>} uint128_t ```
-    U128(Modifiers),
+    Uint128(Modifiers),
 
     /// ``` {<modifier>} union <path> ```
     Union(Modifiers, Path),
@@ -371,10 +371,10 @@ impl Parse for Type {
             b'O' => Type::LDouble(ctx.modifiers_in_use),
             b'_' => match ctx.take()? {
                 b'N' => Type::Bool(ctx.modifiers_in_use),
-                b'J' => Type::I64(ctx.modifiers_in_use),
-                b'K' => Type::U64(ctx.modifiers_in_use),
-                b'L' => Type::I128(ctx.modifiers_in_use),
-                b'M' => Type::U128(ctx.modifiers_in_use),
+                b'J' => Type::Int64(ctx.modifiers_in_use),
+                b'K' => Type::UInt64(ctx.modifiers_in_use),
+                b'L' => Type::Int128(ctx.modifiers_in_use),
+                b'M' => Type::Uint128(ctx.modifiers_in_use),
                 b'W' => Type::WChar(ctx.modifiers_in_use),
                 b'Q' => Type::Char8(ctx.modifiers_in_use),
                 b'S' => Type::Char16(ctx.modifiers_in_use),
@@ -489,19 +489,19 @@ impl<'a> Type {
                 ctx.stream.push("unsigned long", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
-            Type::I64(modi) => {
+            Type::Int64(modi) => {
                 ctx.stream.push("__int64", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
-            Type::U64(modi) => {
+            Type::UInt64(modi) => {
                 ctx.stream.push("unsigned __int64", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
-            Type::I128(modi) => {
+            Type::Int128(modi) => {
                 ctx.stream.push("__int64", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
-            Type::U128(modi) => {
+            Type::Uint128(modi) => {
                 ctx.stream.push("unsigned __int128", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
@@ -989,6 +989,7 @@ impl<'a> Format<'a> for Operator {
                 ctx.stream.push("`vbtable'{{for `", colors::BLUE);
                 return;
             }
+            Operator::DynamicInitializer => "`dynamic intializer'",
             Operator::SourceName(src) => {
                 ctx.push_literal(backrefs, &src, colors::MAGENTA);
                 return;
@@ -1052,7 +1053,6 @@ impl<'a> Format<'a> for Operator {
             Operator::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
             Operator::CopyCtorClosure => "`copy constructor closure'",
             Operator::LocalVftableCtorClosure => "`local vftable constructor closure'",
-            Operator::DynamicInitializer => "`dynamic intializer'",
             Operator::DynamicAtexitDtor => "`dynamic atexit destructor'",
             Operator::LocalStaticThreadGuard => "`local static thread guard'",
             Operator::PlacementDeleteClosure => "`placement delete closure'",
@@ -1075,7 +1075,6 @@ impl Parse for Parameters {
         let mut types = Vec::new();
 
         loop {
-            dbg!(&types);
             // either the stream is consumed or an list ending is encountered.
             if let Some(b'@') | Some(b'Z') | None = ctx.peek() {
                 ctx.offset += 1;
@@ -1305,6 +1304,7 @@ impl Parse for Modifiers {
             Some(b'F') => Modifiers::FAR | Modifiers::CONST,
             Some(b'G') => Modifiers::FAR | Modifiers::VOLATILE,
             Some(b'H') => Modifiers::FAR | Modifiers::VOLATILE | Modifiers::CONST,
+            Some(b'A' | b'Q') => Modifiers::empty(),
             Some(b'B' | b'R') => Modifiers::CONST,
             Some(b'C' | b'S') => Modifiers::VOLATILE,
             Some(b'D' | b'T') => Modifiers::CONST | Modifiers::VOLATILE,
@@ -1680,8 +1680,8 @@ impl Parse for UnqualifiedPath {
         // memorized ident
         if let Some(digit) = ctx.base10() {
             ctx.ascent();
-            return dbg!(backrefs
-                .get_memorized_ident(digit))
+            return backrefs
+                .get_memorized_ident(digit)
                 .map(NestedPath::Literal)
                 .map(UnqualifiedPath);
         }

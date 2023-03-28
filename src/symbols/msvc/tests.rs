@@ -63,6 +63,12 @@ fn complex_operator() {
 }
 
 #[test]
+fn operator_new_array() {
+    eq!("??_U@YAPEAX_KAEAVklass@@@Z" =>
+        "void * __cdecl operator new[](unsigned __int64, class klass &)");
+}
+
+#[test]
 fn triple_q0() {
     eq!("???__E??_7name0@name1@@6B@@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'const name1::name0::`vftable'''(void)");
