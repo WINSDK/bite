@@ -92,7 +92,7 @@ trait Format<'a> {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
 }
 
-trait Parse: Sized {
+trait Parse where Self: Sized {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self>;
 }
 
@@ -172,17 +172,17 @@ enum Type {
     /// ``` {<modifier>} uint128_t ```
     U128(Modifiers),
 
-    /// ``` {<modifier>} union <ident> ```
-    Union(Modifiers, Literal),
+    /// ``` {<modifier>} union <path> ```
+    Union(Modifiers, Path),
 
-    /// ``` {<modifier>} enum <ident> ```
-    Enum(Modifiers, Literal),
+    /// ``` {<modifier>} enum <path> ```
+    Enum(Modifiers, Path),
 
-    /// ``` {<modifier>} struct <ident> ```
-    Struct(Modifiers, Literal),
+    /// ``` {<modifier>} struct <path> ```
+    Struct(Modifiers, Path),
 
-    /// ``` {<modifier>} class <ident> ```
-    Class(Modifiers, Literal),
+    /// ``` {<modifier>} class <path> ```
+    Class(Modifiers, Path),
 
     /// ``` {<modifier>} & <type> ```
     Ref(Modifiers, Box<Pointee>),
@@ -231,8 +231,8 @@ impl Parse for Type {
                 ctx.offset += 2;
                 ctx.memorizing = false;
 
-                let name = Literal::parse(ctx, backrefs)?;
-                return Some(Type::Enum(ctx.modifiers, name));
+                let name = Path::parse(ctx, backrefs)?;
+                return Some(Type::Enum(ctx.modifiers_in_use, name));
             }
             b"A6" => {
                 ctx.offset += 2;
@@ -242,7 +242,7 @@ impl Parse for Type {
                     .map(Type::Function)
                     .map(Pointee)?;
 
-                return Some(Type::Ref(ctx.modifiers, Box::new(func)));
+                return Some(Type::Ref(ctx.modifiers_in_use, Box::new(func)));
             }
             b"P6" => {
                 ctx.offset += 2;
@@ -252,7 +252,7 @@ impl Parse for Type {
                     .map(Type::Function)
                     .map(Pointee)?;
 
-                return Some(Type::Ptr(ctx.modifiers, Box::new(func)));
+                return Some(Type::Ptr(ctx.modifiers_in_use, Box::new(func)));
             }
             b"P8" => {
                 ctx.offset += 2;
@@ -275,7 +275,7 @@ impl Parse for Type {
                 if ctx.eat(b'Y') {
                     ctx.memorizing = false;
                     let name = Literal::parse(ctx, backrefs)?;
-                    return Some(Type::Typedef(ctx.modifiers, name));
+                    return Some(Type::Typedef(ctx.modifiers_in_use, name));
                 }
 
                 if ctx.eat(b'T') {
@@ -289,7 +289,7 @@ impl Parse for Type {
                         .map(Type::Function)
                         .map(Pointee)?;
 
-                    return Some(Type::RValueRef(ctx.modifiers, Box::new(func)));
+                    return Some(Type::RValueRef(ctx.modifiers_in_use, Box::new(func)));
                 }
 
                 if ctx.eat_slice(b"BY") {
@@ -311,7 +311,7 @@ impl Parse for Type {
                 }
 
                 if ctx.eat(b'C') {
-                    ctx.modifiers = Qualifiers::parse(ctx, backrefs)?.0;
+                    ctx.modifiers_in_use = Qualifiers::parse(ctx, backrefs)?.0;
                 }
             }
 
@@ -319,7 +319,8 @@ impl Parse for Type {
                 return Some(Type::Unit);
             }
 
-            if let Some(b'1' | b'H' | b'I' | b'J') = ctx.take() {
+            if let Some(b'1' | b'H' | b'I' | b'J') = ctx.peek() {
+                ctx.offset += 1;
                 ctx.consume(b'?')?;
                 return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
             }
@@ -336,15 +337,15 @@ impl Parse for Type {
 
         ctx.memorizing = false;
         let tipe = match ctx.take()? {
-            b'T' => Type::Union(ctx.modifiers, Literal::parse(ctx, backrefs)?),
-            b'U' => Type::Struct(ctx.modifiers, Literal::parse(ctx, backrefs)?),
-            b'V' => Type::Class(ctx.modifiers, Literal::parse(ctx, backrefs)?),
-            b'A' => Type::Ref(ctx.modifiers, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'T' => Type::Union(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
+            b'U' => Type::Struct(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
+            b'V' => Type::Class(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
+            b'A' => Type::Ref(ctx.modifiers_in_use, Box::new(Pointee::parse(ctx, backrefs)?)),
             b'B' => Type::Ref(
                 Modifiers::VOLATILE,
                 Box::new(Pointee::parse(ctx, backrefs)?),
             ),
-            b'P' => Type::Ptr(ctx.modifiers, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'P' => Type::Ptr(ctx.modifiers_in_use, Box::new(Pointee::parse(ctx, backrefs)?)),
             b'Q' => Type::Ptr(Modifiers::CONST, Box::new(Pointee::parse(ctx, backrefs)?)),
             b'R' => Type::Ptr(
                 Modifiers::VOLATILE,
@@ -355,29 +356,29 @@ impl Parse for Type {
                 Box::new(Pointee::parse(ctx, backrefs)?),
             ),
             b'Y' => Type::Array(Array::parse(ctx, backrefs)?),
-            b'X' => Type::Void(ctx.modifiers),
-            b'D' => Type::Char(ctx.modifiers),
-            b'C' => Type::IChar(ctx.modifiers),
-            b'E' => Type::UChar(ctx.modifiers),
-            b'F' => Type::IShort(ctx.modifiers),
-            b'G' => Type::UShort(ctx.modifiers),
-            b'H' => Type::Int(ctx.modifiers),
-            b'I' => Type::UInt(ctx.modifiers),
-            b'J' => Type::Long(ctx.modifiers),
-            b'K' => Type::ULong(ctx.modifiers),
-            b'M' => Type::Float(ctx.modifiers),
-            b'N' => Type::Double(ctx.modifiers),
-            b'O' => Type::LDouble(ctx.modifiers),
+            b'X' => Type::Void(ctx.modifiers_in_use),
+            b'D' => Type::Char(ctx.modifiers_in_use),
+            b'C' => Type::IChar(ctx.modifiers_in_use),
+            b'E' => Type::UChar(ctx.modifiers_in_use),
+            b'F' => Type::IShort(ctx.modifiers_in_use),
+            b'G' => Type::UShort(ctx.modifiers_in_use),
+            b'H' => Type::Int(ctx.modifiers_in_use),
+            b'I' => Type::UInt(ctx.modifiers_in_use),
+            b'J' => Type::Long(ctx.modifiers_in_use),
+            b'K' => Type::ULong(ctx.modifiers_in_use),
+            b'M' => Type::Float(ctx.modifiers_in_use),
+            b'N' => Type::Double(ctx.modifiers_in_use),
+            b'O' => Type::LDouble(ctx.modifiers_in_use),
             b'_' => match ctx.take()? {
-                b'N' => Type::Bool(ctx.modifiers),
-                b'J' => Type::I64(ctx.modifiers),
-                b'K' => Type::U64(ctx.modifiers),
-                b'L' => Type::I128(ctx.modifiers),
-                b'M' => Type::U128(ctx.modifiers),
-                b'W' => Type::WChar(ctx.modifiers),
-                b'Q' => Type::Char8(ctx.modifiers),
-                b'S' => Type::Char16(ctx.modifiers),
-                b'U' => Type::Char32(ctx.modifiers),
+                b'N' => Type::Bool(ctx.modifiers_in_use),
+                b'J' => Type::I64(ctx.modifiers_in_use),
+                b'K' => Type::U64(ctx.modifiers_in_use),
+                b'L' => Type::I128(ctx.modifiers_in_use),
+                b'M' => Type::U128(ctx.modifiers_in_use),
+                b'W' => Type::WChar(ctx.modifiers_in_use),
+                b'Q' => Type::Char8(ctx.modifiers_in_use),
+                b'S' => Type::Char16(ctx.modifiers_in_use),
+                b'U' => Type::Char32(ctx.modifiers_in_use),
                 _ => return None,
             },
             _ => return None,
@@ -411,8 +412,8 @@ impl<'a> Format<'a> for Type {
 /// the "first half" of type declaration, and demangle_post() writes the
 /// "second half". For example, demangle_pre() writes a return type for a
 /// function and demangle_post() writes an parameter list.
-impl<'a, 'b> Type {
-    fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &'b mut Backrefs) {
+impl<'a> Type {
+    fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             Type::Unit => {}
             Type::Nullptr => ctx.stream.push("nullptr", colors::MAGENTA),
@@ -489,39 +490,39 @@ impl<'a, 'b> Type {
                 modi.demangle(ctx, backrefs);
             }
             Type::I64(modi) => {
-                ctx.stream.push("int64_t", colors::MAGENTA);
+                ctx.stream.push("__int64", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::U64(modi) => {
-                ctx.stream.push("uint64_t", colors::MAGENTA);
+                ctx.stream.push("unsigned __int64", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::I128(modi) => {
-                ctx.stream.push("int128_t", colors::MAGENTA);
+                ctx.stream.push("__int64", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::U128(modi) => {
-                ctx.stream.push("uint128_t", colors::MAGENTA);
+                ctx.stream.push("unsigned __int128", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::Union(modi, name) => {
                 ctx.stream.push("union ", colors::MAGENTA);
-                ctx.push_literal(backrefs, name, colors::PURPLE);
+                name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Enum(modi, name) => {
                 ctx.stream.push("enum ", colors::MAGENTA);
-                ctx.push_literal(backrefs, name, colors::PURPLE);
+                name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Struct(modi, name) => {
                 ctx.stream.push("struct ", colors::MAGENTA);
-                ctx.push_literal(backrefs, name, colors::PURPLE);
+                name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Class(modi, name) => {
                 ctx.stream.push("class ", colors::MAGENTA);
-                ctx.push_literal(backrefs, name, colors::PURPLE);
+                name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Ptr(modi, tipe) | Type::Ref(modi, tipe) | Type::RValueRef(modi, tipe) => {
@@ -606,7 +607,7 @@ impl<'a, 'b> Type {
         }
     }
 
-    fn demangle_post(&'a self, ctx: &mut Context<'a>, backrefs: &'b mut Backrefs) {
+    fn demangle_post(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             Type::Ptr(_, tipe) | Type::Ref(_, tipe) => {
                 let tipe = &tipe.0;
@@ -663,22 +664,12 @@ struct Function {
 impl Parse for Function {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
-
-        if ctx.parsing_qualifiers {
-            qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
-        }
-
-        if ctx.eat(b'?') {
-            ctx.modifiers = Modifiers::parse(ctx, backrefs)?;
-        }
-
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
         Some(Function {
             calling_conv,
-            qualifiers,
+            qualifiers: FunctionQualifiers(Modifiers::empty()),
             return_type: Box::new(return_type),
             params,
         })
@@ -704,7 +695,7 @@ impl Parse for MemberFunction {
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-        ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
+        ctx.modifiers_in_use = ReturnModifiers::parse(ctx, backrefs)?.0;
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
@@ -745,7 +736,7 @@ impl Parse for MemberFunctionPtr {
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-        ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
+        ctx.modifiers_in_use = ReturnModifiers::parse(ctx, backrefs)?.0;
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
@@ -781,12 +772,12 @@ struct Pointee(Type);
 impl Parse for Pointee {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         if ctx.eat(b'E') {
-            ctx.modifiers |= Modifiers::PTR64;
+            ctx.modifiers_in_use |= Modifiers::PTR64;
         }
 
         let pointer_modi = Modifiers::parse(ctx, backrefs)?;
 
-        ctx.modifiers |= pointer_modi;
+        ctx.modifiers_in_use |= pointer_modi;
 
         Type::parse(ctx, backrefs).map(Pointee)
     }
@@ -797,7 +788,7 @@ struct FunctionReturnType(Type);
 
 impl Parse for FunctionReturnType {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
+        ctx.modifiers_in_use = ReturnModifiers::parse(ctx, backrefs)?.0;
 
         if ctx.eat(b'@') {
             return Some(FunctionReturnType(Type::Unit));
@@ -1084,14 +1075,19 @@ impl Parse for Parameters {
         let mut types = Vec::new();
 
         loop {
+            dbg!(&types);
+            // either the stream is consumed or an list ending is encountered.
             if let Some(b'@') | Some(b'Z') | None = ctx.peek() {
-                break;
+                ctx.offset += 1;
+                return Some(Parameters(types));
             }
 
             if let Some(digit) = ctx.base10() {
                 types.push(backrefs.get_memorized_param(digit)?);
                 continue;
             }
+
+            ctx.modifiers_in_use = Modifiers::empty();
 
             let start = ctx.src().len();
             let tipe = Type::parse(ctx, backrefs)?;
@@ -1105,12 +1101,6 @@ impl Parse for Parameters {
 
             types.push(tipe);
         }
-
-        if !(ctx.eat(b'Z') || ctx.src().is_empty()) {
-            ctx.consume(b'@')?;
-        }
-
-        Some(Parameters(types))
     }
 }
 
@@ -1160,7 +1150,7 @@ enum CallingConv {
 
 impl Parse for CallingConv {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
-        let conv = match ctx.peek()? {
+        let conv = match ctx.take()? {
             b'A' | b'B' => CallingConv::Cdecl,
             b'C' | b'D' => CallingConv::Pascal,
             b'E' | b'F' => CallingConv::Fastcall,
@@ -1172,7 +1162,6 @@ impl Parse for CallingConv {
             _ => return None,
         };
 
-        ctx.offset += 1;
         Some(conv)
     }
 }
@@ -1312,6 +1301,7 @@ bitflags! {
 impl Parse for Modifiers {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         let modi = match ctx.peek() {
+            Some(b'E') => Modifiers::FAR,
             Some(b'F') => Modifiers::FAR | Modifiers::CONST,
             Some(b'G') => Modifiers::FAR | Modifiers::VOLATILE,
             Some(b'H') => Modifiers::FAR | Modifiers::VOLATILE | Modifiers::CONST,
@@ -1690,8 +1680,8 @@ impl Parse for UnqualifiedPath {
         // memorized ident
         if let Some(digit) = ctx.base10() {
             ctx.ascent();
-            return backrefs
-                .get_memorized_ident(digit)
+            return dbg!(backrefs
+                .get_memorized_ident(digit))
                 .map(NestedPath::Literal)
                 .map(UnqualifiedPath);
         }
@@ -1710,8 +1700,11 @@ impl Parse for UnqualifiedPath {
                 .map(UnqualifiedPath);
         }
 
+        let name = ctx.ident()?;
+        backrefs.try_memorizing_ident(&name);
+
         ctx.ascent();
-        ctx.ident().map(NestedPath::Literal).map(UnqualifiedPath)
+        Some(UnqualifiedPath(NestedPath::Literal(name)))
     }
 }
 
@@ -1826,7 +1819,8 @@ impl Parse for Symbol {
             return Some(path).map(Path::into);
         }
 
-        ctx.modifiers = Modifiers::empty();
+        ctx.modifiers_in_use = Modifiers::empty();
+        ctx.parsing_qualifiers = false;
 
         let tipe = match ctx.take()? {
             // C style type

@@ -4,7 +4,7 @@ use crate::colors::Color;
 /// Max recursion depth
 const MAX_DEPTH: usize = 256;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(super) struct Backrefs {
     /// Up to 10 idents can be memorized for lookup using backref's: ?0, ?1, ..
     memorized: [Literal; 10],
@@ -56,9 +56,10 @@ impl Backrefs {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct Context<'a> {
     pub stream: TokenStream,
-    pub modifiers: Modifiers,
+    pub modifiers_in_use: Modifiers,
     pub offset: usize,
     pub parsing_qualifiers: bool,
     pub memorizing: bool,
@@ -71,7 +72,7 @@ impl Context<'_> {
     pub fn new(s: &str) -> Self {
         Self {
             stream: TokenStream::new(s),
-            modifiers: Modifiers::empty(),
+            modifiers_in_use: Modifiers::empty(),
             offset: 0,
             memorizing: true,
             parsing_qualifiers: true,

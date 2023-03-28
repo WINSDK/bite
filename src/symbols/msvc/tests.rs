@@ -57,6 +57,12 @@ fn destructor() {
 }
 
 #[test]
+fn complex_operator() {
+    eq!("??5@YAAEBVklass@@AEBV0@_K@Z" =>
+        "class klass const & __cdecl operator>>(class klass const &, unsigned __int64)");
+}
+
+#[test]
 fn triple_q0() {
     eq!("???__E??_7name0@name1@@6B@@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'const name1::name0::`vftable'''(void)");
