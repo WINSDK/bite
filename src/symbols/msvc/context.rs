@@ -1,4 +1,4 @@
-use super::{Literal, Type, TokenStream, Modifiers};
+use super::{Literal, Type, TokenStream, Modifiers, NestedPath};
 use crate::colors::Color;
 
 /// Max recursion depth
@@ -56,16 +56,17 @@ impl Backrefs {
     }
 }
 
-pub(super) struct Context {
+pub(super) struct Context<'a> {
     pub stream: TokenStream,
     pub modifiers: Modifiers,
     pub offset: usize,
     pub parsing_qualifiers: bool,
     pub memorizing: bool,
+    pub scope: &'a [NestedPath],
     depth: usize,
 }
 
-impl Context {
+impl Context<'_> {
     /// Create an initialized parser that hasn't started parsing yet.
     pub fn new(s: &str) -> Self {
         Self {
@@ -74,6 +75,7 @@ impl Context {
             offset: 0,
             memorizing: true,
             parsing_qualifiers: true,
+            scope: &[],
             depth: 0,
         }
     }

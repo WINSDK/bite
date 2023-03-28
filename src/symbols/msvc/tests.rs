@@ -24,7 +24,9 @@ fn simple() {
         tree,
         Symbol {
             path: Path {
-                name: NestedPath::Literal(Literal::Borrowed { start: 1, end: 2 }),
+                name: UnqualifiedPath(
+                    NestedPath::Literal(Literal::Borrowed { start: 1, end: 2 }),
+                ),
                 scope: Scope(vec![]),
             },
             tipe: Type::Function(
@@ -42,6 +44,16 @@ fn simple() {
     );
 
     eq!("?x@@YAXMH@Z" => "void __cdecl x(float, int)");
+}
+
+#[test]
+fn constructor() {
+    eq!("??0klass@@QEAA@XZ" => "__cdecl klass::klass(void)");
+}
+
+#[test]
+fn destructor() {
+    eq!("??1klass@@QEAA@XZ" => "__cdecl klass::~klass(void)");
 }
 
 #[test]
@@ -310,11 +322,6 @@ fn pointer_to_pointer_to_data() {
 #[test]
 fn pointer_to_reference_to_data() {
     eq!("?var@@3PDABHC" => "int const &const volatile *var");
-}
-
-#[test]
-fn pointer_to_question_to_data() {
-    eq!("?var@@3PD?BHC" => "");
 }
 
 #[test]

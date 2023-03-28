@@ -64,14 +64,14 @@
 //! ```
 //!
 //! source [MicrosoftMangle.cpp](https://github.com/llvm-mirror/clang/blob/aa231e4be75ac4759c236b755c57876f76e3cf05/lib/AST/MicrosoftMangle.cpp#L1609)
-mod tests;
 mod context;
+mod tests;
 
 use std::fmt;
 
-use context::{Context, Backrefs};
 use super::TokenStream;
 use crate::colors;
+use context::{Backrefs, Context};
 
 use bitflags::bitflags;
 
@@ -82,18 +82,18 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     // llvm appears to generate a '.' prefix on some symbols
     parser.eat(b'.');
 
-    let sym = Symbol::parse(&mut parser, &mut backrefs)?;
+    let sym = dbg!(Symbol::parse(&mut parser, &mut backrefs)?);
     sym.demangle(&mut parser, &mut backrefs);
 
     Some(parser.stream)
 }
 
-trait Format<'a, 'b> {
-    fn demangle(&self, _ctx: &'a mut Context, _backrefs: &'b mut Backrefs) {}
+trait Format<'a> {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
 }
 
-trait Parse<'a, 'b>: Sized {
-    fn parse(ctx: &'b mut Context, backrefs: &'a mut Backrefs) -> Option<Self>;
+trait Parse: Sized {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self>;
 }
 
 /// Root node of the AST.
@@ -224,7 +224,7 @@ enum Type {
     Array(Array),
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Type {
+impl Parse for Type {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         match ctx.peek_slice(0..2)? {
             b"W4" => {
@@ -387,8 +387,8 @@ impl<'a, 'b> Parse<'a, 'b> for Type {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Type {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for Type {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.demangle_pre(ctx, backrefs);
         self.demangle_post(ctx, backrefs);
     }
@@ -411,8 +411,8 @@ impl<'a, 'b> Format<'a, 'b> for Type {
 /// the "first half" of type declaration, and demangle_post() writes the
 /// "second half". For example, demangle_pre() writes a return type for a
 /// function and demangle_post() writes an parameter list.
-impl Type {
-    fn demangle_pre(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a, 'b> Type {
+    fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &'b mut Backrefs) {
         match self {
             Type::Unit => {}
             Type::Nullptr => ctx.stream.push("nullptr", colors::MAGENTA),
@@ -571,8 +571,8 @@ impl Type {
             Type::MemberFunction(func) => {
                 func.storage_scope.demangle(ctx, backrefs);
                 func.return_type.0.demangle_pre(ctx, backrefs);
-                ctx.stream.push(" ", colors::WHITE);
                 func.calling_conv.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::WHITE);
             }
             Type::MemberFunctionPtr(func) => {
                 func.return_type.0.demangle_pre(ctx, backrefs);
@@ -606,7 +606,7 @@ impl Type {
         }
     }
 
-    fn demangle_post(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+    fn demangle_post(&'a self, ctx: &mut Context<'a>, backrefs: &'b mut Backrefs) {
         match self {
             Type::Ptr(_, tipe) | Type::Ref(_, tipe) => {
                 let tipe = &tipe.0;
@@ -660,7 +660,7 @@ struct Function {
     params: FunctionParameters,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Function {
+impl Parse for Function {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
         let mut qualifiers = FunctionQualifiers(Modifiers::empty());
@@ -694,7 +694,7 @@ struct MemberFunction {
     params: FunctionParameters,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for MemberFunction {
+impl Parse for MemberFunction {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut qualifiers = FunctionQualifiers(Modifiers::empty());
         let storage_scope = StorageScope::parse(ctx, backrefs)?;
@@ -728,7 +728,7 @@ struct MemberFunctionPtr {
     params: FunctionParameters,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for MemberFunctionPtr {
+impl Parse for MemberFunctionPtr {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let class_name = Path::parse(ctx, backrefs)?;
         let mut qualifiers = FunctionQualifiers(Modifiers::empty());
@@ -763,14 +763,14 @@ impl<'a, 'b> Parse<'a, 'b> for MemberFunctionPtr {
 #[derive(Debug, PartialEq, Clone)]
 struct Array(Vec<Type>);
 
-impl<'a, 'b> Parse<'a, 'b> for Array {
+impl Parse for Array {
     fn parse(_: &mut Context, _: &mut Backrefs) -> Option<Self> {
         todo!()
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Array {
-    fn demangle(&self, _ctx: &mut Context, _backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for Array {
+    fn demangle(&'a self, _: &mut Context<'a>, _: &mut Backrefs) {
         todo!()
     }
 }
@@ -778,7 +778,7 @@ impl<'a, 'b> Format<'a, 'b> for Array {
 #[derive(Debug, PartialEq, Clone)]
 struct Pointee(Type);
 
-impl<'a, 'b> Parse<'a, 'b> for Pointee {
+impl Parse for Pointee {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         if ctx.eat(b'E') {
             ctx.modifiers |= Modifiers::PTR64;
@@ -795,7 +795,7 @@ impl<'a, 'b> Parse<'a, 'b> for Pointee {
 #[derive(Debug, PartialEq, Clone)]
 struct FunctionReturnType(Type);
 
-impl<'a, 'b> Parse<'a, 'b> for FunctionReturnType {
+impl Parse for FunctionReturnType {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         ctx.modifiers = ReturnModifiers::parse(ctx, backrefs)?.0;
 
@@ -872,7 +872,7 @@ enum Operator {
     SourceName(Literal),
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Operator {
+impl Parse for Operator {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         // FIXME: this doesn't handle all cases
         let op = match ctx.take()? {
@@ -949,8 +949,8 @@ impl<'a, 'b> Parse<'a, 'b> for Operator {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Operator {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for Operator {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let literal = match *self {
             Operator::Ctor => "constructor",
             Operator::Dtor => "destructor",
@@ -1021,7 +1021,7 @@ impl<'a, 'b> Format<'a, 'b> for Operator {
 #[derive(Debug, Clone, PartialEq)]
 struct Parameters(Vec<Type>);
 
-impl<'a, 'b> Parse<'a, 'b> for Parameters {
+impl Parse for Parameters {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut types = Vec::new();
 
@@ -1056,8 +1056,8 @@ impl<'a, 'b> Parse<'a, 'b> for Parameters {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Parameters {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for Parameters {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let mut params = self.0.iter();
 
         if let Some(param) = params.next() {
@@ -1074,7 +1074,7 @@ impl<'a, 'b> Format<'a, 'b> for Parameters {
 #[derive(Debug, PartialEq, Clone)]
 struct FunctionParameters(Parameters);
 
-impl<'a, 'b> Parse<'a, 'b> for FunctionParameters {
+impl Parse for FunctionParameters {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         if ctx.eat(b'X') {
             let tipe = vec![Type::Void(Modifiers::empty())];
@@ -1100,7 +1100,7 @@ enum CallingConv {
     Vectorcall,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for CallingConv {
+impl Parse for CallingConv {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         let conv = match ctx.peek()? {
             b'A' | b'B' => CallingConv::Cdecl,
@@ -1119,8 +1119,8 @@ impl<'a, 'b> Parse<'a, 'b> for CallingConv {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for CallingConv {
-    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+impl<'a> Format<'a> for CallingConv {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let literal = match self {
             CallingConv::Cdecl => "__cdecl",
             CallingConv::Pascal => "__pascal",
@@ -1144,8 +1144,8 @@ enum StorageVariable {
     Global,
 }
 
-impl<'a, 'b> Format<'a, 'b> for StorageVariable {
-    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+impl<'a> Format<'a> for StorageVariable {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let literal = match self {
             StorageVariable::PrivateStatic => "private: static ",
             StorageVariable::ProtectedStatic => "protected: static ",
@@ -1172,7 +1172,7 @@ bitflags! {
     }
 }
 
-impl<'a, 'b> Parse<'a, 'b> for StorageScope {
+impl Parse for StorageScope {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         Some(match ctx.take()? {
             b'A' => StorageScope::PRIVATE,
@@ -1204,8 +1204,8 @@ impl<'a, 'b> Parse<'a, 'b> for StorageScope {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for StorageScope {
-    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+impl<'a> Format<'a> for StorageScope {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let literal = match *self {
             StorageScope::PUBLIC => "public: ",
             StorageScope::PRIVATE => "private: ",
@@ -1251,7 +1251,7 @@ bitflags! {
     }
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Modifiers {
+impl Parse for Modifiers {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         let modi = match ctx.peek() {
             Some(b'F') => Modifiers::FAR | Modifiers::CONST,
@@ -1268,8 +1268,8 @@ impl<'a, 'b> Parse<'a, 'b> for Modifiers {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Modifiers {
-    fn demangle(&self, ctx: &mut Context, _: &mut Backrefs) {
+impl<'a> Format<'a> for Modifiers {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
         if self.contains(Modifiers::CONST) {
@@ -1323,7 +1323,7 @@ impl fmt::Debug for Modifiers {
 #[derive(Debug, Clone, PartialEq)]
 struct ReturnModifiers(Modifiers);
 
-impl<'a, 'b> Parse<'a, 'b> for ReturnModifiers {
+impl Parse for ReturnModifiers {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         if !ctx.eat(b'?') {
             return Some(ReturnModifiers(Modifiers::empty()));
@@ -1344,8 +1344,8 @@ impl<'a, 'b> Parse<'a, 'b> for ReturnModifiers {
 #[derive(Debug, Clone, PartialEq)]
 struct Qualifiers(Modifiers);
 
-impl<'a, 'b> Parse<'a, 'b> for Qualifiers {
-    fn parse(ctx: &'b mut Context, _: &'a mut Backrefs) -> Option<Self> {
+impl Parse for Qualifiers {
+    fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         let quali = match ctx.peek() {
             Some(b'B' | b'R') => Modifiers::CONST,
             Some(b'C' | b'S') => Modifiers::VOLATILE,
@@ -1362,7 +1362,7 @@ impl<'a, 'b> Parse<'a, 'b> for Qualifiers {
 #[derive(Debug, Clone, PartialEq)]
 struct FunctionQualifiers(Modifiers);
 
-impl<'a, 'b> Parse<'a, 'b> for FunctionQualifiers {
+impl Parse for FunctionQualifiers {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut quali = Modifiers::empty();
 
@@ -1396,7 +1396,7 @@ enum Literal {
     Borrowed { start: usize, end: usize },
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Literal {
+impl Parse for Literal {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let ident = ctx.ident()?;
         if ctx.memorizing {
@@ -1424,7 +1424,7 @@ impl Default for Literal {
 #[derive(Debug, PartialEq, Clone)]
 struct MD5(Literal);
 
-impl<'a, 'b> Parse<'a, 'b> for MD5 {
+impl Parse for MD5 {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         let data = ctx.hex_nibbles()?;
 
@@ -1442,8 +1442,8 @@ impl<'a, 'b> Parse<'a, 'b> for MD5 {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for MD5 {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for MD5 {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         ctx.stream.push("??@", colors::GRAY20);
         ctx.push_literal(backrefs, &self.0, colors::GRAY20);
         ctx.stream.push("@", colors::GRAY20);
@@ -1453,7 +1453,7 @@ impl<'a, 'b> Format<'a, 'b> for MD5 {
 #[derive(Debug, PartialEq, Clone)]
 struct Scope(Vec<NestedPath>);
 
-impl<'a, 'b> Parse<'a, 'b> for Scope {
+impl Parse for Scope {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut paths = Vec::new();
 
@@ -1466,29 +1466,42 @@ impl<'a, 'b> Parse<'a, 'b> for Scope {
     }
 }
 
+impl<'a> Format<'a> for Scope {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
+        for (idx, part) in self.0.iter().rev().enumerate() {
+            part.demangle(ctx, backrefs);
+
+            if idx != self.0.len() - 1 {
+                ctx.stream.push("::", colors::GRAY20);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct Path {
-    name: NestedPath,
+    name: UnqualifiedPath,
     scope: Scope,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Path {
+impl Parse for Path {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        let name = NestedPath::parse(ctx, backrefs)?;
+        let name = UnqualifiedPath::parse(ctx, backrefs)?;
         let scope = Scope::parse(ctx, backrefs)?;
 
         Some(Path { name, scope })
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Path {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
-        self.name.demangle(ctx, backrefs);
+impl<'a> Format<'a> for Path {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
+        self.scope.demangle(ctx, backrefs);
 
-        for part in self.scope.0.iter() {
+        if !self.scope.0.is_empty() {
             ctx.stream.push("::", colors::GRAY20);
-            part.demangle(ctx, backrefs);
         }
+
+        self.name.0.demangle(ctx, backrefs);
     }
 }
 
@@ -1504,7 +1517,7 @@ enum NestedPath {
     Anonymous,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for NestedPath {
+impl Parse for NestedPath {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         ctx.descent()?;
 
@@ -1516,9 +1529,13 @@ impl<'a, 'b> Parse<'a, 'b> for NestedPath {
         if ctx.eat(b'?') {
             ctx.ascent();
             return match ctx.peek()? {
-                b'?' => Symbol::parse(ctx, backrefs)
-                    .map(Box::new)
-                    .map(NestedPath::Symbol),
+                b'?' => {
+                    ctx.offset += 1;
+
+                    Symbol::parse(ctx, backrefs)
+                        .map(Box::new)
+                        .map(NestedPath::Symbol)
+                }
                 b'$' => {
                     ctx.offset += 1;
 
@@ -1578,8 +1595,8 @@ impl<'a, 'b> Parse<'a, 'b> for NestedPath {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for NestedPath {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for NestedPath {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             NestedPath::Literal(ident) => {
                 ctx.push_literal(backrefs, ident, colors::GRAY40);
@@ -1590,7 +1607,27 @@ impl<'a, 'b> Format<'a, 'b> for NestedPath {
                 ctx.stream.push("]", colors::GRAY40);
             }
             NestedPath::Template(template) => template.demangle(ctx, backrefs),
-            NestedPath::Operator(operator) => operator.demangle(ctx, backrefs),
+            NestedPath::Operator(op) => match op {
+                Operator::Ctor => {
+                    let name = ctx.scope.get(0);
+
+                    match name {
+                        Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
+                        _ => ctx.stream.push("`unnamed constructor'", colors::GRAY20),
+                    }
+                }
+                Operator::Dtor => {
+                    let name = ctx.scope.get(0);
+
+                    ctx.stream.push("~", colors::BLUE);
+
+                    match name {
+                        Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
+                        _ => ctx.stream.push("`unnamed destructor'", colors::GRAY20),
+                    }
+                }
+                _ => op.demangle(ctx, backrefs),
+            },
             NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
             NestedPath::Disambiguator(val) => {
                 let val = std::borrow::Cow::Owned(format!("{val:?}"));
@@ -1608,7 +1645,7 @@ impl<'a, 'b> Format<'a, 'b> for NestedPath {
 #[derive(Debug, PartialEq, Clone)]
 struct UnqualifiedPath(NestedPath);
 
-impl<'a, 'b> Parse<'a, 'b> for UnqualifiedPath {
+impl Parse for UnqualifiedPath {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         ctx.descent()?;
 
@@ -1643,7 +1680,7 @@ impl<'a, 'b> Parse<'a, 'b> for UnqualifiedPath {
 #[derive(Debug, PartialEq, Clone, Copy)]
 struct EncodedIdent;
 
-impl<'a, 'b> Parse<'a, 'b> for EncodedIdent {
+impl Parse for EncodedIdent {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         let width = ctx.base10()?;
         if width > 2 {
@@ -1678,7 +1715,7 @@ struct Template {
     params: Parameters,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Template {
+impl Parse for Template {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         let mut temp = Backrefs::default();
         let name = Box::new(UnqualifiedPath::parse(ctx, &mut temp)?);
@@ -1688,8 +1725,8 @@ impl<'a, 'b> Parse<'a, 'b> for Template {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Template {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for Template {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.name.0.demangle(ctx, backrefs);
         ctx.stream.push("<", colors::GRAY40);
         self.params.demangle(ctx, backrefs);
@@ -1703,7 +1740,7 @@ struct Symbol {
     tipe: Type,
 }
 
-impl<'a, 'b> Parse<'a, 'b> for Symbol {
+impl Parse for Symbol {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         ctx.descent()?;
         ctx.consume(b'?')?;
@@ -1774,6 +1811,7 @@ impl<'a, 'b> Parse<'a, 'b> for Symbol {
                 let modi = Modifiers::parse(ctx, backrefs)?;
                 Type::Variable(StorageVariable::PublicStatic, modi, Box::new(tipe))
             }
+            // <type> <cvr-qualifiers>
             b'3' => {
                 let tipe = Type::parse(ctx, backrefs)?;
                 let modi = Modifiers::parse(ctx, backrefs)?;
@@ -1789,11 +1827,15 @@ impl<'a, 'b> Parse<'a, 'b> for Symbol {
     }
 }
 
-impl<'a, 'b> Format<'a, 'b> for Symbol {
-    fn demangle(&self, ctx: &mut Context, backrefs: &mut Backrefs) {
+impl<'a> Format<'a> for Symbol {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
+        ctx.scope = &self.path.scope.0[..];
+
         self.tipe.demangle_pre(ctx, backrefs);
         self.path.demangle(ctx, backrefs);
         self.tipe.demangle_post(ctx, backrefs);
+
+        ctx.scope = &[];
     }
 }
 
@@ -1811,7 +1853,7 @@ impl From<NestedPath> for Path {
     #[inline]
     fn from(name: NestedPath) -> Path {
         Path {
-            name,
+            name: UnqualifiedPath(name),
             scope: Scope(Vec::new()),
         }
     }
