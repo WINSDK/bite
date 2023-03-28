@@ -69,6 +69,11 @@ fn operator_new_array() {
 }
 
 #[test]
+fn dollars() {
+    eq!("?instance$initializer$@@3P6AXXZEA" => "void (__cdecl * instance$initializer$)(void)");
+}
+
+#[test]
 fn triple_q0() {
     eq!("???__E??_7name0@name1@@6B@@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'const name1::name0::`vftable'''(void)");

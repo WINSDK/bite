@@ -92,7 +92,10 @@ trait Format<'a> {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
 }
 
-trait Parse where Self: Sized {
+trait Parse
+where
+    Self: Sized,
+{
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self>;
 }
 
@@ -222,6 +225,12 @@ enum Type {
 
     /// ???
     Array(Array),
+
+    /// Virtual function table
+    VFTable(Qualifiers, Scope),
+
+    /// Virtual base table
+    VBTable(Qualifiers, Scope),
 }
 
 impl Parse for Type {
@@ -340,12 +349,18 @@ impl Parse for Type {
             b'T' => Type::Union(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
             b'U' => Type::Struct(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
             b'V' => Type::Class(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
-            b'A' => Type::Ref(ctx.modifiers_in_use, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'A' => Type::Ref(
+                ctx.modifiers_in_use,
+                Box::new(Pointee::parse(ctx, backrefs)?),
+            ),
             b'B' => Type::Ref(
                 Modifiers::VOLATILE,
                 Box::new(Pointee::parse(ctx, backrefs)?),
             ),
-            b'P' => Type::Ptr(ctx.modifiers_in_use, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'P' => Type::Ptr(
+                ctx.modifiers_in_use,
+                Box::new(Pointee::parse(ctx, backrefs)?),
+            ),
             b'Q' => Type::Ptr(Modifiers::CONST, Box::new(Pointee::parse(ctx, backrefs)?)),
             b'R' => Type::Ptr(
                 Modifiers::VOLATILE,
@@ -508,21 +523,25 @@ impl<'a> Type {
             Type::Union(modi, name) => {
                 ctx.stream.push("union ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::Enum(modi, name) => {
                 ctx.stream.push("enum ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::Struct(modi, name) => {
                 ctx.stream.push("struct ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::Class(modi, name) => {
                 ctx.stream.push("class ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::MAGENTA);
                 modi.demangle(ctx, backrefs);
             }
             Type::Ptr(modi, tipe) | Type::Ref(modi, tipe) | Type::RValueRef(modi, tipe) => {
@@ -537,15 +556,18 @@ impl<'a> Type {
                         func.return_type.0.demangle_pre(ctx, backrefs);
                         ctx.stream.push(" (", colors::GRAY40);
                         func.calling_conv.demangle(ctx, backrefs);
+                        ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::MemberFunction(func) => {
                         func.return_type.0.demangle_pre(ctx, backrefs);
                         func.calling_conv.demangle(ctx, backrefs);
+                        ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::MemberFunctionPtr(func) => {
                         func.return_type.0.demangle_pre(ctx, backrefs);
                         ctx.stream.push(" (", colors::GRAY40);
                         func.calling_conv.demangle(ctx, backrefs);
+                        ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::Array(..) => {
                         tipe.demangle_pre(ctx, backrefs);
@@ -555,9 +577,9 @@ impl<'a> Type {
                 }
 
                 match self {
-                    Type::Ptr(..) => ctx.stream.push(" *", colors::RED),
-                    Type::Ref(..) => ctx.stream.push(" &", colors::RED),
-                    Type::RValueRef(..) => ctx.stream.push(" &&", colors::RED),
+                    Type::Ptr(..) => ctx.stream.push("*", colors::RED),
+                    Type::Ref(..) => ctx.stream.push("&", colors::RED),
+                    Type::RValueRef(..) => ctx.stream.push("&&", colors::RED),
                     _ => {}
                 }
 
@@ -604,6 +626,12 @@ impl<'a> Type {
             }
             Type::Encoded(_) => {}
             Type::Array(_) => todo!(),
+            Type::VFTable(quali, _) => {
+                quali.0.demangle(ctx, backrefs);
+            }
+            Type::VBTable(quali, _) => {
+                quali.0.demangle(ctx, backrefs);
+            }
         }
     }
 
@@ -648,6 +676,18 @@ impl<'a> Type {
             }
             Type::Variable(_, _, tipe) => tipe.demangle_post(ctx, backrefs),
             Type::Array(..) => todo!(),
+            Type::VFTable(_, scope) => {
+                if !scope.0.is_empty() {
+                    ctx.stream.push("{for `", colors::GRAY40);
+                    scope.demangle(ctx, backrefs);
+                    ctx.stream.push("'}", colors::GRAY40);
+                }
+            }
+            Type::VBTable(_, scope) => {
+                scope.demangle(ctx, backrefs);
+                ctx.stream.push("'}", colors::GRAY40);
+            }
+
             _ => {}
         }
     }
@@ -1188,6 +1228,7 @@ enum StorageVariable {
     ProtectedStatic,
     PublicStatic,
     Global,
+    FunctionLocalStatic,
 }
 
 impl<'a> Format<'a> for StorageVariable {
@@ -1196,7 +1237,7 @@ impl<'a> Format<'a> for StorageVariable {
             StorageVariable::PrivateStatic => "private: static ",
             StorageVariable::ProtectedStatic => "protected: static ",
             StorageVariable::PublicStatic => "public: static ",
-            StorageVariable::Global => return,
+            StorageVariable::Global | StorageVariable::FunctionLocalStatic => return,
         };
 
         ctx.stream.push(literal, colors::PURPLE);
@@ -1321,31 +1362,31 @@ impl<'a> Format<'a> for Modifiers {
         let color = colors::BLUE;
 
         if self.contains(Modifiers::CONST) {
-            ctx.stream.push(" const", color);
+            ctx.stream.push("const ", color);
         }
 
         if self.contains(Modifiers::VOLATILE) {
-            ctx.stream.push(" volatile", color);
+            ctx.stream.push("volatile ", color);
         }
 
         if self.contains(Modifiers::FAR) {
-            ctx.stream.push(" __far", color);
+            ctx.stream.push("__far ", color);
         }
 
         if self.contains(Modifiers::UNALIGNED) {
-            ctx.stream.push(" __unaligned", color);
+            ctx.stream.push("__unaligned ", color);
         }
 
         if self.contains(Modifiers::RESTRICT) {
-            ctx.stream.push(" restrict", color);
+            ctx.stream.push("restrict ", color);
         }
 
         if self.contains(Modifiers::LVALUE) {
-            ctx.stream.push(" &", color);
+            ctx.stream.push("& ", color);
         }
 
         if self.contains(Modifiers::RVALUE) {
-            ctx.stream.push(" &&", color);
+            ctx.stream.push("&& ", color);
         }
     }
 }
@@ -1848,6 +1889,23 @@ impl Parse for Symbol {
                 let tipe = Type::parse(ctx, backrefs)?;
                 let modi = Modifiers::parse(ctx, backrefs)?;
                 Type::Variable(StorageVariable::Global, modi, Box::new(tipe))
+            }
+            // <type> <cvr-qualifiers>
+            b'4' => {
+                let tipe = Type::parse(ctx, backrefs)?;
+                let modi = Modifiers::parse(ctx, backrefs)?;
+                Type::Variable(StorageVariable::FunctionLocalStatic, modi, Box::new(tipe))
+            }
+            b'5' => todo!(),
+            b'6' => {
+                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
+                let scope = Scope::parse(ctx, backrefs)?;
+                Type::VFTable(qualifiers, scope)
+            }
+            b'7' => {
+                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
+                let scope = Scope::parse(ctx, backrefs)?;
+                Type::VBTable(qualifiers, scope)
             }
             b'Y' => Type::Function(Function::parse(ctx, backrefs)?),
             b'_' => EncodedIdent::parse(ctx, backrefs).map(Type::Encoded)?,
