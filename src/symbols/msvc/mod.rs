@@ -64,6 +64,7 @@
 //! ```
 //!
 //! source [MicrosoftMangle.cpp](https://github.com/llvm-mirror/clang/blob/aa231e4be75ac4759c236b755c57876f76e3cf05/lib/AST/MicrosoftMangle.cpp#L1609)
+
 mod context;
 mod tests;
 
@@ -88,18 +89,40 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     Some(parser.stream)
 }
 
+/// Converts an trivially printable node to a string.
 trait Format<'a> {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
 }
 
-trait Parse
-where
-    Self: Sized,
-{
+/// Converts an node to a string.
+///
+/// Converting an node representing a C++ type to a string is tricky due
+/// to the bad grammar of the C++ declaration inherited from C. You have
+/// to construct a string from inside to outside. For example, if a type
+/// X is a pointer to a function returning int, the order you create a
+/// string becomes something like this:
+///
+///   (1) X is a pointer: *X
+///   (2) (1) is a function returning int: int (*X)()
+///
+/// So you cannot construct a result just by appending strings to a result.
+///
+/// To deal with this, we split the function into two. demangle_pre() writes
+/// the "first half" of type declaration, and demangle_post() writes the
+/// "second half". For example, demangle_pre() writes a return type for a
+/// function and demangle_post() writes an parameter list.
+trait PositionalFormat<'a> {
+    fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
+    fn demangle_post(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
+}
+
+/// Parses node potentially modifying the context.
+/// Output may depend on child nodes or the parent as they modify the context which will
+/// later be used by parent nodes or other unparsed children.
+trait Parse: Sized {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self>;
 }
 
-/// Root node of the AST.
 #[derive(Default, Debug, Clone, PartialEq)]
 enum Type {
     /// ``` "" ```
@@ -406,25 +429,7 @@ impl<'a> Format<'a> for Type {
         self.demangle_post(ctx, backrefs);
     }
 }
-
-/// Converts an AST to a string.
-///
-/// Converting an AST representing a C++ type to a string is tricky due
-/// to the bad grammar of the C++ declaration inherited from C. You have
-/// to construct a string from inside to outside. For example, if a type
-/// X is a pointer to a function returning int, the order you create a
-/// string becomes something like this:
-///
-///   (1) X is a pointer: *X
-///   (2) (1) is a function returning int: int (*X)()
-///
-/// So you cannot construct a result just by appending strings to a result.
-///
-/// To deal with this, we split the function into two. demangle_pre() writes
-/// the "first half" of type declaration, and demangle_post() writes the
-/// "second half". For example, demangle_pre() writes a return type for a
-/// function and demangle_post() writes an parameter list.
-impl<'a> Type {
+impl<'a> PositionalFormat<'a> for Type {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             Type::Unit => {}
@@ -835,7 +840,7 @@ impl Parse for FunctionReturnType {
     }
 }
 
-impl<'a> FunctionReturnType {
+impl<'a> PositionalFormat<'a> for FunctionReturnType {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.0.demangle_pre(ctx, backrefs);
         if self.0 != Type::Unit {
@@ -1349,7 +1354,7 @@ impl Parse for Modifiers {
     }
 }
 
-impl<'a> Modifiers {
+impl<'a> PositionalFormat<'a> for Modifiers {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
@@ -1817,6 +1822,7 @@ impl<'a> Format<'a> for Template {
     }
 }
 
+/// Root node of the AST.
 #[derive(Debug, PartialEq, Clone)]
 struct Symbol {
     path: Path,
