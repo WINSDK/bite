@@ -48,12 +48,12 @@ fn simple() {
 
 #[test]
 fn constructor() {
-    eq!("??0klass@@QEAA@XZ" => "__cdecl klass::klass(void)");
+    eq!("??0klass@@QEAA@XZ" => "public: __cdecl klass::klass(void)");
 }
 
 #[test]
 fn destructor() {
-    eq!("??1klass@@QEAA@XZ" => "__cdecl klass::~klass(void)");
+    eq!("??1klass@@QEAA@XZ" => "public: __cdecl klass::~klass(void)");
 }
 
 #[test]
@@ -65,12 +65,17 @@ fn complex_operator() {
 #[test]
 fn operator_new_array() {
     eq!("??_U@YAPEAX_KAEAVklass@@@Z" =>
-        "void * __cdecl operator new[](unsigned __int64, class klass &)");
+        "void* __cdecl operator new[](unsigned __int64, class klass &)");
 }
 
 #[test]
 fn dollars() {
-    eq!("?instance$initializer$@@3P6AXXZEA" => "void (__cdecl * instance$initializer$)(void)");
+    eq!("?instance$initializer$@@3P6AXXZEA" => "void (__cdecl *instance$initializer$)(void)");
+}
+
+#[test]
+fn anonymous() {
+    eq!("?A@?A0x43583946@@3VB@@B" => "class B const `anonymous namespace'::A");
 }
 
 #[test]
@@ -1272,19 +1277,19 @@ fn cvmodifiers_modified_ab() {
 #[test]
 fn cvmodifiers_modified_ac() {
     eq!("?VarName@@3P_CClassName@@D0AHH@ZEA" =>
-        "int (__cdecl __based(void) ClassName::* VarName)(int)const volatile ");
+        "int (__cdecl __based(void) ClassName::* VarName)(int) const volatile ");
 }
 
 #[test]
 fn cvmodifiers_modified_ad() {
     eq!("?VarName@@3P_DClassName@@D0AHH@ZEA" =>
-        "int (__cdecl __based(void) ClassName::* VarName)(int)const volatile ");
+        "int (__cdecl __based(void) ClassName::* VarName)(int) const volatile ");
 }
 
 #[test]
 fn cvmodifiers_modified_d_ed() {
     eq!("?VarName@@3P_DClassName@@D0AHH@ZED" =>
-        "int (__cdecl __based(void) ClassName::*const volatile VarName)(int)const volatile ");
+        "int (__cdecl __based(void) ClassName::*const volatile VarName)(int) const volatile ");
 }
 
 //6 with const volatile 'ED'
@@ -3727,7 +3732,7 @@ fn source8_ek() {
 #[test]
 fn source8undname_aa() {
     eq!("?extppfvprica@@3PEQtestAccessLevel@@Y01P81@EBAHH@ZEQ1@" =>
-        "int (__cdecl testAccessLevel::*(testAccessLevel::* extppfvprica)[2])(int)const");
+        "int (__cdecl testAccessLevel::*(testAccessLevel::* extppfvprica)[2])(int) const");
 }
 
 #[test]
@@ -4537,7 +4542,7 @@ fn dollar_dollar_20() {
 fn dollar_dollar_21() {
     //hand-made $$A: Mod of one in CV testing (doing $$A instead of P)
     eq!("?VarName@@3$$A_DClassName@@D0AHH@ZEA" =>
-        "int (__cdecl __based(void) ClassName:: VarName)(int)const volatile ");
+        "int (__cdecl __based(void) ClassName:: VarName)(int) const volatile ");
 }
 
 //Manufactured; Keep--should not encapsulate function reference "__cdecl __based(void) ClassName::" in parentheses.
@@ -4545,42 +4550,42 @@ fn dollar_dollar_21() {
 fn dollar_dollar_22() {
     //hand-made $$A: Mod of one in CV testing (doing $$A instead of P) and mod of one above, changing to template parameter
     eq!("?VarName@@3V?$TC@$$A_DClassName@@D0AHH@Z@@EA" =>
-        "class TC<int __cdecl __based(void) ClassName::(int)const volatile > VarName");
+        "class TC<int __cdecl __based(void) ClassName::(int) const volatile > VarName");
 }
 
 #[test]
 fn dollar_dollar_22_mod1() {
     //hand-made $$A: Mod of one in CV testing (doing $$A instead of P) and mod of one above, changing to template parameter
     eq!("?VarName@@3V?$TC@P_DClassName@@D0AHH@Z@@EA" =>
-        "class TC<int (__cdecl __based(void) ClassName::*)(int)const volatile > VarName");
+        "class TC<int (__cdecl __based(void) ClassName::*)(int) const volatile > VarName");
 }
 
 #[test]
 fn dollar_dollar_22_mod2() {
     //hand-made $$A: Mod of one in CV testing (doing $$A instead of P) and mod of one above, changing to template parameter
     eq!("?VarName@@3V?$TC@S_DClassName@@D0AHH@Z@@EA" =>
-        "class TC<int (__cdecl __based(void) ClassName::*const volatile)(int)const volatile > VarName");
+        "class TC<int (__cdecl __based(void) ClassName::*const volatile)(int) const volatile > VarName");
 }
 
 #[test]
 fn dollar_dollar_22_mod3() {
     //hand-made $$A: Mod of one in CV testing (doing $$A instead of P) and mod of one above, changing to template parameter
     eq!("?VarName@@3V?$TC@A_DClassName@@D0AHH@Z@@EA" =>
-        "class TC<int (__cdecl __based(void) ClassName::&)(int)const volatile > VarName");
+        "class TC<int (__cdecl __based(void) ClassName::&)(int) const volatile > VarName");
 }
 
 #[test]
 fn dollar_dollar_22_mod4() {
     //hand-made $$A: Mod of one in CV testing (doing $$A instead of P) and mod of one above, changing to template parameter
     eq!("?VarName@@3V?$TC@B_DClassName@@D0AHH@Z@@EA" =>
-        "class TC<int (__cdecl __based(void) ClassName::&volatile)(int)const volatile > VarName");
+        "class TC<int (__cdecl __based(void) ClassName::&volatile)(int) const volatile > VarName");
 }
 
 #[test]
 fn dollar_dollar_22_mod4a() {
     //hand-made $$A: Mod of one in CV testing (doing $$A instead of P) and mod of one above, changing to template parameter
     eq!("?VarName@@3V?$TC@R_DClassName@@D0AHH@Z@@EA" =>
-        "class TC<int (__cdecl __based(void) ClassName::*volatile)(int)const volatile > VarName");
+        "class TC<int (__cdecl __based(void) ClassName::*volatile)(int) const volatile > VarName");
 }
 
 //Manufactured; Keep--should not encapsulate function reference "__cdecl __based(void) ClassName::" in parentheses.
@@ -4594,7 +4599,7 @@ fn dollar_dollar_22_mod5() {
 fn dollar_dollar_22a() {
     //hand-made A instead of $$A of last one
     eq!("?VarName@@3V?$TC@A_DClassName@@D0AHH@Z@@EA" =>
-        "class TC<int (__cdecl __based(void) ClassName::&)(int)const volatile > VarName");
+        "class TC<int (__cdecl __based(void) ClassName::&)(int) const volatile > VarName");
 }
 
 #[test]
@@ -5709,7 +5714,7 @@ fn ghidra_file_info_static_functions_003() {
 #[test]
 fn ghidra_file_info_static_functions_004() {
     eq!("?SpClearSingleStep@@YAXIIPAI@Z" =>
-        "void __cdecl SpClearSingleStep(unsigned int, unsigned int, unsigned int *)");
+        "void __cdecl SpClearSingleStep(unsigned int, unsigned int, unsigned int*)");
 }
 
 #[test]
@@ -5751,7 +5756,7 @@ fn ghidra_file_info_static_functions_011() {
 #[test]
 fn ghidra_file_info_static_functions_012() {
     eq!("?SpGetProcessNameHandle@@YAXPAU_SYSTEM_PROCESS_INFORMATION@NT@@PAGPAPAX@Z" =>
-        "void __cdecl SpGetProcessNameHandle(struct NT::_SYSTEM_PROCESS_INFORMATION *, unsigned short *, void * *)");
+        "void __cdecl SpGetProcessNameHandle(struct NT::_SYSTEM_PROCESS_INFORMATION *, unsigned short*, void**)");
 }
 
 #[test]
@@ -5776,7 +5781,7 @@ fn ghidra_file_info_static_functions_016() {
 
 #[test]
 fn ghidra_file_info_static_functions_017() {
-    eq!("?SpReadMemory@@YAHHKPAEH@Z" => "int __cdecl SpReadMemory(int, unsigned long, unsigned char *, int)");
+    eq!("?SpReadMemory@@YAHHKPAEH@Z" => "int __cdecl SpReadMemory(int, unsigned long, unsigned char*, int)");
 }
 
 #[test]
@@ -5800,22 +5805,22 @@ fn ghidra_file_info_static_functions_020() {
 #[test]
 fn ghidra_file_info_static_functions_021() {
     eq!("?SpSetSBreakpoint@@YAXIIKKPAE0HEE@Z" =>
-        "void __cdecl SpSetSBreakpoint(unsigned int, unsigned int, unsigned long, unsigned long, unsigned char *, unsigned char *, int, unsigned char, unsigned char)");
+        "void __cdecl SpSetSBreakpoint(unsigned int, unsigned int, unsigned long, unsigned long, unsigned char*, unsigned char*, int, unsigned char, unsigned char)");
 }
 
 #[test]
 fn ghidra_file_info_static_functions_022() {
-    eq!("?SpSetSingleStep@@YAXIIPAI@Z" => "void __cdecl SpSetSingleStep(unsigned int, unsigned int, unsigned int *)");
+    eq!("?SpSetSingleStep@@YAXIIPAI@Z" => "void __cdecl SpSetSingleStep(unsigned int, unsigned int, unsigned int*)");
 }
 
 #[test]
 fn ghidra_file_info_static_functions_023() {
-    eq!("?SpWriteMemory@@YAHHKPAEH@Z" => "int __cdecl SpWriteMemory(int, unsigned long, unsigned char *, int)");
+    eq!("?SpWriteMemory@@YAHHKPAEH@Z" => "int __cdecl SpWriteMemory(int, unsigned long, unsigned char*, int)");
 }
 
 #[test]
 fn ghidra_file_info_static_functions_024() {
-    eq!("?SpGetProcessHandle@@YAXKPAPAX@Z" => "void __cdecl SpGetProcessHandle(unsigned long, void * *)");
+    eq!("?SpGetProcessHandle@@YAXKPAPAX@Z" => "void __cdecl SpGetProcessHandle(unsigned long, void**)");
 }
 
 #[test]
@@ -6087,67 +6092,62 @@ fn this_pointer_modifiers_a() {
 
 #[test]
 fn this_pointer_modifiers_b() {
-    eq!("?fn@@ABAHH@Z" => "private: int __cdecl fn(int)const ");
+    eq!("?fn@@ABAHH@Z" => "private: int __cdecl fn(int) const");
 }
 
 #[test]
 fn this_pointer_modifiers_c() {
-    eq!("?fn@@ACAHH@Z" => "private: int __cdecl fn(int)volatile ");
+    eq!("?fn@@ACAHH@Z" => "private: int __cdecl fn(int) volatile");
 }
 
 #[test]
 fn this_pointer_modifiers_d() {
-    eq!("?fn@@ADAHH@Z" => "private: int __cdecl fn(int)const volatile ");
+    eq!("?fn@@ADAHH@Z" => "private: int __cdecl fn(int) const volatile");
 }
 
 #[test]
 fn this_pointer_modifiers_ed() {
-    eq!("?fn@@AEDAHH@Z" => "private: int __cdecl fn(int)const volatile");
+    eq!("?fn@@AEDAHH@Z" => "private: int __cdecl fn(int) const volatile");
 }
 
 #[test]
 fn this_pointer_modifiers_id() {
-    eq!("?fn@@AFDAHH@Z" => "private: int __cdecl fn(int)const volatile __unaligned ");
+    eq!("?fn@@AFDAHH@Z" => "private: int __cdecl fn(int) const volatile __unaligned");
 }
 
 #[test]
 fn this_pointer_modifiers_fd() {
-    eq!("?fn@@AIDAHH@Z" => "private: int __cdecl fn(int)const volatile __restrict");
+    eq!("?fn@@AIDAHH@Z" => "private: int __cdecl fn(int) const volatile __restrict");
 }
 
 #[test]
 fn this_pointer_modifiers_efid() {
-    eq!("?fn@@AEFIDAHH@Z" => "private: int __cdecl fn(int)const volatile __unaligned __restrict");
+    eq!("?fn@@AEFIDAHH@Z" => "private: int __cdecl fn(int) const volatile __unaligned __restrict");
 }
 
 #[test]
 fn this_pointer_modifiers_ga() {
-    eq!("?fn@@AGAAHH@Z" => "private: int __cdecl fn(int)& ");
+    eq!("?fn@@AGAAHH@Z" => "private: int __cdecl fn(int) &");
 }
 
 #[test]
 fn this_pointer_modifiers_ha() {
-    eq!("?fn@@AHAAHH@Z" => "private: int __cdecl fn(int)&& ");
-}
-
-#[test]
-fn this_pointer_modifiers_gha() {
-    eq!("?fn@@AGHAAHH@Z" => "private: int __cdecl fn(int)& && ");
+    eq!("?fn@@AHAAHH@Z" => "private: int __cdecl fn(int) &&");
 }
 
 #[test]
 fn this_pointer_modifiers_efghid() {
-    eq!("?fn@@AEFGHIDAHH@Z" => "private: int __cdecl fn(int)const volatile __unaligned __restrict& && ");
+    eq!("?fn@@AEFGHIDAHH@Z" => "private: int __cdecl fn(int) const volatile __unaligned __restrict& && ");
 }
 
 #[test]
 fn this_pointer_modifiers_eeffgghhiid() {
-    eq!("?fn@@AEEFFGGHHIIDAHH@Z" => "private: int __cdecl fn(int)const volatile __unaligned __unaligned __restrict __restrict& && ");
+    eq!("?fn@@AEEFFGGHHIIDAHH@Z" => "private: int __cdecl fn(int) const volatile __unaligned __unaligned __restrict __restrict& && ");
 }
 
 #[test]
 fn this_pointer_modifiers_eeffgghhiidollar_cd() {
-    eq!("?fn@@AEEFFGGHHII$CDAHH@Z" => "private: int __cdecl fn(int)const volatile __unaligned __unaligned %  __restrict __restrict& && ");
+    eq!("?fn@@AEEFFGGHHII$CDAHH@Z" => "private: int __cdecl fn(int) const volatile __unaligned __unaligned %  __restrict __restrict& && ");
 }
 
 #[test]

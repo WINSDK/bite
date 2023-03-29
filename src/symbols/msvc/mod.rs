@@ -217,9 +217,6 @@ enum Type {
     /// ``` <storage> {<modifier>} ```
     Variable(StorageVariable, Modifiers, Box<Type>),
 
-    /// Index into the parameter substitution table.
-    Indexed(usize),
-
     /// String encoded using a format we don't know.
     Encoded(EncodedIdent),
 
@@ -265,6 +262,7 @@ impl Parse for Type {
             }
             b"P8" => {
                 ctx.offset += 2;
+                ctx.parsing_qualifiers = true;
 
                 return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
             }
@@ -344,7 +342,6 @@ impl Parse for Type {
             return backrefs.get_memorized_param(digit);
         }
 
-        ctx.memorizing = false;
         let tipe = match ctx.take()? {
             b'T' => Type::Union(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
             b'U' => Type::Struct(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
@@ -434,115 +431,115 @@ impl<'a> Type {
             Type::Nullptr => ctx.stream.push("nullptr", colors::MAGENTA),
             Type::Void(modi) => {
                 ctx.stream.push("void", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Bool(modi) => {
                 ctx.stream.push("bool", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Char(modi) => {
                 ctx.stream.push("char", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Char8(modi) => {
                 ctx.stream.push("char8", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Char16(modi) => {
                 ctx.stream.push("char16", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Char32(modi) => {
                 ctx.stream.push("char32", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::IChar(modi) => {
                 ctx.stream.push("signed char", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::UChar(modi) => {
                 ctx.stream.push("unsigned char", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::WChar(modi) => {
                 ctx.stream.push("wchar", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::IShort(modi) => {
                 ctx.stream.push("short", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::UShort(modi) => {
                 ctx.stream.push("unsigned short", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Int(modi) => {
                 ctx.stream.push("int", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::UInt(modi) => {
                 ctx.stream.push("unsigned int", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Float(modi) => {
                 ctx.stream.push("float", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Double(modi) => {
                 ctx.stream.push("double", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::LDouble(modi) => {
                 ctx.stream.push("long double", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Long(modi) => {
                 ctx.stream.push("long", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::ULong(modi) => {
                 ctx.stream.push("unsigned long", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Int64(modi) => {
                 ctx.stream.push("__int64", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::UInt64(modi) => {
                 ctx.stream.push("unsigned __int64", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Int128(modi) => {
                 ctx.stream.push("__int64", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Uint128(modi) => {
                 ctx.stream.push("unsigned __int128", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Union(modi, name) => {
                 ctx.stream.push("union ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Enum(modi, name) => {
                 ctx.stream.push("enum ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Struct(modi, name) => {
                 ctx.stream.push("struct ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Class(modi, name) => {
                 ctx.stream.push("class ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Ptr(modi, tipe) | Type::Ref(modi, tipe) | Type::RValueRef(modi, tipe) => {
                 // "[]" and "()" (for function parameters) take precedence over "*",
@@ -553,19 +550,21 @@ impl<'a> Type {
                 let tipe = &tipe.0;
                 match tipe {
                     Type::Function(func) => {
-                        func.return_type.0.demangle_pre(ctx, backrefs);
-                        ctx.stream.push(" (", colors::GRAY40);
+                        func.return_type.demangle_pre(ctx, backrefs);
+                        ctx.stream.push("(", colors::GRAY40);
                         func.calling_conv.demangle(ctx, backrefs);
                         ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::MemberFunction(func) => {
-                        func.return_type.0.demangle_pre(ctx, backrefs);
+                        func.storage_scope.demangle(ctx, backrefs);
+                        func.return_type.demangle_pre(ctx, backrefs);
                         func.calling_conv.demangle(ctx, backrefs);
                         ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::MemberFunctionPtr(func) => {
-                        func.return_type.0.demangle_pre(ctx, backrefs);
-                        ctx.stream.push(" (", colors::GRAY40);
+                        func.storage_scope.demangle(ctx, backrefs);
+                        func.return_type.demangle_pre(ctx, backrefs);
+                        ctx.stream.push("(", colors::GRAY40);
                         func.calling_conv.demangle(ctx, backrefs);
                         ctx.stream.push(" ", colors::WHITE);
                     }
@@ -583,23 +582,23 @@ impl<'a> Type {
                     _ => {}
                 }
 
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Function(func) => {
-                func.return_type.0.demangle_pre(ctx, backrefs);
-                ctx.stream.push(" ", colors::WHITE);
+                func.return_type.demangle_pre(ctx, backrefs);
                 func.calling_conv.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::WHITE);
             }
             Type::MemberFunction(func) => {
                 func.storage_scope.demangle(ctx, backrefs);
-                func.return_type.0.demangle_pre(ctx, backrefs);
+                func.return_type.demangle_pre(ctx, backrefs);
                 func.calling_conv.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::WHITE);
             }
             Type::MemberFunctionPtr(func) => {
-                func.return_type.0.demangle_pre(ctx, backrefs);
-                ctx.stream.push(" (", colors::GRAY40);
+                func.storage_scope.demangle(ctx, backrefs);
+                func.return_type.demangle_pre(ctx, backrefs);
+                ctx.stream.push("(", colors::GRAY40);
                 func.calling_conv.demangle(ctx, backrefs);
                 ctx.stream.push("  ", colors::WHITE);
                 func.class_name.demangle(ctx, backrefs);
@@ -612,25 +611,20 @@ impl<'a> Type {
             Type::TemplateParameterIdx(_idx) => todo!(),
             Type::Typedef(modi, name) => {
                 ctx.push_literal(backrefs, name, colors::PURPLE);
-                modi.demangle(ctx, backrefs);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Variable(storage, modi, tipe) => {
                 storage.demangle(ctx, backrefs);
                 tipe.demangle_pre(ctx, backrefs);
-                modi.demangle(ctx, backrefs);
-                ctx.stream.push(" ", colors::WHITE);
-            }
-            Type::Indexed(idx) => {
-                let literal = backrefs.get_memorized_ident(*idx).unwrap();
-                ctx.push_literal(backrefs, &literal, colors::PURPLE);
+                modi.demangle_pre(ctx, backrefs);
             }
             Type::Encoded(_) => {}
             Type::Array(_) => todo!(),
             Type::VFTable(quali, _) => {
-                quali.0.demangle(ctx, backrefs);
+                quali.0.demangle_pre(ctx, backrefs);
             }
             Type::VBTable(quali, _) => {
-                quali.0.demangle(ctx, backrefs);
+                quali.0.demangle_pre(ctx, backrefs);
             }
         }
     }
@@ -655,24 +649,24 @@ impl<'a> Type {
                 func.params.0.demangle(ctx, backrefs);
                 ctx.stream.push(")", colors::GRAY40);
 
-                func.qualifiers.0.demangle(ctx, backrefs);
-                func.return_type.0.demangle_post(ctx, backrefs);
+                func.qualifiers.0.demangle_post(ctx, backrefs);
+                func.return_type.demangle_post(ctx, backrefs);
             }
             Type::MemberFunction(func) => {
                 ctx.stream.push("(", colors::GRAY40);
                 func.params.0.demangle(ctx, backrefs);
                 ctx.stream.push(")", colors::GRAY40);
 
-                func.qualifiers.0.demangle(ctx, backrefs);
-                func.return_type.0.demangle_post(ctx, backrefs);
+                func.qualifiers.0.demangle_post(ctx, backrefs);
+                func.return_type.demangle_post(ctx, backrefs);
             }
             Type::MemberFunctionPtr(func) => {
                 ctx.stream.push("(", colors::GRAY40);
                 func.params.0.demangle(ctx, backrefs);
                 ctx.stream.push(")", colors::GRAY40);
 
-                func.qualifiers.0.demangle(ctx, backrefs);
-                func.return_type.0.demangle_post(ctx, backrefs);
+                func.qualifiers.0.demangle_post(ctx, backrefs);
+                func.return_type.demangle_post(ctx, backrefs);
             }
             Type::Variable(_, _, tipe) => tipe.demangle_post(ctx, backrefs),
             Type::Array(..) => todo!(),
@@ -684,8 +678,11 @@ impl<'a> Type {
                 }
             }
             Type::VBTable(_, scope) => {
-                scope.demangle(ctx, backrefs);
-                ctx.stream.push("'}", colors::GRAY40);
+                if !scope.0.is_empty() {
+                    ctx.stream.push("{for `", colors::GRAY40);
+                    scope.demangle(ctx, backrefs);
+                    ctx.stream.push("'}", colors::GRAY40);
+                }
             }
 
             _ => {}
@@ -835,6 +832,19 @@ impl Parse for FunctionReturnType {
         }
 
         Type::parse(ctx, backrefs).map(FunctionReturnType)
+    }
+}
+
+impl<'a> FunctionReturnType {
+    fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
+        self.0.demangle_pre(ctx, backrefs);
+        if self.0 != Type::Unit {
+            ctx.stream.push(" ", colors::WHITE);
+        }
+    }
+
+    fn demangle_post(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
+        self.0.demangle_post(ctx, backrefs);
     }
 }
 
@@ -1025,11 +1035,6 @@ impl<'a> Format<'a> for Operator {
                     _ => ctx.stream.push("`unnamed destructor'", colors::GRAY20),
                 };
             }
-            Operator::VBTable => {
-                ctx.stream.push("`vbtable'{{for `", colors::BLUE);
-                return;
-            }
-            Operator::DynamicInitializer => "`dynamic intializer'",
             Operator::SourceName(src) => {
                 ctx.push_literal(backrefs, &src, colors::MAGENTA);
                 return;
@@ -1075,6 +1080,7 @@ impl<'a> Format<'a> for Operator {
             Operator::Xor => "operator^",
             Operator::XorEquals => "operator^=",
             Operator::VFTable => "`vftable'",
+            Operator::VBTable => "`vbtable'",
             Operator::LocalVFTable => "`local vftable'",
             Operator::VCall => "`vcall'",
             Operator::TypeOff => "`typeoff'",
@@ -1097,6 +1103,7 @@ impl<'a> Format<'a> for Operator {
             Operator::LocalStaticThreadGuard => "`local static thread guard'",
             Operator::PlacementDeleteClosure => "`placement delete closure'",
             Operator::PlacementDeleteArrayClosure => "`placement delete[] closure'",
+            Operator::DynamicInitializer => "`dynamic intializer'",
             Operator::NewArray => "operator new[]",
             Operator::DeleteArray => "operator delete[]",
             Operator::CoAwait => "co_await",
@@ -1293,47 +1300,32 @@ impl Parse for StorageScope {
 
 impl<'a> Format<'a> for StorageScope {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        let literal = match *self {
-            StorageScope::PUBLIC => "public: ",
-            StorageScope::PRIVATE => "private: ",
-            StorageScope::PROTECTED => "protected: ",
-            StorageScope::GLOBAL => "global: ",
-            StorageScope::STATIC => "static: ",
-            StorageScope::VIRTUAL => "virtual: ",
-            StorageScope::FAR => "[far]: ",
-            StorageScope::THUNK => "[thunk]: ",
-            _ => return,
-        };
+        let color = colors::MAGENTA;
 
-        ctx.stream.push(literal, colors::WHITE);
+        if self.contains(StorageScope::PUBLIC) {
+            ctx.stream.push("public: ", color);
+        }
+
+        if self.contains(StorageScope::PRIVATE) {
+            ctx.stream.push("private: ", color);
+        }
+
+        if self.contains(StorageScope::PROTECTED) {
+            ctx.stream.push("protected: ", color);
+        }
     }
 }
 
 bitflags! {
     #[derive(PartialEq, Eq, Clone, Copy)]
     struct Modifiers: u32 {
-        /// const
         const CONST     = 1;
-
-        /// volatile
         const VOLATILE  = 1 << 1;
-
-        /// __far
         const FAR       = 1 << 2;
-
-        /// __ptr64
         const PTR64     = 1 << 3;
-
-        /// __unaligned
         const UNALIGNED = 1 << 4;
-
-        /// restrict
         const RESTRICT  = 1 << 5;
-
-        /// &
         const LVALUE    = 1 << 6;
-
-        /// &&
         const RVALUE    = 1 << 7;
     }
 }
@@ -1357,8 +1349,8 @@ impl Parse for Modifiers {
     }
 }
 
-impl<'a> Format<'a> for Modifiers {
-    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
+impl<'a> Modifiers {
+    fn demangle_pre(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
         if self.contains(Modifiers::CONST) {
@@ -1368,25 +1360,37 @@ impl<'a> Format<'a> for Modifiers {
         if self.contains(Modifiers::VOLATILE) {
             ctx.stream.push("volatile ", color);
         }
+    }
+
+    fn demangle_post(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
+        let color = colors::BLUE;
+
+        if self.contains(Modifiers::CONST) {
+            ctx.stream.push(" const", color);
+        }
+
+        if self.contains(Modifiers::VOLATILE) {
+            ctx.stream.push(" volatile", color);
+        }
 
         if self.contains(Modifiers::FAR) {
-            ctx.stream.push("__far ", color);
+            ctx.stream.push(" __far", color);
         }
 
         if self.contains(Modifiers::UNALIGNED) {
-            ctx.stream.push("__unaligned ", color);
+            ctx.stream.push(" __unaligned", color);
         }
 
         if self.contains(Modifiers::RESTRICT) {
-            ctx.stream.push("restrict ", color);
+            ctx.stream.push(" __restrict", color);
         }
 
         if self.contains(Modifiers::LVALUE) {
-            ctx.stream.push("& ", color);
+            ctx.stream.push(" &", color);
         }
 
         if self.contains(Modifiers::RVALUE) {
-            ctx.stream.push("&& ", color);
+            ctx.stream.push(" &&", color);
         }
     }
 }
@@ -1455,24 +1459,30 @@ impl Parse for FunctionQualifiers {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut quali = Modifiers::empty();
 
-        if ctx.eat(b'I') {
-            quali |= Modifiers::RESTRICT;
-        }
+        for _ in 0..4 {
+            let addi = match ctx.peek() {
+                Some(b'E') => Modifiers::PTR64,
+                Some(b'I') => Modifiers::RESTRICT,
+                Some(b'F') => Modifiers::UNALIGNED,
+                Some(b'G') => Modifiers::LVALUE,
+                Some(b'H') => Modifiers::RVALUE,
+                _ => break,
+            };
 
-        if ctx.eat(b'F') {
-            quali |= Modifiers::UNALIGNED;
-        }
+            let lvalue_mismatch = addi == Modifiers::LVALUE && quali.contains(Modifiers::RVALUE);
+            let rvalue_mismatch = addi == Modifiers::RVALUE && quali.contains(Modifiers::LVALUE);
 
-        if ctx.eat(b'G') {
-            quali |= Modifiers::LVALUE;
-        }
+            if quali.contains(addi) || lvalue_mismatch || rvalue_mismatch {
+                break;
+            }
 
-        if ctx.eat(b'H') {
-            quali |= Modifiers::RVALUE;
+            quali |= addi;
+            ctx.offset += 1;
         }
 
         let modi = Qualifiers::parse(ctx, backrefs)?.0;
-        Some(FunctionQualifiers(Modifiers::union(modi, modi)))
+        let combined: Modifiers = quali | modi;
+        Some(FunctionQualifiers(combined))
     }
 }
 
@@ -1610,6 +1620,7 @@ impl Parse for NestedPath {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         ctx.descent()?;
 
+        // return memorized ident
         if let Some(digit) = ctx.base10() {
             ctx.ascent();
             return backrefs.get_memorized_ident(digit).map(NestedPath::Literal);
@@ -1642,7 +1653,7 @@ impl Parse for NestedPath {
                 b'A' => {
                     ctx.offset += 1;
 
-                    if let Some(b"0x") = ctx.peek_slice(0..2) {
+                    if ctx.eat_slice(b"0x") {
                         let mut len = 0;
 
                         // skip over anonymous namespace disambiguator
@@ -1718,7 +1729,7 @@ impl Parse for UnqualifiedPath {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         ctx.descent()?;
 
-        // memorized ident
+        // return memorized ident
         if let Some(digit) = ctx.base10() {
             ctx.ascent();
             return backrefs
@@ -1863,17 +1874,22 @@ impl Parse for Symbol {
         ctx.modifiers_in_use = Modifiers::empty();
         ctx.parsing_qualifiers = false;
 
-        let tipe = match ctx.take()? {
+        let tipe = match ctx.peek()? {
             // C style type
-            b'9' => return Some(path).map(Path::into),
+            b'9' => {
+                ctx.offset += 1;
+                return Some(path).map(Path::into);
+            }
             // <type> <cvr-qualifiers>
             b'0' => {
+                ctx.offset += 1;
                 let tipe = Type::parse(ctx, backrefs)?;
                 let modi = Modifiers::parse(ctx, backrefs)?;
                 Type::Variable(StorageVariable::PrivateStatic, modi, Box::new(tipe))
             }
             // <type> <cvr-qualifiers>
             b'1' => {
+                ctx.offset += 1;
                 let tipe = Type::parse(ctx, backrefs)?;
                 let modi = Modifiers::parse(ctx, backrefs)?;
                 Type::Variable(StorageVariable::ProtectedStatic, modi, Box::new(tipe))
@@ -1886,29 +1902,42 @@ impl Parse for Symbol {
             }
             // <type> <cvr-qualifiers>
             b'3' => {
+                ctx.offset += 1;
                 let tipe = Type::parse(ctx, backrefs)?;
                 let modi = Modifiers::parse(ctx, backrefs)?;
                 Type::Variable(StorageVariable::Global, modi, Box::new(tipe))
             }
             // <type> <cvr-qualifiers>
             b'4' => {
+                ctx.offset += 1;
                 let tipe = Type::parse(ctx, backrefs)?;
                 let modi = Modifiers::parse(ctx, backrefs)?;
                 Type::Variable(StorageVariable::FunctionLocalStatic, modi, Box::new(tipe))
             }
-            b'5' => todo!(),
+            b'5' => {
+                ctx.offset += 1;
+                todo!()
+            }
             b'6' => {
+                ctx.offset += 1;
                 let qualifiers = Qualifiers::parse(ctx, backrefs)?;
                 let scope = Scope::parse(ctx, backrefs)?;
                 Type::VFTable(qualifiers, scope)
             }
             b'7' => {
+                ctx.offset += 1;
                 let qualifiers = Qualifiers::parse(ctx, backrefs)?;
                 let scope = Scope::parse(ctx, backrefs)?;
                 Type::VBTable(qualifiers, scope)
             }
-            b'Y' => Type::Function(Function::parse(ctx, backrefs)?),
-            b'_' => EncodedIdent::parse(ctx, backrefs).map(Type::Encoded)?,
+            b'Y' => {
+                ctx.offset += 1;
+                Type::Function(Function::parse(ctx, backrefs)?)
+            }
+            b'_' => {
+                ctx.offset += 1;
+                EncodedIdent::parse(ctx, backrefs).map(Type::Encoded)?
+            }
             _ => MemberFunction::parse(ctx, backrefs).map(Type::MemberFunction)?,
         };
 

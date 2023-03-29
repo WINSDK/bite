@@ -47,12 +47,13 @@ impl Backrefs {
         }
     }
 
+    // TODO: change interface to not be cloning a type
     pub fn get_memorized_param(&self, idx: usize) -> Option<Type> {
         if idx >= self.param_count {
             return None;
         }
 
-        Some(Type::Indexed(idx))
+        Some(self.params[idx].clone())
     }
 }
 
