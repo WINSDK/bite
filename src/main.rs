@@ -43,8 +43,6 @@ fn set_panic_handler() {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     set_panic_handler();
 
-    std::env::set_current_dir(r#"C:\\Users\\Nicolas Mazzon\\Projects\\bite"#)?;
-
     if ARGS.gui {
         return match gui::main().await {
             Err(err) => panic!("{err:?}"),

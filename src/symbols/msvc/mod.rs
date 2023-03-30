@@ -729,8 +729,8 @@ struct MemberFunction {
 
 impl Parse for MemberFunction {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
         let storage_scope = StorageScope::parse(ctx, backrefs)?;
+        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
 
         if !storage_scope.contains(StorageScope::STATIC) {
             qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
@@ -1324,14 +1324,14 @@ impl<'a> Format<'a> for StorageScope {
 bitflags! {
     #[derive(PartialEq, Eq, Clone, Copy)]
     struct Modifiers: u32 {
-        const CONST     = 1;
-        const VOLATILE  = 1 << 1;
-        const FAR       = 1 << 2;
-        const PTR64     = 1 << 3;
-        const UNALIGNED = 1 << 4;
-        const RESTRICT  = 1 << 5;
-        const LVALUE    = 1 << 6;
-        const RVALUE    = 1 << 7;
+        const CONST     = 0b0000000000001;
+        const VOLATILE  = 0b0000000000010;
+        const FAR       = 0b0000000000100;
+        const PTR64     = 0b0000000001000;
+        const UNALIGNED = 0b0000000010000;
+        const RESTRICT  = 0b0000000100000;
+        const LVALUE    = 0b0000001000000;
+        const RVALUE    = 0b0000010000000;
     }
 }
 
@@ -1462,9 +1462,9 @@ struct FunctionQualifiers(Modifiers);
 
 impl Parse for FunctionQualifiers {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        let mut quali = Modifiers::empty();
+        let mut quali = [Modifiers::empty(); 4];
 
-        for _ in 0..4 {
+        for idx in 0..4 {
             let addi = match ctx.peek() {
                 Some(b'E') => Modifiers::PTR64,
                 Some(b'I') => Modifiers::RESTRICT,
@@ -1474,20 +1474,20 @@ impl Parse for FunctionQualifiers {
                 _ => break,
             };
 
-            let lvalue_mismatch = addi == Modifiers::LVALUE && quali.contains(Modifiers::RVALUE);
-            let rvalue_mismatch = addi == Modifiers::RVALUE && quali.contains(Modifiers::LVALUE);
+            let lvalue_mismatch = addi == Modifiers::LVALUE && quali.contains(&Modifiers::RVALUE);
+            let rvalue_mismatch = addi == Modifiers::RVALUE && quali.contains(&Modifiers::LVALUE);
 
-            if quali.contains(addi) || lvalue_mismatch || rvalue_mismatch {
+            if lvalue_mismatch || rvalue_mismatch {
                 break;
             }
 
-            quali |= addi;
+            quali[idx] = addi;
             ctx.offset += 1;
         }
 
-        let modi = Qualifiers::parse(ctx, backrefs)?.0;
-        let combined: Modifiers = quali | modi;
-        Some(FunctionQualifiers(combined))
+        let modi = quali[0] | quali[1] | quali[2] | quali[3] | Qualifiers::parse(ctx, backrefs)?.0;
+        dbg!(modi);
+        Some(FunctionQualifiers(modi))
     }
 }
 
@@ -1881,11 +1881,6 @@ impl Parse for Symbol {
         ctx.parsing_qualifiers = false;
 
         let tipe = match ctx.peek()? {
-            // C style type
-            b'9' => {
-                ctx.offset += 1;
-                return Some(path).map(Path::into);
-            }
             // <type> <cvr-qualifiers>
             b'0' => {
                 ctx.offset += 1;
@@ -1936,9 +1931,22 @@ impl Parse for Symbol {
                 let scope = Scope::parse(ctx, backrefs)?;
                 Type::VBTable(qualifiers, scope)
             }
+            b'8' => {
+                ctx.offset += 1;
+                todo!();
+            }
+            // C style type
+            b'9' => {
+                ctx.offset += 1;
+                return Some(path).map(Path::into);
+            }
             b'Y' => {
                 ctx.offset += 1;
                 Type::Function(Function::parse(ctx, backrefs)?)
+            }
+            b'$' => {
+                ctx.offset += 1;
+                todo!();
             }
             b'_' => {
                 ctx.offset += 1;
