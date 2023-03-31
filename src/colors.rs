@@ -28,7 +28,7 @@ impl From<Color> for [f32; 4] {
 pub enum LineKind {
     Newline,
     Label(std::sync::Arc<crate::symbols::TokenStream>),
-    Instruction(crate::disassembler::TokenStream),
+    Instruction(crate::disassembler::Line),
 }
 
 #[derive(Debug, Clone)]

@@ -13,7 +13,7 @@ use object::Architecture;
 use object::{Object, ObjectSection, SectionKind};
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
@@ -35,13 +35,20 @@ pub enum Error {
 }
 
 pub struct Dissasembly {
+    /// Address of last instruction in the object.
+    pub address_space: AtomicUsize,
+
+    /// Lines of disassembly e.i. labels and instructions.
     lines: Mutex<Vec<LineKind>>,
+
+    /// Symbol lookup by RVA.
     pub symbols: Mutex<Index>,
 }
 
 impl Dissasembly {
     pub fn new() -> Self {
         Self {
+            address_space: AtomicUsize::new(0),
             lines: Mutex::new(Vec::new()),
             symbols: Mutex::new(Index::new()),
         }
@@ -73,6 +80,11 @@ impl Dissasembly {
                 .find(|t| t.name() == Ok(".text"))
                 .ok_or("Failed to find `.text` section.")?;
 
+            self.address_space.store(
+                (obj.relative_address_base() + section.size()) as usize,
+                Ordering::Relaxed,
+            );
+
             // SAFETY: tokio::spawn's in this scope require a &'static
             let section: object::Section<'static, '_> = unsafe { std::mem::transmute(section) };
 
@@ -97,7 +109,7 @@ impl Dissasembly {
                     lines.push(LineKind::Label(label));
                 }
 
-                lines.push(LineKind::Instruction(line.tokens));
+                lines.push(LineKind::Instruction(line));
             }
 
             *self.symbols.lock().unwrap() = symbols;
@@ -153,13 +165,14 @@ impl TokenStream {
 pub struct Line {
     pub section_base: usize,
     pub offset: usize,
-    tokens: TokenStream,
+    pub stream: TokenStream,
+    pub address: String,
 }
 
 impl ToString for Line {
     fn to_string(&self) -> String {
         let mut fmt = String::with_capacity(30);
-        let tokens = self.tokens.tokens();
+        let tokens = self.stream.tokens();
         let operands = &tokens[1..];
 
         fmt += &tokens[0].text;
@@ -268,7 +281,8 @@ impl Iterator for InstructionStream<'_> {
         Some(Line {
             section_base,
             offset,
-            tokens,
+            stream: tokens,
+            address: String::new(),
         })
     }
 }
@@ -346,7 +360,7 @@ fn reverse_hex_nuggets(mut imm: usize) -> usize {
     imm
 }
 
-fn encode_hex(mut imm: i64) -> String {
+pub fn encode_hex(mut imm: i64) -> String {
     use crate::push_unsafe;
 
     let mut hex = String::with_capacity(20); // max length of an i64
@@ -361,9 +375,39 @@ fn encode_hex(mut imm: i64) -> String {
     push_unsafe!(raw, off, b'0');
     push_unsafe!(raw, off, b'x');
 
-    let num_len = imm.checked_ilog(16).unwrap_or(0) as usize + 1;
+    let num_len = (imm + 1).ilog(16) as usize;
     let leading_zeros = (16 - num_len) * 4;
     let mut imm = reverse_hex_nuggets(imm as usize);
+
+    imm >>= leading_zeros;
+    for _ in 0..num_len {
+        push_unsafe!(raw, off, ENCODED_NUGGETS[imm & 0b1111]);
+        imm >>= 4;
+    }
+
+    unsafe { raw.set_len(off) }
+    hex
+}
+
+pub fn encode_hex_padded(mut imm: i64, size: usize) -> String {
+    use crate::push_unsafe;
+
+    let mut hex = String::with_capacity(20); // max length of an i64
+    let raw = unsafe { hex.as_mut_vec() };
+    let mut off = 0;
+
+    if imm < 0 {
+        push_unsafe!(raw, off, b'-');
+        imm = -imm;
+    }
+
+    let num_len = (imm + 1).ilog(16) as usize;
+    let leading_zeros = (16 - num_len) * 4;
+    let mut imm = reverse_hex_nuggets(imm as usize);
+
+    for _ in 0..size.checked_sub(num_len).unwrap_or(0) {
+        push_unsafe!(raw, off, b'0');
+    }
 
     imm >>= leading_zeros;
     for _ in 0..num_len {

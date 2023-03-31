@@ -1,5 +1,5 @@
 use crate::{
-    colors::LineKind,
+    colors::{self, LineKind},
     gui::{texture::Texture, uniforms, Error},
 };
 use std::mem::size_of;
@@ -276,7 +276,7 @@ impl Backend {
             screen_position: (ctx.scale_factor * 5.0, ctx.scale_factor * 5.0),
             bounds: (self.size.width as f32, self.size.height as f32),
             text: vec![wgpu_glyph::Text::new(&format!("FPS: {}", ctx.fps))
-                .with_color(crate::colors::WHITE)
+                .with_color(colors::WHITE)
                 .with_scale(font_size)],
             ..wgpu_glyph::Section::default()
         });
@@ -291,7 +291,7 @@ impl Backend {
                     .h_align(wgpu_glyph::HorizontalAlign::Center)
                     .v_align(wgpu_glyph::VerticalAlign::Center),
                 text: vec![wgpu_glyph::Text::new(&ctx.donut.frame)
-                    .with_color(crate::colors::WHITE)
+                    .with_color(colors::WHITE)
                     .with_scale(ctx.scale_factor * 10.0)],
                 ..wgpu_glyph::Section::default()
             });
@@ -316,13 +316,14 @@ impl Backend {
             let line_count = (self.size.height as f32 / font_size).ceil() as usize;
             let mut texts = Vec::with_capacity(line_count * 10);
 
-            let listing = dissasembly
-                .get((ctx.listing_offset / ctx.font_size as f64) as usize..)
-                .unwrap_or(dissasembly)
-                .get(..line_count)
-                .unwrap_or(dissasembly);
+            let line_offset_start = std::cmp::min(
+                (ctx.listing_offset / ctx.font_size as f64) as usize,
+                dissasembly.len(),
+            );
 
-            for line in listing {
+            let line_offset_end = std::cmp::min(line_offset_start + line_count, dissasembly.len());
+
+            for line in &mut dissasembly[line_offset_start..line_offset_end] {
                 match line {
                     LineKind::Newline => {
                         texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size))
@@ -331,24 +332,37 @@ impl Backend {
                         texts.push(
                             wgpu_glyph::Text::new("<")
                                 .with_scale(font_size)
-                                .with_color(crate::colors::BLUE),
+                                .with_color(colors::BLUE),
                         );
-
                         for token in label.tokens() {
                             texts.push(token.text(font_size));
                         }
-
                         texts.push(
                             wgpu_glyph::Text::new(">:\n")
                                 .with_scale(font_size)
-                                .with_color(crate::colors::BLUE),
+                                .with_color(colors::BLUE),
                         );
                     }
                     LineKind::Instruction(line) => {
-                        let tokens = line.tokens();
+                        let tokens = line.stream.tokens();
 
-                        // pad
-                        texts.push(wgpu_glyph::Text::new("        ").with_scale(font_size));
+                        // calculate and pad address based on the largest possible offset
+                        let width = ctx.dissasembly.address_space.load(Ordering::Relaxed);
+                        let width = (width + 1).ilog10() as usize;
+                        line.address = crate::disassembler::encode_hex_padded(
+                            (line.section_base + line.offset) as i64,
+                            width,
+                        );
+
+                        // memory address
+                        texts.push(
+                            wgpu_glyph::Text::new(&line.address)
+                                .with_scale(font_size)
+                                .with_color(colors::GRAY40),
+                        );
+
+                        // spacing
+                        texts.push(wgpu_glyph::Text::new("  ").with_scale(font_size));
 
                         // mnemomic
                         texts.push(tokens[0].text(font_size));
@@ -370,7 +384,7 @@ impl Backend {
                                     texts.push(
                                         wgpu_glyph::Text::new(", ")
                                             .with_scale(font_size)
-                                            .with_color(crate::colors::WHITE),
+                                            .with_color(colors::WHITE),
                                     );
                                 }
                             }
