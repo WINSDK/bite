@@ -57,6 +57,7 @@ impl Backrefs {
     }
 }
 
+/// State that needs to be shared whilst traversing nodes of the AST.
 #[derive(Debug)]
 pub(super) struct Context<'a> {
     pub stream: TokenStream,
@@ -82,6 +83,7 @@ impl Context<'_> {
         }
     }
 
+    /// Pushes a [`Literal`] to the [`TokenStream`], resolving any indexing within a literal.
     pub fn push_literal(&mut self, backrefs: &Backrefs, literal: &Literal, color: Color) {
         let literal = match literal {
             Literal::Borrowed { start, end } => &self.stream.inner()[*start..*end],
@@ -143,6 +145,7 @@ impl Context<'_> {
         matches
     }
 
+    /// Parses a base10 number, incrementing the offset.
     pub fn base10(&mut self) -> Option<usize> {
         let n = match self.peek()? {
             c @ b'0'..=b'9' => (c - b'0') as usize,
@@ -153,7 +156,8 @@ impl Context<'_> {
         Some(n)
     }
 
-    fn base16(&mut self) -> Option<usize> {
+    /// Parses a base16 number that's either in lowercase or upcase, incrementing the offset.
+    pub fn base16(&mut self) -> Option<usize> {
         let n = match self.peek()? {
             c @ b'0'..=b'9' => (c - b'0') as usize,
             c @ b'a'..=b'f' => (c - b'a') as usize,
@@ -165,6 +169,18 @@ impl Context<'_> {
         Some(n)
     }
 
+    /// Parses a generic number (positive, negative, hex or decimal).
+    ///
+    /// ```text
+    /// = <non-negative>
+    /// | <hex-digit>
+    /// | <number>
+    ///
+    /// <number>       = '?' <non-negative>
+    /// <hex-digit>    = 'A'..='P'
+    /// <non-negative> = '1'..='9'
+    ///                | {<hex-digit>} '@'
+    /// ```
     pub fn number(&mut self) -> Option<isize> {
         let negative = self.eat(b'?');
 
@@ -199,21 +215,8 @@ impl Context<'_> {
         }
     }
 
-    pub fn hex_nibbles(&mut self) -> Option<Literal> {
-        let mut len = 0;
-        let start = self.offset;
-
-        while let Some(b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F') = self.peek() {
-            self.offset += 1;
-            len += 1;
-        }
-
-        Some(Literal::Borrowed {
-            start,
-            end: start + len,
-        })
-    }
-
+    /// Parses a series of characters up to the character '@', incrementing the offset
+    /// by the amount of characters parsed + the terminator.
     pub fn ident(&mut self) -> Option<Literal> {
         let start = self.offset;
         let len = self.src().bytes().position(|c| c == b'@')?;
@@ -224,6 +227,7 @@ impl Context<'_> {
         })
     }
 
+    /// Increments the depth of the current parser, failing when the depth surpassed [`MAX_DEPTH`].
     #[inline]
     pub fn descent(&mut self) -> Option<()> {
         self.depth += 1;
@@ -236,6 +240,7 @@ impl Context<'_> {
     }
 
     #[inline]
+    /// Decrements the depth of the current parser, panics on negative depths.
     pub fn ascent(&mut self) {
         self.depth -= 1;
     }

@@ -69,6 +69,7 @@ mod context;
 mod tests;
 
 use std::fmt;
+use std::mem::MaybeUninit;
 
 use super::TokenStream;
 use crate::colors;
@@ -125,126 +126,55 @@ trait Parse: Sized {
 
 #[derive(Default, Debug, Clone, PartialEq)]
 enum Type {
-    /// ``` "" ```
     #[default]
     Unit,
-
-    /// ``` {<modifier>} nullptr ```
     Nullptr,
-
-    /// ``` {<modifier>} void ```
     Void(Modifiers),
-
-    /// ``` {<modifier>} bool ```
     Bool(Modifiers),
-
-    /// ``` {<modifier>} char ```
     Char(Modifiers),
-
-    /// ``` {<modifier>} utf8 char ```
     Char8(Modifiers),
-
-    /// ``` {<modifier>} utf16 char ```
     Char16(Modifiers),
-
-    /// ``` {<modifier>} utf32 char ```
     Char32(Modifiers),
-
-    /// ``` {<modifier>} signed char ```
     IChar(Modifiers),
-
-    /// ``` {<modifier>} unsigned char ```
     UChar(Modifiers),
-
-    /// ``` {<modifier>} utf16 char ```
     WChar(Modifiers),
-
-    /// ``` {<modifier>} i16 ```
     IShort(Modifiers),
-
-    /// ``` {<modifier>} u16 ```
     UShort(Modifiers),
-
-    /// ``` {<modifier>} int ```
     Int(Modifiers),
-
-    /// ``` {<modifier>} unsigned ```
     UInt(Modifiers),
-
-    /// ``` {<modifier>} float ```
     Float(Modifiers),
-
-    /// ``` {<modifier>} double ```
     Double(Modifiers),
-
-    /// ``` {<modifier>} long double ```
     LDouble(Modifiers),
-
-    /// ``` {<modifier>} long ```
     Long(Modifiers),
-
-    /// ``` {<modifier>} unsigned long ```
     ULong(Modifiers),
-
-    /// ``` {<modifier>} int64_t ```
     Int64(Modifiers),
-
-    /// ``` {<modifier>} uint64_t ```
     UInt64(Modifiers),
-
-    /// ``` {<modifier>} int128_t ```
     Int128(Modifiers),
-
-    /// ``` {<modifier>} uint128_t ```
     Uint128(Modifiers),
-
-    /// ``` {<modifier>} union <path> ```
     Union(Modifiers, Path),
-
-    /// ``` {<modifier>} enum <path> ```
     Enum(Modifiers, Path),
-
-    /// ``` {<modifier>} struct <path> ```
     Struct(Modifiers, Path),
-
-    /// ``` {<modifier>} class <path> ```
     Class(Modifiers, Path),
-
-    /// ``` {<modifier>} & <type> ```
     Ref(Modifiers, Box<Pointee>),
-
-    /// ``` {<modifier>} && <type> ```
     RValueRef(Modifiers, Box<Pointee>),
-
-    /// ``` {<modifier>} * <type> ```
     Ptr(Modifiers, Box<Pointee>),
-
-    /// ``` <calling-conv> {<modifier>} <return-type> ({<type>}) ```
     Function(Function),
-
-    /// ``` <scope>: <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
     MemberFunction(MemberFunction),
-
-    /// ``` <scope>: <path> <calling-conv> {<qualifier>} <return-type> ({<type>}) ```
     MemberFunctionPtr(MemberFunctionPtr),
-
-    /// ``` <number> ```
     Constant(isize),
-
-    /// ``` ??? ```
-    TemplateParameterIdx(isize),
-
-    /// ``` {<modifier>} <path> ```
-    Typedef(Modifiers, Literal),
-
-    /// ``` <storage> {<modifier>} ```
     Variable(StorageVariable, Modifiers, Box<Type>),
+
+    /// Renamed literal with additional modifiers.
+    Typedef(Modifiers, Literal),
 
     /// String encoded using a format we don't know.
     Encoded(EncodedIdent),
 
     /// ???
     Array(Array),
+
+    /// ???
+    TemplateParameterIdx(isize),
 
     /// Virtual function table
     VFTable(Qualifiers, Scope),
@@ -624,7 +554,9 @@ impl<'a> PositionalFormat<'a> for Type {
                 modi.demangle_pre(ctx, backrefs);
             }
             Type::Encoded(_) => {}
-            Type::Array(_) => todo!(),
+            Type::Array(array) => {
+                array.tipe().demangle_pre(ctx, backrefs);
+            }
             Type::VFTable(quali, _) => {
                 quali.0.demangle_pre(ctx, backrefs);
             }
@@ -674,7 +606,12 @@ impl<'a> PositionalFormat<'a> for Type {
                 func.return_type.demangle_post(ctx, backrefs);
             }
             Type::Variable(_, _, tipe) => tipe.demangle_post(ctx, backrefs),
-            Type::Array(..) => todo!(),
+            Type::Array(array) => {
+                ctx.stream.push("[", colors::GRAY40);
+                ctx.stream.push_cow(std::borrow::Cow::Owned(array.len.to_string()), colors::BLUE);
+                ctx.stream.push("]", colors::GRAY40);
+                array.tipe().demangle_post(ctx, backrefs);
+            }
             Type::VFTable(_, scope) => {
                 if !scope.0.is_empty() {
                     ctx.stream.push("{for `", colors::GRAY40);
@@ -793,18 +730,89 @@ impl Parse for MemberFunctionPtr {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-struct Array(Vec<Type>);
+#[derive(Debug)]
+struct Array {
+    modifiers: Modifiers,
+    tipe: MaybeUninit<Box<Type>>,
+    len: isize,
+}
 
 impl Parse for Array {
-    fn parse(_: &mut Context, _: &mut Backrefs) -> Option<Self> {
-        todo!()
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let dimensions = ctx.number()?;
+        let mut root = Array {
+            modifiers: Modifiers::empty(),
+            tipe: MaybeUninit::uninit(),
+            len: 0,
+        };
+
+        let mut node = &mut root;
+
+        if dimensions < 0 {
+            return None;
+        }
+
+        for _ in 0..dimensions {
+            // clear modifiers
+            ctx.modifiers_in_use = Modifiers::empty();
+
+            // construct array
+            node.tipe = MaybeUninit::new(Box::new(Type::Array(Array {
+                modifiers: Modifiers::empty(),
+                tipe: MaybeUninit::uninit(),
+                len: ctx.number()?,
+            })));
+
+            // get reference to array within the boxed type
+            match **unsafe { node.tipe.assume_init_mut() } {
+                Type::Array(ref mut arr) => node = arr,
+                // SAFETY: this can only be an array as we just declared `current` to be an array
+                _ => unsafe { std::hint::unreachable_unchecked() },
+            };
+        }
+
+        if ctx.eat_slice(b"$$C") {
+            root.modifiers = match ctx.take()? {
+                b'A' => Modifiers::empty(),
+                b'B' => Modifiers::CONST,
+                b'C' | b'D' => Modifiers::CONST | Modifiers::VOLATILE,
+                _ => return None,
+            };
+        }
+
+        root.len = ctx.number()?;
+        root.tipe = Type::parse(ctx, backrefs)
+            .map(Box::new)
+            .map(MaybeUninit::new)?;
+
+        Some(root)
     }
 }
 
-impl<'a> Format<'a> for Array {
-    fn demangle(&'a self, _: &mut Context<'a>, _: &mut Backrefs) {
-        todo!()
+impl Array {
+    #[inline]
+    fn tipe(&self) -> &Type {
+        unsafe { self.tipe.assume_init_ref() }
+    }
+}
+
+impl PartialEq for Array {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.modifiers == other.modifiers
+            && unsafe { self.tipe.assume_init_ref() == other.tipe.assume_init_ref() }
+            && self.len == other.len
+    }
+}
+
+impl Clone for Array {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            modifiers: self.modifiers,
+            tipe: MaybeUninit::new(unsafe { self.tipe.assume_init_ref() }.clone()),
+            len: self.len
+        }
     }
 }
 
@@ -1486,7 +1494,6 @@ impl Parse for FunctionQualifiers {
         }
 
         let modi = quali[0] | quali[1] | quali[2] | quali[3] | Qualifiers::parse(ctx, backrefs)?.0;
-        dbg!(modi);
         Some(FunctionQualifiers(modi))
     }
 }
@@ -1530,7 +1537,19 @@ struct MD5(Literal);
 
 impl Parse for MD5 {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
-        let data = ctx.hex_nibbles()?;
+        let data = {
+            let mut len = 0;
+            let start = ctx.offset;
+
+            while ctx.base16().is_some() {
+                len += 1;
+            }
+
+            Literal::Borrowed {
+                start,
+                end: start + len,
+            }
+        };
 
         // the md5 string must be of length 32
         if data.len() != 32 {
@@ -1919,21 +1938,24 @@ impl Parse for Symbol {
                 ctx.offset += 1;
                 todo!()
             }
+            // virtual function table
             b'6' => {
                 ctx.offset += 1;
                 let qualifiers = Qualifiers::parse(ctx, backrefs)?;
                 let scope = Scope::parse(ctx, backrefs)?;
                 Type::VFTable(qualifiers, scope)
             }
+            // virtual base table
             b'7' => {
                 ctx.offset += 1;
                 let qualifiers = Qualifiers::parse(ctx, backrefs)?;
                 let scope = Scope::parse(ctx, backrefs)?;
                 Type::VBTable(qualifiers, scope)
             }
+            // unnamed RTTI
             b'8' => {
                 ctx.offset += 1;
-                todo!();
+                Type::Unit
             }
             // C style type
             b'9' => {
