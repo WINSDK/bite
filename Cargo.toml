@@ -13,18 +13,17 @@ glam = { version = "0.23", features = ["bytemuck"] }
 bytemuck = { version = "1.1", default-features = false }
 winit = { version = "0.28.2", features = ["wayland", "x11"], default-features = false }
 wgpu = { version = "0.15", features = ["spirv"], default-features = false }
+wgpu_glyph = "0.19"
+ab_glyph = { version = "0.2", default-features = false }
 naga = { version = "0.11", features = ["glsl-in", "spv-out"], default-features = false }
 tokio = { version = "1.2", features = ["rt-multi-thread", "fs", "io-util", "macros", "time"] }
 png = "0.17"
-ab_glyph = { version = "0.2", default-features = false }
 rfd = "0.11"
 bitflags = "2"
 
-[dependencies.wgpu_glyph]
-git = "https://github.com/WINSDK/wgpu_glyph.git"
-
 [profile.release]
 strip = true
+# debug = true
 # lto = "thin"
 panic = "abort"
 
