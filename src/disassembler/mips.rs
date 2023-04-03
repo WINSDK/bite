@@ -58,7 +58,7 @@ impl super::DecodableInstruction for Instruction {
         let mut tokens = [super::EMPTY_TOKEN; 5];
         let mut token_count = 1;
 
-        tokens[0] = super::InstructionToken {
+        tokens[0] = super::Token {
             text: Cow::Borrowed(self.mnemomic),
             color: crate::colors::WHITE,
         };
@@ -67,11 +67,11 @@ impl super::DecodableInstruction for Instruction {
             let operand = std::mem::take(&mut self.operands[idx]);
 
             tokens[token_count] = match operand {
-                Cow::Owned(_) => super::InstructionToken {
+                Cow::Owned(_) => super::Token {
                     text: operand,
                     color: crate::colors::BLUE,
                 },
-                Cow::Borrowed(_) => super::InstructionToken {
+                Cow::Borrowed(_) => super::Token {
                     text: operand,
                     color: crate::colors::MAGENTA,
                 },

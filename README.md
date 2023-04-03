@@ -1,11 +1,11 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/logo.png">
-    <img height="150px" src="./assets/logo.png">
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/logo_dark.png">
+    <img height="150px" src="./assets/logo_light.png">
   </picture>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/logo_text.svg">
-    <img height="150px" src="./assets/logo_text.png">
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/logo_text_dark.svg">
+    <img height="150px" src="./assets/logo_text_light.svg">
    </picture>
 </h1>
 
@@ -32,3 +32,7 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
 - [ ] AArch64/AArch32 support
 - [x] Riscv64gc/Riscv32gc support
 - [x] MIPS-V support
+- [ ] Demangling support for most targets
+  - [x] MSVC
+  - [ ] Itanium
+  - [x] Rust

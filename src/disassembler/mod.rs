@@ -6,13 +6,14 @@ mod lookup;
 #[allow(dead_code, unused_variables, unused_assignments)]
 mod x86_64;
 
+use crate::colors::{LineKind, Token, EMPTY_TOKEN};
 use crate::symbols::Index;
 use crate::warning;
 use object::Architecture;
 use object::{Object, ObjectSection, SectionKind};
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
@@ -34,13 +35,20 @@ pub enum Error {
 }
 
 pub struct Dissasembly {
-    lines: Mutex<Vec<Line>>,
+    /// Address of last instruction in the object.
+    pub address_space: AtomicUsize,
+
+    /// Lines of disassembly e.i. labels and instructions.
+    lines: Mutex<Vec<LineKind>>,
+
+    /// Symbol lookup by RVA.
     pub symbols: Mutex<Index>,
 }
 
 impl Dissasembly {
     pub fn new() -> Self {
         Self {
+            address_space: AtomicUsize::new(0),
             lines: Mutex::new(Vec::new()),
             symbols: Mutex::new(Index::new()),
         }
@@ -72,6 +80,11 @@ impl Dissasembly {
                 .find(|t| t.name() == Ok(".text"))
                 .ok_or("Failed to find `.text` section.")?;
 
+            self.address_space.store(
+                (obj.relative_address_base() + section.size()) as usize,
+                Ordering::Relaxed,
+            );
+
             // SAFETY: tokio::spawn's in this scope require a &'static
             let section: object::Section<'static, '_> = unsafe { std::mem::transmute(section) };
 
@@ -79,23 +92,28 @@ impl Dissasembly {
                 .uncompressed_data()
                 .map_err(|_| "Failed to decompress .text section.")?;
 
-            let symbols = tokio::spawn(async move {
-                Index::parse(&obj)
-                    .await
-                    .map_err(|_| "Failed to parse symbols table.")
-            });
+            let symbols = Index::parse(&obj)
+                .await
+                .map_err(|_| "Failed to parse symbols table.")?;
 
             // TODO: optimize for lazy chunk loading
-            let lines = tokio::spawn(async move {
-                let base_offset = section.address() as usize;
+            let base_offset = section.address() as usize;
+            let stream = InstructionStream::new(&raw[..], arch, base_offset)
+                .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")?;
 
-                InstructionStream::new(&raw[..], arch, base_offset)
-                    .map(|stream| stream.collect())
-                    .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")
-            });
+            let mut lines = Vec::with_capacity(1024);
 
-            *self.symbols.lock().unwrap() = symbols.await.unwrap()?;
-            *self.lines.lock().unwrap() = lines.await.unwrap()?;
+            for line in stream {
+                if let Some(label) = symbols.get_by_line(&line) {
+                    lines.push(LineKind::Newline);
+                    lines.push(LineKind::Label(label));
+                }
+
+                lines.push(LineKind::Instruction(line));
+            }
+
+            *self.symbols.lock().unwrap() = symbols;
+            *self.lines.lock().unwrap() = lines;
 
             Ok::<(), &str>(())
         });
@@ -106,7 +124,7 @@ impl Dissasembly {
         };
     }
 
-    pub fn lines(&self) -> Option<std::sync::MutexGuard<Vec<Line>>> {
+    pub fn lines(&self) -> Option<std::sync::MutexGuard<Vec<LineKind>>> {
         if let Ok(lines) = self.lines.try_lock() {
             if !lines.is_empty() {
                 return Some(lines);
@@ -133,34 +151,28 @@ trait Streamable {
     fn next(&mut self) -> Result<Self::Item, Error>;
 }
 
-pub struct InstructionToken {
-    pub text: Cow<'static, str>,
-    pub color: crate::colors::Color,
-}
-
-impl InstructionToken {
-    pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
-        wgpu_glyph::Text::new(&self.text)
-            .with_color(self.color)
-            .with_scale(scale)
-    }
-}
-
 pub struct TokenStream {
-    inner: [InstructionToken; 5],
+    inner: [Token; 5],
     token_count: usize,
+}
+
+impl TokenStream {
+    pub fn tokens(&self) -> &[Token] {
+        &self.inner[..self.token_count]
+    }
 }
 
 pub struct Line {
     pub section_base: usize,
     pub offset: usize,
-    tokens: TokenStream,
+    pub stream: TokenStream,
+    pub address: String,
 }
 
 impl ToString for Line {
     fn to_string(&self) -> String {
         let mut fmt = String::with_capacity(30);
-        let tokens = self.tokens();
+        let tokens = self.stream.tokens();
         let operands = &tokens[1..];
 
         fmt += &tokens[0].text;
@@ -180,12 +192,6 @@ impl ToString for Line {
 
         fmt += &operands[operands.len() - 1].text;
         fmt
-    }
-}
-
-impl Line {
-    pub fn tokens(&self) -> &[InstructionToken] {
-        &self.tokens.inner[..self.tokens.token_count]
     }
 }
 
@@ -221,7 +227,10 @@ impl<'data> InstructionStream<'data> {
                 is_64: true,
                 section_base,
             }),
-            _ => return Err(Error::UnsupportedArchitecture),
+            _ => {
+                warning!("{arch:?}");
+                return Err(Error::UnsupportedArchitecture);
+            }
         };
 
         Ok(Self { inner })
@@ -257,7 +266,7 @@ impl Iterator for InstructionStream<'_> {
             Err(err) => {
                 let mut tokens = [EMPTY_TOKEN; 5];
 
-                tokens[0] = InstructionToken {
+                tokens[0] = Token {
                     text: Cow::Owned(format!("<{err:?}>")),
                     color: crate::colors::RED,
                 };
@@ -272,7 +281,8 @@ impl Iterator for InstructionStream<'_> {
         Some(Line {
             section_base,
             offset,
-            tokens,
+            stream: tokens,
+            address: String::new(),
         })
     }
 }
@@ -350,7 +360,7 @@ fn reverse_hex_nuggets(mut imm: usize) -> usize {
     imm
 }
 
-fn encode_hex(mut imm: i64) -> String {
+pub fn encode_hex(mut imm: i64) -> String {
     use crate::push_unsafe;
 
     let mut hex = String::with_capacity(20); // max length of an i64
@@ -365,7 +375,7 @@ fn encode_hex(mut imm: i64) -> String {
     push_unsafe!(raw, off, b'0');
     push_unsafe!(raw, off, b'x');
 
-    let num_len = imm.checked_ilog(16).unwrap_or(0) as usize + 1;
+    let num_len = (imm + 1).ilog(16) as usize;
     let leading_zeros = (16 - num_len) * 4;
     let mut imm = reverse_hex_nuggets(imm as usize);
 
@@ -379,9 +389,34 @@ fn encode_hex(mut imm: i64) -> String {
     hex
 }
 
-const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");
+pub fn encode_hex_padded(mut imm: i64, size: usize) -> String {
+    use crate::push_unsafe;
 
-const EMPTY_TOKEN: InstructionToken = InstructionToken {
-    color: crate::colors::WHITE,
-    text: std::borrow::Cow::Borrowed(""),
-};
+    let mut hex = String::with_capacity(20); // max length of an i64
+    let raw = unsafe { hex.as_mut_vec() };
+    let mut off = 0;
+
+    if imm < 0 {
+        push_unsafe!(raw, off, b'-');
+        imm = -imm;
+    }
+
+    let num_len = (imm + 1).ilog(16) as usize;
+    let leading_zeros = (16 - num_len) * 4;
+    let mut imm = reverse_hex_nuggets(imm as usize);
+
+    for _ in 0..size.checked_sub(num_len).unwrap_or(0) {
+        push_unsafe!(raw, off, b'0');
+    }
+
+    imm >>= leading_zeros;
+    for _ in 0..num_len {
+        push_unsafe!(raw, off, ENCODED_NUGGETS[imm & 0b1111]);
+        imm >>= 4;
+    }
+
+    unsafe { raw.set_len(off) }
+    hex
+}
+
+const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");

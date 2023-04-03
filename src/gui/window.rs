@@ -1,4 +1,7 @@
-use crate::gui::{texture::Texture, uniforms, Error};
+use crate::{
+    colors::{self, LineKind},
+    gui::{texture::Texture, uniforms, Error},
+};
 use std::mem::size_of;
 use std::sync::atomic::Ordering;
 
@@ -280,7 +283,7 @@ impl Backend {
             screen_position: (ctx.scale_factor * 5.0, ctx.scale_factor * 5.0),
             bounds: (self.size.width as f32, self.size.height as f32),
             text: vec![wgpu_glyph::Text::new(&format!("FPS: {}", ctx.fps))
-                .with_color(crate::colors::WHITE)
+                .with_color(colors::WHITE)
                 .with_scale(font_size)],
             ..wgpu_glyph::Section::default()
         });
@@ -295,7 +298,7 @@ impl Backend {
                     .h_align(wgpu_glyph::HorizontalAlign::Center)
                     .v_align(wgpu_glyph::VerticalAlign::Center),
                 text: vec![wgpu_glyph::Text::new(&ctx.donut.frame)
-                    .with_color(crate::colors::WHITE)
+                    .with_color(colors::WHITE)
                     .with_scale(ctx.scale_factor * 10.0)],
                 ..wgpu_glyph::Section::default()
             });
@@ -316,100 +319,115 @@ impl Backend {
         if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
             ctx.show_donut.store(false, Ordering::Relaxed);
 
-            let symbols = ctx.dissasembly.symbols.lock().unwrap();
-
             let pad = "        ";
             let line_count = (self.size.height as f32 / font_size).ceil() as usize;
             let mut texts = Vec::with_capacity(line_count * 10);
 
-            let lower_bound = (ctx.listing_offset / font_size) as usize;
-            let uppper_bound = dissasembly.len().min(line_count + lower_bound);
-            let listing = dissasembly
-                .get(lower_bound..uppper_bound)
-                .unwrap_or(dissasembly);
+            let line_offset_start = std::cmp::min(
+                (ctx.listing_offset / ctx.font_size as f64) as usize,
+                dissasembly.len(),
+            );
 
-            for line in listing {
-                if let Some(label) = symbols.get_by_line(line) {
-                    texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
+            let line_offset_end = std::cmp::min(line_offset_start + line_count, dissasembly.len());
 
-                    texts.push(
-                        wgpu_glyph::Text::new("<")
-                            .with_scale(font_size)
-                            .with_color(crate::colors::TEAL),
-                    );
-
-                    for token in label {
+            for line in &mut dissasembly[line_offset_start..line_offset_end] {
+                match line {
+                    LineKind::Newline => {
+                        texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size))
+                    }
+                    LineKind::Label(label) => {
                         texts.push(
-                            wgpu_glyph::Text::new(token.text)
+                            wgpu_glyph::Text::new("<")
                                 .with_scale(font_size)
-                                .with_color(token.color),
+                                .with_color(colors::BLUE),
+                        );
+                        for token in label.tokens() {
+                            texts.push(token.text(font_size));
+                        }
+                        texts.push(
+                            wgpu_glyph::Text::new(">:\n")
+                                .with_scale(font_size)
+                                .with_color(colors::BLUE),
                         );
                     }
+                    LineKind::Instruction(line) => {
+                        let tokens = line.stream.tokens();
 
-                    texts.push(
-                        wgpu_glyph::Text::new(">:\n")
-                            .with_scale(font_size)
-                            .with_color(crate::colors::TEAL),
-                    );
-                }
+                        // calculate and pad address based on the largest possible offset
+                        let width = ctx.dissasembly.address_space.load(Ordering::Relaxed);
+                        let width = (width + 1).ilog10() as usize;
+                        line.address = crate::disassembler::encode_hex_padded(
+                            (line.section_base + line.offset) as i64,
+                            width,
+                        );
 
-                let tokens = line.tokens();
+                        // memory address
+                        texts.push(
+                            wgpu_glyph::Text::new(&line.address)
+                                .with_scale(font_size)
+                                .with_color(colors::GRAY40),
+                        );
 
-                // pad
-                texts.push(wgpu_glyph::Text::new("        ").with_scale(font_size));
+                        // spacing
+                        texts.push(wgpu_glyph::Text::new("  ").with_scale(font_size));
 
-                // mnemomic
-                texts.push(tokens[0].text(font_size));
+                        // mnemomic
+                        texts.push(tokens[0].text(font_size));
 
-                // mnemomic padding up to 8 character wide instructions
-                let pad = &pad[std::cmp::min(tokens[0].text.len(), pad.len())..];
-                texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
+                        // mnemomic padding up to 8 character wide instructions
+                        let pad = &pad[std::cmp::min(tokens[0].text.len(), pad.len())..];
+                        texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
 
-                if tokens.len() > 1 {
-                    // separator
-                    texts.push(wgpu_glyph::Text::new(" ").with_scale(font_size));
-
-                    if tokens.len() > 2 {
-                        for token in &tokens[..tokens.len() - 1][1..] {
-                            // operand
-                            texts.push(token.text(font_size));
-
+                        if tokens.len() > 1 {
                             // separator
-                            texts.push(
-                                wgpu_glyph::Text::new(", ")
-                                    .with_scale(font_size)
-                                    .with_color(crate::colors::WHITE),
-                            );
+                            texts.push(wgpu_glyph::Text::new(" ").with_scale(font_size));
+
+                            if tokens.len() > 2 {
+                                for token in &tokens[..tokens.len() - 1][1..] {
+                                    // operand
+                                    texts.push(token.text(font_size));
+
+                                    // separator
+                                    texts.push(
+                                        wgpu_glyph::Text::new(", ")
+                                            .with_scale(font_size)
+                                            .with_color(colors::WHITE),
+                                    );
+                                }
+                            }
+
+                            // last operand, which doesn't require a comma
+                            texts.push(tokens[tokens.len() - 1].text(font_size));
                         }
+
+                        // next instruction
+                        texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
                     }
-
-                    // last operand, which doesn't require a comma
-                    texts.push(tokens[tokens.len() - 1].text(font_size));
                 }
-
-                // next instruction
-                texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
             }
 
             // queue assembly listing text
             self.glyph_brush.queue(wgpu_glyph::Section {
-                screen_position: (ctx.scale_factor * 5.0, ctx.scale_factor * 5.0),
+                screen_position: (ctx.scale_factor * 5.0, font_size * 1.5),
                 text: texts,
                 ..wgpu_glyph::Section::default()
             });
 
-            let mut proj = glam::mat4(
+            // orthogonal projection
+            let proj = glam::mat4(
                 glam::vec4(2.0 / self.size.width as f32, 0.0, 0.0, 0.0),
                 glam::vec4(0.0, -2.0 / self.size.height as f32, 0.0, 0.0),
                 glam::vec4(0.0, 0.0, 1.0, 0.0),
                 glam::vec4(-1.0, 1.0, 0.0, 1.0),
             );
 
-            proj *= glam::Mat4::from_translation(glam::Vec3::new(
-                0.0,
-                -ctx.listing_offset as f32 % font_size,
-                0.0,
-            ));
+            // TODO: translation of subpixels between lines
+            // proj *= glam::mat4(
+            //     glam::Vec4::X,
+            //     glam::Vec4::Y,
+            //     glam::Vec4::Z,
+            //     glam::Vec4::new(0.0, -ctx.listing_offset as f32 % font_size, 0.0, 1.0),
+            // );
 
             let bar_height = (self.size.height * self.size.height) as f32
                 / (dissasembly.len() as f32 * font_size);
