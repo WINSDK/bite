@@ -324,7 +324,7 @@ impl Backend {
             let mut texts = Vec::with_capacity(line_count * 10);
 
             let line_offset_start = std::cmp::min(
-                (ctx.listing_offset / ctx.font_size as f64) as usize,
+                (ctx.listing_offset / ctx.font_size) as usize,
                 dissasembly.len(),
             );
 

@@ -34,15 +34,8 @@ fn vs_main(
     var pos: vec2<f32> = model.position.xy * instance.size / globals.window_size
     * vec2<f32>(2.0, 2.0);
     pos += offset;
-    /* pos += instance.offset / globals.window_size * vec2<f32>(1.0, -1.0); */
-    /* pos -= vec2<f32>(0.5, -0.5); */
     out.clip_position = vec4<f32>(pos, 0.0, 1.0);
 
-    /* out.clip_position = vec4<f32>(model.position * */
-    /*                     vec3<f32>(instance.size / globals.window_size, 0.0) + */
-    /*                     vec3<f32>(instance.offset / globals.window_size * */
-    /*                     vec2<f32>(1.0, -1.0) */
-    /*                     - vec2<f32>(0.5, -0.5), 0.0), 1.0); */
     return out;
 }
 
