@@ -1,5 +1,6 @@
 mod controls;
 mod donut;
+mod quad;
 mod texture;
 mod uniforms;
 mod utils;
@@ -72,7 +73,7 @@ pub struct RenderContext {
     timer60: utils::Timer,
     timer10: utils::Timer,
     dissasembly: Arc<Dissasembly>,
-    listing_offset: f64,
+    listing_offset: f32,
     scale_factor: f32,
     font_size: f32,
 }
@@ -171,11 +172,18 @@ pub async fn main() -> Result<(), Error> {
                 WindowEvent::MouseWheel { delta, .. } => {
                     let delta = -match delta {
                         // I'm assuming a line is about 100 pixels
-                        MouseScrollDelta::LineDelta(_, scroll) => scroll as f64 * 100.0,
-                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => scroll,
+                        MouseScrollDelta::LineDelta(_, scroll) => scroll * 100.0,
+                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => {
+                            scroll as f32
+                        }
                     };
 
-                    ctx.listing_offset = f64::max(0.0, ctx.listing_offset + delta);
+                    ctx.listing_offset = f32::max(0.0, ctx.listing_offset + delta);
+                    if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
+                        ctx.listing_offset = ctx
+                            .listing_offset
+                            .min(dissasembly.len() as f32 * ctx.font_size);
+                    }
                 }
                 WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                     ctx.scale_factor = scale_factor as f32;

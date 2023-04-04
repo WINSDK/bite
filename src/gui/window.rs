@@ -8,6 +8,8 @@ use std::sync::atomic::Ordering;
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
+use super::quad;
+
 pub struct Backend {
     pub size: winit::dpi::PhysicalSize<u32>,
 
@@ -27,6 +29,8 @@ pub struct Backend {
     pub staging_belt: wgpu::util::StagingBelt,
 
     pub glyph_brush: GlyphBrush<()>,
+
+    quad_pipeline: crate::gui::quad::Pipeline,
 }
 
 impl Backend {
@@ -84,7 +88,7 @@ impl Backend {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode,
             view_formats: Vec::new(),
         };
@@ -208,6 +212,8 @@ impl Backend {
         let font = ab_glyph::FontArc::try_from_slice(font).unwrap();
         let glyph_brush = GlyphBrushBuilder::using_font(font).build(&device, surface_format);
 
+        let quad_pipeline = crate::gui::quad::Pipeline::new(&device, surface_format);
+
         Ok(Self {
             size,
             instance,
@@ -223,6 +229,7 @@ impl Backend {
             index_count: indices.len() as u32,
             staging_belt,
             glyph_brush,
+            quad_pipeline,
         })
     }
 
@@ -317,7 +324,7 @@ impl Backend {
             let mut texts = Vec::with_capacity(line_count * 10);
 
             let line_offset_start = std::cmp::min(
-                (ctx.listing_offset / ctx.font_size as f64) as usize,
+                (ctx.listing_offset / ctx.font_size) as usize,
                 dissasembly.len(),
             );
 
@@ -421,6 +428,34 @@ impl Backend {
             //     glam::Vec4::Z,
             //     glam::Vec4::new(0.0, -ctx.listing_offset as f32 % font_size, 0.0, 1.0),
             // );
+
+            let bar_height = (self.size.height * self.size.height) as f32
+                / (dissasembly.len() as f32 * font_size);
+            let bar_height = bar_height.max(20.0);
+            let offset = ctx.listing_offset / (dissasembly.len() as f32 * font_size);
+            let screen_offset = offset * (self.size.height as f32 - bar_height);
+
+            let instances = [
+                quad::Instance {
+                    position: [self.size.width as f32 - 10.0, 0.0],
+                    size: [10.0, 10000.0],
+                    color: [0.1, 0.1, 0.12],
+                },
+                quad::Instance {
+                    position: [self.size.width as f32 - 10.0, screen_offset],
+                    size: [10.0, bar_height],
+                    color: [0.3, 0.3, 0.35],
+                },
+            ];
+
+            self.quad_pipeline.draw(
+                &mut encoder,
+                &instances,
+                &self.device,
+                &view,
+                &mut self.staging_belt,
+                self.size,
+            );
 
             // draw assembly listing
             self.glyph_brush
