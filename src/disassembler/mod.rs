@@ -395,17 +395,19 @@ pub fn encode_hex_padded(mut imm: i64, size: usize) -> String {
     let mut hex = String::with_capacity(20); // max length of an i64
     let raw = unsafe { hex.as_mut_vec() };
     let mut off = 0;
+    let mut is_neg = 0;
 
     if imm < 0 {
         push_unsafe!(raw, off, b'-');
         imm = -imm;
+        is_neg = 1;
     }
 
     let num_len = (imm + 1).ilog(16) as usize;
     let leading_zeros = (16 - num_len) * 4;
     let mut imm = reverse_hex_nuggets(imm as usize);
 
-    for _ in 0..size.checked_sub(num_len).unwrap_or(0) {
+    for _ in 0..size.checked_sub(num_len + is_neg).unwrap_or(0) {
         push_unsafe!(raw, off, b'0');
     }
 
