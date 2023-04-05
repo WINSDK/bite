@@ -431,20 +431,20 @@ impl Backend {
 
             let bar_height = (self.size.height * self.size.height) as f32
                 / (dissasembly.len() as f32 * font_size);
-            let bar_height = bar_height.max(20.0);
+            let bar_height = bar_height.max(font_size);
             let offset = ctx.listing_offset / (dissasembly.len() as f32 * font_size);
             let screen_offset = offset * (self.size.height as f32 - bar_height);
 
             let instances = [
                 quad::Instance {
-                    position: [self.size.width as f32 - 10.0, 0.0],
-                    size: [10.0, 10000.0],
-                    color: [0.1, 0.1, 0.12],
+                    position: [self.size.width as f32 - font_size / 2.0, 0.0],
+                    size: [font_size / 3.0, self.size.height as f32],
+                    color: colors::GRAY10,
                 },
                 quad::Instance {
-                    position: [self.size.width as f32 - 10.0, screen_offset],
-                    size: [10.0, bar_height],
-                    color: [0.3, 0.3, 0.35],
+                    position: [self.size.width as f32 - font_size / 2.0, screen_offset],
+                    size: [font_size / 3.0, bar_height],
+                    color: colors::GRAY99,
                 },
             ];
 

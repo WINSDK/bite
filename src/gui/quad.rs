@@ -1,13 +1,15 @@
 use std::mem;
 
+use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
+use crate::colors::Color;
 
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 pub struct Instance {
     pub position: [f32; 2],
     pub size: [f32; 2],
-    pub color: [f32; 3],
+    pub color: Color,
 }
 
 const MAX_INSTANCES: u64 = 10;
@@ -22,7 +24,7 @@ const VERTICES: &[glam::Vec3] = &[
 const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Clone, Copy, Zeroable, Pod)]
 struct Uniforms {
     window_size: [f32; 2],
 }
