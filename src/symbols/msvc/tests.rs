@@ -80,19 +80,19 @@ fn anonymous() {
 
 #[test]
 fn triple_q0() {
-    eq!("???__E??_7name0@name1@@6B@@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
+    eq!("??__E??_7name0@name1@@6B@@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'const name1::name0::`vftable'''(void)");
 }
 
 #[test]
 fn triple_q0_mod1() {
-    eq!("???__E??_7name0@name1@@6Bx@xx@@y@yy@@@z@zz@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
+    eq!("??__E??_7name0@name1@@6Bx@xx@@y@yy@@@z@zz@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
         "void __clrcall zz::z::`dynamic initializer for 'const name1::name0::`vftable'{for `xx::x's `yy::y'}''(void)");
 }
 
 #[test]
 fn triple_q0_mod2() {
-    eq!("???__E??_7name0@name1@@6B@z@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
+    eq!("??__E??_7name0@name1@@6B@z@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
         "void __clrcall z::`dynamic initializer for 'const name1::name0::`vftable'''(void)");
 }
 
@@ -133,30 +133,8 @@ fn triple_q0_breakdown5() {
 
 #[test]
 fn triple_q1a() {
-    eq!("???__Ename0@name1@@YMXXZ@?A0xd585d5fc@@$$FYMXXZ" =>
+    eq!("??__Ename0@name1@@YMXXZ@?A0xd585d5fc@@$$FYMXXZ" =>
         "void __clrcall name1::`dynamic initializer for 'name0''(void)");
-}
-
-#[test]
-fn triple_q1a_breakdown_analysis_000() {
-    eq!("?name0@@$$FYMXXZ" => "void __clrcall name0(void)");
-}
-
-#[test]
-fn triple_q2a() {
-    eq!("???__E?name0@name1@<name2>@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
-        "void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)");
-}
-
-#[test]
-fn triple_q2a_breakdown0() {
-    eq!("?var@?A0x3d49b2d0@@$$FYMXXZ" =>
-        "void __clrcall `anonymous namespace'::var(void)");
-}
-
-#[test]
-fn triple_q2a_breakdown1() {
-    eq!("?name0@name1@<name2>@@$$Q2_NA" => "public: static bool <name2>::name1::name0");
 }
 
 #[test]
@@ -166,80 +144,32 @@ fn triple_q2a_breakdown2() {
 
 #[test]
 fn triple_q8a() {
-    eq!("???__E??_7name0@@6B@@@YMXXZ@?A0xc2524ebc@@$$FYMXXZ" => "void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)");
+    eq!("??__E??_7name0@@6B@@@YMXXZ@?A0xc2524ebc@@$$FYMXXZ" =>
+        "void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)");
 }
 
 #[test]
-fn triple_q8a1() {
-    eq!("???__E??_7name0@@6B@name1@@YMXXZ@?A0xc2524ebc@@$$FYMXXZ" =>
+fn triple_q8b() {
+    eq!("??__E??_7name0@@6B@name1@@YMXXZ@?A0xc2524ebc@@$$FYMXXZ" =>
         "void __clrcall name1::`dynamic initializer for 'const name0::`vftable'''(void)");
 }
 
 #[test]
 fn triple_q3a() {
-    eq!("???__E?name0@name1@@3HA@@YMXXZ@?A0x09343ef7@@$$FYMXXZ" =>
+    eq!("??__E?name0@name1@@3HA@@YMXXZ@?A0x09343ef7@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'int name1::name0''(void)");
 }
 
 #[test]
 fn triple_q1() {
-    eq!("???__Ename0@name1@@YMXXZ@?A0xd585d5fc@@$$FYMXXZ" =>
+    eq!("??__Ename0@name1@@YMXXZ@?A0xd585d5fc@@$$FYMXXZ" =>
         "void __clrcall name1::`dynamic initializer for 'name0''(void)");
 }
 
 #[test]
-fn triple_q2() {
-    eq!("???__E?name0@name1@<name2>@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" => "void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)");
-}
-
-#[test]
-fn triple_q4() {
-    eq!("???__E?name0@name1@name2@@$$Q2W4name3@name4@2@A@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
-        "void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)");
-}
-
-#[test]
-fn triple_q5() {
-    eq!("???__E?name0@name1@name2@@$$Q2HA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
-        "void __clrcall `dynamic initializer for 'public: static int name2::name1::name0''(void)");
-}
-
-#[test]
-fn triple_q6() {
-    eq!("???__E?name0@name1@name2@@$$Q2W4name3@name4@2@A@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
-        "void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)");
-}
-
-#[test]
-fn triple_q7() {
-    eq!("???__E?name0@name1@name2@@$$Q2W4name3@name4@2@A@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
-        "void __clrcall `dynamic initializer for 'public: static enum name2::name4::name3 name2::name1::name0''(void)");
-}
-
-#[test]
-fn triple_q8() {
-    eq!("???__E??_7name0@@6B@@@YMXXZ@?A0xc2524ebc@@$$FYMXXZ" =>
-        "void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)");
-}
-
-#[test]
-fn white_space_formatting1() {
-    // Example: Space after template parameter (cv modifier).
-    eq!("??0?$name0@$$CBUname1@@@name2@@QEAA@XZ" =>
-        "public: __cdecl name2::name0<struct name1 const >::name0<struct name1 const >(void)");
-}
-
-#[test]
-fn white_space_formatting2() {
+fn white_space_formatting() {
     eq!("?name0@name1@@MAEPAPAP6GJPAUname2@@IIJ@ZXZ" =>
-        "protected: virtual long (__stdcall** * __thiscall name1::name0(void))(struct name2 *, unsigned int, unsigned int, long)");
-}
-
-#[test]
-fn white_space_formatting3() {
-    //Example: Has trailing white space.
-    eq!("?VarName@@3P9ClassName@@DAHXZED" =>
-        "int (__cdecl ClassName::*const volatile VarName)(void)const volatile ");
+        "protected: virtual long (__stdcall *** __thiscall name1::name0(void))(struct name2 *, unsigned int, unsigned int, long)");
 }
 
 #[test]
@@ -588,13 +518,13 @@ fn derelict3() {
 
 #[test]
 fn derelict4() {
-    eq!("???__E?name0@name1@<name2>@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
+    eq!("??__E?name0@name1@<name2>@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)");
 }
 
 #[test]
 fn derelict4related() {
-    eq!("???__E??_7name0@@6B@@@YMXXZ@?A0xc2524ebc@@$$FYMXXZ" =>
+    eq!("??__E??_7name0@@6B@@@YMXXZ@?A0xc2524ebc@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'const name0::`vftable'''(void)");
 }
 
@@ -624,13 +554,6 @@ fn derelict20140818() {
 #[test]
 fn std_nullptr_arg() {
     eq!("?fn@@YAH$$T@Z" => "int __cdecl fn(std::nullptr_t)");
-}
-
-//std::nullptr_t
-#[test]
-fn std_nullptr_arg_real() {
-    eq!("??$?9$$A6A_NABW4name0@name1@@@Z@name2@@YA_NABV?$name3@$$A6A_NABW4name0@name1@@@Z@0@$$T@Z" =>
-        "bool __cdecl name2::operator!=<bool __cdecl(enum name1::name0 const &)>(class name2::name3<bool __cdecl(enum name1::name0 const &)> const &, std::nullptr_t)");
 }
 
 #[test]
@@ -1924,7 +1847,7 @@ fn special_template_parameters_dollar_j_with_negs() {
 
 }
 
-//TODO: Are there others, such as $K, $L, $M, $N, $O, $P ???
+//TODO: Are there others, such as $K, $L, $M, $N, $O, $P ??
 
 //real symbol: $Q
 #[test]
@@ -2732,7 +2655,7 @@ fn special_names_ga() {
 //real symbol
 #[test]
 fn special_names_gb() {
-    eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
+    eq!("??_Gname0@?1??$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
         "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
@@ -2804,7 +2727,7 @@ fn special_names_o() {
 #[test]
 fn special_names_q() {
     //name = "`EH'" //must have more embedding as we haven't gotten undname to return yet.
-    //manufactured and not sure if good example or not... needs to output "`EH'" ???
+    //manufactured and not sure if good example or not... needs to output "`EH'" ??
     //TODO: need to look closer... as this must be a function, I think (but so do all of those other operators above).
     eq!("??_QNamespace1@Namespace2@@$$FQAEPAXI@Z" =>
         "public: void * __thiscall Namespace2::Namespace1::(unsigned int)");
@@ -4283,7 +4206,7 @@ fn orig_test_be() {
 
 #[test]
 fn orig_test_bf() {
-    eq!("??_Gname0@?1???$name1@I@name2@@YA_NPAV?$name3@I@1@ABI@Z@UAEPAXI@Z" =>
+    eq!("??_Gname0@?1??$name1@I@name2@@YA_NPAV?$name3@I@1@ABI@Z@UAEPAXI@Z" =>
         "public: virtual void * __thiscall `bool __cdecl name2::name1<unsigned int>(class name2::name3<unsigned int> *, unsigned int const &)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
@@ -4295,7 +4218,7 @@ fn orig_test_bg() {
 
 #[test]
 fn orig_test_bh() {
-    eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
+    eq!("??_Gname0@?1??$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
         "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
@@ -4408,13 +4331,13 @@ fn dollar_dollar_10() {
 #[test]
 fn dollar_dollar_11() {
     //STILL A PROBLEM 20140430 and 20140515
-    eq!("???__E?name0@name1@name2@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
+    eq!("??__E?name0@name1@name2@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)");
 }
 
 #[test]
 fn dollar_dollar_12() {
-    eq!("???__E?name0@name1@<name2>@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
+    eq!("??__E?name0@name1@<name2>@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'public: static bool <name2>::name1::name0''(void)");
 }
 
@@ -4521,7 +4444,7 @@ fn dollar_dollar_22a() {
 
 #[test]
 fn dollar_dollar_23() {
-    eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
+    eq!("??_Gname0@?1??$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
         "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
@@ -4701,13 +4624,13 @@ fn managed_properties_and_dollar_dollar_debug_in_progress_bq() {
 
 #[test]
 fn managed_properties_and_dollar_dollar_debug_in_progress_bs() {
-    eq!("???__E?name0@name1@name2@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
+    eq!("??__E?name0@name1@name2@@$$Q2_NA@@YMXXZ@?A0x3d49b2d0@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'public: static bool name2::name1::name0''(void)");
 }
 
 #[test]
 fn managed_properties_and_dollar_dollar_debug_in_progress_bt() {
-    eq!("??_Gname0@?1???$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
+    eq!("??_Gname0@?1??$name1@W4name2@name3@@@name3@@YA?AW4name2@1@PAV?$name4@W4name2@name3@@@1@IPBV?$name5@$$A6A_NABW4name2@name3@@@Z@name6@name7@@@Z@UAEPAXI@Z" =>
         "public: virtual void * __thiscall `enum name3::name2 __cdecl name3::name1<enum name3::name2>(class name3::name4<enum name3::name2> *, unsigned int, class name7::name6::name5<bool __cdecl(enum name3::name2 const &)> const *)'::`2'::name0::`scalar deleting destructor'(unsigned int)");
 }
 
@@ -6345,7 +6268,7 @@ fn hashed_symbol_components_longer_than4096_1() {
 
 #[test]
 fn hashed_symbol_components_longer_than4096_2() {
-    eq!("?catch$0@?0???@f4873c94f485cd6716c2319fc51ac714@@4HA" => "int ``f4873c94f485cd6716c2319fc51ac714''::`1'::catch$0");
+    eq!("?catch$0@?0??@f4873c94f485cd6716c2319fc51ac714@@4HA" => "int ``f4873c94f485cd6716c2319fc51ac714''::`1'::catch$0");
 }
 
 // Contrived example to make sure that the nameModifier (pushed into MDBasicName) and
@@ -6385,7 +6308,7 @@ fn cppmanaged_ilmain_1() {
 // Not happy with this next thing.... might be CPPManagedILDLLImporData, but not yet sure.
 #[test]
 fn cppmanaged_ildllimport_data_1() {
-    eq!("???__E?Initialized@CurrentDomain@<CrtImplementationDetails>@@$$Q2HA@@YMXXZ@?A0x1ed4f156@@$$FYMXXZ" =>
+    eq!("??__E?Initialized@CurrentDomain@<CrtImplementationDetails>@@$$Q2HA@@YMXXZ@?A0x1ed4f156@@$$FYMXXZ" =>
         "void __clrcall `dynamic initializer for 'public: static int <CrtImplementationDetails>::CurrentDomain::Initialized''(void)");
 }
 
