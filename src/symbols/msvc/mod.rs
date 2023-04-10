@@ -68,9 +68,9 @@
 mod context;
 mod tests;
 
+use std::borrow::Cow;
 use std::fmt;
 use std::mem::MaybeUninit;
-use std::borrow::Cow;
 
 use super::TokenStream;
 use crate::colors;
@@ -184,7 +184,7 @@ enum Type {
     VBTable(Qualifiers, Option<Scope>),
 
     /// ???
-    VCallThunk(isize, CallingConv)
+    VCallThunk(isize, CallingConv),
 }
 
 impl Parse for Type {
@@ -635,7 +635,8 @@ impl<'a> PositionalFormat<'a> for Type {
             },
             Type::VCallThunk(offset, _) => {
                 ctx.stream.push("{{", colors::GRAY40);
-                ctx.stream.push_cow(Cow::Owned(offset.to_string()), colors::BLUE);
+                ctx.stream
+                    .push_cow(Cow::Owned(offset.to_string()), colors::BLUE);
                 ctx.stream.push(", {{flat}}}}", colors::GRAY40);
             }
             _ => {}
@@ -874,7 +875,7 @@ impl<'a> PositionalFormat<'a> for FunctionReturnType {
 
 /// Either a well known operator of a class or some C++ internal operator implementation.
 #[derive(Debug, PartialEq, Clone)]
-enum Operator {
+enum Intrinsics {
     Ctor,
     Dtor,
     New,
@@ -942,6 +943,16 @@ enum Operator {
     EHVecDtorIter,
     EHVecVbaseCtorIter,
     CopyCtorClosure,
+    RTTITypeDescriptor(Modifiers, Box<Type>),
+    RTTIBaseClassDescriptor {
+        nv_off: isize,
+        ptr_off: isize,
+        vbtable_off: isize,
+        flags: isize,
+    },
+    RTTIBaseClassArray,
+    RTTIClassHierarchyDescriptor,
+    RTTIClassCompleteObjectLocator,
     LocalVFTable,
     LocalVftableCtorClosure,
     PlacementDeleteClosure,
@@ -949,79 +960,103 @@ enum Operator {
     SourceName(Literal),
 }
 
-impl Parse for Operator {
+impl Parse for Intrinsics {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let op = match ctx.take()? {
-            b'0' => Operator::Ctor,
-            b'1' => Operator::Dtor,
-            b'2' => Operator::New,
-            b'3' => Operator::Delete,
-            b'4' => Operator::Assign,
-            b'5' => Operator::ShiftRight,
-            b'6' => Operator::ShiftLeft,
-            b'7' => Operator::LogicalNot,
-            b'8' => Operator::Equals,
-            b'9' => Operator::NotEquals,
-            b'A' => Operator::Array,
-            b'C' => Operator::Pointer,
-            b'D' => Operator::Dereference,
-            b'E' => Operator::Increment,
-            b'F' => Operator::Decrement,
-            b'G' => Operator::Minus,
-            b'H' => Operator::Plus,
-            b'I' => Operator::ArithmeticAND,
-            b'J' => Operator::MemberDereference,
-            b'K' => Operator::Divide,
-            b'L' => Operator::Modulus,
-            b'M' => Operator::Less,
-            b'N' => Operator::LessEqual,
-            b'O' => Operator::Greater,
-            b'P' => Operator::GreaterEqual,
-            b'Q' => Operator::Comma,
-            b'R' => Operator::Calling,
-            b'S' => Operator::ArithmeticNot,
-            b'T' => Operator::Xor,
-            b'U' => Operator::ArithmeticOR,
-            b'V' => Operator::LogicalAND,
-            b'W' => Operator::LogicalOR,
-            b'X' => Operator::TimesEquals,
-            b'Y' => Operator::PlusEquals,
-            b'Z' => Operator::MinusEquals,
+            b'0' => Intrinsics::Ctor,
+            b'1' => Intrinsics::Dtor,
+            b'2' => Intrinsics::New,
+            b'3' => Intrinsics::Delete,
+            b'4' => Intrinsics::Assign,
+            b'5' => Intrinsics::ShiftRight,
+            b'6' => Intrinsics::ShiftLeft,
+            b'7' => Intrinsics::LogicalNot,
+            b'8' => Intrinsics::Equals,
+            b'9' => Intrinsics::NotEquals,
+            b'A' => Intrinsics::Array,
+            b'C' => Intrinsics::Pointer,
+            b'D' => Intrinsics::Dereference,
+            b'E' => Intrinsics::Increment,
+            b'F' => Intrinsics::Decrement,
+            b'G' => Intrinsics::Minus,
+            b'H' => Intrinsics::Plus,
+            b'I' => Intrinsics::ArithmeticAND,
+            b'J' => Intrinsics::MemberDereference,
+            b'K' => Intrinsics::Divide,
+            b'L' => Intrinsics::Modulus,
+            b'M' => Intrinsics::Less,
+            b'N' => Intrinsics::LessEqual,
+            b'O' => Intrinsics::Greater,
+            b'P' => Intrinsics::GreaterEqual,
+            b'Q' => Intrinsics::Comma,
+            b'R' => Intrinsics::Calling,
+            b'S' => Intrinsics::ArithmeticNot,
+            b'T' => Intrinsics::Xor,
+            b'U' => Intrinsics::ArithmeticOR,
+            b'V' => Intrinsics::LogicalAND,
+            b'W' => Intrinsics::LogicalOR,
+            b'X' => Intrinsics::TimesEquals,
+            b'Y' => Intrinsics::PlusEquals,
+            b'Z' => Intrinsics::MinusEquals,
             b'_' => match ctx.take()? {
-                b'0' => Operator::DivideEquals,
-                b'1' => Operator::ModulusEquals,
-                b'2' => Operator::ShiftRightEquals,
-                b'3' => Operator::ShiftLeftEquals,
-                b'4' => Operator::ANDEquals,
-                b'5' => Operator::OREquals,
-                b'6' => Operator::XorEquals,
-                b'7' => Operator::VFTable,
-                b'8' => Operator::VBTable,
-                b'9' => Operator::VCall,
-                b'A' => Operator::TypeOff,
-                b'B' => Operator::LocalStaticGuard,
-                b'C' => Operator::String,
-                b'D' => Operator::VBaseDtor,
-                b'E' => Operator::VectorDeletingDtor,
-                b'F' => Operator::DefaultCtorClosure,
-                b'G' => Operator::ScalarDeletingDtor,
-                b'H' => Operator::VecCtorIter,
-                b'I' => Operator::VecDtorIter,
-                b'J' => Operator::VecVbaseCtorIter,
-                b'K' => Operator::VdispMap,
-                b'L' => Operator::EHVecCtorIter,
-                b'M' => Operator::EHVecDtorIter,
-                b'N' => Operator::EHVecVbaseCtorIter,
-                b'O' => Operator::CopyCtorClosure,
-                b'R' => todo!("RTTI"),
-                b'S' => Operator::LocalVFTable,
-                b'T' => Operator::LocalVftableCtorClosure,
-                b'U' => Operator::NewArray,
-                b'V' => Operator::DeleteArray,
-                b'X' => Operator::PlacementDeleteClosure,
-                b'Y' => Operator::PlacementDeleteArrayClosure,
+                b'0' => Intrinsics::DivideEquals,
+                b'1' => Intrinsics::ModulusEquals,
+                b'2' => Intrinsics::ShiftRightEquals,
+                b'3' => Intrinsics::ShiftLeftEquals,
+                b'4' => Intrinsics::ANDEquals,
+                b'5' => Intrinsics::OREquals,
+                b'6' => Intrinsics::XorEquals,
+                b'7' => Intrinsics::VFTable,
+                b'8' => Intrinsics::VBTable,
+                b'9' => Intrinsics::VCall,
+                b'A' => Intrinsics::TypeOff,
+                b'B' => Intrinsics::LocalStaticGuard,
+                b'C' => Intrinsics::String,
+                b'D' => Intrinsics::VBaseDtor,
+                b'E' => Intrinsics::VectorDeletingDtor,
+                b'F' => Intrinsics::DefaultCtorClosure,
+                b'G' => Intrinsics::ScalarDeletingDtor,
+                b'H' => Intrinsics::VecCtorIter,
+                b'I' => Intrinsics::VecDtorIter,
+                b'J' => Intrinsics::VecVbaseCtorIter,
+                b'K' => Intrinsics::VdispMap,
+                b'L' => Intrinsics::EHVecCtorIter,
+                b'M' => Intrinsics::EHVecDtorIter,
+                b'N' => Intrinsics::EHVecVbaseCtorIter,
+                b'O' => Intrinsics::CopyCtorClosure,
+                b'R' => match ctx.take()? {
+                    b'0' => {
+                        ctx.consume(b'?');
+                        let modi = Modifiers::parse(ctx, backrefs)?;
+                        let tipe = Type::parse(ctx, backrefs)?;
+                        Intrinsics::RTTITypeDescriptor(modi, Box::new(tipe))
+                    }
+                    b'1' => {
+                        let nv_off = ctx.number()?;
+                        let ptr_off = ctx.number()?;
+                        let vbtable_off = ctx.number()?;
+                        let flags = ctx.number()?;
+
+                        Intrinsics::RTTIBaseClassDescriptor {
+                            nv_off,
+                            ptr_off,
+                            vbtable_off,
+                            flags,
+                        }
+                    }
+                    b'2' => Intrinsics::RTTIBaseClassArray,
+                    b'3' => Intrinsics::RTTIClassHierarchyDescriptor,
+                    b'4' => Intrinsics::RTTIClassCompleteObjectLocator,
+                    _ => return None,
+                },
+                b'S' => Intrinsics::LocalVFTable,
+                b'T' => Intrinsics::LocalVftableCtorClosure,
+                b'U' => Intrinsics::NewArray,
+                b'V' => Intrinsics::DeleteArray,
+                b'X' => Intrinsics::PlacementDeleteClosure,
+                b'Y' => Intrinsics::PlacementDeleteArrayClosure,
                 b'_' => match ctx.take()? {
-                    b'L' => Operator::CoAwait,
+                    b'L' => Intrinsics::CoAwait,
                     b'E' => {
                         let sym = Symbol::parse(ctx, backrefs)?;
 
@@ -1029,12 +1064,12 @@ impl Parse for Operator {
                             ctx.eat(b'@');
                         }
 
-                        Operator::DynamicInitializer(Box::new(sym))
+                        Intrinsics::DynamicInitializer(Box::new(sym))
                     }
-                    b'F' => Operator::DynamicAtexitDtor,
-                    b'J' => Operator::LocalStaticThreadGuard,
-                    b'M' => Operator::Spaceship,
-                    b'K' => return ctx.ident().map(Operator::SourceName),
+                    b'F' => Intrinsics::DynamicAtexitDtor,
+                    b'J' => Intrinsics::LocalStaticThreadGuard,
+                    b'M' => Intrinsics::Spaceship,
+                    b'K' => return ctx.ident().map(Intrinsics::SourceName),
                     _ => return None,
                 },
                 _ => return None,
@@ -1046,10 +1081,10 @@ impl Parse for Operator {
     }
 }
 
-impl<'a> Format<'a> for Operator {
+impl<'a> Format<'a> for Intrinsics {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let literal = match *self {
-            Operator::Ctor => {
+            Intrinsics::Ctor => {
                 let name = ctx.scope.get(0);
 
                 return match name {
@@ -1057,7 +1092,7 @@ impl<'a> Format<'a> for Operator {
                     _ => ctx.stream.push("`unnamed constructor'", colors::GRAY20),
                 };
             }
-            Operator::Dtor => {
+            Intrinsics::Dtor => {
                 let name = ctx.scope.get(0);
 
                 ctx.stream.push("~", colors::MAGENTA);
@@ -1067,85 +1102,114 @@ impl<'a> Format<'a> for Operator {
                     _ => ctx.stream.push("`unnamed destructor'", colors::GRAY20),
                 };
             }
-            Operator::DynamicInitializer(ref tipe) => {
+            Intrinsics::DynamicInitializer(ref tipe) => {
                 ctx.stream
                     .push("`dynamic initializer for '", colors::GRAY20);
                 tipe.demangle(ctx, backrefs);
                 ctx.stream.push("''", colors::GRAY40);
                 return;
             }
-            Operator::SourceName(src) => {
+            Intrinsics::SourceName(src) => {
                 ctx.push_literal(backrefs, &src, colors::MAGENTA);
                 return;
             }
-            Operator::New => "operator new",
-            Operator::Delete => "operator delete",
-            Operator::Assign => "operator=",
-            Operator::ShiftRight => "operator>>",
-            Operator::ShiftRightEquals => "operator>>=",
-            Operator::ShiftLeft => "operator<<",
-            Operator::ShiftLeftEquals => "operator<<=",
-            Operator::LogicalNot => "operator!",
-            Operator::Equals => "operator=",
-            Operator::NotEquals => "operator!=",
-            Operator::Array => "operator[]",
-            Operator::Pointer => "operator->",
-            Operator::Dereference => "operator*",
-            Operator::TimesEquals => "operator*=",
-            Operator::MemberDereference => "operator->*",
-            Operator::Increment => "operator++",
-            Operator::Decrement => "operator--",
-            Operator::Minus => "operator-",
-            Operator::MinusEquals => "operator-=",
-            Operator::Plus => "operator+",
-            Operator::PlusEquals => "operator+=",
-            Operator::ArithmeticAND => "operator&",
-            Operator::ANDEquals => "operator&=",
-            Operator::LogicalAND => "operator&&",
-            Operator::ArithmeticOR => "operator|",
-            Operator::OREquals => "operator|=",
-            Operator::LogicalOR => "operator||",
-            Operator::Divide => "operator/",
-            Operator::DivideEquals => "operator/=",
-            Operator::Modulus => "operator%",
-            Operator::ModulusEquals => "operator%=",
-            Operator::Less => "operator<",
-            Operator::LessEqual => "operator<=",
-            Operator::Greater => "operator>",
-            Operator::GreaterEqual => "operator>=",
-            Operator::Comma => "operator,",
-            Operator::Calling => "operator()",
-            Operator::ArithmeticNot => "operator~",
-            Operator::Xor => "operator^",
-            Operator::XorEquals => "operator^=",
-            Operator::VFTable => "`vftable'",
-            Operator::VBTable => "`vbtable'",
-            Operator::LocalVFTable => "`local vftable'",
-            Operator::VCall => "`vcall'",
-            Operator::TypeOff => "`typeoff'",
-            Operator::LocalStaticGuard => "`local static guard'",
-            Operator::String => "`string'",
-            Operator::VBaseDtor => "`vbase destructor'",
-            Operator::VectorDeletingDtor => "`vector deleting destructor'",
-            Operator::DefaultCtorClosure => "`default constructor closure'",
-            Operator::ScalarDeletingDtor => "`scalar deleting destructor'",
-            Operator::VecCtorIter => "`vector constructor iterator'",
-            Operator::VecDtorIter => "`vector destructor iterator'",
-            Operator::VecVbaseCtorIter => "`vector vbase constructor iterator'",
-            Operator::VdispMap => "`virtual displacement map'",
-            Operator::EHVecCtorIter => "`eh vector constructor iterator'",
-            Operator::EHVecDtorIter => "`eh vector destructor iterator'",
-            Operator::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
-            Operator::CopyCtorClosure => "`copy constructor closure'",
-            Operator::LocalVftableCtorClosure => "`local vftable constructor closure'",
-            Operator::DynamicAtexitDtor => "`dynamic atexit destructor'",
-            Operator::LocalStaticThreadGuard => "`local static thread guard'",
-            Operator::PlacementDeleteClosure => "`placement delete closure'",
-            Operator::PlacementDeleteArrayClosure => "`placement delete[] closure'",
-            Operator::NewArray => "operator new[]",
-            Operator::DeleteArray => "operator delete[]",
-            Operator::CoAwait => "co_await",
-            Operator::Spaceship => "operator<=>",
+            Intrinsics::RTTITypeDescriptor(_, ref tipe) => {
+                tipe.demangle_pre(ctx, backrefs);
+                ctx.stream.push("`RTTI Type Descriptor'", colors::GRAY40);
+                return;
+            }
+            Intrinsics::RTTIBaseClassDescriptor {
+                nv_off,
+                ptr_off,
+                vbtable_off,
+                flags,
+            } => {
+                let str = format!(
+                    "`RTTI Base Class Descriptor at ({nv_off}, {ptr_off}, {vbtable_off}, {flags})'",
+                );
+                ctx.stream.push_cow(Cow::Owned(str), colors::GRAY40);
+                return;
+            }
+            Intrinsics::RTTIBaseClassArray => {
+                ctx.stream.push("`RTTI Base Class Array'", colors::GRAY40);
+                return;
+            }
+            Intrinsics::RTTIClassHierarchyDescriptor => {
+                ctx.stream.push("`RTTI Class Hierarchy Descriptor'", colors::GRAY40);
+                return;
+            }
+            Intrinsics::RTTIClassCompleteObjectLocator => {
+                ctx.stream.push("`RTTI Complete Object Locator'", colors::GRAY40);
+                return;
+            }
+            Intrinsics::New => "operator new",
+            Intrinsics::Delete => "operator delete",
+            Intrinsics::Assign => "operator=",
+            Intrinsics::ShiftRight => "operator>>",
+            Intrinsics::ShiftRightEquals => "operator>>=",
+            Intrinsics::ShiftLeft => "operator<<",
+            Intrinsics::ShiftLeftEquals => "operator<<=",
+            Intrinsics::LogicalNot => "operator!",
+            Intrinsics::Equals => "operator=",
+            Intrinsics::NotEquals => "operator!=",
+            Intrinsics::Array => "operator[]",
+            Intrinsics::Pointer => "operator->",
+            Intrinsics::Dereference => "operator*",
+            Intrinsics::TimesEquals => "operator*=",
+            Intrinsics::MemberDereference => "operator->*",
+            Intrinsics::Increment => "operator++",
+            Intrinsics::Decrement => "operator--",
+            Intrinsics::Minus => "operator-",
+            Intrinsics::MinusEquals => "operator-=",
+            Intrinsics::Plus => "operator+",
+            Intrinsics::PlusEquals => "operator+=",
+            Intrinsics::ArithmeticAND => "operator&",
+            Intrinsics::ANDEquals => "operator&=",
+            Intrinsics::LogicalAND => "operator&&",
+            Intrinsics::ArithmeticOR => "operator|",
+            Intrinsics::OREquals => "operator|=",
+            Intrinsics::LogicalOR => "operator||",
+            Intrinsics::Divide => "operator/",
+            Intrinsics::DivideEquals => "operator/=",
+            Intrinsics::Modulus => "operator%",
+            Intrinsics::ModulusEquals => "operator%=",
+            Intrinsics::Less => "operator<",
+            Intrinsics::LessEqual => "operator<=",
+            Intrinsics::Greater => "operator>",
+            Intrinsics::GreaterEqual => "operator>=",
+            Intrinsics::Comma => "operator,",
+            Intrinsics::Calling => "operator()",
+            Intrinsics::ArithmeticNot => "operator~",
+            Intrinsics::Xor => "operator^",
+            Intrinsics::XorEquals => "operator^=",
+            Intrinsics::VFTable => "`vftable'",
+            Intrinsics::VBTable => "`vbtable'",
+            Intrinsics::LocalVFTable => "`local vftable'",
+            Intrinsics::VCall => "`vcall'",
+            Intrinsics::TypeOff => "`typeoff'",
+            Intrinsics::LocalStaticGuard => "`local static guard'",
+            Intrinsics::String => "`string'",
+            Intrinsics::VBaseDtor => "`vbase destructor'",
+            Intrinsics::VectorDeletingDtor => "`vector deleting destructor'",
+            Intrinsics::DefaultCtorClosure => "`default constructor closure'",
+            Intrinsics::ScalarDeletingDtor => "`scalar deleting destructor'",
+            Intrinsics::VecCtorIter => "`vector constructor iterator'",
+            Intrinsics::VecDtorIter => "`vector destructor iterator'",
+            Intrinsics::VecVbaseCtorIter => "`vector vbase constructor iterator'",
+            Intrinsics::VdispMap => "`virtual displacement map'",
+            Intrinsics::EHVecCtorIter => "`eh vector constructor iterator'",
+            Intrinsics::EHVecDtorIter => "`eh vector destructor iterator'",
+            Intrinsics::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
+            Intrinsics::CopyCtorClosure => "`copy constructor closure'",
+            Intrinsics::LocalVftableCtorClosure => "`local vftable constructor closure'",
+            Intrinsics::DynamicAtexitDtor => "`dynamic atexit destructor'",
+            Intrinsics::LocalStaticThreadGuard => "`local static thread guard'",
+            Intrinsics::PlacementDeleteClosure => "`placement delete closure'",
+            Intrinsics::PlacementDeleteArrayClosure => "`placement delete[] closure'",
+            Intrinsics::NewArray => "operator new[]",
+            Intrinsics::DeleteArray => "operator delete[]",
+            Intrinsics::CoAwait => "co_await",
+            Intrinsics::Spaceship => "operator<=>",
         };
 
         ctx.stream.push(literal, colors::MAGENTA);
@@ -1615,6 +1679,12 @@ impl Parse for Scope {
 
         while !ctx.eat(b'@') {
             let segment = NestedPath::parse(ctx, backrefs)?;
+
+            // ignore sisambiguators
+            if let NestedPath::Disambiguator(..) = segment {
+                continue;
+            }
+
             paths.push(segment);
         }
 
@@ -1646,6 +1716,12 @@ struct Path {
 impl Parse for Path {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let name = UnqualifiedPath::parse(ctx, backrefs)?;
+
+        // weirdness that only applies as `RTTITypeDescriptor`'s don't have a scope
+        if let UnqualifiedPath(NestedPath::Intrinsics(Intrinsics::RTTITypeDescriptor(..))) = name {
+            return Some(Path { name, scope: Scope(Vec::new()) });
+        }
+
         let scope = Scope::parse(ctx, backrefs)?;
 
         Some(Path { name, scope })
@@ -1669,7 +1745,7 @@ enum NestedPath {
     Literal(Literal),
     Interface(Literal),
     Template(Template),
-    Operator(Operator),
+    Intrinsics(Intrinsics),
     Symbol(Box<Symbol>),
     Disambiguator(isize),
     MD5(MD5),
@@ -1763,7 +1839,7 @@ impl<'a> Format<'a> for NestedPath {
                 ctx.stream.push("]", colors::GRAY40);
             }
             NestedPath::Template(template) => template.demangle(ctx, backrefs),
-            NestedPath::Operator(operator) => operator.demangle(ctx, backrefs),
+            NestedPath::Intrinsics(int) => int.demangle(ctx, backrefs),
             NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
             NestedPath::Disambiguator(val) => {
                 let val = std::borrow::Cow::Owned(format!("`{val}'"));
@@ -1801,8 +1877,8 @@ impl Parse for UnqualifiedPath {
             }
 
             ctx.ascent();
-            return Operator::parse(ctx, backrefs)
-                .map(NestedPath::Operator)
+            return Intrinsics::parse(ctx, backrefs)
+                .map(NestedPath::Intrinsics)
                 .map(UnqualifiedPath);
         }
 
@@ -1975,7 +2051,7 @@ impl Parse for Symbol {
                 let scope = Scope::parse(ctx, backrefs);
                 Type::VBTable(qualifiers, scope)
             }
-            // unnamed RTTI
+            // RTTI's don't have a type
             b'8' => Type::Unit,
             // C style type
             b'9' => {

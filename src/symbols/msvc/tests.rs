@@ -5726,7 +5726,7 @@ fn ghidra_file_info_ftti_000() {
 
 #[test]
 fn ghidra_file_info_rtti_001() {
-    eq!("??_R0PAVCException@BOB@@@8" => "class BOB::CException * `RTTI Type Descriptor'");
+    eq!("??_R0PAVCException@BOB@@@8" => "class BOB::CException *`RTTI Type Descriptor'");
 }
 
 #[test]

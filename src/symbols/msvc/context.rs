@@ -184,8 +184,8 @@ impl Context<'_> {
     pub fn number(&mut self) -> Option<isize> {
         let negative = self.eat(b'?');
 
-        if let (Some(digit), None) | (None, Some(digit)) = (self.base10(), self.base16()) {
-            let mut digit = digit as isize;
+        if let Some(digit) = self.base10() {
+            let mut digit = digit as isize + 1;
 
             if negative {
                 digit = -digit;
@@ -195,22 +195,18 @@ impl Context<'_> {
 
         let mut n = 0isize;
         loop {
-            match self.peek()? {
+            match self.take()? {
                 chr @ b'A'..=b'P' => {
-                    self.offset += 1;
-
                     n = n.checked_mul(16)?;
                     n = n.checked_add((chr - b'A') as isize)?;
                 }
                 b'@' => {
-                    self.offset += 1;
-
                     if negative {
                         n = -n;
                     }
-                    return Some(n);
+                    break Some(n);
                 }
-                _ => return None,
+                _ => break None,
             }
         }
     }
