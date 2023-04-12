@@ -163,7 +163,7 @@ enum Type {
     MemberFunction(MemberFunction),
     MemberFunctionPtr(MemberFunctionPtr),
     Constant(isize),
-    Variable(StorageVariable, Modifiers, Box<Type>),
+    Variable(Variable),
 
     /// Renamed literal with additional modifiers.
     Typedef(Modifiers, Literal),
@@ -552,7 +552,11 @@ impl<'a> PositionalFormat<'a> for Type {
                 ctx.push_literal(backrefs, name, colors::PURPLE);
                 modi.demangle_pre(ctx, backrefs);
             }
-            Type::Variable(storage, modi, tipe) => {
+            Type::Variable(Variable {
+                storage,
+                tipe,
+                modi,
+            }) => {
                 storage.demangle(ctx, backrefs);
                 tipe.demangle_pre(ctx, backrefs);
                 modi.demangle_pre(ctx, backrefs);
@@ -614,7 +618,7 @@ impl<'a> PositionalFormat<'a> for Type {
                 func.qualifiers.0.demangle_post(ctx, backrefs);
                 func.return_type.demangle_post(ctx, backrefs);
             }
-            Type::Variable(_, _, tipe) => tipe.demangle_post(ctx, backrefs),
+            Type::Variable(Variable { tipe, .. }) => tipe.demangle_post(ctx, backrefs),
             Type::Array(array) => {
                 let len = Cow::Owned(array.len.to_string());
                 ctx.stream.push("[", colors::GRAY40);
@@ -641,6 +645,47 @@ impl<'a> PositionalFormat<'a> for Type {
             }
             _ => {}
         }
+    }
+}
+
+/// ```text
+/// = '?' <storage> <type> <cvr-qualifiers>
+/// |     <storage> <cvr-qualifiers> <type>
+///
+/// <storage> = PrivateStatic | ProtectedStatic | PublicStatic | Global | FunctionLocalStatic
+/// ```
+#[derive(Debug, PartialEq, Clone)]
+struct Variable {
+    storage: StorageVariable,
+    modi: Modifiers,
+    tipe: Box<Type>,
+}
+
+impl Parse for Variable {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let storage = match ctx.take()? {
+            b'0' => StorageVariable::PrivateStatic,
+            b'1' => StorageVariable::ProtectedStatic,
+            b'2' => StorageVariable::PublicStatic,
+            b'3' => StorageVariable::Global,
+            b'4' => StorageVariable::FunctionLocalStatic,
+            _ => unsafe { std::hint::unreachable_unchecked() },
+        };
+
+        let (tipe, modi);
+        if ctx.eat(b'?') {
+            modi = Modifiers::parse(ctx, backrefs)?;
+            tipe = Type::parse(ctx, backrefs)?;
+        } else {
+            tipe = Type::parse(ctx, backrefs)?;
+            modi = Modifiers::parse(ctx, backrefs)?;
+        }
+
+        Some(Variable {
+            storage,
+            modi,
+            tipe: Box::new(tipe),
+        })
     }
 }
 
@@ -1058,11 +1103,14 @@ impl Parse for Intrinsics {
                 b'_' => match ctx.take()? {
                     b'L' => Intrinsics::CoAwait,
                     b'E' => {
-                        let sym = Symbol::parse(ctx, backrefs)?;
-
-                        if let Type::Variable(..) = sym.tipe {
-                            ctx.eat(b'@');
-                        }
+                        let sym = Symbol::parse(ctx, backrefs).or_else(|| {
+                            // not sure what this is.
+                            // it appears to be a literal from what the ghidra tests indicate
+                            Literal::parse(ctx, backrefs)
+                                .map(NestedPath::Literal)
+                                .map(NestedPath::into)
+                                .map(Path::into)
+                        })?;
 
                         Intrinsics::DynamicInitializer(Box::new(sym))
                     }
@@ -1716,12 +1764,6 @@ struct Path {
 impl Parse for Path {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let name = UnqualifiedPath::parse(ctx, backrefs)?;
-
-        // weirdness that only applies as `RTTITypeDescriptor`'s don't have a scope
-        if let UnqualifiedPath(NestedPath::Intrinsics(Intrinsics::RTTITypeDescriptor(..))) = name {
-            return Some(Path { name, scope: Scope(Vec::new()) });
-        }
-
         let scope = Scope::parse(ctx, backrefs)?;
 
         Some(Path { name, scope })
@@ -1957,7 +1999,7 @@ struct Symbol {
 impl Parse for Symbol {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         ctx.descent()?;
-        ctx.consume(b'?');
+        ctx.consume(b'?')?;
 
         // unparseable MD5 encoded symbol
         if ctx.eat_slice(b"?@") {
@@ -2006,35 +2048,9 @@ impl Parse for Symbol {
         ctx.parsing_qualifiers = false;
 
         let tipe = match ctx.take()? {
-            // <type> <cvr-qualifiers>
-            b'0' => {
-                let tipe = Type::parse(ctx, backrefs)?;
-                let modi = Modifiers::parse(ctx, backrefs)?;
-                Type::Variable(StorageVariable::PrivateStatic, modi, Box::new(tipe))
-            }
-            // <type> <cvr-qualifiers>
-            b'1' => {
-                let tipe = Type::parse(ctx, backrefs)?;
-                let modi = Modifiers::parse(ctx, backrefs)?;
-                Type::Variable(StorageVariable::ProtectedStatic, modi, Box::new(tipe))
-            }
-            // <type> <cvr-qualifiers>
-            b'2' => {
-                let tipe = Type::parse(ctx, backrefs)?;
-                let modi = Modifiers::parse(ctx, backrefs)?;
-                Type::Variable(StorageVariable::PublicStatic, modi, Box::new(tipe))
-            }
-            // <type> <cvr-qualifiers>
-            b'3' => {
-                let tipe = Type::parse(ctx, backrefs)?;
-                let modi = Modifiers::parse(ctx, backrefs)?;
-                Type::Variable(StorageVariable::Global, modi, Box::new(tipe))
-            }
-            // <type> <cvr-qualifiers>
-            b'4' => {
-                let tipe = Type::parse(ctx, backrefs)?;
-                let modi = Modifiers::parse(ctx, backrefs)?;
-                Type::Variable(StorageVariable::FunctionLocalStatic, modi, Box::new(tipe))
+            b'0'..=b'4' => {
+                ctx.offset -= 1;
+                Type::Variable(Variable::parse(ctx, backrefs)?)
             }
             b'5' => {
                 todo!()
