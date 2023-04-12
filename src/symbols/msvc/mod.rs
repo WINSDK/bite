@@ -185,6 +185,9 @@ enum Type {
 
     /// ???
     VCallThunk(isize, CallingConv),
+
+    /// extern "C"
+    Extern(Box<Type>),
 }
 
 impl Parse for Type {
@@ -363,6 +366,7 @@ impl<'a> Format<'a> for Type {
         self.demangle_post(ctx, backrefs);
     }
 }
+
 impl<'a> PositionalFormat<'a> for Type {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
@@ -576,6 +580,10 @@ impl<'a> PositionalFormat<'a> for Type {
                 ctx.stream.push("[thunk]: ", colors::GRAY40);
                 calling_conv.demangle(ctx, backrefs);
             }
+            Type::Extern(tipe) => {
+                ctx.stream.push("extern \"C\" ", colors::GRAY40);
+                tipe.demangle_pre(ctx, backrefs);
+            }
         }
     }
 
@@ -639,12 +647,95 @@ impl<'a> PositionalFormat<'a> for Type {
             },
             Type::VCallThunk(offset, _) => {
                 ctx.stream.push("{{", colors::GRAY40);
-                ctx.stream
-                    .push_cow(Cow::Owned(offset.to_string()), colors::BLUE);
+                ctx.stream.push_cow(Cow::Owned(offset.to_string()), colors::BLUE);
                 ctx.stream.push(", {{flat}}}}", colors::GRAY40);
+            }
+            Type::Extern(tipe) => {
+                tipe.demangle_post(ctx, backrefs);
             }
             _ => {}
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct SymbolType(Type);
+
+impl Parse for SymbolType {
+    fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let tipe = match ctx.take()? {
+            b'0'..=b'4' => {
+                ctx.offset -= 1;
+                Type::Variable(Variable::parse(ctx, backrefs)?)
+            }
+            b'5' => {
+                todo!()
+            }
+            // virtual function table
+            b'6' => {
+                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
+                let scope = Scope::parse(ctx, backrefs);
+                Type::VFTable(qualifiers, scope)
+            }
+            // virtual base table
+            b'7' => {
+                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
+                let scope = Scope::parse(ctx, backrefs);
+                Type::VBTable(qualifiers, scope)
+            }
+            // RTTI's don't have a type
+            b'8' => Type::Unit,
+            // C style type
+            b'9' => return None,
+            // anonymous function
+            b'Y' => Type::Function(Function::parse(ctx, backrefs)?),
+            // special cases
+            b'$' => match ctx.take()? {
+                // extern "C" modifier
+                b'$' => {
+                    // prefix
+                    match ctx.take()? {
+                        b'J' | b'N' | b'O' => {}
+                        _ => return None,
+                    }
+
+                    // skip at least one base10 number.
+                    let mut did_a_skip = false;
+                    loop {
+                        if ctx.base10().is_none() {
+                            break;
+                        }
+
+                        did_a_skip = true;
+                    }
+
+                    if !did_a_skip {
+                        return None;
+                    }
+
+                    dbg!(ctx.src());
+                    let tipe = SymbolType::parse(ctx, backrefs)?.0;
+                    Type::Extern(Box::new(tipe))
+                }
+                b'B' => {
+                    let offset = ctx.number()?;
+                    ctx.consume(b'A')?;
+                    let calling_conv = CallingConv::parse(ctx, backrefs)?;
+                    Type::VCallThunk(offset, calling_conv)
+                }
+                // TODO: there are more cases here
+                _ => return None,
+            },
+            // ident with unknown encoding
+            b'_' => EncodedIdent::parse(ctx, backrefs).map(Type::Encoded)?,
+            // anything else should be a member function
+            _ => {
+                ctx.offset -= 1;
+                MemberFunction::parse(ctx, backrefs).map(Type::MemberFunction)?
+            }
+        };
+
+        Some(SymbolType(tipe))
     }
 }
 
@@ -1183,11 +1274,13 @@ impl<'a> Format<'a> for Intrinsics {
                 return;
             }
             Intrinsics::RTTIClassHierarchyDescriptor => {
-                ctx.stream.push("`RTTI Class Hierarchy Descriptor'", colors::GRAY40);
+                ctx.stream
+                    .push("`RTTI Class Hierarchy Descriptor'", colors::GRAY40);
                 return;
             }
             Intrinsics::RTTIClassCompleteObjectLocator => {
-                ctx.stream.push("`RTTI Complete Object Locator'", colors::GRAY40);
+                ctx.stream
+                    .push("`RTTI Complete Object Locator'", colors::GRAY40);
                 return;
             }
             Intrinsics::New => "operator new",
@@ -1305,7 +1398,7 @@ impl<'a> Format<'a> for Parameters {
         let mut params = self.0.iter();
 
         if let Some(param) = params.next() {
-            param.demangle_pre(ctx, backrefs);
+            param.demangle(ctx, backrefs);
         }
 
         for param in params {
@@ -2047,46 +2140,7 @@ impl Parse for Symbol {
         ctx.modifiers_in_use = Modifiers::empty();
         ctx.parsing_qualifiers = false;
 
-        let tipe = match ctx.take()? {
-            b'0'..=b'4' => {
-                ctx.offset -= 1;
-                Type::Variable(Variable::parse(ctx, backrefs)?)
-            }
-            b'5' => {
-                todo!()
-            }
-            // virtual function table
-            b'6' => {
-                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
-                let scope = Scope::parse(ctx, backrefs);
-                Type::VFTable(qualifiers, scope)
-            }
-            // virtual base table
-            b'7' => {
-                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
-                let scope = Scope::parse(ctx, backrefs);
-                Type::VBTable(qualifiers, scope)
-            }
-            // RTTI's don't have a type
-            b'8' => Type::Unit,
-            // C style type
-            b'9' => {
-                return Some(path).map(Path::into);
-            }
-            b'Y' => Type::Function(Function::parse(ctx, backrefs)?),
-            b'$' => {
-                ctx.consume(b'B')?;
-                let offset = ctx.number()?;
-                ctx.consume(b'A')?;
-                let calling_conv = CallingConv::parse(ctx, backrefs)?;
-                Type::VCallThunk(offset, calling_conv)
-            }
-            b'_' => EncodedIdent::parse(ctx, backrefs).map(Type::Encoded)?,
-            _ => {
-                ctx.offset -= 1;
-                MemberFunction::parse(ctx, backrefs).map(Type::MemberFunction)?
-            }
-        };
+        let tipe = SymbolType::parse(ctx, backrefs)?.0;
 
         ctx.ascent();
         Some(Symbol { path, tipe })

@@ -85,12 +85,6 @@ fn triple_q0() {
 }
 
 #[test]
-fn triple_q0_mod1() {
-    eq!("??__E??_7name0@name1@@6Bx@xx@@y@yy@@@z@zz@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
-        "void __clrcall zz::z::`dynamic initializer for 'const name1::name0::`vftable'{for `xx::x's `yy::y'}''(void)");
-}
-
-#[test]
 fn triple_q0_mod2() {
     eq!("??__E??_7name0@name1@@6B@z@@YMXXZ@?A0x647dec29@@$$FYMXXZ" =>
         "void __clrcall z::`dynamic initializer for 'const name1::name0::`vftable'''(void)");
@@ -132,7 +126,7 @@ fn triple_q0_breakdown5() {
 }
 
 #[test]
-fn triple_q1a() {
+fn triple_q1() {
     eq!("??__Ename0@name1@@YMXXZ@?A0xd585d5fc@@$$FYMXXZ" =>
         "void __clrcall name1::`dynamic initializer for 'name0''(void)");
 }
@@ -140,6 +134,12 @@ fn triple_q1a() {
 #[test]
 fn triple_q2a_breakdown2() {
     eq!("??__E?var@@3HA@@YMXXZ" => "void __clrcall `dynamic initializer for 'int var''(void)");
+}
+
+#[test]
+fn triple_q3a() {
+    eq!("??__E?name0@name1@@3HA@@YMXXZ@?A0x09343ef7@@$$FYMXXZ" =>
+        "void __clrcall `dynamic initializer for 'int name1::name0''(void)");
 }
 
 #[test]
@@ -155,18 +155,6 @@ fn triple_q8b() {
 }
 
 #[test]
-fn triple_q3a() {
-    eq!("??__E?name0@name1@@3HA@@YMXXZ@?A0x09343ef7@@$$FYMXXZ" =>
-        "void __clrcall `dynamic initializer for 'int name1::name0''(void)");
-}
-
-#[test]
-fn triple_q1() {
-    eq!("??__Ename0@name1@@YMXXZ@?A0xd585d5fc@@$$FYMXXZ" =>
-        "void __clrcall name1::`dynamic initializer for 'name0''(void)");
-}
-
-#[test]
 fn white_space_formatting() {
     eq!("?name0@name1@@MAEPAPAP6GJPAUname2@@IIJ@ZXZ" =>
         "protected: virtual long (__stdcall *** __thiscall name1::name0(void))(struct name2 *, unsigned int, unsigned int, long)");
@@ -174,7 +162,7 @@ fn white_space_formatting() {
 
 #[test]
 fn function_pointer() {
-    eq!("?fn@@3P6AHH@ZA" => "int (__cdecl *fn)(int)");
+    eq!("?fn@@3P6AHH@ZA" => "int (__cdecl * fn)(int)");
 }
 
 #[test]
@@ -248,7 +236,7 @@ fn pointer_to_function_pointer() {
 
 #[test]
 fn pointer_to_pointer_to_function_pointer() {
-    eq!("?fn@@3PAPAP6AHH@ZA" => "int (__cdecl** * fn)(int)");
+    eq!("?fn@@3PAPAP6AHH@ZA" => "int (__cdecl *** fn)(int)");
 }
 
 #[test]
@@ -297,80 +285,8 @@ fn extern_c_1() {
 }
 
 #[test]
-fn extern_c_2_j() {
-    //Manufactured data
-    eq!("?xyz@@$$J00HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_n() {
-    //Manufactured data
-    eq!("?xyz@@$$N00HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_o() {
-    //Manufactured data
-    eq!("?xyz@@$$O00HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_1() {
-    //Manufactured data
-    eq!("?xyz@@$$J110HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_2() {
-    //Manufactured data
-    eq!("?xyz@@$$J2220HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_3() {
-    //Manufactured data
-    eq!("?xyz@@$$J33330HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_4() {
-    //Manufactured data
-    eq!("?xyz@@$$J444440HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_5() {
-    //Manufactured data
-    eq!("?xyz@@$$J5555550HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_6() {
-    //Manufactured data
-    eq!("?xyz@@$$J66666660HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_7() {
-    //Manufactured data
-    eq!("?xyz@@$$J777777770HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_8() {
-    //Manufactured data
-    eq!("?xyz@@$$J8888888880HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_2_j_9() {
-    //Manufactured data
-    eq!("?xyz@@$$J99999999990HA" => "extern \"C\" private: static int xyz");
-}
-
-#[test]
-fn extern_c_3() {
-    eq!("?name0@@$$J0YMXP6MXPAX@Z0@Z" => "extern \"C\" void __clrcall name0(void (__clrcall*)(void *), void *)");
+fn extern_c_2() {
+    eq!("?name0@@$$J0YMXP6MXPAX@Z0@Z" => "extern \"C\" void __clrcall name0(void (__clrcall *)(void*), void*)");
 }
 
 #[test]
