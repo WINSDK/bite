@@ -79,7 +79,7 @@ use bitflags::bitflags;
 
 pub fn parse(s: &str) -> Option<TokenStream> {
     let mut ctx = Context::new(s);
-    let mut backrefs = Backrefs::default();
+    let mut backrefs = Backrefs::new();
 
     // llvm appears to generate a '.' prefix on some symbols
     ctx.eat(b'.');
@@ -209,29 +209,29 @@ enum Type {
 
 impl Parse for Type {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        match ctx.peek_slice(0..2)? {
-            b"W4" => {
+        match ctx.peek_slice(..2) {
+            Some(b"W4") => {
                 ctx.offset += 2;
                 ctx.memorizing = false;
 
                 let name = Path::parse(ctx, backrefs)?;
                 return Some(Type::Enum(ctx.pop_modifiers(), name));
             }
-            b"A6" => {
+            Some(b"A6") => {
                 ctx.offset += 2;
                 ctx.parsing_qualifiers = false;
 
                 let func = Function::parse(ctx, backrefs).map(Type::Function)?;
                 return Some(Type::Ref(ctx.pop_modifiers(), Box::new(func)));
             }
-            b"P6" => {
+            Some(b"P6") => {
                 ctx.offset += 2;
                 ctx.parsing_qualifiers = false;
 
                 let func = Function::parse(ctx, backrefs).map(Type::Function)?;
                 return Some(Type::Ptr(ctx.pop_modifiers(), Box::new(func)));
             }
-            b"P8" => {
+            Some(b"P8") => {
                 ctx.offset += 2;
                 ctx.parsing_qualifiers = true;
 
@@ -285,7 +285,7 @@ impl Parse for Type {
                     return Some(Type::Unit);
                 }
 
-                if let Some(b"1?" | b"H?" | b"I?" | b"J?") = ctx.peek_slice(0..2) {
+                if let Some(b"1?" | b"H?" | b"I?" | b"J?") = ctx.peek_slice(..2) {
                     ctx.offset += 2;
                     return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
                 }
@@ -309,7 +309,7 @@ impl Parse for Type {
 
         if ctx.eat(b'?') {
             let idx = ctx.number()?;
-            return Some(Type::TemplateParameterIdx(-idx));
+            return Some(Type::TemplateParameterIdx(idx));
         }
 
         if let Some(digit) = ctx.base10() {
@@ -594,15 +594,18 @@ impl<'a> PositionalFormat<'a> for Type {
                 let val = Cow::Owned(val.to_string());
                 ctx.stream.push_cow(val, colors::GRAY20);
             }
-            Type::TemplateParameterIdx(_idx) => todo!(),
+            Type::TemplateParameterIdx(idx) => {
+                let str = Cow::Owned(format!("`template-parameter-{idx}'"));
+                ctx.stream.push_cow(str, colors::GRAY20);
+            }
             Type::Typedef(modi, name) => {
-                ctx.push_literal(backrefs, name, colors::PURPLE);
+                ctx.push_literal(name, colors::PURPLE);
                 modi.demangle(ctx, backrefs);
             }
             Type::Variable(Variable {
                 storage,
                 tipe,
-                modi,
+                quali: modi,
             }) => {
                 storage.demangle(ctx, backrefs);
                 tipe.demangle_pre(ctx, backrefs);
@@ -648,7 +651,7 @@ impl<'a> PositionalFormat<'a> for Type {
             }
             Type::Function(func) => {
                 func.params.demangle(ctx, backrefs);
-                func.qualifiers.0.demangle(ctx, backrefs);
+                func.quali.0.demangle(ctx, backrefs);
                 func.return_type.demangle_post(ctx, backrefs);
             }
             Type::MemberFunction(func) => {
@@ -708,15 +711,15 @@ impl Parse for SymbolType {
             }
             // virtual function table
             b'6' => {
-                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
+                let quali = Qualifiers::parse(ctx, backrefs)?;
                 let scope = Scope::parse(ctx, backrefs);
-                Type::VFTable(qualifiers, scope)
+                Type::VFTable(quali, scope)
             }
             // virtual base table
             b'7' => {
-                let qualifiers = Qualifiers::parse(ctx, backrefs)?;
+                let quali = Qualifiers::parse(ctx, backrefs)?;
                 let scope = Scope::parse(ctx, backrefs);
-                Type::VBTable(qualifiers, scope)
+                Type::VBTable(quali, scope)
             }
             // RTTI's don't have a type
             b'8' => Type::Unit,
@@ -774,15 +777,17 @@ impl Parse for SymbolType {
 }
 
 /// ```text
-/// = '?' <storage> <type> <cvr-qualifiers>
-/// |     <storage> <cvr-qualifiers> <type>
-///
-/// <storage> = PrivateStatic | ProtectedStatic | PublicStatic | Global | FunctionLocalStatic
+// <type-encoding> = <storage-class> <variable-type>
+// <storage-class> = 0 // private static member
+//                 | 1 // protected static member
+//                 | 2 // public static member
+//                 | 3 // global
+//                 | 4 // static local
 /// ```
 #[derive(Debug, PartialEq, Clone)]
 struct Variable {
     storage: StorageVariable,
-    modi: Modifiers,
+    quali: PointerQualifiers,
     tipe: Box<Type>,
 }
 
@@ -797,18 +802,19 @@ impl Parse for Variable {
             _ => return None,
         };
 
-        let (tipe, modi);
+        let mut quali = Modifiers::empty();
+
+        // don't fully understand this one
         if ctx.eat(b'?') {
-            modi = Modifiers::parse(ctx, backrefs)?;
-            tipe = Type::parse(ctx, backrefs)?;
-        } else {
-            tipe = Type::parse(ctx, backrefs)?;
-            modi = Modifiers::parse(ctx, backrefs)?;
+            quali |= Modifiers::parse(ctx, backrefs)?;
         }
+
+        let tipe = Type::parse(ctx, backrefs)?;
+        quali |= PointerQualifiers::parse(ctx, backrefs)?.0;
 
         Some(Variable {
             storage,
-            modi,
+            quali: PointerQualifiers(quali),
             tipe: Box::new(tipe),
         })
     }
@@ -817,16 +823,16 @@ impl Parse for Variable {
 #[derive(Debug, PartialEq, Clone)]
 struct Function {
     calling_conv: CallingConv,
-    qualifiers: FunctionQualifiers,
+    quali: PointerQualifiers,
     return_type: Box<FunctionReturnType>,
     params: FunctionParameters,
 }
 
 impl Parse for Function {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        let mut qualifiers = FunctionQualifiers(Qualifiers(Modifiers::empty()));
+        let mut quali = Modifiers::empty();
         if ctx.parsing_qualifiers {
-            qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
+            quali = PointerQualifiers::parse(ctx, backrefs)?.0;
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
@@ -835,7 +841,7 @@ impl Parse for Function {
 
         Some(Function {
             calling_conv,
-            qualifiers,
+            quali: PointerQualifiers(quali),
             return_type: Box::new(return_type),
             params,
         })
@@ -846,7 +852,7 @@ impl Parse for Function {
 struct MemberFunction {
     storage_scope: StorageScope,
     calling_conv: CallingConv,
-    qualifiers: FunctionQualifiers,
+    qualifiers: PointerQualifiers,
     return_type: Box<FunctionReturnType>,
     params: FunctionParameters,
 }
@@ -854,10 +860,10 @@ struct MemberFunction {
 impl Parse for MemberFunction {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let storage_scope = StorageScope::parse(ctx, backrefs)?;
-        let mut qualifiers = FunctionQualifiers(Qualifiers(Modifiers::empty()));
+        let mut qualifiers = PointerQualifiers(Modifiers::empty());
 
         if !storage_scope.contains(StorageScope::STATIC) {
-            qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
+            qualifiers = PointerQualifiers::parse(ctx, backrefs)?;
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
@@ -883,7 +889,7 @@ struct MemberFunctionPtr {
     storage_scope: StorageScope,
     class_name: Path,
     calling_conv: CallingConv,
-    qualifiers: FunctionQualifiers,
+    qualifiers: PointerQualifiers,
     return_type: Box<FunctionReturnType>,
     params: FunctionParameters,
 }
@@ -891,15 +897,15 @@ struct MemberFunctionPtr {
 impl Parse for MemberFunctionPtr {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let class_name = Path::parse(ctx, backrefs)?;
-        let mut qualifiers = FunctionQualifiers(Qualifiers(Modifiers::empty()));
+        let mut quali = Modifiers::empty();
         let mut storage_scope = StorageScope::empty();
 
         if ctx.eat(b'E') {
-            qualifiers = FunctionQualifiers(Qualifiers(Modifiers::PTR64));
+            quali = Modifiers::PTR64;
         }
 
         if ctx.parsing_qualifiers {
-            qualifiers.0 .0 |= FunctionQualifiers::parse(ctx, backrefs)?.0 .0;
+            quali |= PointerQualifiers::parse(ctx, backrefs)?.0;
         } else {
             storage_scope = StorageScope::parse(ctx, backrefs)?;
         }
@@ -916,7 +922,7 @@ impl Parse for MemberFunctionPtr {
             storage_scope,
             class_name,
             calling_conv,
-            qualifiers,
+            qualifiers: PointerQualifiers(quali),
             return_type: Box::new(return_type),
             params,
         })
@@ -1250,26 +1256,40 @@ impl Parse for Intrinsics {
                 b'_' => match ctx.take()? {
                     b'L' => Intrinsics::CoAwait,
                     b'E' => {
-                        let sym = Symbol::parse(ctx, backrefs).or_else(|| {
-                            // not sure what this is.
-                            // it appears to be a literal from what the ghidra tests indicate
-                            Literal::parse(ctx, backrefs)
-                                .map(NestedPath::Literal)
-                                .map(NestedPath::into)
-                                .map(Path::into)
-                        })?;
+                        let sym = match Symbol::parse(ctx, backrefs) {
+                            Some(sym) => {
+                                // consume optional suffix
+                                ctx.consume(b'@');
+                                sym
+                            }
+                            None => {
+                                // not sure what this is.
+                                // it appears to be a literal from what the ghidra tests indicate
+                                Literal::parse(ctx, backrefs)
+                                    .map(NestedPath::Literal)
+                                    .map(NestedPath::into)
+                                    .map(Path::into)?
+                            }
+                        };
 
                         Intrinsics::DynamicInitializer(Box::new(sym))
                     }
                     b'F' => {
-                        let sym = Symbol::parse(ctx, backrefs).or_else(|| {
-                            // not sure what this is.
-                            // it appears to be a literal from what the ghidra tests indicate
-                            Literal::parse(ctx, backrefs)
-                                .map(NestedPath::Literal)
-                                .map(NestedPath::into)
-                                .map(Path::into)
-                        })?;
+                        let sym = match Symbol::parse(ctx, backrefs) {
+                            Some(sym) => {
+                                // consume optional suffix
+                                ctx.consume(b'@');
+                                sym
+                            }
+                            None => {
+                                // not sure what this is.
+                                // it appears to be a literal from what the ghidra tests indicate
+                                Literal::parse(ctx, backrefs)
+                                    .map(NestedPath::Literal)
+                                    .map(NestedPath::into)
+                                    .map(Path::into)?
+                            }
+                        };
 
                         Intrinsics::DynamicAtExitDtor(Box::new(sym))
                     }
@@ -1291,22 +1311,20 @@ impl<'a> Format<'a> for Intrinsics {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let literal = match *self {
             Intrinsics::Ctor => {
-                let name = ctx.scope.get(0);
-
-                return match name {
-                    Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
+                match ctx.scope.0.get(0) {
+                    Some(path) => path.demangle(ctx, backrefs),
                     _ => ctx.stream.push("`unnamed constructor'", colors::GRAY20),
                 };
+                return;
             }
             Intrinsics::Dtor => {
-                let name = ctx.scope.get(0);
-
                 ctx.stream.push("~", colors::MAGENTA);
 
-                return match name {
-                    Some(NestedPath::Literal(l)) => ctx.push_literal(backrefs, l, colors::BLUE),
+                match ctx.scope.0.get(0) {
+                    Some(path) => path.demangle(ctx, backrefs),
                     _ => ctx.stream.push("`unnamed destructor'", colors::GRAY20),
                 };
+                return;
             }
             Intrinsics::DynamicInitializer(ref tipe) => {
                 ctx.stream.push("`dynamic initializer for '", colors::GRAY20);
@@ -1320,8 +1338,8 @@ impl<'a> Format<'a> for Intrinsics {
                 ctx.stream.push("''", colors::GRAY40);
                 return;
             }
-            Intrinsics::SourceName(src) => {
-                ctx.push_literal(backrefs, &src, colors::MAGENTA);
+            Intrinsics::SourceName(ref src) => {
+                ctx.push_literal(src, colors::MAGENTA);
                 return;
             }
             Intrinsics::RTTITypeDescriptor(_, ref tipe) => {
@@ -1335,10 +1353,10 @@ impl<'a> Format<'a> for Intrinsics {
                 vbtable_off,
                 flags,
             } => {
-                let str = format!(
+                let str = Cow::Owned(format!(
                     "`RTTI Base Class Descriptor at ({nv_off}, {ptr_off}, {vbtable_off}, {flags})'",
-                );
-                ctx.stream.push_cow(Cow::Owned(str), colors::GRAY40);
+                ));
+                ctx.stream.push_cow(str, colors::GRAY40);
                 return;
             }
             Intrinsics::RTTIBaseClassArray => {
@@ -1353,6 +1371,7 @@ impl<'a> Format<'a> for Intrinsics {
                 ctx.stream.push("`RTTI Complete Object Locator'", colors::GRAY40);
                 return;
             }
+            Intrinsics::TypeCast => "operatorcast",
             Intrinsics::New => "operator new",
             Intrinsics::Delete => "operator delete",
             Intrinsics::Assign => "operator=",
@@ -1363,7 +1382,6 @@ impl<'a> Format<'a> for Intrinsics {
             Intrinsics::LogicalNot => "operator!",
             Intrinsics::Equals => "operator=",
             Intrinsics::NotEquals => "operator!=",
-            Intrinsics::TypeCast => "operator[]",
             Intrinsics::Array => "operatorcast",
             Intrinsics::Pointer => "operator->",
             Intrinsics::Dereference => "operator*",
@@ -1436,6 +1454,7 @@ impl Parse for Parameters {
 
         loop {
             if ctx.eat(b'Z') {
+                // types.push(Type::Variadic);
                 return Some(Parameters(types));
             }
 
@@ -1456,7 +1475,7 @@ impl Parse for Parameters {
             // single-letter types are ignored for backref's because
             // memorizing them doesn't save anything.
             if start - end > 1 {
-                backrefs.try_memorizing_param(&tipe);
+                backrefs.memorize_param(&tipe);
             }
 
             types.push(tipe);
@@ -1513,6 +1532,7 @@ enum CallingConv {
     Clrcall,
     Eabi,
     Vectorcall,
+    Anonymous,
 }
 
 impl Parse for CallingConv {
@@ -1526,6 +1546,7 @@ impl Parse for CallingConv {
             b'M' | b'N' => CallingConv::Clrcall,
             b'O' | b'P' => CallingConv::Eabi,
             b'Q' => CallingConv::Vectorcall,
+            b'K' => CallingConv::Anonymous,
             _ => return None,
         };
 
@@ -1544,6 +1565,7 @@ impl<'a> Format<'a> for CallingConv {
             CallingConv::Clrcall => "__clrcall",
             CallingConv::Eabi => "__eabicall",
             CallingConv::Vectorcall => "__vectorcall",
+            CallingConv::Anonymous => return,
         };
 
         ctx.stream.push(literal, colors::GRAY40);
@@ -1661,6 +1683,7 @@ bitflags! {
 
 impl Parse for Modifiers {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
+        dbg!(ctx.src());
         let modi = match ctx.peek() {
             Some(b'E') => Modifiers::FAR,
             Some(b'F') => Modifiers::FAR | Modifiers::CONST,
@@ -1766,9 +1789,10 @@ impl<'a> Format<'a> for Qualifiers {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct FunctionQualifiers(Qualifiers);
+struct PointerQualifiers(Modifiers);
 
-impl Parse for FunctionQualifiers {
+impl Parse for PointerQualifiers {
+    // FIXME: this implement is slow
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut quali = [Modifiers::empty(); 4];
 
@@ -1794,24 +1818,55 @@ impl Parse for FunctionQualifiers {
         }
 
         let modi = quali[0] | quali[1] | quali[2] | quali[3] | Qualifiers::parse(ctx, backrefs)?.0;
-        Some(FunctionQualifiers(Qualifiers(modi)))
+        Some(PointerQualifiers(modi))
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Literal {
-    /// Index to a memorized string in [`Backrefs`].
-    Indexed(usize),
+impl<'a> Format<'a> for PointerQualifiers {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
+        let color = colors::BLUE;
 
-    /// Borrowed string.
-    Borrowed { start: usize, end: usize },
+        if self.0.contains(Modifiers::CONST) {
+            ctx.stream.push(" const", color);
+        }
+
+        if self.0.contains(Modifiers::VOLATILE) {
+            ctx.stream.push(" volatile", color);
+        }
+
+        if self.0.contains(Modifiers::FAR) {
+            ctx.stream.push(" __far", color);
+        }
+
+        if self.0.contains(Modifiers::UNALIGNED) {
+            ctx.stream.push(" __unaligned", color);
+        }
+
+        if self.0.contains(Modifiers::RESTRICT) {
+            ctx.stream.push(" __restrict", color);
+        }
+
+        if self.0.contains(Modifiers::LVALUE) {
+            ctx.stream.push(" &", color);
+        }
+
+        if self.0.contains(Modifiers::RVALUE) {
+            ctx.stream.push(" &&", color);
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+struct Literal {
+    start: usize,
+    end: usize,
 }
 
 impl Parse for Literal {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let ident = ctx.ident()?;
         if ctx.memorizing {
-            backrefs.try_memorizing_ident(&ident);
+            backrefs.memorize_path(&NestedPath::Literal(ident));
         }
         Some(ident)
     }
@@ -1819,16 +1874,7 @@ impl Parse for Literal {
 
 impl Literal {
     fn len(&self) -> usize {
-        match self {
-            Self::Indexed(..) => unreachable!(),
-            Self::Borrowed { start, end } => end - start,
-        }
-    }
-}
-
-impl Default for Literal {
-    fn default() -> Self {
-        Self::Borrowed { start: 0, end: 0 }
+        self.end - self.start
     }
 }
 
@@ -1845,7 +1891,7 @@ impl Parse for MD5 {
                 len += 1;
             }
 
-            Literal::Borrowed {
+            Literal {
                 start,
                 end: start + len,
             }
@@ -1866,9 +1912,9 @@ impl Parse for MD5 {
 }
 
 impl<'a> Format<'a> for MD5 {
-    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         ctx.stream.push("??@", colors::GRAY20);
-        ctx.push_literal(backrefs, &self.0, colors::GRAY20);
+        ctx.push_literal(&self.0, colors::GRAY20);
         ctx.stream.push("@", colors::GRAY20);
     }
 }
@@ -1890,9 +1936,6 @@ impl Parse for Scope {
 
             paths.push(segment);
         }
-
-        // for empty scope's a trailing '@' will appear
-        ctx.consume(b'@');
 
         Some(Scope(paths))
     }
@@ -1956,7 +1999,7 @@ impl Parse for NestedPath {
         // return memorized ident
         if let Some(digit) = ctx.base10() {
             ctx.ascent();
-            return backrefs.get_memorized_ident(digit).map(NestedPath::Literal);
+            return backrefs.get_memorized_path(digit);
         }
 
         if ctx.eat(b'?') {
@@ -1968,16 +2011,9 @@ impl Parse for NestedPath {
                 b'$' => {
                     ctx.offset += 1;
 
-                    Template::parse(ctx, backrefs).and_then(|template| {
-                        let name = template.name.0;
-
-                        if let NestedPath::Literal(ref literal) = name {
-                            backrefs.try_memorizing_ident(literal);
-                            return Some(name);
-                        }
-
-                        None
-                    })
+                    let template = Template::parse(ctx, backrefs).map(NestedPath::Template)?;
+                    backrefs.memorize_path(&template);
+                    Some(template)
                 }
                 b'A' => {
                     ctx.offset += 1;
@@ -1991,10 +2027,10 @@ impl Parse for NestedPath {
                             ctx.offset += 1;
                         }
 
-                        backrefs.try_memorizing_ident(&Literal::Borrowed {
+                        backrefs.memorize_path(&NestedPath::Literal(Literal {
                             start: ctx.offset,
                             end: ctx.offset + len,
-                        });
+                        }));
                     }
 
                     ctx.consume(b'@')?;
@@ -2005,7 +2041,7 @@ impl Parse for NestedPath {
 
                     let ident = ctx.ident()?;
                     ctx.consume(b'@')?;
-                    backrefs.try_memorizing_ident(&ident);
+                    backrefs.memorize_path(&NestedPath::Literal(ident));
 
                     Some(NestedPath::Interface(ident))
                 }
@@ -2017,7 +2053,7 @@ impl Parse for NestedPath {
         }
 
         let ident = ctx.ident()?;
-        backrefs.try_memorizing_ident(&ident);
+        backrefs.memorize_path(&NestedPath::Literal(ident));
 
         ctx.ascent();
         Some(NestedPath::Literal(ident))
@@ -2028,11 +2064,11 @@ impl<'a> Format<'a> for NestedPath {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             NestedPath::Literal(ident) => {
-                ctx.push_literal(backrefs, ident, colors::BLUE);
+                ctx.push_literal(ident, colors::BLUE);
             }
             NestedPath::Interface(ident) => {
                 ctx.stream.push("[", colors::GRAY40);
-                ctx.push_literal(backrefs, ident, colors::BLUE);
+                ctx.push_literal(ident, colors::BLUE);
                 ctx.stream.push("]", colors::GRAY40);
             }
             NestedPath::Template(template) => template.demangle(ctx, backrefs),
@@ -2059,8 +2095,7 @@ impl Parse for UnqualifiedPath {
         if let Some(digit) = ctx.base10() {
             ctx.ascent();
             return backrefs
-                .get_memorized_ident(digit)
-                .map(NestedPath::Literal)
+                .get_memorized_path(digit)
                 .map(UnqualifiedPath);
         }
 
@@ -2068,9 +2103,9 @@ impl Parse for UnqualifiedPath {
         if ctx.eat(b'?') {
             if ctx.eat(b'$') {
                 ctx.ascent();
-                return Template::parse(ctx, backrefs)
-                    .map(NestedPath::Template)
-                    .map(UnqualifiedPath);
+                let template = Template::parse(ctx, backrefs).map(NestedPath::Template)?;
+                backrefs.memorize_path(&template);
+                return Some(UnqualifiedPath(template));
             }
 
             ctx.ascent();
@@ -2080,7 +2115,7 @@ impl Parse for UnqualifiedPath {
         }
 
         let name = ctx.ident()?;
-        backrefs.try_memorizing_ident(&name);
+        backrefs.memorize_path(&NestedPath::Literal(name));
 
         ctx.ascent();
         Some(UnqualifiedPath(NestedPath::Literal(name)))
@@ -2127,11 +2162,11 @@ struct Template {
 
 impl Parse for Template {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
-        let mut temp = Backrefs::default();
-        let name = Box::new(UnqualifiedPath::parse(ctx, &mut temp)?);
+        let mut temp = Backrefs::new();
+        let name = UnqualifiedPath::parse(ctx, &mut temp)?;
         let params = Parameters::parse(ctx, &mut temp)?;
 
-        Some(Template { name, params })
+        Some(Template { name: Box::new(name), params })
     }
 }
 
@@ -2209,9 +2244,11 @@ impl Parse for Symbol {
 
 impl<'a> Format<'a> for Symbol {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
-        ctx.scope = &self.path.scope.0[..];
+        ctx.scope = &self.path.scope;
+        ctx.name = &self.path.name.0;
+        ctx.tipe = &self.tipe;
 
-        // type casting requires both the path and type, only symbol that has this exception
+        // weird typecasting of class member
         if let NestedPath::Intrinsics(Intrinsics::TypeCast) = self.path.name.0 {
             if let Type::MemberFunction(ref func) = self.tipe {
                 func.storage_scope.demangle(ctx, backrefs);
@@ -2225,11 +2262,29 @@ impl<'a> Format<'a> for Symbol {
             }
         }
 
+        // weird typecasting of class member with templates
+        if let NestedPath::Template(ref template) = self.path.name.0 {
+            if let NestedPath::Intrinsics(Intrinsics::TypeCast)= template.name.0 {
+                if let Type::MemberFunction(ref func) = self.tipe {
+                    func.storage_scope.demangle(ctx, backrefs);
+                    func.calling_conv.demangle(ctx, backrefs);
+                    ctx.stream.push(" ", colors::WHITE);
+                    self.path.scope.demangle(ctx, backrefs);
+                    ctx.stream.push("::operator", colors::MAGENTA);
+                    ctx.stream.push("<", colors::GRAY20);
+                    template.params.demangle(ctx, backrefs);
+                    ctx.stream.push("> ", colors::GRAY20);
+
+                    func.return_type.0.demangle(ctx, backrefs);
+                    func.params.demangle(ctx, backrefs);
+                    return;
+                }
+            }
+        }
+
         self.tipe.demangle_pre(ctx, backrefs);
         self.path.demangle(ctx, backrefs);
         self.tipe.demangle_post(ctx, backrefs);
-
-        ctx.scope = &[];
     }
 }
 

@@ -1,13 +1,13 @@
-use super::{Literal, Type, TokenStream, Modifiers, NestedPath};
+use super::{Literal, Type, TokenStream, Modifiers, NestedPath, Scope};
 use crate::colors::Color;
 
 /// Max recursion depth
 const MAX_DEPTH: usize = 256;
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub(super) struct Backrefs {
     /// Up to 10 idents can be memorized for lookup using backref's: ?0, ?1, ..
-    memorized: [Literal; 10],
+    memorized: [NestedPath; 10],
 
     /// Number of so far memorized idents.
     memorized_count: usize,
@@ -20,25 +20,37 @@ pub(super) struct Backrefs {
 }
 
 impl Backrefs {
-    pub fn try_memorizing_ident<'b>(&'b mut self, ident: &'b Literal) {
+    pub fn new() -> Self {
+        const NO_PATH: NestedPath = NestedPath::Anonymous;
+        const NO_TYPE: Type = Type::Unit;
+
+        Self {
+            memorized: [NO_PATH; 10],
+            memorized_count: 0,
+            params: [NO_TYPE; 10],
+            param_count: 0
+        }
+    }
+
+    pub fn memorize_path<'b>(&'b mut self, path: &'b NestedPath) {
         let memorized = &self.memorized[..self.memorized_count];
 
-        if !memorized.contains(ident) && self.memorized_count != 10 {
-            self.memorized[self.memorized_count] = *ident;
+        if !memorized.contains(path) && self.memorized_count != 10 {
+            self.memorized[self.memorized_count] = path.clone();
             self.memorized_count += 1;
         }
     }
 
-    pub fn get_memorized_ident(&mut self, idx: usize) -> Option<Literal> {
+    pub fn get_memorized_path(&mut self, idx: usize) -> Option<NestedPath> {
         if idx >= self.memorized_count {
             return None;
         }
 
-        Some(Literal::Indexed(idx))
+        Some(self.memorized[idx].clone())
     }
 
     // TODO: change interface to not be cloning a type
-    pub fn try_memorizing_param<'b>(&'b mut self, tipe: &'b Type) {
+    pub fn memorize_param<'b>(&'b mut self, tipe: &'b Type) {
         let memorized = &self.params[..self.param_count];
 
         if !memorized.contains(tipe) && self.param_count != 10 {
@@ -64,7 +76,9 @@ pub(super) struct Context<'a> {
     pub offset: usize,
     pub parsing_qualifiers: bool,
     pub memorizing: bool,
-    pub scope: &'a [NestedPath],
+    pub scope: &'a Scope,
+    pub name: &'a NestedPath,
+    pub tipe: &'a Type,
     modifiers_in_use: Modifiers,
     depth: usize,
 }
@@ -72,26 +86,24 @@ pub(super) struct Context<'a> {
 impl Context<'_> {
     /// Create an initialized parser that hasn't started parsing yet.
     pub fn new(s: &str) -> Self {
+        static NO_SCOPE: Scope = Scope(Vec::new());
+
         Self {
             stream: TokenStream::new(s),
             offset: 0,
             memorizing: true,
             parsing_qualifiers: true,
-            scope: &[],
+            scope: &NO_SCOPE,
+            name: &NestedPath::Anonymous,
+            tipe: &Type::Unit,
             modifiers_in_use: Modifiers::empty(),
             depth: 0,
         }
     }
 
     /// Pushes a [`Literal`] to the [`TokenStream`], resolving any indexing within a literal.
-    pub fn push_literal(&mut self, backrefs: &Backrefs, literal: &Literal, color: Color) {
-        let literal = match literal {
-            Literal::Borrowed { start, end } => &self.stream.inner()[*start..*end],
-            Literal::Indexed(idx) => {
-                return self.push_literal(backrefs, &backrefs.memorized[*idx], color);
-            }
-        };
-
+    pub fn push_literal(&mut self, literal: &Literal, color: Color) {
+        let literal = &self.stream.inner()[literal.start..literal.end];
         let literal: &'static str = unsafe { std::mem::transmute(literal) };
 
         self.stream.push(literal, color);
@@ -109,7 +121,7 @@ impl Context<'_> {
     }
 
     /// View a slice in the mangled symbol without incrementing the offset.
-    pub fn peek_slice<'b>(&self, range: std::ops::Range<usize>) -> Option<&'b [u8]> {
+    pub fn peek_slice<'b>(&self, range: std::ops::RangeTo<usize>) -> Option<&'b [u8]> {
         self.src().as_bytes().get(range)
     }
 
@@ -217,7 +229,7 @@ impl Context<'_> {
         let start = self.offset;
         let len = self.src().bytes().position(|c| c == b'@')?;
         self.offset += len + 1;
-        Some(Literal::Borrowed {
+        Some(Literal {
             start,
             end: start + len,
         })
