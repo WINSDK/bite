@@ -69,7 +69,6 @@ mod context;
 mod tests;
 
 use std::borrow::Cow;
-use std::fmt;
 use std::mem::MaybeUninit;
 
 use super::TokenStream;
@@ -79,16 +78,24 @@ use context::{Backrefs, Context};
 use bitflags::bitflags;
 
 pub fn parse(s: &str) -> Option<TokenStream> {
-    let mut parser = Context::new(s);
+    let mut ctx = Context::new(s);
     let mut backrefs = Backrefs::default();
 
     // llvm appears to generate a '.' prefix on some symbols
-    parser.eat(b'.');
+    ctx.eat(b'.');
 
-    let sym = dbg!(Symbol::parse(&mut parser, &mut backrefs)?);
-    sym.demangle(&mut parser, &mut backrefs);
+    let sym = Symbol::parse(&mut ctx, &mut backrefs)?;
+    sym.demangle(&mut ctx, &mut backrefs);
 
-    Some(parser.stream)
+    #[cfg(test)]
+    {
+        dbg!(&sym);
+        if !ctx.src().is_empty() {
+            // panic!("not empty '{}'", ctx.src());
+        }
+    }
+
+    Some(ctx.stream)
 }
 
 /// Converts an trivially printable node to a string.
@@ -148,6 +155,13 @@ enum Type {
     LDouble(Modifiers),
     Long(Modifiers),
     ULong(Modifiers),
+    W64(Modifiers, Box<Type>),
+    Int8(Modifiers),
+    UInt8(Modifiers),
+    Int16(Modifiers),
+    UInt16(Modifiers),
+    Int32(Modifiers),
+    UInt32(Modifiers),
     Int64(Modifiers),
     UInt64(Modifiers),
     Int128(Modifiers),
@@ -156,9 +170,9 @@ enum Type {
     Enum(Modifiers, Path),
     Struct(Modifiers, Path),
     Class(Modifiers, Path),
-    Ref(Modifiers, Box<Pointee>),
-    RValueRef(Modifiers, Box<Pointee>),
-    Ptr(Modifiers, Box<Pointee>),
+    Ref(Modifiers, Box<Type>),
+    RValueRef(Modifiers, Box<Type>),
+    Ptr(Modifiers, Box<Type>),
     Function(Function),
     MemberFunction(MemberFunction),
     MemberFunctionPtr(MemberFunctionPtr),
@@ -188,6 +202,9 @@ enum Type {
 
     /// extern "C"
     Extern(Box<Type>),
+
+    /// fn(a, b, c, ...)
+    Variadic,
 }
 
 impl Parse for Type {
@@ -198,27 +215,21 @@ impl Parse for Type {
                 ctx.memorizing = false;
 
                 let name = Path::parse(ctx, backrefs)?;
-                return Some(Type::Enum(ctx.modifiers_in_use, name));
+                return Some(Type::Enum(ctx.pop_modifiers(), name));
             }
             b"A6" => {
                 ctx.offset += 2;
                 ctx.parsing_qualifiers = false;
 
-                let func = Function::parse(ctx, backrefs)
-                    .map(Type::Function)
-                    .map(Pointee)?;
-
-                return Some(Type::Ref(ctx.modifiers_in_use, Box::new(func)));
+                let func = Function::parse(ctx, backrefs).map(Type::Function)?;
+                return Some(Type::Ref(ctx.pop_modifiers(), Box::new(func)));
             }
             b"P6" => {
                 ctx.offset += 2;
                 ctx.parsing_qualifiers = false;
 
-                let func = Function::parse(ctx, backrefs)
-                    .map(Type::Function)
-                    .map(Pointee)?;
-
-                return Some(Type::Ptr(ctx.modifiers_in_use, Box::new(func)));
+                let func = Function::parse(ctx, backrefs).map(Type::Function)?;
+                return Some(Type::Ptr(ctx.pop_modifiers(), Box::new(func)));
             }
             b"P8" => {
                 ctx.offset += 2;
@@ -242,7 +253,7 @@ impl Parse for Type {
                 if ctx.eat(b'Y') {
                     ctx.memorizing = false;
                     let name = Literal::parse(ctx, backrefs)?;
-                    return Some(Type::Typedef(ctx.modifiers_in_use, name));
+                    return Some(Type::Typedef(ctx.pop_modifiers(), name));
                 }
 
                 if ctx.eat(b'T') {
@@ -252,11 +263,8 @@ impl Parse for Type {
                 if ctx.eat(b'Q') {
                     ctx.parsing_qualifiers = false;
 
-                    let func = Function::parse(ctx, backrefs)
-                        .map(Type::Function)
-                        .map(Pointee)?;
-
-                    return Some(Type::RValueRef(ctx.modifiers_in_use, Box::new(func)));
+                    let func = Function::parse(ctx, backrefs).map(Type::Function)?;
+                    return Some(Type::RValueRef(ctx.pop_modifiers(), Box::new(func)));
                 }
 
                 if ctx.eat_slice(b"BY") {
@@ -277,8 +285,14 @@ impl Parse for Type {
                     return Some(Type::Unit);
                 }
 
+                if let Some(b"1?" | b"H?" | b"I?" | b"J?") = ctx.peek_slice(0..2) {
+                    ctx.offset += 2;
+                    return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
+                }
+
                 if ctx.eat(b'C') {
-                    ctx.modifiers_in_use = Qualifiers::parse(ctx, backrefs)?.0;
+                    let quali = Qualifiers::parse(ctx, backrefs)?;
+                    ctx.push_modifiers(quali.0);
                 }
             }
 
@@ -302,55 +316,63 @@ impl Parse for Type {
             return backrefs.get_memorized_param(digit);
         }
 
+        let modi = ctx.pop_modifiers();
         let tipe = match ctx.take()? {
-            b'T' => Type::Union(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
-            b'U' => Type::Struct(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
-            b'V' => Type::Class(ctx.modifiers_in_use, Path::parse(ctx, backrefs)?),
+            b'T' => Type::Union(modi, Path::parse(ctx, backrefs)?),
+            b'U' => Type::Struct(modi, Path::parse(ctx, backrefs)?),
+            b'V' => Type::Class(modi, Path::parse(ctx, backrefs)?),
             b'A' => Type::Ref(
-                ctx.modifiers_in_use,
-                Box::new(Pointee::parse(ctx, backrefs)?),
+                modi,
+                Box::new(Pointee::parse(ctx, backrefs)?.0),
             ),
             b'B' => Type::Ref(
                 Modifiers::VOLATILE,
-                Box::new(Pointee::parse(ctx, backrefs)?),
+                Box::new(Pointee::parse(ctx, backrefs)?.0),
             ),
             b'P' => Type::Ptr(
-                ctx.modifiers_in_use,
-                Box::new(Pointee::parse(ctx, backrefs)?),
+                modi,
+                Box::new(Pointee::parse(ctx, backrefs)?.0),
             ),
-            b'Q' => Type::Ptr(Modifiers::CONST, Box::new(Pointee::parse(ctx, backrefs)?)),
+            b'Q' => Type::Ptr(Modifiers::CONST, Box::new(Pointee::parse(ctx, backrefs)?.0)),
             b'R' => Type::Ptr(
                 Modifiers::VOLATILE,
-                Box::new(Pointee::parse(ctx, backrefs)?),
+                Box::new(Pointee::parse(ctx, backrefs)?.0),
             ),
             b'S' => Type::Ptr(
                 Modifiers::CONST | Modifiers::VOLATILE,
-                Box::new(Pointee::parse(ctx, backrefs)?),
+                Box::new(Pointee::parse(ctx, backrefs)?.0),
             ),
             b'Y' => Type::Array(Array::parse(ctx, backrefs)?),
-            b'X' => Type::Void(ctx.modifiers_in_use),
-            b'D' => Type::Char(ctx.modifiers_in_use),
-            b'C' => Type::IChar(ctx.modifiers_in_use),
-            b'E' => Type::UChar(ctx.modifiers_in_use),
-            b'F' => Type::IShort(ctx.modifiers_in_use),
-            b'G' => Type::UShort(ctx.modifiers_in_use),
-            b'H' => Type::Int(ctx.modifiers_in_use),
-            b'I' => Type::UInt(ctx.modifiers_in_use),
-            b'J' => Type::Long(ctx.modifiers_in_use),
-            b'K' => Type::ULong(ctx.modifiers_in_use),
-            b'M' => Type::Float(ctx.modifiers_in_use),
-            b'N' => Type::Double(ctx.modifiers_in_use),
-            b'O' => Type::LDouble(ctx.modifiers_in_use),
+            b'X' => Type::Void(modi),
+            b'D' => Type::Char(modi),
+            b'C' => Type::IChar(modi),
+            b'E' => Type::UChar(modi),
+            b'F' => Type::IShort(modi),
+            b'G' => Type::UShort(modi),
+            b'H' => Type::Int(modi),
+            b'I' => Type::UInt(modi),
+            b'J' => Type::Long(modi),
+            b'K' => Type::ULong(modi),
+            b'M' => Type::Float(modi),
+            b'N' => Type::Double(modi),
+            b'O' => Type::LDouble(modi),
             b'_' => match ctx.take()? {
-                b'N' => Type::Bool(ctx.modifiers_in_use),
-                b'J' => Type::Int64(ctx.modifiers_in_use),
-                b'K' => Type::UInt64(ctx.modifiers_in_use),
-                b'L' => Type::Int128(ctx.modifiers_in_use),
-                b'M' => Type::Uint128(ctx.modifiers_in_use),
-                b'W' => Type::WChar(ctx.modifiers_in_use),
-                b'Q' => Type::Char8(ctx.modifiers_in_use),
-                b'S' => Type::Char16(ctx.modifiers_in_use),
-                b'U' => Type::Char32(ctx.modifiers_in_use),
+                b'$' => Type::W64(modi, Box::new(Type::parse(ctx, backrefs)?)),
+                b'D' => Type::Int8(modi),
+                b'E' => Type::UInt8(modi),
+                b'F' => Type::Int16(modi),
+                b'G' => Type::UInt16(modi),
+                b'H' => Type::Int32(modi),
+                b'I' => Type::UInt32(modi),
+                b'J' => Type::Int64(modi),
+                b'K' => Type::UInt64(modi),
+                b'L' => Type::Int128(modi),
+                b'M' => Type::Uint128(modi),
+                b'N' => Type::Bool(modi),
+                b'W' => Type::WChar(modi),
+                b'Q' => Type::Char8(modi),
+                b'S' => Type::Char16(modi),
+                b'U' => Type::Char32(modi),
                 _ => return None,
             },
             _ => return None,
@@ -374,115 +396,140 @@ impl<'a> PositionalFormat<'a> for Type {
             Type::Nullptr => ctx.stream.push("std::nullptr_t", colors::MAGENTA),
             Type::Void(modi) => {
                 ctx.stream.push("void", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
-            }
-            Type::Bool(modi) => {
-                ctx.stream.push("bool", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Char(modi) => {
                 ctx.stream.push("char", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Char8(modi) => {
-                ctx.stream.push("char8", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                ctx.stream.push("char8_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
             }
             Type::Char16(modi) => {
-                ctx.stream.push("char16", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                ctx.stream.push("char16_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
             }
             Type::Char32(modi) => {
-                ctx.stream.push("char32", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                ctx.stream.push("char32_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
             }
             Type::IChar(modi) => {
                 ctx.stream.push("signed char", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::UChar(modi) => {
                 ctx.stream.push("unsigned char", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::WChar(modi) => {
-                ctx.stream.push("wchar", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                ctx.stream.push("wchar_t", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
             }
             Type::IShort(modi) => {
                 ctx.stream.push("short", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::UShort(modi) => {
                 ctx.stream.push("unsigned short", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Int(modi) => {
                 ctx.stream.push("int", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::UInt(modi) => {
                 ctx.stream.push("unsigned int", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Float(modi) => {
                 ctx.stream.push("float", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Double(modi) => {
                 ctx.stream.push("double", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::LDouble(modi) => {
                 ctx.stream.push("long double", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Long(modi) => {
                 ctx.stream.push("long", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::ULong(modi) => {
                 ctx.stream.push("unsigned long", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::W64(modi, tipe) => {
+                ctx.stream.push("__w64 ", colors::MAGENTA);
+                tipe.demangle(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Int8(modi) => {
+                ctx.stream.push("__int8", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::UInt8(modi) => {
+                ctx.stream.push("unsigned __int8", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Int16(modi) => {
+                ctx.stream.push("__int16", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::UInt16(modi) => {
+                ctx.stream.push("unsigned __int16", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Int32(modi) => {
+                ctx.stream.push("__int32", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::UInt32(modi) => {
+                ctx.stream.push("unsigned __int32", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
             }
             Type::Int64(modi) => {
                 ctx.stream.push("__int64", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::UInt64(modi) => {
                 ctx.stream.push("unsigned __int64", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Int128(modi) => {
-                ctx.stream.push("__int64", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                ctx.stream.push("__int128", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
             }
             Type::Uint128(modi) => {
                 ctx.stream.push("unsigned __int128", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
+            }
+            Type::Bool(modi) => {
+                ctx.stream.push("bool", colors::MAGENTA);
+                modi.demangle(ctx, backrefs);
             }
             Type::Union(modi, name) => {
                 ctx.stream.push("union ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
-                ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Enum(modi, name) => {
                 ctx.stream.push("enum ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
-                ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Struct(modi, name) => {
                 ctx.stream.push("struct ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
-                ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Class(modi, name) => {
                 ctx.stream.push("class ", colors::MAGENTA);
                 name.demangle(ctx, backrefs);
-                ctx.stream.push(" ", colors::MAGENTA);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Ptr(modi, tipe) | Type::Ref(modi, tipe) | Type::RValueRef(modi, tipe) => {
                 // "[]" and "()" (for function parameters) take precedence over "*",
@@ -490,26 +537,22 @@ impl<'a> PositionalFormat<'a> for Type {
                 // parentheses to supercede the default precedence. (e.g. we want to
                 // emit something like "int (*x)(int)".)
 
-                let tipe = &tipe.0;
-                match tipe {
+                match &**tipe {
                     Type::Function(func) => {
                         func.return_type.demangle_pre(ctx, backrefs);
                         ctx.stream.push("(", colors::GRAY40);
                         func.calling_conv.demangle(ctx, backrefs);
-                        ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::MemberFunction(func) => {
                         func.storage_scope.demangle(ctx, backrefs);
                         func.return_type.demangle_pre(ctx, backrefs);
                         func.calling_conv.demangle(ctx, backrefs);
-                        ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::MemberFunctionPtr(func) => {
                         func.storage_scope.demangle(ctx, backrefs);
                         func.return_type.demangle_pre(ctx, backrefs);
                         ctx.stream.push("(", colors::GRAY40);
                         func.calling_conv.demangle(ctx, backrefs);
-                        ctx.stream.push(" ", colors::WHITE);
                     }
                     Type::Array(..) => {
                         tipe.demangle_pre(ctx, backrefs);
@@ -519,13 +562,13 @@ impl<'a> PositionalFormat<'a> for Type {
                 }
 
                 match self {
-                    Type::Ptr(..) => ctx.stream.push("*", colors::RED),
-                    Type::Ref(..) => ctx.stream.push("&", colors::RED),
-                    Type::RValueRef(..) => ctx.stream.push("&&", colors::RED),
+                    Type::Ptr(..) => ctx.stream.push(" *", colors::RED),
+                    Type::Ref(..) => ctx.stream.push(" &", colors::RED),
+                    Type::RValueRef(..) => ctx.stream.push(" &&", colors::RED),
                     _ => {}
                 }
 
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Function(func) => {
                 func.return_type.demangle_pre(ctx, backrefs);
@@ -554,7 +597,7 @@ impl<'a> PositionalFormat<'a> for Type {
             Type::TemplateParameterIdx(_idx) => todo!(),
             Type::Typedef(modi, name) => {
                 ctx.push_literal(backrefs, name, colors::PURPLE);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
             }
             Type::Variable(Variable {
                 storage,
@@ -563,7 +606,7 @@ impl<'a> PositionalFormat<'a> for Type {
             }) => {
                 storage.demangle(ctx, backrefs);
                 tipe.demangle_pre(ctx, backrefs);
-                modi.demangle_pre(ctx, backrefs);
+                modi.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::WHITE);
             }
             Type::Encoded(_) => {}
@@ -571,10 +614,10 @@ impl<'a> PositionalFormat<'a> for Type {
                 array.tipe().demangle_pre(ctx, backrefs);
             }
             Type::VFTable(quali, _) => {
-                quali.0.demangle_pre(ctx, backrefs);
+                quali.demangle(ctx, backrefs);
             }
             Type::VBTable(quali, _) => {
-                quali.0.demangle_pre(ctx, backrefs);
+                quali.demangle(ctx, backrefs);
             }
             Type::VCallThunk(_, calling_conv) => {
                 ctx.stream.push("[thunk]: ", colors::GRAY40);
@@ -584,15 +627,16 @@ impl<'a> PositionalFormat<'a> for Type {
                 ctx.stream.push("extern \"C\" ", colors::GRAY40);
                 tipe.demangle_pre(ctx, backrefs);
             }
+            Type::Variadic => {
+                ctx.stream.push("...", colors::GRAY40);
+            }
         }
     }
 
     fn demangle_post(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             Type::Ptr(_, tipe) | Type::Ref(_, tipe) => {
-                let tipe = &tipe.0;
-
-                match tipe {
+                match **tipe {
                     Type::Function(..) => ctx.stream.push(")", colors::GRAY40),
                     Type::MemberFunction(..) => ctx.stream.push(")", colors::GRAY40),
                     Type::MemberFunctionPtr(..) => ctx.stream.push(")", colors::GRAY40),
@@ -603,27 +647,18 @@ impl<'a> PositionalFormat<'a> for Type {
                 tipe.demangle_post(ctx, backrefs);
             }
             Type::Function(func) => {
-                ctx.stream.push("(", colors::GRAY40);
-                func.params.0.demangle(ctx, backrefs);
-                ctx.stream.push(")", colors::GRAY40);
-
-                func.qualifiers.0.demangle_post(ctx, backrefs);
+                func.params.demangle(ctx, backrefs);
+                func.qualifiers.0.demangle(ctx, backrefs);
                 func.return_type.demangle_post(ctx, backrefs);
             }
             Type::MemberFunction(func) => {
-                ctx.stream.push("(", colors::GRAY40);
-                func.params.0.demangle(ctx, backrefs);
-                ctx.stream.push(")", colors::GRAY40);
-
-                func.qualifiers.0.demangle_post(ctx, backrefs);
+                func.params.demangle(ctx, backrefs);
+                func.qualifiers.0.demangle(ctx, backrefs);
                 func.return_type.demangle_post(ctx, backrefs);
             }
             Type::MemberFunctionPtr(func) => {
-                ctx.stream.push("(", colors::GRAY40);
-                func.params.0.demangle(ctx, backrefs);
-                ctx.stream.push(")", colors::GRAY40);
-
-                func.qualifiers.0.demangle_post(ctx, backrefs);
+                func.params.demangle(ctx, backrefs);
+                func.qualifiers.0.demangle(ctx, backrefs);
                 func.return_type.demangle_post(ctx, backrefs);
             }
             Type::Variable(Variable { tipe, .. }) => tipe.demangle_post(ctx, backrefs),
@@ -647,12 +682,12 @@ impl<'a> PositionalFormat<'a> for Type {
             },
             Type::VCallThunk(offset, _) => {
                 ctx.stream.push("{{", colors::GRAY40);
-                ctx.stream.push_cow(Cow::Owned(offset.to_string()), colors::BLUE);
+                ctx.stream
+                    .push_cow(Cow::Owned(offset.to_string()), colors::BLUE);
                 ctx.stream.push(", {{flat}}}}", colors::GRAY40);
             }
-            Type::Extern(tipe) => {
-                tipe.demangle_post(ctx, backrefs);
-            }
+            Type::Extern(tipe) => tipe.demangle_post(ctx, backrefs),
+            Type::W64(_, tipe) => tipe.demangle_post(ctx, backrefs),
             _ => {}
         }
     }
@@ -688,7 +723,7 @@ impl Parse for SymbolType {
             // C style type
             b'9' => return None,
             // anonymous function
-            b'Y' => Type::Function(Function::parse(ctx, backrefs)?),
+            b'Y' => Function::parse(ctx, backrefs).map(Type::Function)?,
             // special cases
             b'$' => match ctx.take()? {
                 // extern "C" modifier
@@ -713,7 +748,6 @@ impl Parse for SymbolType {
                         return None;
                     }
 
-                    dbg!(ctx.src());
                     let tipe = SymbolType::parse(ctx, backrefs)?.0;
                     Type::Extern(Box::new(tipe))
                 }
@@ -760,7 +794,7 @@ impl Parse for Variable {
             b'2' => StorageVariable::PublicStatic,
             b'3' => StorageVariable::Global,
             b'4' => StorageVariable::FunctionLocalStatic,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => return None,
         };
 
         let (tipe, modi);
@@ -790,13 +824,18 @@ struct Function {
 
 impl Parse for Function {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let mut qualifiers = FunctionQualifiers(Qualifiers(Modifiers::empty()));
+        if ctx.parsing_qualifiers {
+            qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
+        }
+
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
         Some(Function {
             calling_conv,
-            qualifiers: FunctionQualifiers(Modifiers::empty()),
+            qualifiers,
             return_type: Box::new(return_type),
             params,
         })
@@ -815,14 +854,17 @@ struct MemberFunction {
 impl Parse for MemberFunction {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let storage_scope = StorageScope::parse(ctx, backrefs)?;
-        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
+        let mut qualifiers = FunctionQualifiers(Qualifiers(Modifiers::empty()));
 
         if !storage_scope.contains(StorageScope::STATIC) {
             qualifiers = FunctionQualifiers::parse(ctx, backrefs)?;
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-        ctx.modifiers_in_use = ReturnModifiers::parse(ctx, backrefs)?.0;
+        let modi = MemberReturnModifiers::parse(ctx, backrefs)?.0;
+
+        ctx.push_modifiers(modi);
+
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
@@ -849,21 +891,24 @@ struct MemberFunctionPtr {
 impl Parse for MemberFunctionPtr {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let class_name = Path::parse(ctx, backrefs)?;
-        let mut qualifiers = FunctionQualifiers(Modifiers::empty());
+        let mut qualifiers = FunctionQualifiers(Qualifiers(Modifiers::empty()));
         let mut storage_scope = StorageScope::empty();
 
         if ctx.eat(b'E') {
-            qualifiers = FunctionQualifiers(Modifiers::PTR64);
+            qualifiers = FunctionQualifiers(Qualifiers(Modifiers::PTR64));
         }
 
         if ctx.parsing_qualifiers {
-            qualifiers.0 |= FunctionQualifiers::parse(ctx, backrefs)?.0;
+            qualifiers.0 .0 |= FunctionQualifiers::parse(ctx, backrefs)?.0 .0;
         } else {
             storage_scope = StorageScope::parse(ctx, backrefs)?;
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-        ctx.modifiers_in_use = ReturnModifiers::parse(ctx, backrefs)?.0;
+        let modi = MemberReturnModifiers::parse(ctx, backrefs)?.0;
+
+        ctx.push_modifiers(modi);
+
         let return_type = FunctionReturnType::parse(ctx, backrefs)?;
         let params = FunctionParameters::parse(ctx, backrefs)?;
 
@@ -889,7 +934,7 @@ impl Parse for Array {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let dimensions = ctx.number()?;
         let mut root = Array {
-            modifiers: Modifiers::empty(),
+            modifiers: ctx.pop_modifiers(),
             tipe: MaybeUninit::uninit(),
             len: 0,
         };
@@ -900,10 +945,7 @@ impl Parse for Array {
             return None;
         }
 
-        for _ in 0..dimensions {
-            // clear modifiers
-            ctx.modifiers_in_use = Modifiers::empty();
-
+        for _ in 0..dimensions - 1 {
             // construct array
             node.tipe = MaybeUninit::new(Box::new(Type::Array(Array {
                 modifiers: Modifiers::empty(),
@@ -969,13 +1011,14 @@ struct Pointee(Type);
 
 impl Parse for Pointee {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        let mut modi = Modifiers::empty();
+
         if ctx.eat(b'E') {
-            ctx.modifiers_in_use |= Modifiers::PTR64;
+            modi = Modifiers::PTR64;
         }
 
-        let pointer_modi = Modifiers::parse(ctx, backrefs)?;
-
-        ctx.modifiers_in_use |= pointer_modi;
+        modi |= Modifiers::parse(ctx, backrefs)?;
+        ctx.push_modifiers(modi);
 
         Type::parse(ctx, backrefs).map(Pointee)
     }
@@ -986,7 +1029,19 @@ struct FunctionReturnType(Type);
 
 impl Parse for FunctionReturnType {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        ctx.modifiers_in_use = ReturnModifiers::parse(ctx, backrefs)?.0;
+        ctx.pop_modifiers();
+
+        if ctx.eat(b'?') {
+            let modi = match ctx.take()? {
+                b'A' => Modifiers::empty(),
+                b'B' => Modifiers::CONST,
+                b'C' => Modifiers::VOLATILE,
+                b'D' => Modifiers::CONST | Modifiers::VOLATILE,
+                _ => return None,
+            };
+
+            ctx.push_modifiers(modi);
+        }
 
         if ctx.eat(b'@') {
             return Some(FunctionReturnType(Type::Unit));
@@ -1022,6 +1077,7 @@ enum Intrinsics {
     ShiftLeftEquals,
     ShiftRight,
     ShiftRightEquals,
+    TypeCast,
     Array,
     Pointer,
     Dereference,
@@ -1063,7 +1119,7 @@ enum Intrinsics {
     Comma,
     Calling,
     DynamicInitializer(Box<Symbol>),
-    DynamicAtexitDtor,
+    DynamicAtExitDtor(Box<Symbol>),
     LocalStaticThreadGuard,
     Spaceship,
     CoAwait,
@@ -1110,6 +1166,7 @@ impl Parse for Intrinsics {
             b'8' => Intrinsics::Equals,
             b'9' => Intrinsics::NotEquals,
             b'A' => Intrinsics::Array,
+            b'B' => Intrinsics::TypeCast,
             b'C' => Intrinsics::Pointer,
             b'D' => Intrinsics::Dereference,
             b'E' => Intrinsics::Increment,
@@ -1162,9 +1219,8 @@ impl Parse for Intrinsics {
                 b'O' => Intrinsics::CopyCtorClosure,
                 b'R' => match ctx.take()? {
                     b'0' => {
-                        ctx.consume(b'?');
-                        let modi = Modifiers::parse(ctx, backrefs)?;
                         let tipe = Type::parse(ctx, backrefs)?;
+                        let modi = Modifiers::parse(ctx, backrefs)?;
                         Intrinsics::RTTITypeDescriptor(modi, Box::new(tipe))
                     }
                     b'1' => {
@@ -1205,7 +1261,18 @@ impl Parse for Intrinsics {
 
                         Intrinsics::DynamicInitializer(Box::new(sym))
                     }
-                    b'F' => Intrinsics::DynamicAtexitDtor,
+                    b'F' => {
+                        let sym = Symbol::parse(ctx, backrefs).or_else(|| {
+                            // not sure what this is.
+                            // it appears to be a literal from what the ghidra tests indicate
+                            Literal::parse(ctx, backrefs)
+                                .map(NestedPath::Literal)
+                                .map(NestedPath::into)
+                                .map(Path::into)
+                        })?;
+
+                        Intrinsics::DynamicAtExitDtor(Box::new(sym))
+                    }
                     b'J' => Intrinsics::LocalStaticThreadGuard,
                     b'M' => Intrinsics::Spaceship,
                     b'K' => return ctx.ident().map(Intrinsics::SourceName),
@@ -1242,8 +1309,13 @@ impl<'a> Format<'a> for Intrinsics {
                 };
             }
             Intrinsics::DynamicInitializer(ref tipe) => {
-                ctx.stream
-                    .push("`dynamic initializer for '", colors::GRAY20);
+                ctx.stream.push("`dynamic initializer for '", colors::GRAY20);
+                tipe.demangle(ctx, backrefs);
+                ctx.stream.push("''", colors::GRAY40);
+                return;
+            }
+            Intrinsics::DynamicAtExitDtor(ref tipe) => {
+                ctx.stream.push("`dynamic atexit destructor for '", colors::GRAY20);
                 tipe.demangle(ctx, backrefs);
                 ctx.stream.push("''", colors::GRAY40);
                 return;
@@ -1253,8 +1325,8 @@ impl<'a> Format<'a> for Intrinsics {
                 return;
             }
             Intrinsics::RTTITypeDescriptor(_, ref tipe) => {
-                tipe.demangle_pre(ctx, backrefs);
-                ctx.stream.push("`RTTI Type Descriptor'", colors::GRAY40);
+                tipe.demangle(ctx, backrefs);
+                ctx.stream.push(" `RTTI Type Descriptor'", colors::GRAY40);
                 return;
             }
             Intrinsics::RTTIBaseClassDescriptor {
@@ -1274,13 +1346,11 @@ impl<'a> Format<'a> for Intrinsics {
                 return;
             }
             Intrinsics::RTTIClassHierarchyDescriptor => {
-                ctx.stream
-                    .push("`RTTI Class Hierarchy Descriptor'", colors::GRAY40);
+                ctx.stream.push("`RTTI Class Hierarchy Descriptor'", colors::GRAY40);
                 return;
             }
             Intrinsics::RTTIClassCompleteObjectLocator => {
-                ctx.stream
-                    .push("`RTTI Complete Object Locator'", colors::GRAY40);
+                ctx.stream.push("`RTTI Complete Object Locator'", colors::GRAY40);
                 return;
             }
             Intrinsics::New => "operator new",
@@ -1293,7 +1363,8 @@ impl<'a> Format<'a> for Intrinsics {
             Intrinsics::LogicalNot => "operator!",
             Intrinsics::Equals => "operator=",
             Intrinsics::NotEquals => "operator!=",
-            Intrinsics::Array => "operator[]",
+            Intrinsics::TypeCast => "operator[]",
+            Intrinsics::Array => "operatorcast",
             Intrinsics::Pointer => "operator->",
             Intrinsics::Dereference => "operator*",
             Intrinsics::TimesEquals => "operator*=",
@@ -1343,7 +1414,6 @@ impl<'a> Format<'a> for Intrinsics {
             Intrinsics::EHVecVbaseCtorIter => "`eh vector vbase constructor iterator'",
             Intrinsics::CopyCtorClosure => "`copy constructor closure'",
             Intrinsics::LocalVftableCtorClosure => "`local vftable constructor closure'",
-            Intrinsics::DynamicAtexitDtor => "`dynamic atexit destructor'",
             Intrinsics::LocalStaticThreadGuard => "`local static thread guard'",
             Intrinsics::PlacementDeleteClosure => "`placement delete closure'",
             Intrinsics::PlacementDeleteArrayClosure => "`placement delete[] closure'",
@@ -1365,9 +1435,12 @@ impl Parse for Parameters {
         let mut types = Vec::new();
 
         loop {
+            if ctx.eat(b'Z') {
+                return Some(Parameters(types));
+            }
+
             // either the stream is consumed or an list ending is encountered.
-            if let Some(b'@') | Some(b'Z') | None = ctx.peek() {
-                ctx.offset += 1;
+            if ctx.eat(b'@') || ctx.src().is_empty() {
                 return Some(Parameters(types));
             }
 
@@ -1375,8 +1448,6 @@ impl Parse for Parameters {
                 types.push(backrefs.get_memorized_param(digit)?);
                 continue;
             }
-
-            ctx.modifiers_in_use = Modifiers::empty();
 
             let start = ctx.src().len();
             let tipe = Type::parse(ctx, backrefs)?;
@@ -1413,14 +1484,21 @@ struct FunctionParameters(Parameters);
 
 impl Parse for FunctionParameters {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        let params = if ctx.eat(b'X') {
-            Parameters(vec![Type::Void(Modifiers::empty())])
-        } else {
-            Parameters::parse(ctx, backrefs)?
-        };
+        let params = Parameters::parse(ctx, backrefs)?;
 
-        ctx.consume(b'Z')?;
+        if !ctx.eat(b'Z') {
+            // TODO: handle throw attribute
+        }
+
         Some(FunctionParameters(params))
+    }
+}
+
+impl<'a> Format<'a> for FunctionParameters {
+    fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
+        ctx.stream.push("(", colors::GRAY40);
+        self.0.demangle(ctx, backrefs);
+        ctx.stream.push(")", colors::GRAY40);
     }
 }
 
@@ -1568,7 +1646,7 @@ impl<'a> Format<'a> for StorageScope {
 }
 
 bitflags! {
-    #[derive(PartialEq, Eq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     struct Modifiers: u32 {
         const CONST     = 0b0000000000001;
         const VOLATILE  = 0b0000000000010;
@@ -1600,20 +1678,8 @@ impl Parse for Modifiers {
     }
 }
 
-impl<'a> PositionalFormat<'a> for Modifiers {
-    fn demangle_pre(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        let color = colors::BLUE;
-
-        if self.contains(Modifiers::CONST) {
-            ctx.stream.push("const ", color);
-        }
-
-        if self.contains(Modifiers::VOLATILE) {
-            ctx.stream.push("volatile ", color);
-        }
-    }
-
-    fn demangle_post(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
+impl<'a> Format<'a> for Modifiers {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
         if self.contains(Modifiers::CONST) {
@@ -1623,54 +1689,16 @@ impl<'a> PositionalFormat<'a> for Modifiers {
         if self.contains(Modifiers::VOLATILE) {
             ctx.stream.push(" volatile", color);
         }
-
-        if self.contains(Modifiers::FAR) {
-            ctx.stream.push(" __far", color);
-        }
-
-        if self.contains(Modifiers::UNALIGNED) {
-            ctx.stream.push(" __unaligned", color);
-        }
-
-        if self.contains(Modifiers::RESTRICT) {
-            ctx.stream.push(" __restrict", color);
-        }
-
-        if self.contains(Modifiers::LVALUE) {
-            ctx.stream.push(" &", color);
-        }
-
-        if self.contains(Modifiers::RVALUE) {
-            ctx.stream.push(" &&", color);
-        }
-    }
-}
-
-impl fmt::Debug for Modifiers {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let literal = match *self {
-            Modifiers::CONST => "Modifiers::CONST",
-            Modifiers::VOLATILE => "Modifiers::VOLATILE",
-            Modifiers::FAR => "Modifiers::FAR",
-            Modifiers::PTR64 => "Modifiers::PTR64",
-            Modifiers::UNALIGNED => "Modifiers::UNALIGNED",
-            Modifiers::RESTRICT => "Modifiers::RESTRICT",
-            Modifiers::LVALUE => "Modifiers::LVALUE",
-            Modifiers::RVALUE => "Modifiers::RVALUE",
-            _ => "Modifiers::empty()",
-        };
-
-        f.write_str(literal)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct ReturnModifiers(Modifiers);
+struct MemberReturnModifiers(Modifiers);
 
-impl Parse for ReturnModifiers {
+impl Parse for MemberReturnModifiers {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         if !ctx.eat(b'?') {
-            return Some(ReturnModifiers(Modifiers::empty()));
+            return Some(MemberReturnModifiers(Modifiers::empty()));
         }
 
         let modi = match ctx.take()? {
@@ -1681,7 +1709,7 @@ impl Parse for ReturnModifiers {
             _ => return None,
         };
 
-        Some(ReturnModifiers(modi))
+        Some(MemberReturnModifiers(modi))
     }
 }
 
@@ -1703,8 +1731,42 @@ impl Parse for Qualifiers {
     }
 }
 
+impl<'a> Format<'a> for Qualifiers {
+    fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
+        let color = colors::BLUE;
+
+        if self.0.contains(Modifiers::CONST) {
+            ctx.stream.push("const ", color);
+        }
+
+        if self.0.contains(Modifiers::VOLATILE) {
+            ctx.stream.push("volatile ", color);
+        }
+
+        if self.0.contains(Modifiers::FAR) {
+            ctx.stream.push("__far ", color);
+        }
+
+        if self.0.contains(Modifiers::UNALIGNED) {
+            ctx.stream.push("__unaligned ", color);
+        }
+
+        if self.0.contains(Modifiers::RESTRICT) {
+            ctx.stream.push("__restrict ", color);
+        }
+
+        if self.0.contains(Modifiers::LVALUE) {
+            ctx.stream.push("& ", color);
+        }
+
+        if self.0.contains(Modifiers::RVALUE) {
+            ctx.stream.push("&& ", color);
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
-struct FunctionQualifiers(Modifiers);
+struct FunctionQualifiers(Qualifiers);
 
 impl Parse for FunctionQualifiers {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
@@ -1732,7 +1794,7 @@ impl Parse for FunctionQualifiers {
         }
 
         let modi = quali[0] | quali[1] | quali[2] | quali[3] | Qualifiers::parse(ctx, backrefs)?.0;
-        Some(FunctionQualifiers(modi))
+        Some(FunctionQualifiers(Qualifiers(modi)))
     }
 }
 
@@ -1821,7 +1883,7 @@ impl Parse for Scope {
         while !ctx.eat(b'@') {
             let segment = NestedPath::parse(ctx, backrefs)?;
 
-            // ignore sisambiguators
+            // ignore disambiguators
             if let NestedPath::Disambiguator(..) = segment {
                 continue;
             }
@@ -2137,9 +2199,7 @@ impl Parse for Symbol {
             return Some(path).map(Path::into);
         }
 
-        ctx.modifiers_in_use = Modifiers::empty();
         ctx.parsing_qualifiers = false;
-
         let tipe = SymbolType::parse(ctx, backrefs)?.0;
 
         ctx.ascent();
@@ -2150,6 +2210,20 @@ impl Parse for Symbol {
 impl<'a> Format<'a> for Symbol {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         ctx.scope = &self.path.scope.0[..];
+
+        // type casting requires both the path and type, only symbol that has this exception
+        if let NestedPath::Intrinsics(Intrinsics::TypeCast) = self.path.name.0 {
+            if let Type::MemberFunction(ref func) = self.tipe {
+                func.storage_scope.demangle(ctx, backrefs);
+                func.calling_conv.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::WHITE);
+                self.path.scope.demangle(ctx, backrefs);
+                ctx.stream.push("::operator ", colors::MAGENTA);
+                func.return_type.0.demangle(ctx, backrefs);
+                func.params.demangle(ctx, backrefs);
+                return;
+            }
+        }
 
         self.tipe.demangle_pre(ctx, backrefs);
         self.path.demangle(ctx, backrefs);

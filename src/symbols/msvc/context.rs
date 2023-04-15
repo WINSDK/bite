@@ -61,11 +61,11 @@ impl Backrefs {
 #[derive(Debug)]
 pub(super) struct Context<'a> {
     pub stream: TokenStream,
-    pub modifiers_in_use: Modifiers,
     pub offset: usize,
     pub parsing_qualifiers: bool,
     pub memorizing: bool,
     pub scope: &'a [NestedPath],
+    modifiers_in_use: Modifiers,
     depth: usize,
 }
 
@@ -74,11 +74,11 @@ impl Context<'_> {
     pub fn new(s: &str) -> Self {
         Self {
             stream: TokenStream::new(s),
-            modifiers_in_use: Modifiers::empty(),
             offset: 0,
             memorizing: true,
             parsing_qualifiers: true,
             scope: &[],
+            modifiers_in_use: Modifiers::empty(),
             depth: 0,
         }
     }
@@ -221,6 +221,20 @@ impl Context<'_> {
             start,
             end: start + len,
         })
+    }
+
+    /// Sets modifiers for children to pop and annotate their type with.
+    #[inline]
+    pub fn push_modifiers(&mut self, modifiers: Modifiers) {
+        self.modifiers_in_use = modifiers;
+    }
+
+    /// Clears out any modifiers set and returns what was set.
+    #[inline]
+    pub fn pop_modifiers(&mut self) -> Modifiers {
+        let modifiers = self.modifiers_in_use;
+        self.modifiers_in_use = Modifiers::empty();
+        modifiers
     }
 
     /// Increments the depth of the current parser, failing when the depth surpassed [`MAX_DEPTH`].
