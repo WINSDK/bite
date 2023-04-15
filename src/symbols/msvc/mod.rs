@@ -760,7 +760,6 @@ impl Parse for SymbolType {
                     let calling_conv = CallingConv::parse(ctx, backrefs)?;
                     Type::VCallThunk(offset, calling_conv)
                 }
-                // TODO: there are more cases here
                 _ => return None,
             },
             // ident with unknown encoding
@@ -1792,11 +1791,11 @@ impl<'a> Format<'a> for Qualifiers {
 struct PointerQualifiers(Modifiers);
 
 impl Parse for PointerQualifiers {
-    // FIXME: this implement is slow
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        let mut quali = [Modifiers::empty(); 4];
+        let mut quali = Modifiers::empty();
 
-        for idx in 0..4 {
+        // there can be up to 4 pointer qualifiers
+        for _ in 0..4 {
             let addi = match ctx.peek() {
                 Some(b'E') => Modifiers::PTR64,
                 Some(b'I') => Modifiers::RESTRICT,
@@ -1806,19 +1805,19 @@ impl Parse for PointerQualifiers {
                 _ => break,
             };
 
-            let lvalue_mismatch = addi == Modifiers::LVALUE && quali.contains(&Modifiers::RVALUE);
-            let rvalue_mismatch = addi == Modifiers::RVALUE && quali.contains(&Modifiers::LVALUE);
-
-            if lvalue_mismatch || rvalue_mismatch {
+            // a pointer cannot be qualified as both a lvalue and rvalue reference
+            if (quali | addi).contains(Modifiers::LVALUE | Modifiers::RVALUE) {
                 break;
             }
 
-            quali[idx] = addi;
+            quali |= addi;
             ctx.offset += 1;
         }
 
-        let modi = quali[0] | quali[1] | quali[2] | quali[3] | Qualifiers::parse(ctx, backrefs)?.0;
-        Some(PointerQualifiers(modi))
+        // concat generic qualifiers
+        quali |= Qualifiers::parse(ctx, backrefs)?.0;
+
+        Some(PointerQualifiers(quali))
     }
 }
 
