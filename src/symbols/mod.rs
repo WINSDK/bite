@@ -94,15 +94,13 @@ impl Index {
             // dbghelp in windows strips them away
 
             // parse gnu/llvm Rust/C/C++ symbols
-            if let Some(s) = strip_prefixes(s, &["Z", "_Z", "___Z"]) {
-                return itanium::parse(s).unwrap_or_else(|| TokenStream::simple(s));
+            if let Some(s) = itanium::parse(s) {
+                return s;
             }
 
             // parse rust symbols that match the v0 mangling scheme
-            //
-            // macOS prefixes symbols with an extra underscore therefore '__R' is allowed
-            if let Some(s) = strip_prefixes(s, &["R", "_R", "__R"]) {
-                return rust::parse(s).unwrap_or_else(|| TokenStream::simple(s));
+            if let Some(s) = rust::parse(s) {
+                return s;
             }
 
             // parse windows msvc C/C++ symbols

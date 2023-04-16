@@ -91,11 +91,14 @@ mod tests;
 use super::TokenStream;
 use crate::colors::{self, Color};
 
-/// Max recursion depth
+/// Max recursion depth.
 const MAX_DEPTH: usize = 256;
 
-/// Try to parse a rust v0 symbol
+/// Try to parse a rust v0 symbol.
 pub fn parse(s: &str) -> Option<TokenStream> {
+    // macOS prefixes symbols with an extra underscore therefore '__R' is allowed
+    let s = s.strip_prefix("R").or(s.strip_prefix("_R")).or(s.strip_prefix("_R"))?;
+
     // paths have to be ascii
     if !s.bytes().all(|c| c.is_ascii()) {
         return None;
