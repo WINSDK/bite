@@ -375,7 +375,7 @@ pub fn encode_hex(mut imm: i64) -> String {
     push_unsafe!(raw, off, b'0');
     push_unsafe!(raw, off, b'x');
 
-    let num_len = (imm + 1).ilog(16) as usize;
+    let num_len = (imm).ilog(16) as usize + 1;
     let leading_zeros = (16 - num_len) * 4;
     let mut imm = reverse_hex_nuggets(imm as usize);
 
