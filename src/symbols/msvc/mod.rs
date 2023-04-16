@@ -205,6 +205,9 @@ enum Type {
 
     /// fn(a, b, c, ...).
     Variadic,
+
+    /// & <MemberFunctionPtr>
+    Inherited(MemberFunctionPtr),
 }
 
 impl Parse for Type {
@@ -285,11 +288,6 @@ impl Parse for Type {
                     return Some(Type::Unit);
                 }
 
-                if let Some(b"1?" | b"H?" | b"I?" | b"J?") = ctx.peek_slice(..2) {
-                    ctx.offset += 2;
-                    return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
-                }
-
                 if ctx.eat(b'C') {
                     let quali = Qualifiers::parse(ctx, backrefs)?;
                     ctx.push_modifiers(quali.0);
@@ -300,11 +298,33 @@ impl Parse for Type {
                 return Some(Type::Unit);
             }
 
-            if let Some(b'1' | b'H' | b'I' | b'J') = ctx.peek() {
+            // single inheritance member function
+            if let Some(b'1') = ctx.peek() {
                 ctx.offset += 1;
-                ctx.parsing_qualifiers = false;
                 ctx.consume(b'?')?;
-                return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
+
+                ctx.parsing_qualifiers = false;
+
+                // `Inherited` is just an alias for a reference
+                // but since wrapping a function in a pointer type changes the formatting
+                // to that of a function pointer, a new type has to be made
+                return Some(Type::Inherited(MemberFunctionPtr::parse(ctx, backrefs)?));
+            }
+
+            // multiple inheritance member function
+            if let Some(b'H' | b'I' | b'J') = ctx.peek() {
+                ctx.offset += 1;
+                ctx.consume(b'?')?;
+
+                ctx.parsing_qualifiers = false;
+
+                // `Inherited` is just an alias for a reference
+                // but since wrapping a function in a pointer type changes the formatting
+                // to that of a function pointer, a new type has to be made
+                let tipe = MemberFunctionPtr::parse(ctx, backrefs).map(Type::Inherited);
+
+                let _thunk_offset = ctx.number()?;
+                return tipe;
             }
         }
 
@@ -589,6 +609,15 @@ impl<'a> PositionalFormat<'a> for Type {
                 ctx.stream.push(" ", colors::WHITE);
                 func.class_name.demangle(ctx, backrefs);
             }
+            Type::Inherited(func) => {
+                ctx.stream.push("&", colors::RED);
+                func.storage_scope.demangle(ctx, backrefs);
+                func.return_type.demangle_pre(ctx, backrefs);
+                func.calling_conv.demangle(ctx, backrefs);
+                ctx.stream.push(" ", colors::WHITE);
+                func.class_name.demangle(ctx, backrefs);
+                func.params.demangle(ctx, backrefs);
+            }
             Type::Constant(val) => {
                 let val = Cow::Owned(val.to_string());
                 ctx.stream.push_cow(val, colors::GRAY20);
@@ -722,10 +751,13 @@ impl Parse for SymbolType {
             }
             // RTTI's don't have a type
             b'8' => Type::Unit,
-            // C style type
-            b'9' => return None,
+            // C style function don't have a type
+            b'9' => Type::Unit,
             // anonymous function
-            b'Y' => Function::parse(ctx, backrefs).map(Type::Function)?,
+            b'Y' => {
+                ctx.parsing_qualifiers = false;
+                Function::parse(ctx, backrefs).map(Type::Function)?
+            }
             // special cases
             b'$' => match ctx.take()? {
                 // extern "C" modifier
@@ -899,11 +931,12 @@ impl Parse for MemberFunctionPtr {
         let mut storage_scope = StorageScope::empty();
 
         if ctx.eat(b'E') {
-            quali = Modifiers::PTR64;
+            quali |= Modifiers::PTR64;
         }
 
         if ctx.parsing_qualifiers {
             quali |= PointerQualifiers::parse(ctx, backrefs)?.0;
+            quali |= Modifiers::PTR64;
         } else {
             storage_scope = StorageScope::parse(ctx, backrefs)?;
         }
@@ -1033,6 +1066,8 @@ struct FunctionReturnType(Type);
 
 impl Parse for FunctionReturnType {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
+        dbg!("function return type");
+        dbg!(ctx.src());
         ctx.pop_modifiers();
 
         if ctx.eat(b'?') {
@@ -1509,7 +1544,7 @@ impl Parse for FunctionParameters {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let params = Parameters::parse(ctx, backrefs)?;
 
-        if !ctx.eat(b'Z') {
+        if !ctx.eat(b'Z') || !ctx.eat_slice(b"_E") {
             // TODO: handle throw attribute
         }
 
