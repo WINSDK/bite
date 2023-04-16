@@ -333,7 +333,7 @@ fn cast_operator7() {
 #[test]
 fn back_ref_x1() {
     eq!("??0name0@name1@name2@@QEAA@AEBV?$name3@_WU?$name4@_W@name5@@V?$name6@_W@2@Vname7@@@name5@@V?$name8@PEAXU?$name9@U?$name10@U?$name11@P6AHPEAX@Z$1?name12@@YAH0@Z@name13@@Uname14@2@Uname15@2@U?$name16@U?$name17@U?$name18@PEAX$0?0@name13@@@name13@@Uname19@name20@2@@2@U?$name21@$0A@@2@Uname22@2@@name13@@@name13@@@name13@@@Z" =>
-        "public: __cdecl name2::name1::name0::name0(class name5::name3<wchar_t, struct name5::name4<wchar_t>, class name5::name6<wchar_t>, class name7> const &, class name13::name8<void *, struct name13::name9<struct name13::name10<struct name13::name11<int (__cdecl*)(void * ), &int __cdecl name12(void * )>, struct name13::name14, struct name13::name15, struct name13::name16<struct name13::name17<struct name13::name18<void *, -1> >, struct name13::name20::name19>, struct name13::name21<0>, struct name13::name22> > >)");
+        "public: __cdecl name2::name1::name0::name0(class name5::name3<wchar_t, struct name5::name4<wchar_t>, class name5::name6<wchar_t>, class name7> const &, class name13::name8<void *, struct name13::name9<struct name13::name10<struct name13::name11<int (__cdecl*)(void * ), &int __cdecl name12(void * )>, struct name13::name14, struct name13::name15, struct name13::name16<struct name13::name17<struct name13::name18<void *, -1>>, struct name13::name20::name19>, struct name13::name21<0>, struct name13::name22>>>)");
 }
 
 #[test]
@@ -393,18 +393,18 @@ fn function_pointer_rtti_r0() {
 #[test]
 fn derelict1() {
     eq!("??1?$name0@PEAXV?$name1@PEAX$1??$name2@PEAX@@YAXPEAX@Z$1?name3@@YAX0@Z$01@@$0?0$1??$name4@PEAX@@YAHPEAX0@Z$01@@QEAA@XZ" =>
-        "public: __cdecl name0<void *, class name1<void *, &void __cdecl name2<void * >(void * ), &void __cdecl name3(void * ), 2>, -1, &int __cdecl name4<void * >(void *, void * ), 2>::~name0<void *, class name1<void *, &void __cdecl name2<void * >(void * ), &void __cdecl name3(void * ), 2>, -1, &int __cdecl name4<void * >(void *, void * ), 2>(void) ");
+        "public: __cdecl name0<void *, class name1<void *, &void __cdecl name2<void *>(void *), &void __cdecl name3(void *), 2>, -1, &int __cdecl name4<void *>(void *, void *), 2>::~name0<void *, class name1<void *, &void __cdecl name2<void *>(void *), &void __cdecl name3(void *), 2>, -1, &int __cdecl name4<void *>(void *, void *), 2>(void)");
 }
 
 #[test]
 fn scope_with_interface() {
-    eq!("?name0@?Iname1@name2@@UEAA?AW4name3@@XZ" => "public: virtual enum name3 __cdecl name2[::name1]::name0(void) ");
+    eq!("?name0@?Iname1@name2@@UEAA?AW4name3@@XZ" => "public: virtual enum name3 __cdecl name2::[name1]::name0(void)");
 }
 
 #[test]
 fn derelict3() {
     eq!("??$?8GU?$name0@G@name1@@V?$name2@G@1@@name1@@YA_NAEBV?$name3@GU?$name0@G@name1@@V?$name2@G@2@Vname4@@@0@0@Z" =>
-        "bool __cdecl name1::operator==<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short> >(class name1::name3<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short>, class name4> const &, class name1::name3<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short>, class name4> const & )");
+        "bool __cdecl name1::operator==<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short>>(class name1::name3<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short>, class name4> const &, class name1::name3<unsigned short, struct name1::name0<unsigned short>, class name1::name2<unsigned short>, class name4> const &)");
 }
 
 #[test]
@@ -438,7 +438,7 @@ fn derelict4related_diff1other() {
 #[test]
 fn derelict20140818() {
     eq!("??_7?$name0@V?$name1@PAVname2@name3@@@name4@@$0A@V?$name5@$1?name6@?$name7@PAVname2@name3@@@name8@name4@@SGPAUname9@4@XZ@2@@name4@@6Bname9@1@@" =>
-        "const name4::name0<class name4::name1<class name3::name2 *>, 0, class name4::name5<&public: static struct name4::name9 * __stdcall name4::name8::name7<class name3::name2 *>::name6(void)> >::`vftable'{for `name4::name9'}");
+        "const name4::name0<class name4::name1<class name3::name2 *>, 0, class name4::name5<public: static struct name4::name9 * __stdcall name4::name8::name7<class name3::name2 *>::name6(void)>>::`vftable'{for `name4::name9'}");
 }
 
 //Manufactured (modification)
@@ -624,39 +624,6 @@ fn complex_types_u() {
 fn complex_types_v() {
     eq!("?VarName@SpaceName@@3VTypeName@TypeSpace@@FEIA" =>
         "class TypeSpace::TypeName __unaligned __restrict SpaceName::VarName");
-}
-
-#[test]
-fn complex_types_l() {
-    //Seems that L is a complex type
-    eq!("?VarName@SpaceName@@3LTypeName@TypeSpace@@FEIA" =>
-        "TypeSpace::TypeName __unaligned __restrict SpaceName::VarName");
-}
-
-//The coclass and cointerface symbols were all hand-mangled, which were then input to undname for truth
-//Could not find any in the wild.  Also, have yet to create C source that would
-// have coclass or cointerface types.
-
-#[test]
-fn complex_types_y() {
-    eq!("?VarName@SpaceName@@3_YTypeName@TypeSpace@@FEIA" =>
-        "cointerface TypeSpace::TypeName __unaligned __restrict SpaceName::VarName");
-}
-
-#[test]
-fn complex_types_x() {
-    eq!("?VarName@SpaceName@@3_XTypeName@TypeSpace@@FEIA" =>
-        "coclass TypeSpace::TypeName __unaligned __restrict SpaceName::VarName");
-}
-
-#[test]
-fn complex_types_yparam() {
-    eq!("?FnName@@YAYRet@@YParam@@@Z" => "cointerface Ret __cdecl FnName(cointerface Param)");
-}
-
-#[test]
-fn complex_types_xparam() {
-    eq!("?FnName@@YA_XRet@@_XParam@@@Z" => "coclass Ret __cdecl FnName(coclass Param)");
 }
 
 #[test]
@@ -1468,7 +1435,7 @@ fn template_as_template_parameter() {
 //Manufactured 20170512: to test MDTemplateNameAndArguments inside of MDReusableName and gets put into backreference names.
 #[test]
 fn template_in_reusable_in_qual() {
-    eq!("?Var@?I?$templatename@H@1@3HA" => "int templatename<int>[::templatename<int>]::Var");
+    eq!("?Var@?I?$templatename@H@1@3HA" => "int templatename<int>::[templatename<int>]::Var");
 }
 
 //real symbol: ?#

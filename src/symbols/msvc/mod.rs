@@ -185,25 +185,25 @@ enum Type {
     /// String encoded using a format we don't know.
     Encoded(EncodedIdent),
 
-    /// Array of a single type which can be on n dimensions. E.g. int[20][10][5][..]
+    /// Array of a single type which can be on n dimensions. E.g. int[20][10][5][..].
     Array(Array),
 
-    /// template-parameter-<idx>
+    /// template-parameter-<idx>.
     TemplateParameterIdx(isize),
 
-    /// Virtual function table
+    /// Virtual function table.
     VFTable(Qualifiers, Option<Scope>),
 
-    /// Virtual base table
+    /// Virtual base table.
     VBTable(Qualifiers, Option<Scope>),
 
     /// ???
     VCallThunk(isize, CallingConv),
 
-    /// extern "C"
+    /// extern "C".
     Extern(Box<Type>),
 
-    /// fn(a, b, c, ...)
+    /// fn(a, b, c, ...).
     Variadic,
 }
 
@@ -302,6 +302,7 @@ impl Parse for Type {
 
             if let Some(b'1' | b'H' | b'I' | b'J') = ctx.peek() {
                 ctx.offset += 1;
+                ctx.parsing_qualifiers = false;
                 ctx.consume(b'?')?;
                 return MemberFunctionPtr::parse(ctx, backrefs).map(Type::MemberFunctionPtr);
             }
@@ -584,11 +585,9 @@ impl<'a> PositionalFormat<'a> for Type {
             Type::MemberFunctionPtr(func) => {
                 func.storage_scope.demangle(ctx, backrefs);
                 func.return_type.demangle_pre(ctx, backrefs);
-                ctx.stream.push("(", colors::GRAY40);
                 func.calling_conv.demangle(ctx, backrefs);
-                ctx.stream.push("  ", colors::WHITE);
+                ctx.stream.push(" ", colors::WHITE);
                 func.class_name.demangle(ctx, backrefs);
-                ctx.stream.push("::*", colors::GRAY40);
             }
             Type::Constant(val) => {
                 let val = Cow::Owned(val.to_string());
@@ -1379,7 +1378,7 @@ impl<'a> Format<'a> for Intrinsics {
             Intrinsics::ShiftLeft => "operator<<",
             Intrinsics::ShiftLeftEquals => "operator<<=",
             Intrinsics::LogicalNot => "operator!",
-            Intrinsics::Equals => "operator=",
+            Intrinsics::Equals => "operator==",
             Intrinsics::NotEquals => "operator!=",
             Intrinsics::Array => "operatorcast",
             Intrinsics::Pointer => "operator->",
@@ -1452,8 +1451,14 @@ impl Parse for Parameters {
         let mut types = Vec::new();
 
         loop {
+            // list ending is encountered or a variadic type.
             if ctx.eat(b'Z') {
-                // types.push(Type::Variadic);
+                // parameter lists can only have a variadic as it's last argument
+                // therefore two Z's means a variadic type at the end which doesn't get memorized
+                if ctx.eat(b'Z') {
+                    types.push(Type::Variadic);
+                }
+
                 return Some(Parameters(types));
             }
 
@@ -1682,7 +1687,6 @@ bitflags! {
 
 impl Parse for Modifiers {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
-        dbg!(ctx.src());
         let modi = match ctx.peek() {
             Some(b'E') => Modifiers::FAR,
             Some(b'F') => Modifiers::FAR | Modifiers::CONST,
@@ -1982,7 +1986,7 @@ impl<'a> Format<'a> for Path {
 #[derive(Debug, Clone, PartialEq)]
 enum NestedPath {
     Literal(Literal),
-    Interface(Literal),
+    Interface(Box<NestedPath>),
     Template(Template),
     Intrinsics(Intrinsics),
     Symbol(Box<Symbol>),
@@ -2035,14 +2039,11 @@ impl Parse for NestedPath {
                     ctx.consume(b'@')?;
                     Some(NestedPath::Anonymous)
                 }
-                b'Q' => {
+                b'Q' | b'I' => {
                     ctx.offset += 1;
 
-                    let ident = ctx.ident()?;
-                    ctx.consume(b'@')?;
-                    backrefs.memorize_path(&NestedPath::Literal(ident));
-
-                    Some(NestedPath::Interface(ident))
+                    let path = NestedPath::parse(ctx, backrefs)?;
+                    Some(NestedPath::Interface(Box::new(path)))
                 }
                 _ => {
                     let disambiguator = ctx.number()?;
@@ -2067,7 +2068,7 @@ impl<'a> Format<'a> for NestedPath {
             }
             NestedPath::Interface(ident) => {
                 ctx.stream.push("[", colors::GRAY40);
-                ctx.push_literal(ident, colors::BLUE);
+                ident.demangle(ctx, backrefs);
                 ctx.stream.push("]", colors::GRAY40);
             }
             NestedPath::Template(template) => template.demangle(ctx, backrefs),
@@ -2244,8 +2245,6 @@ impl Parse for Symbol {
 impl<'a> Format<'a> for Symbol {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         ctx.scope = &self.path.scope;
-        ctx.name = &self.path.name.0;
-        ctx.tipe = &self.tipe;
 
         // weird typecasting of class member
         if let NestedPath::Intrinsics(Intrinsics::TypeCast) = self.path.name.0 {

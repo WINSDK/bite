@@ -77,8 +77,6 @@ pub(super) struct Context<'a> {
     pub parsing_qualifiers: bool,
     pub memorizing: bool,
     pub scope: &'a Scope,
-    pub name: &'a NestedPath,
-    pub tipe: &'a Type,
     modifiers_in_use: Modifiers,
     depth: usize,
 }
@@ -94,8 +92,6 @@ impl Context<'_> {
             memorizing: true,
             parsing_qualifiers: true,
             scope: &NO_SCOPE,
-            name: &NestedPath::Anonymous,
-            tipe: &Type::Unit,
             modifiers_in_use: Modifiers::empty(),
             depth: 0,
         }
