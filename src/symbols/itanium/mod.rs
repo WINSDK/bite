@@ -32,6 +32,7 @@ mod ast;
 mod error;
 mod index_str;
 mod subs;
+mod tests;
 
 use super::TokenStream;
 use ast::{Demangle, Parse, ParseContext};

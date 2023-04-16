@@ -110,7 +110,7 @@ pub fn parse(s: &str) -> Option<TokenStream> {
     Some(parser.stream)
 }
 
-/// State required to parse symbols
+/// State required to parse symbols.
 struct Parser {
     stream: TokenStream,
     offset: usize,
@@ -118,7 +118,7 @@ struct Parser {
     printing: bool,
 }
 
-/// Differentiator for nested path's
+/// Differentiator for nested path's.
 #[derive(PartialEq)]
 enum NameSpace {
     Closure,
