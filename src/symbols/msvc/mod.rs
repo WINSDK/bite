@@ -10,9 +10,6 @@
 //!                    | <source-name>
 //!                    | <template-name>
 //!
-//! <operator> = ???
-//!            | ?B // cast, the target type is encoded as the return type.
-//!
 //! <source-name> = <identifier> @
 //!
 //! <postfix> = <unqualified-name> [<postfix>]
@@ -24,14 +21,14 @@
 //! <unscoped-template-name> = ?$ <unqualified-name>
 //!
 //! <type-encoding> = <function-class> <function-type>
-//!                 | <storage-class> <variable-type>
+//!                 | <storage-class> <nested-path>
 //!
 //! <function-class> = <member-function> E? // E designates a 64-bit 'this'
 //!                                         // pointer. in 64-bit mode *all*
 //!                                         // 'this' pointers are 64-bit.
 //!                  | <global-function>
 //!
-//! <function-type> = <this-cvr-qualifiers> <calling-convention>
+//! <function-type> = <this-cvr-qualifier> <calling-convention>
 //!                   <return-type> <argument-list> <throw-spec>
 //!
 //! <member-function> = A // private: near
@@ -185,10 +182,16 @@ enum Type {
     /// String encoded using a format we don't know.
     Encoded(EncodedIdent),
 
-    /// Array of a single type which can be on n dimensions. E.g. int[20][10][5][..].
+    /// Array of a single type which can be on n dimensions.
+    ///
+    /// ```text
+    /// int[20][10][5][..]
+    /// ```
     Array(Array),
 
-    /// template-parameter-<idx>.
+    /// ```text
+    /// template-parameter-<idx>
+    /// ```
     TemplateParameterIdx(isize),
 
     /// Virtual function table.
@@ -197,16 +200,24 @@ enum Type {
     /// Virtual base table.
     VBTable(Qualifiers, Option<Scope>),
 
+    /// ```text
     /// ???
+    /// ```
     VCallThunk(isize, CallingConv),
 
-    /// extern "C".
+    /// ```text
+    /// extern "C"
+    /// ```
     Extern(Box<Type>),
 
-    /// fn(a, b, c, ...).
+    /// ```text
+    /// fn(a, b, c, ...)
+    /// ```
     Variadic,
 
-    /// & <MemberFunctionPtr>
+    /// ```text
+    /// & <member-function-ptr>
+    /// ```
     Inherited(MemberFunctionPtr),
 }
 
@@ -807,17 +818,17 @@ impl Parse for SymbolType {
 }
 
 /// ```text
-// <type-encoding> = <storage-class> <variable-type>
-// <storage-class> = 0 // private static member
-//                 | 1 // protected static member
-//                 | 2 // public static member
-//                 | 3 // global
-//                 | 4 // static local
+/// <type-encoding> = <storage-class> <cvr-qualifier> <nested-path>
+/// <storage-class> = 0 // private static member
+///                 | 1 // protected static member
+///                 | 2 // public static member
+///                 | 3 // global
+///                 | 4 // static local
 /// ```
 #[derive(Debug, PartialEq, Clone)]
 struct Variable {
     storage: StorageVariable,
-    quali: PointerQualifiers,
+    quali: PointeeQualifiers,
     tipe: Box<Type>,
 }
 
@@ -840,20 +851,24 @@ impl Parse for Variable {
         }
 
         let tipe = Type::parse(ctx, backrefs)?;
-        quali |= PointerQualifiers::parse(ctx, backrefs)?.0;
+        quali |= PointeeQualifiers::parse(ctx, backrefs)?.0;
 
         Some(Variable {
             storage,
-            quali: PointerQualifiers(quali),
+            quali: PointeeQualifiers(quali),
             tipe: Box::new(tipe),
         })
     }
 }
 
+/// ```text
+/// <function-type> = <pointee-cvr-qualifier> <calling-convention>
+///                   <return-type> <parameters> <throw-spec>
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct Function {
     calling_conv: CallingConv,
-    quali: PointerQualifiers,
+    quali: PointeeQualifiers,
     return_type: Box<FunctionReturnType>,
     params: FunctionParameters,
 }
@@ -862,7 +877,7 @@ impl Parse for Function {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut quali = Modifiers::empty();
         if ctx.parsing_qualifiers {
-            quali = PointerQualifiers::parse(ctx, backrefs)?.0;
+            quali = PointeeQualifiers::parse(ctx, backrefs)?.0;
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
@@ -871,18 +886,23 @@ impl Parse for Function {
 
         Some(Function {
             calling_conv,
-            quali: PointerQualifiers(quali),
+            quali: PointeeQualifiers(quali),
             return_type: Box::new(return_type),
             params,
         })
     }
 }
 
+/// ```text
+/// <member-function> = static <calling-convention> <return-type> <function-parameters>
+///                   | <storage-scope> <pointee-cvr-qualifier> <calling-convention>
+///                     <return-type> <function-parameters>
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct MemberFunction {
     storage_scope: StorageScope,
     calling_conv: CallingConv,
-    qualifiers: PointerQualifiers,
+    qualifiers: PointeeQualifiers,
     return_type: Box<FunctionReturnType>,
     params: FunctionParameters,
 }
@@ -890,14 +910,14 @@ struct MemberFunction {
 impl Parse for MemberFunction {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let storage_scope = StorageScope::parse(ctx, backrefs)?;
-        let mut qualifiers = PointerQualifiers(Modifiers::empty());
+        let mut qualifiers = PointeeQualifiers(Modifiers::empty());
 
         if !storage_scope.contains(StorageScope::STATIC) {
-            qualifiers = PointerQualifiers::parse(ctx, backrefs)?;
+            qualifiers = PointeeQualifiers::parse(ctx, backrefs)?;
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-        let modi = MemberReturnModifiers::parse(ctx, backrefs)?.0;
+        let modi = MemberReturnQualifiers::parse(ctx, backrefs)?.0;
 
         ctx.push_modifiers(modi);
 
@@ -914,12 +934,20 @@ impl Parse for MemberFunction {
     }
 }
 
+/// ```text
+/// <member-function-pointer> = <storage-scope> [<cvr-qualifier>] [<storage-scope>]
+///                             <calling-convention> <member-return-modifiers>
+///                             <return-type> <function-parameters>
+///
+/// <cvr-qualifier> = E <cvr-qualifier>       // ptr64
+///                  | <pointee-cvr-qualifier> // ptr64 + pointee qualifiers
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct MemberFunctionPtr {
     storage_scope: StorageScope,
     class_name: Path,
     calling_conv: CallingConv,
-    qualifiers: PointerQualifiers,
+    qualifiers: PointeeQualifiers,
     return_type: Box<FunctionReturnType>,
     params: FunctionParameters,
 }
@@ -935,14 +963,14 @@ impl Parse for MemberFunctionPtr {
         }
 
         if ctx.parsing_qualifiers {
-            quali |= PointerQualifiers::parse(ctx, backrefs)?.0;
+            quali |= PointeeQualifiers::parse(ctx, backrefs)?.0;
             quali |= Modifiers::PTR64;
         } else {
             storage_scope = StorageScope::parse(ctx, backrefs)?;
         }
 
         let calling_conv = CallingConv::parse(ctx, backrefs)?;
-        let modi = MemberReturnModifiers::parse(ctx, backrefs)?.0;
+        let modi = MemberReturnQualifiers::parse(ctx, backrefs)?.0;
 
         ctx.push_modifiers(modi);
 
@@ -953,13 +981,17 @@ impl Parse for MemberFunctionPtr {
             storage_scope,
             class_name,
             calling_conv,
-            qualifiers: PointerQualifiers(quali),
+            qualifiers: PointeeQualifiers(quali),
             return_type: Box::new(return_type),
             params,
         })
     }
 }
 
+/// ```text
+/// <array> = <pointee-cvr-qualifier> <number>{dimensions} <type>
+/// <dimensions> = <number>
+/// ```
 #[derive(Debug)]
 struct Array {
     modifiers: Modifiers,
@@ -985,7 +1017,7 @@ impl Parse for Array {
         for _ in 0..dimensions - 1 {
             // construct array
             node.tipe = MaybeUninit::new(Box::new(Type::Array(Array {
-                modifiers: Modifiers::empty(),
+                modifiers: PointeeQualifiers::parse(ctx, backrefs)?.0,
                 tipe: MaybeUninit::uninit(),
                 len: ctx.number()?,
             })));
@@ -1017,14 +1049,12 @@ impl Parse for Array {
 }
 
 impl Array {
-    #[inline]
     fn tipe(&self) -> &Type {
         unsafe { self.tipe.assume_init_ref() }
     }
 }
 
 impl PartialEq for Array {
-    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.modifiers == other.modifiers
             && unsafe { self.tipe.assume_init_ref() == other.tipe.assume_init_ref() }
@@ -1033,7 +1063,6 @@ impl PartialEq for Array {
 }
 
 impl Clone for Array {
-    #[inline]
     fn clone(&self) -> Self {
         Self {
             modifiers: self.modifiers,
@@ -1043,6 +1072,10 @@ impl Clone for Array {
     }
 }
 
+/// ```text
+/// <pointee> = <cvr-qualifier> <type>
+///           | E <cvr-qualifier> <type> // ptr64 + pointee qualifiers
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct Pointee(Type);
 
@@ -1066,8 +1099,6 @@ struct FunctionReturnType(Type);
 
 impl Parse for FunctionReturnType {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
-        dbg!("function return type");
-        dbg!(ctx.src());
         ctx.pop_modifiers();
 
         if ctx.eat(b'?') {
@@ -1478,6 +1509,11 @@ impl<'a> Format<'a> for Intrinsics {
     }
 }
 
+/// ```text
+/// <parameters> = X // void
+///              | <type>+ @
+///              | <type>* Z // variable args
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 struct Parameters(Vec<Type>);
 
@@ -1494,12 +1530,12 @@ impl Parse for Parameters {
                     types.push(Type::Variadic);
                 }
 
-                return Some(Parameters(types));
+                break;
             }
 
             // either the stream is consumed or an list ending is encountered.
             if ctx.eat(b'@') || ctx.src().is_empty() {
-                return Some(Parameters(types));
+                break;
             }
 
             if let Some(digit) = ctx.base10() {
@@ -1519,6 +1555,12 @@ impl Parse for Parameters {
 
             types.push(tipe);
         }
+
+        if types.is_empty() {
+            return None;
+        }
+
+        return Some(Parameters(types));
     }
 }
 
@@ -1537,6 +1579,9 @@ impl<'a> Format<'a> for Parameters {
     }
 }
 
+/// ```text
+/// <function-parameters> = <argument-list> <throw-spec>
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct FunctionParameters(Parameters);
 
@@ -1634,6 +1679,29 @@ impl<'a> Format<'a> for StorageVariable {
 }
 
 bitflags! {
+    /// ```text
+    /// <member-function> = A // private: near
+    ///                   | B // private: far
+    ///                   | C // private: static near
+    ///                   | D // private: static far
+    ///                   | E // private: virtual near
+    ///                   | F // private: virtual far
+    ///                   | I // protected: near
+    ///                   | J // protected: far
+    ///                   | K // protected: static near
+    ///                   | L // protected: static far
+    ///                   | M // protected: virtual near
+    ///                   | N // protected: virtual far
+    ///                   | Q // public: near
+    ///                   | R // public: far
+    ///                   | S // public: static near
+    ///                   | T // public: static far
+    ///                   | U // public: virtual near
+    ///                   | V // public: virtual far
+    ///
+    /// <global-function> = Y // global near
+    ///                   | Z // global far
+    /// ```
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     struct StorageScope: u32 {
         const PUBLIC    = 1;
@@ -1673,6 +1741,7 @@ impl Parse for StorageScope {
             b'V' => StorageScope::PUBLIC | StorageScope::VIRTUAL | StorageScope::FAR,
             b'W' => StorageScope::PUBLIC | StorageScope::ADJUST,
             b'X' => StorageScope::PUBLIC | StorageScope::ADJUST | StorageScope::FAR,
+
             b'Y' => StorageScope::GLOBAL,
             b'Z' => StorageScope::GLOBAL | StorageScope::FAR,
             _ => return None,
@@ -1753,13 +1822,19 @@ impl<'a> Format<'a> for Modifiers {
     }
 }
 
+/// ```text
+/// <cvr-qualifier> = B // const
+///                 = C // volatile
+///                 = D // const volatile
+///                 = A // no qualifier
+/// ```
 #[derive(Debug, Clone, PartialEq)]
-struct MemberReturnModifiers(Modifiers);
+struct MemberReturnQualifiers(Modifiers);
 
-impl Parse for MemberReturnModifiers {
+impl Parse for MemberReturnQualifiers {
     fn parse(ctx: &mut Context, _: &mut Backrefs) -> Option<Self> {
         if !ctx.eat(b'?') {
-            return Some(MemberReturnModifiers(Modifiers::empty()));
+            return Some(MemberReturnQualifiers(Modifiers::empty()));
         }
 
         let modi = match ctx.take()? {
@@ -1770,10 +1845,21 @@ impl Parse for MemberReturnModifiers {
             _ => return None,
         };
 
-        Some(MemberReturnModifiers(modi))
+        Some(MemberReturnQualifiers(modi))
     }
 }
 
+/// ```text
+/// <cvr-qualifier> = B // const
+///                 = R // const
+///                 = C // volatile
+///                 = S // volatile
+///                 = B // volatile
+///                 = D // const volatile
+///                 = T // const volatile
+///                 = A // no qualifier
+///                 = Q // no qualifier
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 struct Qualifiers(Modifiers);
 
@@ -1826,10 +1912,19 @@ impl<'a> Format<'a> for Qualifiers {
     }
 }
 
+/// ```text
+/// <pointee-cvr-qualifier> = <pointee-cvr-qualifier>{0,4} <cvr-qualifier>
+///
+/// <pointee-cvr-qualifier> = E // ptr64
+///                         = I // __restrict
+///                         = F // __unaligned
+///                         = G // &
+///                         = H // &&
+/// ```
 #[derive(Debug, Clone, PartialEq)]
-struct PointerQualifiers(Modifiers);
+struct PointeeQualifiers(Modifiers);
 
-impl Parse for PointerQualifiers {
+impl Parse for PointeeQualifiers {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let mut quali = Modifiers::empty();
 
@@ -1856,11 +1951,11 @@ impl Parse for PointerQualifiers {
         // concat generic qualifiers
         quali |= Qualifiers::parse(ctx, backrefs)?.0;
 
-        Some(PointerQualifiers(quali))
+        Some(PointeeQualifiers(quali))
     }
 }
 
-impl<'a> Format<'a> for PointerQualifiers {
+impl<'a> Format<'a> for PointeeQualifiers {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
@@ -1894,6 +1989,9 @@ impl<'a> Format<'a> for PointerQualifiers {
     }
 }
 
+/// Literals are indices into a mangled string.
+/// Unlike calling [`Context::ident`], a literal memorizes a
+/// parsed item as a [`NestedPath::Literal`].
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 struct Literal {
     start: usize,
@@ -1916,6 +2014,9 @@ impl Literal {
     }
 }
 
+/// ```text
+/// <md5> = <base-16-digit>{32} @
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct MD5(Literal);
 
@@ -1957,6 +2058,9 @@ impl<'a> Format<'a> for MD5 {
     }
 }
 
+/// ```text
+/// <scope> = {<nested-path>}* @
+/// ```
 #[derive(Debug, Default, PartialEq, Clone)]
 struct Scope(Vec<NestedPath>);
 
@@ -1991,6 +2095,12 @@ impl<'a> Format<'a> for Scope {
     }
 }
 
+/// Parses a symbol name in the form of A@B@C@@ which represents C::B::A.
+/// Where C is the name and B::A is the scope.
+///
+/// ```text
+/// <path> = <unqualified-path> <scope>
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 struct Path {
     name: UnqualifiedPath,
@@ -2018,6 +2128,15 @@ impl<'a> Format<'a> for Path {
     }
 }
 
+/// ```text
+///  <nested-path> = <substitution>
+///                | ?? <symbol>
+///                | ?$ <template>
+///                | ?A [<disambiguator>] @ <anonymous-namespace>
+///                | Q <nested-path> // interface
+///                | I <nested-path> // interface
+///                | <disambiguator>
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 enum NestedPath {
     Literal(Literal),
@@ -2119,6 +2238,11 @@ impl<'a> Format<'a> for NestedPath {
     }
 }
 
+/// ```text
+///  <unqualified-path> = <substitution>
+///                     | <intrinsic>
+///                     | <source-name>
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct UnqualifiedPath(NestedPath);
 
@@ -2149,6 +2273,7 @@ impl Parse for UnqualifiedPath {
                 .map(UnqualifiedPath);
         }
 
+        // parse source name as a literal
         let name = ctx.ident()?;
         backrefs.memorize_path(&NestedPath::Literal(name));
 
@@ -2157,6 +2282,16 @@ impl Parse for UnqualifiedPath {
     }
 }
 
+/// ```text
+/// <encoded-ident> = <width> <length> <character>{0, max(length, width * 32)} [?]
+///
+/// <width> = <base-10-digit>
+/// <length> = <number>
+/// <character> = 0..=9
+///             | a..=z
+///             | _
+///             | $
+/// ```
 #[derive(Debug, PartialEq, Clone, Copy)]
 struct EncodedIdent;
 
@@ -2189,6 +2324,16 @@ impl Parse for EncodedIdent {
     }
 }
 
+/// ```text
+/// <template-name> = <unqualified-path> <template-arg>+
+///
+/// <template-arg> = <type>
+///                | <integer>
+///                | <member-data-pointer>
+///                | <member-function-pointer>
+///                | $ <constant-value>
+///                | <template-arg>+
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct Template {
     name: Box<UnqualifiedPath>,
@@ -2215,6 +2360,13 @@ impl<'a> Format<'a> for Template {
 }
 
 /// Root node of the AST.
+///
+/// ```text
+/// <symbol> = ??@ <md5>
+///          | ?$TSS <static-guard>
+///          | ?$ <template>
+///          | <path> [<symbol-type>]
+/// ```
 #[derive(Debug, PartialEq, Clone)]
 struct Symbol {
     path: Path,
@@ -2247,8 +2399,6 @@ impl Parse for Symbol {
             }
 
             ctx.ascent();
-            // let name = NestedPath::parse(ctx, backrefs)?;
-            // let scope = Scope::parse(ctx, backrefs)?;
             todo!("TODO: return thread safe static guard")
         }
 

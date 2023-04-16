@@ -32,7 +32,7 @@ fn simple() {
             tipe: Type::Function(
                 Function {
                     calling_conv: CallingConv::Cdecl,
-                    quali: PointerQualifiers(Modifiers::empty()),
+                    quali: PointeeQualifiers(Modifiers::empty()),
                     return_type: Box::new(FunctionReturnType(Type::Void(Modifiers::empty()))),
                     params: FunctionParameters(Parameters(vec![
                         Type::Float(Modifiers::empty()),
@@ -765,6 +765,45 @@ fn cvmodifiers_modified_d() {
     eq!("?VarName@VarSpace@@3PEDHA" => "int const volatile * VarSpace::VarName");
 }
 
+#[test]
+fn simple_template() {
+    eq!("?Ti@@3V?$Tc@H@@A" => "class Tc<int> Ti");
+}
+
+//Manufactured to show that whole MDTemplateNameAndArgumentsList is a valid name backref.
+#[test]
+fn template_backref_of_whole_template_as_qual() {
+    eq!("?Ti@@3V?$Tc@H@1@A" => "class Tc<int>::Tc<int> Ti");
+}
+
+#[test]
+fn simple_template_main() {
+    eq!("?$Tc@H" => "Tc<int>");
+}
+
+#[test]
+fn simple_template_main_better() {
+    eq!("?$Tc@HH" => "Tc<int, int>");
+}
+
+#[test]
+fn template_as_template_parameter() {
+    eq!("?Ti@@3V?$Tc@V?$Tb@H@@@@A" => "class Tc<class Tb<int>> Ti");
+}
+
+//Manufactured 20170512: to test MDTemplateNameAndArguments inside of MDReusableName and gets put into backreference names.
+#[test]
+fn template_in_reusable_in_qual() {
+    eq!("?Var@?I?$templatename@H@1@3HA" => "int templatename<int>::[templatename<int>]::Var");
+}
+
+//real symbol: ?#
+#[test]
+fn special_template_parameters_questionnumber() {
+    eq!("??0?$name0@?0Uname1@@@name2@@QEAA@XZ" =>
+        "public: __cdecl name2::name0<`template-parameter-1', struct name1>::name0<`template-parameter-1', struct name1>(void)");
+}
+
 //S, W, 0 block
 // #[test]
 // fn cvmodifiers_modified_s() {
@@ -1410,45 +1449,6 @@ fn cvmodifiers_modified_d() {
 //     eq!("?FnName@@_G0BA@EAAHXZ" => "[thunk]:private: virtual int __cdecl __based(void) FnName`adjustor{16}' (void) ");
 // }
 // 
-
-#[test]
-fn simple_template() {
-    eq!("?Ti@@3V?$Tc@H@@A" => "class Tc<int> Ti");
-}
-
-//Manufactured to show that whole MDTemplateNameAndArgumentsList is a valid name backref.
-#[test]
-fn template_backref_of_whole_template_as_qual() {
-    eq!("?Ti@@3V?$Tc@H@1@A" => "class Tc<int>::Tc<int> Ti");
-}
-
-#[test]
-fn simple_template_main() {
-    eq!("?$Tc@H" => "Tc<int>");
-}
-
-#[test]
-fn simple_template_main_better() {
-    eq!("?$Tc@HH" => "Tc<int, int>");
-}
-
-#[test]
-fn template_as_template_parameter() {
-    eq!("?Ti@@3V?$Tc@V?$Tb@H@@@@A" => "class Tc<class Tb<int>> Ti");
-}
-
-//Manufactured 20170512: to test MDTemplateNameAndArguments inside of MDReusableName and gets put into backreference names.
-#[test]
-fn template_in_reusable_in_qual() {
-    eq!("?Var@?I?$templatename@H@1@3HA" => "int templatename<int>::[templatename<int>]::Var");
-}
-
-//real symbol: ?#
-#[test]
-fn special_template_parameters_questionnumber() {
-    eq!("??0?$name0@?0Uname1@@@name2@@QEAA@XZ" =>
-        "public: __cdecl name2::name0<`template-parameter-1', struct name1>::name0<`template-parameter-1', struct name1>(void)");
-}
 // 
 // //real symbol: $0
 // #[test]

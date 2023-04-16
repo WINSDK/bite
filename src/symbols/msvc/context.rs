@@ -180,14 +180,14 @@ impl Context<'_> {
     /// Parses a generic number (positive, negative, hex or decimal).
     ///
     /// ```text
-    /// = <non-negative>
-    /// | <hex-digit>
-    /// | <number>
+    /// <number> = <unsigned>
+    ///          | <signed>
+    ///          | <hex-digit>
     ///
-    /// <number>       = '?' <non-negative>
-    /// <hex-digit>    = 'A'..='P'
-    /// <non-negative> = '1'..='9'
-    ///                | {<hex-digit>} '@'
+    /// <unsigned>     = 1..=9
+    /// <signed>       = ? <unsigned>
+    /// <hex-digit>    = A..=P
+    ///                | {<hex-digit>} @
     /// ```
     pub fn number(&mut self) -> Option<isize> {
         let negative = self.eat(b'?');
