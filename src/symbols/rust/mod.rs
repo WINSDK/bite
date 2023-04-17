@@ -98,7 +98,7 @@ const MAX_DEPTH: usize = 256;
 pub fn parse(s: &str) -> Option<TokenStream> {
     // macOS prefixes symbols with an extra underscore therefore '__R' is allowed
     let s = s
-        .strip_prefix("R")
+        .strip_prefix('R')
         .or(s.strip_prefix("_R"))
         .or(s.strip_prefix("_R"))?;
 

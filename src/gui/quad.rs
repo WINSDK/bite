@@ -191,7 +191,7 @@ impl Pipeline {
             )
             .copy_from_slice(bytemuck::bytes_of(&uniforms));
 
-        let instance_bytes = bytemuck::cast_slice(&instances);
+        let instance_bytes = bytemuck::cast_slice(instances);
 
         staging_belt
             .write_buffer(
@@ -209,7 +209,7 @@ impl Pipeline {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("quad render pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
+                view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,

@@ -40,13 +40,13 @@ impl<'a> IndexStr<'a> {
     /// Peek at the next byte in this `IndexStr`.
     #[inline]
     pub fn peek(&self) -> Option<u8> {
-        self.as_ref().get(0).cloned()
+        self.as_ref().first().copied()
     }
 
     /// Peek at the second next byte in this `IndexStr`.
     #[inline]
     pub fn peek_second(&self) -> Option<u8> {
-        self.as_ref().get(1).cloned()
+        self.as_ref().first().copied()
     }
 
     /// Split the string in two at the given index, resulting in the tuple where
@@ -133,9 +133,9 @@ impl<'a> From<&'a [u8]> for IndexStr<'a> {
     }
 }
 
-impl<'a> Into<&'a [u8]> for IndexStr<'a> {
-    fn into(self) -> &'a [u8] {
-        self.string
+impl<'a> From<IndexStr<'a>> for &'a [u8] {
+    fn from(val: IndexStr<'a>) -> &'a [u8] {
+        val.string
     }
 }
 

@@ -65,6 +65,7 @@
 mod context;
 mod tests;
 
+use std::ptr;
 use std::borrow::Cow;
 use std::mem::MaybeUninit;
 
@@ -1057,7 +1058,7 @@ impl Array {
 impl PartialEq for Array {
     fn eq(&self, other: &Self) -> bool {
         self.modifiers == other.modifiers
-            && unsafe { self.tipe.assume_init_ref() == other.tipe.assume_init_ref() }
+            && unsafe { ptr::eq(self.tipe.assume_init_ref(), other.tipe.assume_init_ref()) }
             && self.len == other.len
     }
 }
@@ -1560,7 +1561,7 @@ impl Parse for Parameters {
             return None;
         }
 
-        return Some(Parameters(types));
+        Some(Parameters(types))
     }
 }
 

@@ -407,7 +407,7 @@ pub fn encode_hex_padded(mut imm: i64, size: usize) -> String {
     let leading_zeros = (16 - num_len) * 4;
     let mut imm = reverse_hex_nuggets(imm as usize);
 
-    for _ in 0..size.checked_sub(num_len + is_neg).unwrap_or(0) {
+    for _ in 0..size.saturating_sub(num_len + is_neg) {
         push_unsafe!(raw, off, b'0');
     }
 

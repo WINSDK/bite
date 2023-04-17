@@ -270,9 +270,7 @@ impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>
         while let Some(s) = scope {
             if let Ok((arg, args)) = s.item.get_template_arg(idx) {
                 if let Some((in_idx, in_args)) = s.in_arg {
-                    if args as *const TemplateArgs == in_args as *const TemplateArgs
-                        && in_idx <= idx
-                    {
+                    if ptr::eq(args, in_args) && in_idx <= idx {
                         return Err(error::Error::ForwardTemplateArgReference);
                     }
                 }
@@ -394,8 +392,7 @@ impl<'a> DemangleContext<'a> {
 
     #[inline]
     fn pop_inner(&mut self) -> Option<&'a dyn DemangleAsInner<'a>> {
-        let popped = self.inner.pop();
-        popped
+        self.inner.pop()
     }
 
     #[inline]
@@ -405,6 +402,7 @@ impl<'a> DemangleContext<'a> {
             Some(last) => *last,
         };
 
+        // FIXME: this compares vtables instead of objects
         if ptr::eq(last, inner) {
             self.inner.pop();
             true
@@ -673,11 +671,7 @@ impl<'subs> Demangle<'subs> for FunctionArgSlice {
             );
 
         if needs_paren {
-            let needs_space = needs_space
-                || match ctx.last_char_written {
-                    Some('(') | Some('*') => false,
-                    _ => true,
-                };
+            let needs_space = needs_space | !matches!(ctx.last_char_written, Some('(') | Some('*'));
 
             if needs_space {
                 ctx.ensure_space();
@@ -1642,7 +1636,7 @@ impl<'subs> Demangle<'subs> for NestedName {
             self.cv_qualifiers().demangle(ctx, scope);
         }
 
-        if let Some(ref refs) = self.ref_qualifier() {
+        if let Some(refs) = self.ref_qualifier() {
             ctx.ensure_space();
             refs.demangle(ctx, scope);
         }
@@ -1896,14 +1890,14 @@ impl GetTemplateArgs for PrefixHandle {
     fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
             PrefixHandle::BackReference(idx) => {
-                if let Some(&Substitutable::Prefix(ref p)) = subs.get(idx) {
+                if let Some(Substitutable::Prefix(p)) = subs.get(idx) {
                     p.get_template_args(subs)
                 } else {
                     None
                 }
             }
             PrefixHandle::NonSubstitution(NonSubstitution(idx)) => {
-                if let Some(&Substitutable::Prefix(ref p)) = subs.get_non_substitution(idx) {
+                if let Some(Substitutable::Prefix(p)) = subs.get_non_substitution(idx) {
                     p.get_template_args(subs)
                 } else {
                     None
@@ -2207,7 +2201,7 @@ impl<'subs> ArgScope<'subs, 'subs> for SourceName {
 impl SourceName {
     #[inline]
     fn starts_with(byte: u8) -> bool {
-        byte == b'0' || (b'0' <= byte && byte <= b'9')
+        byte.is_ascii_digit()
     }
 }
 
@@ -2484,9 +2478,9 @@ impl OperatorName {
 
     fn arity(&self) -> u8 {
         match self {
-            &OperatorName::Cast(_) | &OperatorName::Conversion(_) | &OperatorName::Literal(_) => 1,
-            &OperatorName::Simple(ref s) => s.arity(),
-            &OperatorName::VendorExtension(arity, _) => arity,
+            OperatorName::Cast(_) | OperatorName::Conversion(_) | OperatorName::Literal(_) => 1,
+            OperatorName::Simple(ref s) => s.arity(),
+            OperatorName::VendorExtension(arity, _) => *arity,
         }
     }
 
@@ -2552,7 +2546,7 @@ impl OperatorName {
 
         let tail = consume(b"v", input)?;
         let (arity, tail) = match tail.peek() {
-            Some(c) if b'0' <= c && c <= b'9' => (c - b'0', tail.range_from(1..)),
+            Some(c) if c.is_ascii_digit() => (c - b'0', tail.range_from(1..)),
             None => return Err(error::Error::UnexpectedEnd),
             _ => return Err(error::Error::UnexpectedText),
         };
@@ -3031,10 +3025,7 @@ define_handle! {
 
 impl TypeHandle {
     fn is_void(&self) -> bool {
-        match *self {
-            TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Void)) => true,
-            _ => false,
-        }
+        matches!(self, TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Void)))
     }
 }
 
@@ -3048,9 +3039,9 @@ impl Parse for TypeHandle {
 
         /// Insert the given type into the substitution table, and return a
         /// handle referencing the index in the table where it ended up.
-        fn insert_and_return_handle<'a, 'b>(
+        fn insert_and_return_handle<'b>(
             ty: Type,
-            subs: &'a mut SubstitutionTable,
+            subs: &mut SubstitutionTable,
             tail: IndexStr<'b>,
         ) -> Result<(TypeHandle, IndexStr<'b>)> {
             let ty = Substitutable::Type(ty);
@@ -3376,10 +3367,7 @@ impl<'subs> DemangleAsInner<'subs> for Type {
     }
 
     fn is_qualified(&self) -> bool {
-        match *self {
-            Type::Qualified(..) => true,
-            _ => false,
-        }
+        matches!(self, Type::Qualified(..))
     }
 }
 
@@ -4200,7 +4188,7 @@ impl<'subs> DemangleAsInner<'subs> for ArrayType {
             // are also (potentially qualified) arrays themselves, in which case
             // we format them as multi-dimensional arrays.
             let inner_is_array = match inner.downcast_to_type() {
-                Some(&Type::Qualified(_, ref ty)) => ctx.subs.get_type(ty).map_or(false, |ty| {
+                Some(Type::Qualified(_, ty)) => ctx.subs.get_type(ty).map_or(false, |ty| {
                     DemangleAsInner::downcast_to_array_type(ty).is_some()
                 }),
                 _ => {
@@ -4435,9 +4423,9 @@ impl<'subs> Demangle<'subs> for TemplateParam {
 }
 
 impl TemplateParam {
-    fn resolve<'subs, 'prev>(
+    fn resolve<'subs>(
         &'subs self,
-        scope: Option<ArgScopeStack<'prev, 'subs>>,
+        scope: Option<ArgScopeStack<'_, 'subs>>,
     ) -> &'subs TemplateArg {
         static FAILED: TemplateArg = TemplateArg::ArgPack(Vec::new());
 
@@ -4451,7 +4439,7 @@ impl TemplateParam {
 
 impl<'a> Hash for &'a TemplateParam {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let self_ref: &TemplateParam = *self;
+        let self_ref: &TemplateParam = self;
         let self_ptr = self_ref as *const TemplateParam;
         self_ptr.hash(state);
     }
@@ -5613,15 +5601,15 @@ impl<'subs> Demangle<'subs> for Expression {
 }
 
 impl Expression {
-    fn demangle_as_subexpr<'subs, 'prev, 'ctx>(
+    fn demangle_as_subexpr<'subs>(
         &'subs self,
-        ctx: &'ctx mut DemangleContext<'subs>,
-        scope: Option<ArgScopeStack<'prev, 'subs>>,
+        ctx: &mut DemangleContext<'subs>,
+        scope: Option<ArgScopeStack<'_, 'subs>>,
     ) {
-        let needs_parens = match *self {
-            Expression::FunctionParam(_) | Expression::Primary(ExprPrimary::External(_)) => false,
-            _ => true,
-        };
+        let needs_parens = !matches!(
+            self,
+            Expression::FunctionParam(_) | Expression::Primary(ExprPrimary::External(_))
+        );
 
         if needs_parens {
             ctx.push("(", colors::GRAY40);
@@ -6440,10 +6428,10 @@ impl ClosureTypeName {
 pub struct LambdaSig(pub Vec<TypeHandle>);
 
 impl LambdaSig {
-    fn demangle_args<'subs, 'prev, 'ctx>(
+    fn demangle_args<'subs>(
         &'subs self,
-        ctx: &'ctx mut DemangleContext<'subs>,
-        scope: Option<ArgScopeStack<'prev, 'subs>>,
+        ctx: &mut DemangleContext<'subs>,
+        scope: Option<ArgScopeStack<'_, 'subs>>,
     ) {
         let mut need_comma = false;
         for ty in &self.0 {
@@ -6480,9 +6468,8 @@ impl<'subs> Demangle<'subs> for LambdaSig {
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
         ctx.is_lambda_arg = true;
-        let r = self.demangle_args(ctx, scope);
+        self.demangle_args(ctx, scope);
         ctx.is_lambda_arg = false;
-        r
     }
 }
 
