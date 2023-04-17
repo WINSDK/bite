@@ -96,7 +96,7 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 }
 
 /// Converts an trivially printable node to a string.
-trait Format<'a> {
+trait Demangle<'a> {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
 }
 
@@ -117,7 +117,7 @@ trait Format<'a> {
 /// the "first half" of type declaration, and demangle_post() writes the
 /// "second half". For example, demangle_pre() writes a return type for a
 /// function and demangle_post() writes an parameter list.
-trait PositionalFormat<'a> {
+trait PositionalDemangle<'a> {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
     fn demangle_post(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs);
 }
@@ -414,14 +414,14 @@ impl Parse for Type {
     }
 }
 
-impl<'a> Format<'a> for Type {
+impl<'a> Demangle<'a> for Type {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.demangle_pre(ctx, backrefs);
         self.demangle_post(ctx, backrefs);
     }
 }
 
-impl<'a> PositionalFormat<'a> for Type {
+impl<'a> PositionalDemangle<'a> for Type {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             Type::Unit => {}
@@ -1121,7 +1121,7 @@ impl Parse for FunctionReturnType {
     }
 }
 
-impl<'a> PositionalFormat<'a> for FunctionReturnType {
+impl<'a> PositionalDemangle<'a> for FunctionReturnType {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.0.demangle_pre(ctx, backrefs);
         if self.0 != Type::Unit {
@@ -1371,7 +1371,7 @@ impl Parse for Intrinsics {
     }
 }
 
-impl<'a> Format<'a> for Intrinsics {
+impl<'a> Demangle<'a> for Intrinsics {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let literal = match *self {
             Intrinsics::Ctor => {
@@ -1403,7 +1403,7 @@ impl<'a> Format<'a> for Intrinsics {
                 return;
             }
             Intrinsics::SourceName(ref src) => {
-                ctx.push_literal(src, colors::MAGENTA);
+                ctx.push_literal(src, colors::GRAY20);
                 return;
             }
             Intrinsics::RTTITypeDescriptor(_, ref tipe) => {
@@ -1564,7 +1564,7 @@ impl Parse for Parameters {
     }
 }
 
-impl<'a> Format<'a> for Parameters {
+impl<'a> Demangle<'a> for Parameters {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let mut params = self.0.iter();
 
@@ -1597,7 +1597,7 @@ impl Parse for FunctionParameters {
     }
 }
 
-impl<'a> Format<'a> for FunctionParameters {
+impl<'a> Demangle<'a> for FunctionParameters {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         ctx.stream.push("(", colors::GRAY40);
         self.0.demangle(ctx, backrefs);
@@ -1638,7 +1638,7 @@ impl Parse for CallingConv {
     }
 }
 
-impl<'a> Format<'a> for CallingConv {
+impl<'a> Demangle<'a> for CallingConv {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let literal = match self {
             CallingConv::Cdecl => "__cdecl",
@@ -1665,7 +1665,7 @@ enum StorageVariable {
     FunctionLocalStatic,
 }
 
-impl<'a> Format<'a> for StorageVariable {
+impl<'a> Demangle<'a> for StorageVariable {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let literal = match self {
             StorageVariable::PrivateStatic => "private: static ",
@@ -1749,7 +1749,7 @@ impl Parse for StorageScope {
     }
 }
 
-impl<'a> Format<'a> for StorageScope {
+impl<'a> Demangle<'a> for StorageScope {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::MAGENTA;
 
@@ -1808,7 +1808,7 @@ impl Parse for Modifiers {
     }
 }
 
-impl<'a> Format<'a> for Modifiers {
+impl<'a> Demangle<'a> for Modifiers {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
@@ -1878,7 +1878,7 @@ impl Parse for Qualifiers {
     }
 }
 
-impl<'a> Format<'a> for Qualifiers {
+impl<'a> Demangle<'a> for Qualifiers {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
@@ -1955,7 +1955,7 @@ impl Parse for PointeeQualifiers {
     }
 }
 
-impl<'a> Format<'a> for PointeeQualifiers {
+impl<'a> Demangle<'a> for PointeeQualifiers {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = colors::BLUE;
 
@@ -2050,7 +2050,7 @@ impl Parse for MD5 {
     }
 }
 
-impl<'a> Format<'a> for MD5 {
+impl<'a> Demangle<'a> for MD5 {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         ctx.stream.push("??@", colors::GRAY20);
         ctx.push_literal(&self.0, colors::GRAY20);
@@ -2083,7 +2083,7 @@ impl Parse for Scope {
     }
 }
 
-impl<'a> Format<'a> for Scope {
+impl<'a> Demangle<'a> for Scope {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         for (idx, part) in self.0.iter().rev().enumerate() {
             part.demangle(ctx, backrefs);
@@ -2116,7 +2116,7 @@ impl Parse for Path {
     }
 }
 
-impl<'a> Format<'a> for Path {
+impl<'a> Demangle<'a> for Path {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.scope.demangle(ctx, backrefs);
 
@@ -2214,7 +2214,7 @@ impl Parse for NestedPath {
     }
 }
 
-impl<'a> Format<'a> for NestedPath {
+impl<'a> Demangle<'a> for NestedPath {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             NestedPath::Literal(ident) => {
@@ -2350,7 +2350,7 @@ impl Parse for Template {
     }
 }
 
-impl<'a> Format<'a> for Template {
+impl<'a> Demangle<'a> for Template {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.name.0.demangle(ctx, backrefs);
         ctx.stream.push("<", colors::GRAY40);
@@ -2427,7 +2427,7 @@ impl Parse for Symbol {
     }
 }
 
-impl<'a> Format<'a> for Symbol {
+impl<'a> Demangle<'a> for Symbol {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         ctx.scope = &self.path.scope;
 
@@ -2438,7 +2438,8 @@ impl<'a> Format<'a> for Symbol {
                 func.calling_conv.demangle(ctx, backrefs);
                 ctx.stream.push(" ", colors::WHITE);
                 self.path.scope.demangle(ctx, backrefs);
-                ctx.stream.push("::operator ", colors::MAGENTA);
+                ctx.stream.push("::", colors::GRAY20);
+                ctx.stream.push("operator ", colors::MAGENTA);
                 func.return_type.0.demangle(ctx, backrefs);
                 func.params.demangle(ctx, backrefs);
                 return;
@@ -2453,7 +2454,8 @@ impl<'a> Format<'a> for Symbol {
                     func.calling_conv.demangle(ctx, backrefs);
                     ctx.stream.push(" ", colors::WHITE);
                     self.path.scope.demangle(ctx, backrefs);
-                    ctx.stream.push("::operator", colors::MAGENTA);
+                    ctx.stream.push("::", colors::GRAY20);
+                    ctx.stream.push("operator", colors::MAGENTA);
                     ctx.stream.push("<", colors::GRAY20);
                     template.params.demangle(ctx, backrefs);
                     ctx.stream.push("> ", colors::GRAY20);

@@ -36,15 +36,14 @@ mod tests;
 
 use super::TokenStream;
 use ast::{Demangle, Parse, ParseContext};
-use core::fmt;
+use std::fmt;
 use error::{Error, Result};
 use index_str::IndexStr;
 
 // TODO: convert everything to tokens
 pub fn parse(s: &str) -> Option<TokenStream> {
     let sym = Symbol::new(s).ok()?;
-
-    sym.demangle().ok().map(|ref sym| TokenStream::simple(sym))
+    sym.demangle().ok()
 }
 
 /// A mangled symbol that has been parsed into an AST.
@@ -60,7 +59,7 @@ struct Symbol<T> {
 
 impl<T> Symbol<T>
 where
-    T: AsRef<[u8]>,
+    T: AsRef<str>,
 {
     /// Given some raw storage, parse the mangled symbol from it with the default
     /// options.
@@ -99,7 +98,7 @@ where
 
         let parsed = {
             let ctx = ParseContext::new();
-            let input = IndexStr::new(raw.as_ref());
+            let input = IndexStr::new(raw.as_ref().as_bytes());
 
             let (parsed, tail) = ast::MangledName::parse(&ctx, &mut substitutions, input)?;
 
@@ -135,60 +134,9 @@ where
     /// let demangled_again = sym.demangle().unwrap();
     /// assert_eq!(demangled_again, demangled);
     /// ```
-    fn demangle(&self) -> ::core::result::Result<String, fmt::Error> {
-        let mut out = String::new();
-        let mut ctx = ast::DemangleContext::new(&self.substitutions, self.raw.as_ref(), &mut out);
-        self.parsed.demangle(&mut ctx, None)?;
-
-        Ok(out)
-    }
-
-    /// Demangle the symbol to a DemangleWrite, which lets the consumer be informed about
-    /// syntactic structure.
-    fn structured_demangle<W: DemangleWrite>(&self, out: &mut W) -> fmt::Result {
-        let mut ctx = ast::DemangleContext::new(&self.substitutions, self.raw.as_ref(), out);
-        self.parsed.demangle(&mut ctx, None)
-    }
-}
-
-/// The type of a demangled AST node.
-/// This is only partial, not all nodes are represented.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum DemangleNodeType {
-    /// Entering a \<prefix\> production
-    Prefix,
-    /// Entering a \<template-prefix\> production
-    TemplatePrefix,
-    /// Entering a \<template-args\> production
-    TemplateArgs,
-    /// Entering a \<unqualified-name\> production
-    UnqualifiedName,
-    /// Entering a \<template-param\> production
-    TemplateParam,
-    /// Entering a \<data-member-prefix\> production
-    DataMemberPrefix,
-    /// Entering a \<nested-name\> production
-    NestedName,
-    /// Entering a \<special-name\> production that is a vtable.
-    VirtualTable,
-    /// Additional values may be added in the future. Use a
-    /// _ pattern for compatibility.
-    __NonExhaustive,
-}
-
-/// Sink for demangled text that reports syntactic structure.
-pub trait DemangleWrite {
-    /// Called when we are entering the scope of some AST node.
-    fn push_demangle_node(&mut self, _: DemangleNodeType) {}
-    /// Same as `fmt::Write::write_str`.
-    fn write_string(&mut self, s: &str) -> fmt::Result;
-    /// Called when we are exiting the scope of some AST node for
-    /// which `push_demangle_node` was called.
-    fn pop_demangle_node(&mut self) {}
-}
-
-impl<W: fmt::Write> DemangleWrite for W {
-    fn write_string(&mut self, s: &str) -> fmt::Result {
-        fmt::Write::write_str(self, s)
+    fn demangle(&self) -> core::result::Result<TokenStream, fmt::Error> {
+        let mut ctx = ast::DemangleContext::new(&self.substitutions, self.raw.as_ref());
+        self.parsed.demangle(&mut ctx, None);
+        Ok(ctx.stream)
     }
 }

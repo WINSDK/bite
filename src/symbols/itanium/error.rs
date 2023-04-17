@@ -1,8 +1,6 @@
 //! Custom `Error` and `Result` types for the `cpp_demangle` crate.
 
 use core::fmt;
-#[cfg(feature = "std")]
-use std::error;
 
 /// Errors that can occur while demangling a symbol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

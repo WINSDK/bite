@@ -195,16 +195,6 @@ impl TokenStream {
     }
 }
 
-fn strip_prefixes<'a>(s: &'a str, prefixes: &[&str]) -> Option<&'a str> {
-    for prefix in prefixes {
-        if let Some(s) = s.strip_prefix(prefix) {
-            return Some(s);
-        }
-    }
-
-    None
-}
-
 fn symbol_addr_name<'a>(symbol: object::Symbol<'a, 'a>) -> Option<(usize, &'a str)> {
     if let Ok(name) = symbol.name() {
         return Some((symbol.address() as usize, name));

@@ -1,8 +1,8 @@
 //! Provides the `IndexStr` type to keep track of a substring's index into its
 //! original string is.
 
-use core::fmt;
-use core::ops::{RangeFrom, RangeTo};
+use std::fmt;
+use std::ops::{RangeFrom, RangeTo};
 
 /// The `IndexStr` type allows us to take substrings from an original input and
 /// keep track of what index the substring is at in the original input.

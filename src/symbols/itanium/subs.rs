@@ -1,6 +1,5 @@
 //! Types dealing with the substitutions table.
 
-use super::DemangleWrite;
 use super::ast;
 use core::fmt;
 use core::iter::FromIterator;
@@ -28,15 +27,12 @@ pub enum Substitutable {
     Prefix(ast::Prefix),
 }
 
-impl<'subs, W> ast::Demangle<'subs, W> for Substitutable
-where
-    W: 'subs + DemangleWrite,
-{
+impl<'subs> ast::Demangle<'subs> for Substitutable {
     fn demangle<'prev, 'ctx>(
         &'subs self,
-        ctx: &'ctx mut ast::DemangleContext<'subs, W>,
+        ctx: &'ctx mut ast::DemangleContext<'subs>,
         scope: Option<ast::ArgScopeStack<'prev, 'subs>>,
-    ) -> fmt::Result {
+    ) {
         match *self {
             Substitutable::UnscopedTemplateName(ref name) => name.demangle(ctx, scope),
             Substitutable::Type(ref ty) => ty.demangle(ctx, scope),

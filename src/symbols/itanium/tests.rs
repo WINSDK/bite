@@ -557,7 +557,7 @@ fn parse_nested_name() {
                         CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: true,
+                            konst: true,
                         },
                         Some(RefQualifier::RValueRef),
                         PrefixHandle::BackReference(0),
@@ -574,7 +574,7 @@ fn parse_nested_name() {
                         CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         Some(RefQualifier::RValueRef),
                         PrefixHandle::BackReference(0),
@@ -591,7 +591,7 @@ fn parse_nested_name() {
                         CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         None,
                         PrefixHandle::BackReference(0),
@@ -608,7 +608,7 @@ fn parse_nested_name() {
                         CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: true,
+                            konst: true,
                         },
                         Some(RefQualifier::RValueRef),
                         PrefixHandle::NonSubstitution(NonSubstitution(0))),
@@ -629,7 +629,7 @@ fn parse_nested_name() {
                         CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         Some(RefQualifier::RValueRef),
                         PrefixHandle::NonSubstitution(NonSubstitution(0))),
@@ -650,7 +650,7 @@ fn parse_nested_name() {
                         CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         None,
                         PrefixHandle::NonSubstitution(NonSubstitution(0))),
@@ -852,7 +852,7 @@ fn parse_type_handle() {
                                 cv_qualifiers: CvQualifiers {
                                     restrict: false,
                                     volatile: false,
-                                    const_: false,
+                                    konst: false,
                                 },
                                 exception_spec: None,
                                 transaction_safe: false,
@@ -916,7 +916,7 @@ fn parse_type_handle() {
                         Substitutable::Type(Type::Qualified(CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: true,
+                            konst: true,
                         }, TypeHandle::BackReference(0)))
                     ]
                 }
@@ -1062,7 +1062,7 @@ fn parse_function_type() {
                         cv_qualifiers: CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: true,
+                            konst: true,
                         },
                         exception_spec: None,
                         transaction_safe: true,
@@ -1078,7 +1078,7 @@ fn parse_function_type() {
                         cv_qualifiers: CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         exception_spec: None,
                         transaction_safe: true,
@@ -1094,7 +1094,7 @@ fn parse_function_type() {
                         cv_qualifiers: CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         exception_spec: None,
                         transaction_safe: false,
@@ -1110,7 +1110,7 @@ fn parse_function_type() {
                         cv_qualifiers: CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         exception_spec: None,
                         transaction_safe: false,
@@ -1126,7 +1126,7 @@ fn parse_function_type() {
                         cv_qualifiers: CvQualifiers {
                             restrict: false,
                             volatile: false,
-                            const_: false,
+                            konst: false,
                         },
                         exception_spec: None,
                         transaction_safe: false,
@@ -2894,7 +2894,7 @@ fn parse_function_param() {
                               CvQualifiers {
                                   restrict: false,
                                   volatile: false,
-                                  const_: true,
+                                  konst: true,
                               },
                               Some(0)),
                 b"..."
@@ -2904,7 +2904,7 @@ fn parse_function_param() {
                               CvQualifiers {
                                   restrict: false,
                                   volatile: false,
-                                  const_: true,
+                                  konst: true,
                               },
                               Some(0)),
                 b"..."
@@ -2914,7 +2914,7 @@ fn parse_function_param() {
                               CvQualifiers {
                                   restrict: false,
                                   volatile: false,
-                                  const_: true,
+                                  konst: true,
                               },
                               Some(4)),
                 b"..."
@@ -2924,7 +2924,7 @@ fn parse_function_param() {
                               CvQualifiers {
                                   restrict: false,
                                   volatile: false,
-                                  const_: true,
+                                  konst: true,
                               },
                               Some(5)),
                 b"..."
@@ -3016,35 +3016,35 @@ fn parse_cv_qualifiers() {
     assert_parse!(CvQualifiers {
         Ok => {
             b"" => {
-                CvQualifiers { restrict: false, volatile: false, const_: false },
+                CvQualifiers { restrict: false, volatile: false, konst: false },
                 b""
             }
             b"..." => {
-                CvQualifiers { restrict: false, volatile: false, const_: false },
+                CvQualifiers { restrict: false, volatile: false, konst: false },
                 b"..."
             }
             b"r..." => {
-                CvQualifiers { restrict: true, volatile: false, const_: false },
+                CvQualifiers { restrict: true, volatile: false, konst: false },
                 b"..."
             }
             b"rV..." => {
-                CvQualifiers { restrict: true, volatile: true, const_: false },
+                CvQualifiers { restrict: true, volatile: true, konst: false },
                 b"..."
             }
             b"rVK..." => {
-                CvQualifiers { restrict: true, volatile: true, const_: true },
+                CvQualifiers { restrict: true, volatile: true, konst: true },
                 b"..."
             }
             b"V" => {
-                CvQualifiers { restrict: false, volatile: true, const_: false },
+                CvQualifiers { restrict: false, volatile: true, konst: false },
                 b""
             }
             b"VK" => {
-                CvQualifiers { restrict: false, volatile: true, const_: true },
+                CvQualifiers { restrict: false, volatile: true, konst: true },
                 b""
             }
             b"K..." => {
-                CvQualifiers { restrict: false, volatile: false, const_: true },
+                CvQualifiers { restrict: false, volatile: false, konst: true },
                 b"..."
             }
         }
@@ -3545,7 +3545,7 @@ fn parse_subobject_expr() {
                                 CvQualifiers {
                                     restrict: false,
                                     volatile: false,
-                                    const_: true,
+                                    konst: true,
                                 },
                                 TypeHandle::Builtin(
                                     BuiltinType::Standard(
