@@ -213,10 +213,7 @@ trait ArgScope<'me, 'ctx>: fmt::Debug {
 /// `ArgScopeStack`s are kept on the native stack, and as functions return, they
 /// go out of scope and we use the previous `ArgScopeStack`s again.
 #[derive(Copy, Clone, Debug)]
-pub struct ArgScopeStack<'prev, 'subs>
-where
-    'subs: 'prev,
-{
+pub struct ArgScopeStack<'prev, 'subs> {
     item: &'subs dyn ArgScope<'subs, 'subs>,
     in_arg: Option<(usize, &'subs TemplateArgs)>,
     prev: Option<&'prev ArgScopeStack<'prev, 'subs>>,
@@ -301,62 +298,61 @@ impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>
 }
 
 /// Common state that is required when demangling a mangled symbol's parsed AST.
-#[doc(hidden)]
 #[derive(Debug)]
 pub struct DemangleContext<'a> {
-    // The substitution table built up when parsing the mangled symbol into an
-    // AST.
+    /// The substitution table built up when parsing the mangled symbol into an
+    /// AST.
     subs: &'a SubstitutionTable,
 
-    // Sometimes an AST node needs to insert itself as an inner item within one
-    // of its children when demangling that child. For example, the AST
-    //
-    //     (array 10 int)
-    //
-    // is demangled as `int[10]`, but if we were to demangle the AST
-    //
-    //     (lvalue-ref (array 10 int))
-    //
-    // then we would want this demangled form: `int (&) [10]`, which requires
-    // the parent lvalue-ref to be passed into the child array's demangling
-    // method. This kind of thing also pops up with function pointers.
-    //
-    // The `inner` stack enables such behavior by allowing us to pass AST
-    // parents down to their children as inner items.
+    /// Sometimes an AST node needs to insert itself as an inner item within one
+    /// of its children when demangling that child. For example, the AST
+    ///
+    ///     (array 10 int)
+    ///
+    /// is demangled as `int[10]`, but if we were to demangle the AST
+    ///
+    ///     (lvalue-ref (array 10 int))
+    ///
+    /// then we would want this demangled form: `int (&) [10]`, which requires
+    /// the parent lvalue-ref to be passed into the child array's demangling
+    /// method. This kind of thing also pops up with function pointers.
+    ///
+    /// The `inner` stack enables such behavior by allowing us to pass AST
+    /// parents down to their children as inner items.
     inner: Vec<&'a dyn DemangleAsInner<'a>>,
 
-    // The original input string.
+    /// The original input string.
     input: &'a [u8],
 
-    // `Identifier`s will be placed here, so `UnnamedTypeName` can utilize and print
-    // out the Constructor/Destructor used.
+    /// `Identifier`s will be placed here, so `UnnamedTypeName` can utilize and print
+    /// out the Constructor/Destructor used.
     source_name: Option<&'a str>,
 
-    // What the demangled name is being written to.
+    /// What the demangled name is being written to.
     pub stream: TokenStream,
 
-    // The total number of bytes written to `out`. This is maintained by the
-    // `Write` implementation for `DemangleContext`.
+    /// The total number of bytes written to `out`. This is maintained by the
+    /// `Write` implementation for `DemangleContext`.
     bytes_written: usize,
 
-    // The last char written to `out`, if any.
+    /// The last char written to `out`, if any.
     last_char_written: Option<char>,
 
-    // We are currently demangling a lambda argument, so template substitution
-    // should be suppressed to match libiberty.
+    /// We are currently demangling a lambda argument, so template substitution
+    /// should be suppressed to match libiberty.
     is_lambda_arg: bool,
 
-    // We are currently demangling a template-prefix.
+    /// We are currently demangling a template-prefix.
     is_template_prefix: bool,
 
-    // We are currently demangling a template-prefix in a nested-name.
+    /// We are currently demangling a template-prefix in a nested-name.
     is_template_prefix_in_nested_name: bool,
 
-    //  `PackExpansion`'s should only print '...', only when there is no template
-    //  argument pack.
+    /// `PackExpansion`'s should only print '...', only when there is no template
+    /// argument pack.
     is_template_argument_pack: bool,
 
-    // Whether to show types of expression literals.
+    /// Whether to show types of expression literals.
     show_expression_literal_types: bool,
 }
 
@@ -459,18 +455,12 @@ impl<'a> DemangleContext<'a> {
 
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct AutoDemangleContextInnerBarrier<'ctx, 'a>
-where
-    'a: 'ctx,
-{
+pub struct AutoDemangleContextInnerBarrier<'ctx, 'a> {
     ctx: &'ctx mut DemangleContext<'a>,
     saved_inner: Vec<&'a dyn DemangleAsInner<'a>>,
 }
 
-impl<'ctx, 'a> AutoDemangleContextInnerBarrier<'ctx, 'a>
-where
-    'a: 'ctx,
-{
+impl<'ctx, 'a> AutoDemangleContextInnerBarrier<'ctx, 'a> {
     /// Set aside the current inner stack on the demangle context.
     pub fn new(ctx: &'ctx mut DemangleContext<'a>) -> Self {
         let mut saved_inner = vec![];
@@ -479,10 +469,7 @@ where
     }
 }
 
-impl<'ctx, 'a> ops::Deref for AutoDemangleContextInnerBarrier<'ctx, 'a>
-where
-    'a: 'ctx,
-{
+impl<'ctx, 'a> ops::Deref for AutoDemangleContextInnerBarrier<'ctx, 'a> {
     type Target = DemangleContext<'a>;
 
     fn deref(&self) -> &Self::Target {
@@ -490,19 +477,13 @@ where
     }
 }
 
-impl<'ctx, 'a> ops::DerefMut for AutoDemangleContextInnerBarrier<'ctx, 'a>
-where
-    'a: 'ctx,
-{
+impl<'ctx, 'a> ops::DerefMut for AutoDemangleContextInnerBarrier<'ctx, 'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.ctx
     }
 }
 
-impl<'ctx, 'a> Drop for AutoDemangleContextInnerBarrier<'ctx, 'a>
-where
-    'a: 'ctx,
-{
+impl<'ctx, 'a> Drop for AutoDemangleContextInnerBarrier<'ctx, 'a> {
     fn drop(&mut self) {
         // NB: We cannot assert that the context's inner is empty here,
         // because if demangling failed we'll unwind the stack without
@@ -4469,10 +4450,7 @@ impl TemplateParam {
 }
 
 impl<'a> Hash for &'a TemplateParam {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         let self_ref: &TemplateParam = *self;
         let self_ptr = self_ref as *const TemplateParam;
         self_ptr.hash(state);
@@ -7132,14 +7110,11 @@ fn consume<'a>(expected: &[u8], input: IndexStr<'a>) -> Result<IndexStr<'a>> {
     }
 }
 
-fn one_or_more<'a, 'b, P>(
+fn one_or_more<'a, 'b, P: Parse>(
     ctx: &'a ParseContext,
     subs: &'a mut SubstitutionTable,
     input: IndexStr<'b>,
-) -> Result<(Vec<P>, IndexStr<'b>)>
-where
-    P: Parse,
-{
+) -> Result<(Vec<P>, IndexStr<'b>)> {
     let (first, mut tail) = P::parse(ctx, subs, input)?;
     let mut results = vec![first];
     loop {
@@ -7152,14 +7127,11 @@ where
     }
 }
 
-fn zero_or_more<'a, 'b, P>(
+fn zero_or_more<'a, 'b, P: Parse>(
     ctx: &'a ParseContext,
     subs: &'a mut SubstitutionTable,
     input: IndexStr<'b>,
-) -> Result<(Vec<P>, IndexStr<'b>)>
-where
-    P: Parse,
-{
+) -> Result<(Vec<P>, IndexStr<'b>)> {
     let mut tail = input;
     let mut results = vec![];
     loop {

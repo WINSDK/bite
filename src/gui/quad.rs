@@ -1,8 +1,8 @@
 use std::mem;
 
+use crate::colors::Color;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
-use crate::colors::Color;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]

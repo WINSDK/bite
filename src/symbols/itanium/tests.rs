@@ -3,16 +3,15 @@
 use super::ast::{
     ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset, ClassEnumType,
     ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix, Decltype, DestructorName,
-    Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FunctionParam,
-    FunctionType, GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName,
-    MemberName, Name, NestedName, NonSubstitution, Number, NvOffset, OperatorName, Parse,
-    ParseContext, PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId,
-    SimpleId, SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr,
-    Substitution, TaggedName, TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
+    Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FunctionParam, FunctionType,
+    GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName, MemberName, Name,
+    NestedName, NonSubstitution, Number, NvOffset, OperatorName, Parse, ParseContext,
+    PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId, SimpleId,
+    SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr, Substitution,
+    TaggedName, TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
     TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
-    UnresolvedName, UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle,
-    UnscopedName, UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType,
-    WellKnownComponent,
+    UnresolvedName, UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle, UnscopedName,
+    UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType, WellKnownComponent,
 };
 
 use super::error::Error;

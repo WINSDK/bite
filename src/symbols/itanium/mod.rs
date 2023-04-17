@@ -36,11 +36,10 @@ mod tests;
 
 use super::TokenStream;
 use ast::{Demangle, Parse, ParseContext};
-use std::fmt;
 use error::{Error, Result};
 use index_str::IndexStr;
+use std::fmt;
 
-// TODO: convert everything to tokens
 pub fn parse(s: &str) -> Option<TokenStream> {
     let sym = Symbol::new(s).ok()?;
     sym.demangle().ok()
@@ -51,16 +50,13 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 /// This is generic over some storage type `T` which can be either owned or
 /// borrowed. See the `OwnedSymbol` and `BorrowedSymbol` type aliases.
 #[derive(Clone, Debug, PartialEq)]
-struct Symbol<T> {
-    raw: T,
+struct Symbol<'a> {
+    raw: &'a str,
     substitutions: subs::SubstitutionTable,
     parsed: ast::MangledName,
 }
 
-impl<T> Symbol<T>
-where
-    T: AsRef<str>,
-{
+impl Symbol<'_> {
     /// Given some raw storage, parse the mangled symbol from it with the default
     /// options.
     ///
@@ -93,12 +89,12 @@ where
     /// );
     /// ```
     #[inline]
-    fn new(raw: T) -> Result<Symbol<T>> {
+    fn new(raw: &str) -> Result<Symbol> {
         let mut substitutions = subs::SubstitutionTable::new();
 
         let parsed = {
             let ctx = ParseContext::new();
-            let input = IndexStr::new(raw.as_ref().as_bytes());
+            let input = IndexStr::new(raw.as_bytes());
 
             let (parsed, tail) = ast::MangledName::parse(&ctx, &mut substitutions, input)?;
 
@@ -135,7 +131,7 @@ where
     /// assert_eq!(demangled_again, demangled);
     /// ```
     fn demangle(&self) -> core::result::Result<TokenStream, fmt::Error> {
-        let mut ctx = ast::DemangleContext::new(&self.substitutions, self.raw.as_ref());
+        let mut ctx = ast::DemangleContext::new(&self.substitutions, self.raw);
         self.parsed.demangle(&mut ctx, None);
         Ok(ctx.stream)
     }
