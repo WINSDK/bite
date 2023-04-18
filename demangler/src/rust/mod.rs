@@ -293,7 +293,7 @@ impl<'src> Parser {
 
     /// Consumes either a regular unambiguous or a punycode enabled string.
     fn ident(&mut self) -> Option<&'src str> {
-        if self.eat(b'u') {
+        if self.eat(b'u') && cfg!(debug_assertions) {
             eprintln!("TODO: punycode symbols decoding");
         }
 

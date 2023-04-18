@@ -57,29 +57,44 @@ pub struct InstructionStream<'data> {
 enum InternalInstructionStream<'data> {
     Riscv(riscv::Stream<'data>),
     Mips(mips::Stream<'data>),
+    X86_64(x86_64::Stream<'data>),
 }
 
 impl<'data> InstructionStream<'data> {
     pub fn new(bytes: &'data [u8], arch: Architecture, section_base: usize) -> Result<Self, Error> {
         let inner = match arch {
             Architecture::Mips => {
-                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0 })
+                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0, section_base })
             }
             Architecture::Mips64 => {
-                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0 })
+                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0, section_base })
             }
             Architecture::Riscv32 => InternalInstructionStream::Riscv(riscv::Stream {
                 bytes,
                 offset: 0,
-                width: 4,
+                width: 0,
                 is_64: false,
                 section_base,
             }),
             Architecture::Riscv64 => InternalInstructionStream::Riscv(riscv::Stream {
                 bytes,
                 offset: 0,
-                width: 4,
+                width: 0,
                 is_64: true,
+                section_base,
+            }),
+            Architecture::X86_64_X32 => InternalInstructionStream::X86_64(x86_64::Stream {
+                reader: x86_64::Reader::new(bytes),
+                decoder: x86_64::DecoderKind::x86(),
+                offset: 0,
+                width: 0,
+                section_base,
+            }),
+            Architecture::X86_64 => InternalInstructionStream::X86_64(x86_64::Stream {
+                reader: x86_64::Reader::new(bytes),
+                decoder: x86_64::DecoderKind::x64(),
+                offset: 0,
+                width: 0,
                 section_base,
             }),
             _ => return Err(Error::UnsupportedArchitecture),
@@ -93,7 +108,7 @@ impl Iterator for InstructionStream<'_> {
     type Item = Line;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut section_base = 0;
+        let section_base;
         let mut offset = 0;
 
         let tokens = match self.inner {
@@ -108,8 +123,19 @@ impl Iterator for InstructionStream<'_> {
                 }
             }
             InternalInstructionStream::Mips(ref mut stream) => {
+                section_base = stream.section_base;
                 offset += stream.offset;
                 offset += offset.saturating_sub(4);
+
+                match stream.next()? {
+                    Ok(inst) => Ok(inst.tokenize()),
+                    Err(err) => Err(format!("{err:?}")),
+                }
+            }
+            InternalInstructionStream::X86_64(ref mut stream) => {
+                section_base = stream.section_base;
+                offset += stream.offset;
+                offset += offset.saturating_sub(stream.width);
 
                 match stream.next()? {
                     Ok(inst) => Ok(inst.tokenize()),

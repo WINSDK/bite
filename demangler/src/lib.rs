@@ -58,6 +58,11 @@ impl TokenStream {
     }
 
     #[inline]
+    pub fn pop(&mut self) {
+        self.__tokens.pop();
+    }
+
+    #[inline]
     pub fn tokens<'src>(&'src self) -> &'src [Token] {
         self.__tokens.as_slice()
     }

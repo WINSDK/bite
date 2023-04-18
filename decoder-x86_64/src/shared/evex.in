@@ -1,0 +1,5208 @@
+use super::OperandSpec;
+use super::FieldDescription;
+use super::InnerDescription;
+
+use yaxpeax_arch::annotation::DescriptionSink;
+
+// `evex_byte_one` is an option because the caller *may* have already read it,
+// but may have not. `long_mode` can decide immediately that `0x62` should be read
+// as an `EVEX` instruction, but for other modes we can only make this
+// determination when reading a `bound`'s `modrm` byte.
+#[inline(never)]
+pub(crate) fn read_evex<
+    T: Reader<<Arch as yaxpeax_arch::Arch>::Address, <Arch as yaxpeax_arch::Arch>::Word>,
+    S: DescriptionSink<FieldDescription>,
+>(words: &mut T, instruction: &mut Instruction, evex_byte_one: Option<u8>, sink: &mut S) -> Result<(), DecodeError> {
+    let evex_byte_one = if let Some(b) = evex_byte_one {
+      b
+    } else {
+      words.next().ok().ok_or(DecodeError::ExhaustedInput)?
+    };
+    let evex_start = words.offset() as u32 * 8 - 8;
+    let evex_byte_two = words.next().ok().ok_or(DecodeError::ExhaustedInput)?;
+    let evex_byte_three = words.next().ok().ok_or(DecodeError::ExhaustedInput)?;
+    let p = evex_byte_two & 0x03;
+    sink.record(
+        evex_start + 8,
+        evex_start + 9,
+        InnerDescription::Misc(match p {
+            0b00 => "evex.p indicates no opcode prefix",
+            0b01 => "evex.p indicates opcode prefix 66",
+            0b10 => "evex.p indicates opcode prefix f3",
+            _ => "evex.p indicates opcode prefix f2",
+        })
+            .with_id(evex_start + 1)
+    );
+    if evex_byte_one & 0x0c != 0 {
+        // the two bits above `m` are reserved and must be 0
+        return Err(DecodeError::InvalidOpcode);
+    }
+    sink.record(
+        evex_start + 2,
+        evex_start + 3,
+        InnerDescription::Misc("reserved bit pattern in evex prefix")
+            .with_id(evex_start + 0)
+    );
+    if evex_byte_two & 0x04 == 0 {
+        // the one bit above `p` is reserved and must be 1
+        return Err(DecodeError::InvalidOpcode);
+    }
+    sink.record(
+        evex_start + 10,
+        evex_start + 10,
+        InnerDescription::Misc("reserved bit pattern in evex prefix")
+            .with_id(evex_start + 0)
+    );
+    let m = evex_byte_one & 0x03;
+    sink.record(
+        evex_start + 0,
+        evex_start + 1,
+        InnerDescription::Misc(match m {
+            0b00 => "evex.m indicates no opcode escape (invalid)",
+            0b01 => "evex.m indicates opcode escape `0f`",
+            0b10 => "evex.m indicates opcode escape `0f38`",
+            _ => "evex.m indicates opcode escape `0f3a`",
+        })
+            .with_id(evex_start + 0)
+    );
+    if m == 0 {
+        return Err(DecodeError::InvalidOpcode);
+    }
+    let m = m - 1;
+    // instead of enums for the lookup bits, these are used to select a TABLES entry in the first
+    // place
+    /*
+    let p = [
+        EVEXOpcodePrefix::None,
+        EVEXOpcodePrefix::Prefix66,
+        EVEXOpcodePrefix::PrefixF3,
+        EVEXOpcodePrefix::PrefixF2,
+    ][p];
+    let m = [
+        Ok(EVEXOpcodeMap::Map0F),
+        Ok(EVEXOpcodeMap::Map0F38),
+        Ok(EVEXOpcodeMap::Map0F3A),
+        Err(DecodeError::InvalidOpcode),
+    ][m - 1]?;
+    */
+
+    let vp = ((evex_byte_three >> 3) & 1) << 4;
+    let vvvvv = ((evex_byte_two >> 3) & 0b1111) | vp;
+
+    instruction.regs[3] = RegSpec {
+        bank: RegisterBank::X,
+        num: vvvvv ^ 0b11111 // `vvvvv` is provided in inverted form
+    };
+
+    instruction.prefixes.evex_from(evex_byte_one, evex_byte_two, evex_byte_three);
+
+    let evex_rex = ((evex_byte_two & 0x80) >> 4) | (((evex_byte_one >> 5) & 0b111) ^ 0b111);
+    sink.record(
+        evex_start + 5,
+        evex_start + 7,
+        InnerDescription::RexPrefix(evex_rex)
+            .with_id(evex_start + 5)
+    );
+    sink.record(
+        evex_start + 15,
+        evex_start + 15,
+        InnerDescription::RexPrefix(evex_rex)
+            .with_id(evex_start + 5)
+    );
+
+    sink.record(
+        evex_start + 4,
+        evex_start + 4,
+        InnerDescription::Misc(if ((evex_byte_one >> 4) & 1) ^ 1 != 0 {
+          "evex.r' is set (stored inverted)"
+        } else {
+          "evex.r' is not set (stored inverted)"
+        })
+            .with_id(evex_start + 4)
+    );
+
+    sink.record(
+        evex_start + 20,
+        evex_start + 20,
+        InnerDescription::Misc(if ((evex_byte_three >> 4) & 1) != 0 {
+          "evex.b (broadcast) is set"
+        } else {
+          "evex.b (broadcast) is not set"
+        })
+            .with_id(evex_start + 4)
+    );
+
+    sink.record(
+        evex_start + 23,
+        evex_start + 23,
+        InnerDescription::Misc(if ((evex_byte_three >> 7) & 1) != 0 {
+          "evex.z is set (masking behavior: zero)"
+        } else {
+          "evex.z is unset (masking behavior: merge)"
+        })
+            .with_id(evex_start + 4)
+    );
+
+    let lpl = (evex_byte_three >> 5) & 0b11;
+    sink.record(
+        evex_start + 21,
+        evex_start + 22,
+        InnerDescription::Misc(match lpl {
+            0b00 => "evex.l'l is `0b00` (vector size 128 or rne-sae)",
+            0b01 => "evex.l'l is `0b01` (vector size 256 or rd-sae)",
+            0b10 => "evex.l'l is `0b10` (vector size 512 or ru-sae)",
+            _ => "evex.l'l is `0b11` (vector size 512 + rz-sae)",
+        })
+            .with_id(evex_start + 22)
+    );
+
+    sink.record(
+        evex_start + 16,
+        evex_start + 18,
+        InnerDescription::RegisterNumber("evex.aaa", evex_byte_three & 0b111, RegSpec::mask(evex_byte_three & 0b111))
+            .with_id(evex_start + 16)
+    );
+
+    sink.record(
+        evex_start + 23,
+        evex_start + 23,
+        InnerDescription::Boundary("evex prefix ends/opcode begins")
+            .with_id(evex_start + 23)
+    );
+
+    let opc = words.next().ok().ok_or(DecodeError::ExhaustedInput)?;
+    let table_idx = ((m << 2) | p) as usize;
+    let table = generated::TABLES[table_idx];
+    if table as *const [_]  == &generated::DUMMY[..] as *const [_] {
+        return Err(DecodeError::InvalidOpcode);
+    }
+    let mut index_lower = 0;
+    if instruction.prefixes.evex_unchecked().vex().l() {
+        index_lower |= 1;
+    }
+    if instruction.prefixes.evex_unchecked().lp() {
+        index_lower |= 2;
+    }
+    if let Ok(entry) = table.binary_search_by_key(&opc, |x| x.0) {
+      let (opcode, operand_code) = table[entry].1[index_lower];
+      instruction.opcode = opcode;
+      sink.record(
+          evex_start + 24,
+          evex_start + 31,
+          InnerDescription::Opcode(instruction.opcode)
+              .with_id(evex_start + 24)
+      );
+      read_evex_operands(words, instruction, operand_code, sink)?;
+      if instruction.prefixes.evex_unchecked().rp() {
+        instruction.regs[0].num |= 0b10000;
+        if ![RegisterBank::X, RegisterBank::Y, RegisterBank::Z].contains(&instruction.regs[0].bank) {
+          return Err(DecodeError::InvalidOperand);
+        }
+      }
+      if instruction.prefixes.evex_unchecked().vex().x() {
+        if instruction.operands.contains(&OperandSpec::RegMMM) {
+          instruction.regs[1].num |= 0b10000;
+          if ![RegisterBank::X, RegisterBank::Y, RegisterBank::Z].contains(&instruction.regs[1].bank) {
+            return Err(DecodeError::InvalidOperand);
+          }
+        }
+      }
+      // have to wait til after `read_evex_operands` to report evex register
+      // because its size may be updated as part of reading operands.
+      sink.record(
+          evex_start + 11,
+          evex_start + 14,
+          InnerDescription::RegisterNumber("evex.vvvvv", instruction.regs[3].num, instruction.regs[3])
+              .with_id(evex_start + 11)
+      );
+      sink.record(
+          evex_start + 19,
+          evex_start + 19,
+          InnerDescription::RegisterNumber("evex.vvvvv", instruction.regs[3].num, instruction.regs[3])
+              .with_id(evex_start + 11)
+      );
+      if instruction.prefixes.evex_unchecked().vex().compressed_disp() {
+        let overridden_size = match instruction.opcode {
+          Opcode::VPEXPANDB => Some(1),
+          Opcode::VPEXPANDW => Some(2),
+          Opcode::VPEXPANDD => Some(4),
+          Opcode::VPEXPANDQ => Some(8),
+          Opcode::VPCOMPRESSB => Some(1),
+          Opcode::VPCOMPRESSW => Some(2),
+          Opcode::VPCOMPRESSD => Some(4),
+          Opcode::VPCOMPRESSQ => Some(8),
+          Opcode::VEXPANDPS => Some(4),
+          Opcode::VEXPANDPD => Some(8),
+          Opcode::VCOMPRESSPS => Some(4),
+          Opcode::VCOMPRESSPD => Some(8),
+          _ => None
+        };
+        if let Some(size) = overridden_size {
+          instruction.disp = instruction.disp.wrapping_mul(size);
+        } else {
+          instruction.disp = instruction.disp.wrapping_mul(instruction.mem_size.into());
+        }
+        instruction.prefixes.apply_compressed_disp(false);
+      }
+      if instruction.opcode == Opcode::Invalid {
+        return Err(DecodeError::InvalidOpcode);
+      }
+      // TODO: apply rp and bp?
+    } else {
+      return Err(DecodeError::InvalidOpcode);
+    }
+    Ok(())
+}
+
+fn deny_broadcast(inst: &Instruction) -> Result<(), DecodeError> {
+  if inst.prefixes.evex_unchecked().broadcast() {
+    Err(DecodeError::InvalidOperand)
+  } else {
+    Ok(())
+  }
+}
+
+fn deny_z(inst: &Instruction) -> Result<(), DecodeError> {
+  if inst.prefixes.evex_unchecked().merge() {
+    Err(DecodeError::InvalidOperand)
+  } else {
+    Ok(())
+  }
+}
+
+fn deny_vex_reg(inst: &Instruction) -> Result<(), DecodeError> {
+  if inst.regs[3].num != 0 {
+    Err(DecodeError::InvalidOperand)
+  } else {
+    Ok(())
+  }
+}
+
+#[allow(non_snake_case)]
+fn ensure_W(inst: &Instruction, w: u8) -> Result<(), DecodeError> {
+  if inst.prefixes.evex_unchecked().vex().w() ^ (w != 0) {
+    Err(DecodeError::InvalidOpcode)
+  } else {
+    Ok(())
+  }
+}
+
+fn deny_mask_reg(inst: &Instruction) -> Result<(), DecodeError> {
+  if inst.prefixes.evex_unchecked().mask_reg() != 0 {
+    Err(DecodeError::InvalidOperand)
+  } else {
+    Ok(())
+  }
+}
+
+fn check_mask_reg(inst: &Instruction) -> Result<(), DecodeError> {
+  // if an operand is to be zeroed on mask bits but mask register 0 is
+  // selected, this instruction is nonsense and will #UD
+  if inst.prefixes.evex_unchecked().merge() && inst.prefixes.evex_unchecked().mask_reg() == 0 {
+    Err(DecodeError::InvalidOperand)
+  } else {
+    Ok(())
+  }
+}
+
+fn apply_broadcast(inst: &mut Instruction, item_size: u8, reg_size: u8) {
+  if inst.prefixes.evex_unchecked().broadcast() {
+    inst.mem_size = item_size;
+  } else {
+    inst.mem_size = reg_size;
+  }
+}
+
+fn set_rrr(inst: &mut Instruction, modrm: u8) {
+  inst.regs[0].num = (modrm >> 3) & 7;
+  if inst.prefixes.evex_unchecked().vex().r() {
+    inst.regs[0].num |= 8;
+  }
+  if inst.prefixes.evex_unchecked().rp() {
+    inst.regs[0].num |= 16;
+  }
+}
+
+fn set_reg_sizes(inst: &mut Instruction, size: RegisterBank) {
+  inst.regs[0].bank = size;
+  inst.regs[3].bank = size;
+  for i in 0..inst.operand_count {
+    if [OperandSpec::RegMMM, OperandSpec::RegMMM_maskmerge, OperandSpec::RegMMM_maskmerge_sae_noround].contains(&inst.operands[i as usize]) {
+      inst.regs[1].bank = size;
+    }
+  }
+}
+
+fn regs_size(inst: &Instruction) -> u8 {
+  if inst.prefixes.evex_unchecked().lp() {
+    64
+  } else if inst.prefixes.evex_unchecked().vex().l() {
+    32
+  } else {
+    16
+  }
+}
+
+fn set_reg_sizes_from_ll(inst: &mut Instruction) -> Result<(), DecodeError> {
+  if inst.prefixes.evex_unchecked().lp() {
+    if inst.prefixes.evex_unchecked().vex().l() {
+      return Err(DecodeError::InvalidOperand);
+    }
+    set_reg_sizes(inst, RegisterBank::Z);
+  } else if inst.prefixes.evex_unchecked().vex().l() {
+    set_reg_sizes(inst, RegisterBank::Y);
+  } else {
+    set_reg_sizes(inst, RegisterBank::X);
+  }
+  Ok(())
+}
+
+pub(crate) fn read_evex_operands<
+  T: Reader<<Arch as yaxpeax_arch::Arch>::Address, <Arch as yaxpeax_arch::Arch>::Word>,
+    S: DescriptionSink<FieldDescription>,
+>(words: &mut T, instruction: &mut Instruction, operand_code: generated::EVEXOperandCode, sink: &mut S) -> Result<(), DecodeError> {
+  match operand_code {
+    generated::EVEXOperandCode::Gm_V_E_LL_imm8_sae_bcast => {
+      check_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VRANGEPS {
+          instruction.opcode = Opcode::VRANGEPD;
+        } else if instruction.opcode == Opcode::VFIXUPIMMPS {
+          instruction.opcode = Opcode::VFIXUPIMMPD;
+        }
+      }
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          if [Opcode::VRANGEPS, Opcode::VRANGEPD, Opcode::VFIXUPIMMPS, Opcode::VFIXUPIMMPD].contains(&instruction.opcode) {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          }
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        let sz = regs_size(instruction);
+
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          apply_broadcast(instruction, 4, sz);
+        }
+
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_xmm => {
+      check_mask_reg(instruction)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        return Err(DecodeError::InvalidOpcode);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+
+      instruction.operand_count = 3;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VRSQRT14SS {
+          instruction.opcode = Opcode::VRSQRT14SD;
+        }
+      }
+
+      if let OperandSpec::RegMMM = mem_oper {
+        instruction.mem_size = 0;
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.mem_size = 8;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_Eq_xmm_sae_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+
+      instruction.operand_count = 3;
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+        }
+        instruction.mem_size = 0;
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        }
+        instruction.mem_size = 8;
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_xmm_sae_bcast => {
+      check_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+
+      instruction.operand_count = 3;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VGETEXPSS {
+          instruction.opcode = Opcode::VGETEXPSD;
+        }
+      }
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.mem_size = 8;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_LL_sae => {
+      check_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+
+      instruction.operand_count = 3;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VFMADD132SS {
+          instruction.opcode = Opcode::VFMADD132SD;
+        } else if instruction.opcode == Opcode::VFMSUB132SS {
+          instruction.opcode = Opcode::VFMSUB132SD;
+        } else if instruction.opcode == Opcode::VFNMADD132SS {
+          instruction.opcode = Opcode::VFNMADD132SD;
+        } else if instruction.opcode == Opcode::VFNMSUB132SS {
+          instruction.opcode = Opcode::VFNMSUB132SD;
+        } else if instruction.opcode == Opcode::VFMADD213SS {
+          instruction.opcode = Opcode::VFMADD213SD;
+        } else if instruction.opcode == Opcode::VFMSUB213SS {
+          instruction.opcode = Opcode::VFMSUB213SD;
+        } else if instruction.opcode == Opcode::VFNMADD213SS {
+          instruction.opcode = Opcode::VFNMADD213SD;
+        } else if instruction.opcode == Opcode::VFNMSUB213SS {
+          instruction.opcode = Opcode::VFNMSUB213SD;
+        } else if instruction.opcode == Opcode::VFMADD231SS {
+          instruction.opcode = Opcode::VFMADD231SD;
+        } else if instruction.opcode == Opcode::VFMSUB231SS {
+          instruction.opcode = Opcode::VFMSUB231SD;
+        } else if instruction.opcode == Opcode::VFNMADD231SS {
+          instruction.opcode = Opcode::VFNMADD231SD;
+        } else if instruction.opcode == Opcode::VFNMSUB231SS {
+          instruction.opcode = Opcode::VFNMSUB231SD;
+        }
+      }
+
+      set_reg_sizes(instruction, RegisterBank::X);
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        }
+
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.mem_size = 8;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_sae_bcast => {
+      check_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+
+      instruction.operand_count = 3;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VSCALEFPS {
+          instruction.opcode = Opcode::VSCALEFPD;
+        } else if instruction.opcode == Opcode::VFNMADD132PS {
+          instruction.opcode = Opcode::VFNMADD132PD;
+        } else if instruction.opcode == Opcode::VFNMSUB132PS {
+          instruction.opcode = Opcode::VFNMSUB132PD;
+        } else if instruction.opcode == Opcode::VFMADDSUB132PS {
+          instruction.opcode = Opcode::VFMADDSUB132PD;
+        } else if instruction.opcode == Opcode::VFMSUBADD132PS {
+          instruction.opcode = Opcode::VFMSUBADD132PD;
+        } else if instruction.opcode == Opcode::VFMADD132PS {
+          instruction.opcode = Opcode::VFMADD132PD;
+        } else if instruction.opcode == Opcode::VFMSUB132PS {
+          instruction.opcode = Opcode::VFMSUB132PD;
+        } else if instruction.opcode == Opcode::VFMADDSUB213PS {
+          instruction.opcode = Opcode::VFMADDSUB213PD;
+        } else if instruction.opcode == Opcode::VFMSUBADD213PS {
+          instruction.opcode = Opcode::VFMSUBADD213PD;
+        } else if instruction.opcode == Opcode::VFMADD213PS {
+          instruction.opcode = Opcode::VFMADD213PD;
+        } else if instruction.opcode == Opcode::VFMSUB213PS {
+          instruction.opcode = Opcode::VFMSUB213PD;
+        } else if instruction.opcode == Opcode::VFNMADD213PS {
+          instruction.opcode = Opcode::VFNMADD213PD;
+        } else if instruction.opcode == Opcode::VFNMSUB213PS {
+          instruction.opcode = Opcode::VFNMSUB213PD;
+        } else if instruction.opcode == Opcode::VFMADDSUB231PS {
+          instruction.opcode = Opcode::VFMADDSUB231PD;
+        } else if instruction.opcode == Opcode::VFMSUBADD231PS {
+          instruction.opcode = Opcode::VFMSUBADD231PD;
+        } else if instruction.opcode == Opcode::VFMADD231PS {
+          instruction.opcode = Opcode::VFMADD231PD;
+        } else if instruction.opcode == Opcode::VFMSUB231PS {
+          instruction.opcode = Opcode::VFMSUB231PD;
+        } else if instruction.opcode == Opcode::VFNMADD231PS {
+          instruction.opcode = Opcode::VFNMADD231PD;
+        } else if instruction.opcode == Opcode::VFNMSUB231PS {
+          instruction.opcode = Opcode::VFNMSUB231PD;
+        }
+      }
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        let sz = regs_size(instruction);
+
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          apply_broadcast(instruction, 4, sz);
+        }
+
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL_imm8_sae => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = Opcode::VREDUCEPD;
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.mem_size = 0;
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        let sz = regs_size(instruction);
+
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          apply_broadcast(instruction, 4, sz);
+        }
+
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL_imm8_sae_W0 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          // this mode is only used for `vcvtps2ph` and `vrndscaleps`, neither use sae rounding
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        let sz = regs_size(instruction);
+
+        apply_broadcast(instruction, 4, sz);
+
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL_imm8_sae_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if let OperandSpec::RegMMM = mem_oper {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          // this mode is only used for `vrndscalepd`, does not use sae rounding
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        let sz = regs_size(instruction);
+
+        apply_broadcast(instruction, 8, sz);
+
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Mq_G_xmm_W1 => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      instruction.mem_size = 8;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::G_V_Ed_xmm_imm8_W0 => {
+      deny_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.regs[3].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::G_V_xmm_Edq_sae => {
+      deny_mask_reg(instruction)?;
+      deny_z(instruction)?;
+
+      let (sz, bank) = if instruction.prefixes.evex_unchecked().vex().w() {
+        (DEFAULT_EVEX_REGISTER_WIDTH, DEFAULT_EVEX_REGISTER_SIZE)
+      } else {
+        (4, RegisterBank::D)
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.regs[3].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.regs[1].bank = bank;
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = sz;
+      }
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper == OperandSpec::RegMMM {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+        } else {
+          return Err(DecodeError::InvalidOperand);
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::G_V_xmm_Edq_imm8 => {
+      deny_mask_reg(instruction)?;
+
+      let (sz, bank) = if instruction.prefixes.evex_unchecked().vex().w() {
+        if isa_has_qwords() {
+          instruction.opcode = Opcode::VPINSRQ;
+        }
+        (DEFAULT_EVEX_REGISTER_WIDTH, DEFAULT_EVEX_REGISTER_SIZE)
+      } else {
+        (4, RegisterBank::D)
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.regs[3].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.regs[1].bank = bank;
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = sz;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::G_V_xmm_Ebd_imm8 => {
+      deny_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.regs[3].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.regs[1].bank = RegisterBank::D;
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 1;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::G_V_Mq_xmm_W1 => {
+      deny_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      instruction.mem_size = 8;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_bcast_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      // specifically for vunpcklpd!!! probably need to reconsider.
+      apply_broadcast(instruction, 8, sz);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::M_G_LL_W0 => {
+      deny_vex_reg(instruction)?;
+      deny_mask_reg(instruction)?;
+
+      instruction.mem_size = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::M_G_LL_W1 => {
+      deny_vex_reg(instruction)?;
+      deny_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      instruction.mem_size = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Em_G_LL_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      instruction.mem_size = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::G_Ed_xmm_sae_W0 => {
+      deny_vex_reg(instruction)?;
+      deny_mask_reg(instruction)?;
+      // vucomiss and vcomiss both are W=0
+      ensure_W(instruction, 0)?;
+
+      instruction.mem_size = 4;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+
+      // in specific support of vcomisd/vucomisd
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR;
+      }
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_Eq_xmm_sae_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      // vucomisd and vcomisd both are W=1
+      ensure_W(instruction, 1)?;
+
+      instruction.mem_size = 8;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+
+      // in specific support of vcomisd/vucomisd
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR;
+      }
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_E_LL_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      instruction.mem_size = regs_size(instruction);
+
+      if instruction.opcode == Opcode::VMOVDDUP && instruction.mem_size == 16 {
+        instruction.mem_size = 8;
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::VCVTUDQ2PD => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VCVTUDQ2PD {
+          instruction.opcode = Opcode::VCVTUQQ2PD;
+        } else if instruction.opcode == Opcode::VCVTDQ2PD {
+          instruction.opcode = Opcode::VCVTQQ2PD;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().lp() && instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+          if !instruction.prefixes.evex_unchecked().vex().w() {
+            if instruction.regs[0].bank == RegisterBank::Z {
+              instruction.regs[1].bank = RegisterBank::Y;
+            } else if instruction.regs[0].bank == RegisterBank::Y {
+              instruction.regs[1].bank = RegisterBank::X;
+            }
+          }
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        set_reg_sizes_from_ll(instruction)?;
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          apply_broadcast(instruction, 4, sz / 2);
+        }
+      }
+    }
+    generated::EVEXOperandCode::Maskm_V_E_LL_imm8_sae_bcast_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        apply_broadcast(instruction, 8, sz);
+        set_reg_sizes_from_ll(instruction)?;
+      }
+      instruction.regs[0].bank = RegisterBank::K;
+      if instruction.regs[0].num > 7 {
+        return Err(DecodeError::InvalidOperand);
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL_sae_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        apply_broadcast(instruction, 8, sz);
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL_sae_bcast_W1 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        apply_broadcast(instruction, 8, sz);
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_LL_bcast => {
+      check_mask_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPERMPS {
+          instruction.opcode = Opcode::VPERMPD;
+        } else if instruction.opcode == Opcode::VBLENDMPS {
+          instruction.opcode = Opcode::VBLENDMPD;
+        } else if instruction.opcode == Opcode::VPERMI2PS {
+          instruction.opcode = Opcode::VPERMI2PD;
+        } else if instruction.opcode == Opcode::VPERMT2PS {
+          instruction.opcode = Opcode::VPERMT2PD
+        }
+      }
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        } else {
+          instruction.mem_size = 0;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          apply_broadcast(instruction, 4, sz);
+        }
+      }
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_LL_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        } else {
+          instruction.mem_size = 0;
+        }
+      } else {
+        apply_broadcast(instruction, 4, sz);
+      }
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        return Err(DecodeError::InvalidOpcode);
+      }
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = sz;
+      }
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        return Err(DecodeError::InvalidOpcode);
+      }
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = sz;
+      }
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_sae_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        instruction.mem_size = sz;
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_sae_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          if instruction.opcode == Opcode::VMINPS || instruction.opcode == Opcode::VMAXPS {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          }
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        apply_broadcast(instruction, 4, sz);
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_sae_bcast_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          if instruction.opcode == Opcode::VMINPD || instruction.opcode == Opcode::VMAXPD {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          }
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        apply_broadcast(instruction, 8, sz);
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::G_V_E_LL => {
+      deny_mask_reg(instruction)?;
+      if [Opcode::VAESDECLAST, Opcode::VAESDEC, Opcode::VAESENC, Opcode::VAESENCLAST].contains(&instruction.opcode) {
+        deny_z(instruction)?;
+      }
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        apply_broadcast(instruction, 8, sz);
+      } else {
+        apply_broadcast(instruction, 4, sz);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_bcast => {
+      check_mask_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        apply_broadcast(instruction, 8, sz);
+        instruction.opcode = if instruction.opcode == Opcode::VPANDD {
+          Opcode::VPANDQ
+        } else if instruction.opcode == Opcode::VPANDND {
+          Opcode::VPANDNQ
+        } else if instruction.opcode == Opcode::VPORD {
+          Opcode::VPORQ
+        } else if instruction.opcode == Opcode::VPXORD {
+          Opcode::VPXORQ
+        } else if instruction.opcode == Opcode::VPRORVD {
+          Opcode::VPRORVQ
+        } else if instruction.opcode == Opcode::VPROLVD {
+          Opcode::VPROLVQ
+        } else if instruction.opcode == Opcode::VPERMD {
+          Opcode::VPERMQ
+        } else if instruction.opcode == Opcode::VPMINSD {
+          Opcode::VPMINSQ
+        } else if instruction.opcode == Opcode::VPMINUD {
+          Opcode::VPMINUQ
+        } else if instruction.opcode == Opcode::VPMAXSD {
+          Opcode::VPMAXSQ
+        } else if instruction.opcode == Opcode::VPMAXUD {
+          Opcode::VPMAXUQ
+        } else if instruction.opcode == Opcode::VPSRLVD {
+          Opcode::VPSRLVQ
+        } else if instruction.opcode == Opcode::VPSRAVD {
+          Opcode::VPSRAVQ
+        } else if instruction.opcode == Opcode::VPSLLVD {
+          Opcode::VPSLLVQ
+        } else if instruction.opcode == Opcode::VPMULLD {
+          Opcode::VPMULLQ
+        } else if instruction.opcode == Opcode::VPBLENDMD {
+          Opcode::VPBLENDMQ
+        } else if instruction.opcode == Opcode::VPSHLDVD {
+          Opcode::VPSHLDVQ
+        } else if instruction.opcode == Opcode::VPSHRDVD {
+          Opcode::VPSHRDVQ
+        } else if instruction.opcode == Opcode::VPERMI2D {
+          Opcode::VPERMI2Q
+        } else if instruction.opcode == Opcode::VPERMT2D {
+          Opcode::VPERMT2Q
+        } else {
+          instruction.opcode
+        };
+      } else {
+        apply_broadcast(instruction, 4, sz);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_E_LL_imm8_bcast_W0 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      apply_broadcast(instruction, 4, sz);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_E_LL_imm8_bcast_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      apply_broadcast(instruction, 8, sz);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_Ed_LL_imm8_sae_noround_bcast => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VGETMANTPS {
+          instruction.opcode = Opcode::VGETMANTPD;
+        }
+        apply_broadcast(instruction, 8, sz);
+      } else {
+        apply_broadcast(instruction, 4, sz);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper == OperandSpec::RegMMM {
+          instruction.mem_size = 0;
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().lp() && instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_Ed_LL_sae_noround_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      apply_broadcast(instruction, 4, sz);
+
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper == OperandSpec::RegMMM {
+          instruction.mem_size = 0;
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().lp() && instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_xmm_sae_noround_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        if instruction.prefixes.evex_unchecked().lp() && instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_xmm_sae => {
+      check_mask_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VSCALEFSS {
+          instruction.opcode = Opcode::VSCALEFSD;
+        } else if instruction.opcode == Opcode::VRCP14SS {
+          instruction.opcode = Opcode::VRCP14SD;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+      } else {
+        if instruction.prefixes.evex_unchecked().lp() && instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.mem_size = 8;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_xmm_sae_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if instruction.opcode == Opcode::VMINSS || instruction.opcode == Opcode::VMAXSS {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().lp() && instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        deny_broadcast(instruction)?;
+        instruction.mem_size = 4;
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Eqm_G_xmm_imm8_sae_W0 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          // sae sets this to `vcvtps2ph ymm, zmm, imm8`
+          instruction.regs[1].bank = RegisterBank::Y;
+          instruction.regs[0].bank = RegisterBank::Z;
+          instruction.operands[0] = OperandSpec::RegMMM_maskmerge_sae_noround;
+        } else {
+          instruction.regs[1].bank = RegisterBank::X;
+          instruction.regs[0].bank = RegisterBank::X;
+          instruction.operands[0] = OperandSpec::RegMMM_maskmerge;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOperand);
+        } else {
+          instruction.mem_size = 8;
+          instruction.regs[0].bank = RegisterBank::X;
+          instruction.operands[0] = mem_oper.masked();
+        }
+      }
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Em_xmm_G_ymm_imm8_sae_W0 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          // sae sets this to `vcvtps2ph ymm, zmm, imm8`
+          instruction.regs[1].bank = RegisterBank::Y;
+          instruction.regs[0].bank = RegisterBank::Z;
+          instruction.operands[0] = OperandSpec::RegMMM_maskmerge_sae_noround;
+        } else {
+          instruction.regs[1].bank = RegisterBank::X;
+          instruction.regs[0].bank = RegisterBank::Y;
+          instruction.operands[0] = OperandSpec::RegMMM_maskmerge;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOperand);
+        } else {
+          instruction.regs[0].bank = RegisterBank::Y;
+          instruction.operands[0] = mem_oper.masked();
+        }
+      }
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.mem_size = 16;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Em_ymm_G_zmm_imm8_sae_W0 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::Z;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegMMM_maskmerge_sae_noround;
+        } else {
+          instruction.operands[0] = OperandSpec::RegMMM_maskmerge;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOperand);
+        } else {
+          instruction.operands[0] = mem_oper.masked();
+        }
+      }
+      instruction.mem_size = 32;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Gm_V_zmm_E_xmm_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      instruction.opcode = if instruction.prefixes.evex_unchecked().vex().w() {
+        Opcode::VINSERTI64X2
+      } else {
+        Opcode::VINSERTI32X4
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::Z;
+      instruction.regs[3].bank = RegisterBank::Z;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR.masked();
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::Gm_V_ymm_E_xmm_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      instruction.opcode = if instruction.prefixes.evex_unchecked().vex().w() {
+        Opcode::VINSERTI64X2
+      } else {
+        Opcode::VINSERTI32X4
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::Y;
+      instruction.regs[3].bank = RegisterBank::Y;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR.masked();
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::Gm_V_zmm_E_ymm_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VINSERTF32X8 {
+          instruction.opcode = Opcode::VINSERTF64X4;
+        } else if instruction.opcode == Opcode::VINSERTI32X8 {
+          instruction.opcode = Opcode::VINSERTI64X4;
+        }
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::Z;
+      instruction.regs[3].bank = RegisterBank::Z;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.mem_size = 32;
+      instruction.operands[0] = OperandSpec::RegRRR.masked();
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::Em_ymm_G_zmm_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VEXTRACTF32X8 {
+          instruction.opcode = Opcode::VEXTRACTF64X4;
+        } else if instruction.opcode == Opcode::VEXTRACTI32X8 {
+          instruction.opcode = Opcode::VEXTRACTI64X4;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::Z;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.mem_size = 32;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Gm_zmm_Eq_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_ymm_Ed_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_xmm_Ew_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 2;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_zmm_E_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_ymm_Eq_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_xmm_Ed_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_zmm_E_ymm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 32;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_zmm_E_ymm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 32;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_ymm_E_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_ymm_E_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_xmm_Eq_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_xmm_Eq_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Em_ymm_G_zmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      instruction.mem_size = 32;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Em_xmm_G_zmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      instruction.mem_size = 16;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Em_xmm_G_ymm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      instruction.mem_size = 16;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Eqm_xmm_G_zmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      instruction.mem_size = 8;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Eqm_xmm_G_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.mem_size = 8;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Edm_xmm_G_ymm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      instruction.mem_size = 4;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Edm_xmm_G_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.mem_size = 4;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Ewm_xmm_G_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.mem_size = 2;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Eqm_xmm_G_ymm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      instruction.mem_size = 8;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_xmm_Ed_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_ymm_Ed_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_zmm_M_ymm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VBROADCASTF32X8 {
+          instruction.opcode = Opcode::VBROADCASTF64X4;
+        } else if instruction.opcode == Opcode::VBROADCASTI32X8 {
+          instruction.opcode = Opcode::VBROADCASTI64X4;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.mem_size = 32;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_zmm_M_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VBROADCASTF32X4 {
+          instruction.opcode = Opcode::VBROADCASTF64X2;
+        } else if instruction.opcode == Opcode::VBROADCASTI32X4 {
+          instruction.opcode = Opcode::VBROADCASTI64X2;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_ymm_M_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VBROADCASTF32X4 {
+          instruction.opcode = Opcode::VBROADCASTF64X2;
+        } else if instruction.opcode == Opcode::VBROADCASTI32X4 {
+          instruction.opcode = Opcode::VBROADCASTI64X2;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_zmm_Ed_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = Opcode::VBROADCASTSD;
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::VBROADCASTF32X2_Gm_ymm_Ed_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = Opcode::VBROADCASTSD;
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_zmm_Ed_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::Z;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Em_xmm_G_LL_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = if instruction.opcode == Opcode::VEXTRACTF32X4 {
+          Opcode::VEXTRACTF64X2
+        } else if instruction.opcode == Opcode::VEXTRACTI32X4 {
+          Opcode::VEXTRACTI64X2
+        } else {
+          instruction.opcode
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      if instruction.prefixes.evex_unchecked().lp() {
+        instruction.regs[0].bank = RegisterBank::Z;
+      } else {
+        instruction.regs[0].bank = RegisterBank::Y;
+      }
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.mem_size = 16;
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Gm_V_LL_E_xmm_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      instruction.opcode = if instruction.prefixes.evex_unchecked().vex().w() {
+        Opcode::VINSERTF64X2
+      } else {
+        Opcode::VINSERTF32X4
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      set_reg_sizes_from_ll(instruction)?;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.mem_size = 16;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::Gm_V_LL_E_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      set_reg_sizes_from_ll(instruction)?;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.mem_size = 16;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Gm_V_LL_E_xmm_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      set_reg_sizes_from_ll(instruction)?;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.mem_size = 16;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Gm_V_LL_E_xmm => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = if instruction.opcode == Opcode::VPSRAD {
+          Opcode::VPSRAQ
+        } else {
+          instruction.opcode
+        };
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      set_reg_sizes_from_ll(instruction)?;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.mem_size = 16;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::VPEXTRW => {
+      deny_mask_reg(instruction)?;
+      deny_z(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::D;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.regs[1].bank = RegisterBank::X;
+      } else {
+        return Err(DecodeError::InvalidOperand);
+      }
+
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::VPINSRW => {
+      deny_mask_reg(instruction)?;
+      deny_z(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.regs[1].bank = RegisterBank::D;
+      } else {
+        instruction.mem_size = 2;
+      }
+
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+    }
+    generated::EVEXOperandCode::VMOVQ_G_Ed_xmm => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::VMOVQ_Ed_G_xmm => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 8;
+      }
+
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::VMOVQ_7e => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      if mem_oper != OperandSpec::RegMMM {
+        instruction.mem_size = 8;
+      }
+
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::VMOVD_7e => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if isa_has_qwords() {
+          instruction.opcode = Opcode::VMOVQ;
+        }
+        if mem_oper == OperandSpec::RegMMM {
+          instruction.regs[1].bank = DEFAULT_EVEX_REGISTER_SIZE;
+        } else {
+          instruction.mem_size = DEFAULT_EVEX_REGISTER_WIDTH;
+        }
+      } else {
+        if mem_oper == OperandSpec::RegMMM {
+          instruction.regs[1].bank = RegisterBank::D;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR_maskmerge;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::VMOVD_6e => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if isa_has_qwords() {
+          instruction.opcode = Opcode::VMOVQ;
+        }
+        if mem_oper == OperandSpec::RegMMM {
+          instruction.regs[1].bank = DEFAULT_EVEX_REGISTER_SIZE;
+        } else {
+          instruction.mem_size = DEFAULT_EVEX_REGISTER_WIDTH;
+        }
+      } else {
+        if mem_oper == OperandSpec::RegMMM {
+          instruction.regs[1].bank = RegisterBank::D;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL_bcast => {
+      check_mask_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VP2INTERSECTD {
+          instruction.opcode = Opcode::VP2INTERSECTQ;
+        } else if instruction.opcode == Opcode::VPTESTNMD {
+          instruction.opcode = Opcode::VPTESTNMQ;
+        } else if instruction.opcode == Opcode::VPTESTMD {
+          instruction.opcode = Opcode::VPTESTMQ;
+        }
+        apply_broadcast(instruction, 8, sz);
+      } else {
+        apply_broadcast(instruction, 4, sz);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL_bcast_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      apply_broadcast(instruction, 8, sz);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      apply_broadcast(instruction, 4, sz);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Em_G_LL => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VMOVDQA32 {
+          instruction.opcode = Opcode::VMOVDQA64;
+        } else if instruction.opcode == Opcode::VMOVDQU32 {
+          instruction.opcode = Opcode::VMOVDQU64;
+        } else if instruction.opcode == Opcode::VMOVDQU8 {
+          instruction.opcode = Opcode::VMOVDQU16;
+        } else if instruction.opcode == Opcode::VPCOMPRESSB {
+          instruction.opcode = Opcode::VPCOMPRESSW;
+        } else if instruction.opcode == Opcode::VPCOMPRESSD {
+          instruction.opcode = Opcode::VPCOMPRESSQ;
+        } else if instruction.opcode == Opcode::VCOMPRESSPS {
+          instruction.opcode = Opcode::VCOMPRESSPD;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Mask_U_LL => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPMOVB2M {
+          instruction.opcode = Opcode::VPMOVW2M;
+        } else {
+          instruction.opcode = Opcode::VPMOVQ2M;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[0].bank = RegisterBank::K;
+      } else {
+        return Err(DecodeError::InvalidOperand);
+      }
+    }
+    generated::EVEXOperandCode::G_LL_Mask => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPMOVM2B {
+          instruction.opcode = Opcode::VPMOVM2W;
+        } else {
+          instruction.opcode = Opcode::VPMOVM2Q;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::K;
+      } else {
+        return Err(DecodeError::InvalidOperand);
+      }
+    }
+    generated::EVEXOperandCode::G_LL_Mask_W1 => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::K;
+      } else {
+        return Err(DecodeError::InvalidOperand);
+      }
+    }
+    generated::EVEXOperandCode::G_LL_Mask_W0 => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::K;
+      } else {
+        return Err(DecodeError::InvalidOperand);
+      }
+    }
+    generated::EVEXOperandCode::G_E_LL_W0 => {
+      deny_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::E_G_LL_W0 => {
+      deny_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Em_G_LL_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = mem_oper.masked();
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Operands_72_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      let (r_sz, m_sz, m_data_sz) = match (
+        instruction.prefixes.evex_unchecked().lp(),
+        instruction.prefixes.evex_unchecked().vex().l(),
+      ) {
+        (true, true) => { return Err(DecodeError::InvalidOpcode); },
+        (true, false) => (RegisterBank::Y, RegisterBank::Z, 64),
+        (false, true) => (RegisterBank::X, RegisterBank::Y, 32),
+        (false, false) => (RegisterBank::X, RegisterBank::X, 16),
+      };
+      instruction.regs[0].bank = r_sz;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = m_sz;
+      } else {
+        apply_broadcast(instruction, 4, m_data_sz);
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL_bcast => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPLZCNTD {
+          instruction.opcode = Opcode::VPLZCNTQ;
+        } else if instruction.opcode == Opcode::VRCP14PS {
+          instruction.opcode = Opcode::VRCP14PD;
+        } else if instruction.opcode == Opcode::VPOPCNTD {
+          instruction.opcode = Opcode::VPOPCNTQ;
+        } else if instruction.opcode == Opcode::VPCONFLICTD {
+          instruction.opcode = Opcode::VPCONFLICTQ;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        }
+        instruction.mem_size = 0;
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          apply_broadcast(instruction, 4, sz);
+        }
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_E_LL_bcast_W1 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        }
+        instruction.mem_size = 0;
+      } else {
+        apply_broadcast(instruction, 8, sz);
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_E_LL_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        }
+        instruction.mem_size = 0;
+      } else {
+        apply_broadcast(instruction, 4, sz);
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_LL_Ud => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() && isa_has_qwords() {
+        if instruction.opcode == Opcode::VPBROADCASTD {
+          instruction.opcode = Opcode::VPBROADCASTQ;
+        }
+      }
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.regs[1].bank = DEFAULT_EVEX_REGISTER_SIZE;
+        } else {
+          instruction.regs[1].bank = RegisterBank::D;
+        }
+      } else {
+        return Err(DecodeError::InvalidOperand);
+      }
+    }
+    generated::EVEXOperandCode::Gm_LL_Ud_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::D;
+      } else {
+        return Err(DecodeError::InvalidOperand);
+      }
+    }
+    generated::EVEXOperandCode::Gm_LL_Eq_xmm => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = Opcode::VPBROADCASTQ;
+      } else {
+        instruction.opcode = Opcode::VBROADCASTI32X2;
+      }
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::X;
+      } else {
+        instruction.mem_size = 8;
+      }
+    }
+    generated::EVEXOperandCode::Gm_LL_Ed_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::X;
+      } else {
+        instruction.mem_size = 4;
+      }
+    }
+    generated::EVEXOperandCode::Gm_LL_Ew_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::X;
+      } else {
+        instruction.mem_size = 2;
+      }
+    }
+    generated::EVEXOperandCode::Gm_LL_Eb_xmm_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        instruction.regs[1].bank = RegisterBank::X;
+      } else {
+        instruction.mem_size = 1;
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL_W0 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_E_LL_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VMOVDQA32 {
+          instruction.opcode = Opcode::VMOVDQA64;
+        } else if instruction.opcode == Opcode::VMOVDQU32 {
+          instruction.opcode = Opcode::VMOVDQU64;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gd_Ed_xmm_sae => {
+      deny_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_z(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.regs[0].bank = DEFAULT_EVEX_REGISTER_SIZE;
+      } else {
+        instruction.regs[0].bank = RegisterBank::D;
+      }
+
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper == OperandSpec::RegMMM {
+          if instruction.opcode == Opcode::VCVTSS2USI || instruction.opcode == Opcode::VCVTSD2SI || instruction.opcode == Opcode::VCVTSD2USI {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          }
+        } else {
+          return Err(DecodeError::InvalidOperand);
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().lp() && instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+      }
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        deny_broadcast(instruction)?;
+        if instruction.opcode == Opcode::VCVTTSD2SI || instruction.opcode == Opcode::VCVTSD2SI || instruction.opcode == Opcode::VCVTTSD2USI || instruction.opcode == Opcode::VCVTSD2USI {
+          instruction.mem_size = 8;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+      instruction.operands[1] = mem_oper;
+
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_E_LL_sae_bcast => {
+      check_mask_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VGETEXPPS {
+          instruction.opcode = Opcode::VGETEXPPD;
+        } else if instruction.opcode == Opcode::VRSQRT14PS {
+          instruction.opcode = Opcode::VRSQRT14PD;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper != OperandSpec::RegMMM {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+          apply_broadcast(instruction, if instruction.prefixes.evex_unchecked().vex().w() {
+            8
+          } else {
+            4
+          }, sz);
+        } else {
+          if instruction.opcode == Opcode::VSQRTPS || instruction.opcode == Opcode::VCVTPS2DQ {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          }
+          set_reg_sizes(instruction, RegisterBank::Z);
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_LL => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VMOVDQA32 {
+          instruction.opcode = Opcode::VMOVDQA64;
+        } else if instruction.opcode == Opcode::VMOVDQU32 {
+          instruction.opcode = Opcode::VMOVDQU64;
+        } else if instruction.opcode == Opcode::VMOVDQU8 {
+          instruction.opcode = Opcode::VMOVDQU16;
+        } else if instruction.opcode == Opcode::VPOPCNTB {
+          instruction.opcode = Opcode::VPOPCNTW;
+        } else if instruction.opcode == Opcode::VPEXPANDB {
+          instruction.opcode = Opcode::VPEXPANDW;
+        } else if instruction.opcode == Opcode::VEXPANDPS {
+          instruction.opcode = Opcode::VEXPANDPD;
+        } else if instruction.opcode == Opcode::VPEXPANDD {
+          instruction.opcode = Opcode::VPEXPANDQ;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_LL_imm8_bcast => {
+      check_mask_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VSHUFF32X4 {
+          instruction.opcode = Opcode::VSHUFF64X2;
+        }
+        apply_broadcast(instruction, 8, sz);
+      } else {
+        apply_broadcast(instruction, 4, sz);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        deny_broadcast(instruction)?;
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      apply_broadcast(instruction, 4, sz);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        deny_broadcast(instruction)?;
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPBLENDMB {
+          instruction.opcode = Opcode::VPBLENDMW;
+        } else if instruction.opcode == Opcode::VPERMI2B {
+          instruction.opcode = Opcode::VPERMI2W;
+        } else if instruction.opcode == Opcode::VPERMT2B {
+          instruction.opcode = Opcode::VPERMT2W;
+        } else if instruction.opcode == Opcode::VPERMB {
+          instruction.opcode = Opcode::VPERMW;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPTESTNMB {
+          instruction.opcode = Opcode::VPTESTNMW;
+        } else if instruction.opcode == Opcode::VPTESTMB {
+          instruction.opcode = Opcode::VPTESTMW;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Maskm_V_Eq_xmm_imm8_sae_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+      deny_z(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        deny_broadcast(instruction)?;
+        instruction.mem_size = 8;
+      }
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Maskm_V_Ed_xmm_imm8_sae_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+      deny_z(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+        deny_broadcast(instruction)?;
+      }
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+      instruction.mem_size = sz;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPCMPUB {
+          instruction.opcode = Opcode::VPCMPUW;
+        } else if instruction.opcode == Opcode::VPCMPB {
+          instruction.opcode = Opcode::VPCMPW;
+        }
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_Ed_xmm_imm8 => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+      deny_z(instruction)?;
+      deny_broadcast(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = if instruction.opcode == Opcode::VFPCLASSSS {
+          Opcode::VFPCLASSSD
+        } else {
+          instruction.opcode
+        };
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.mem_size = 8;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_E_LL_imm8_bcast => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          instruction.mem_size = sz;
+        }
+        instruction.opcode = if instruction.opcode == Opcode::VFPCLASSPS {
+          Opcode::VFPCLASSPD
+        } else {
+          instruction.opcode
+        };
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          apply_broadcast(instruction, 4, sz);
+        } else {
+          instruction.mem_size = sz;
+        }
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        deny_broadcast(instruction)?;
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL_imm8_sae_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          instruction.mem_size = sz;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          apply_broadcast(instruction, 4, sz);
+        } else {
+          instruction.mem_size = sz;
+        }
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          set_reg_sizes_from_ll(instruction)?;
+        }
+        instruction.mem_size = 0;
+      } else {
+        set_reg_sizes_from_ll(instruction)?;
+      }
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Mask_V_E_LL_imm8_bcast => {
+      check_mask_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          instruction.mem_size = sz;
+        }
+        // this operand code is used in a few places, apply `w` as appropriate
+        instruction.opcode = if instruction.opcode == Opcode::VPCMPUD {
+          Opcode::VPCMPUQ
+        } else {
+          Opcode::VPCMPQ
+        };
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          apply_broadcast(instruction, 4, sz);
+        } else {
+          instruction.mem_size = sz;
+        }
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        deny_broadcast(instruction)?;
+        instruction.mem_size = 0;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+      if instruction.regs[0].num >= 8 {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.regs[0].bank = RegisterBank::K;
+      }
+    }
+    generated::EVEXOperandCode::Opcode_72_Gm_E_LL_imm8_bcast => {
+      check_mask_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      let rrr = (modrm >> 3) & 7;
+
+      let item_size = if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.opcode = [
+          Ok(Opcode::VPRORQ),
+          Ok(Opcode::VPROLQ),
+          Err(DecodeError::InvalidOpcode),
+          Err(DecodeError::InvalidOpcode),
+          Ok(Opcode::VPSRAQ),
+          Err(DecodeError::InvalidOpcode),
+          Err(DecodeError::InvalidOpcode),
+          Err(DecodeError::InvalidOpcode),
+        ][rrr as usize]?;
+        8
+      } else {
+        instruction.opcode = [
+          Ok(Opcode::VPRORD),
+          Ok(Opcode::VPROLD),
+          Ok(Opcode::VPSRLD),
+          Err(DecodeError::InvalidOpcode),
+          Ok(Opcode::VPSRAD),
+          Ok(Opcode::VPSLLD),
+          Err(DecodeError::InvalidOpcode),
+          Err(DecodeError::InvalidOpcode),
+        ][rrr as usize]?;
+        4
+      };
+
+      apply_broadcast(instruction, item_size, sz);
+
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegVex_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_imm8_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+      deny_broadcast(instruction)?;
+
+      let sz = regs_size(instruction);
+      instruction.mem_size = sz;
+/*
+      instruction.opcode = if instruction.prefixes.evex_unchecked().vex().w() {
+        apply_broadcast(instruction, 8, sz);
+        if instruction.opcode == Opcode::VALIGND {
+          Opcode::VALIGNQ
+        } else if instruction.opcode == Opcode::VPTERNLOGD {
+          Opcode::VPTERNLOGQ
+        } else if instruction.opcode == Opcode::VSHUFI32X4 {
+          Opcode::VSHUFI64X2
+        } else {
+          instruction.opcode
+        }
+      } else {
+        apply_broadcast(instruction, 4, sz);
+        instruction.opcode
+      };
+*/
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_imm8_bcast => {
+      check_mask_reg(instruction)?;
+
+      let sz = regs_size(instruction);
+
+      instruction.opcode = if instruction.prefixes.evex_unchecked().vex().w() {
+        apply_broadcast(instruction, 8, sz);
+        if instruction.opcode == Opcode::VALIGND {
+          Opcode::VALIGNQ
+        } else if instruction.opcode == Opcode::VPTERNLOGD {
+          Opcode::VPTERNLOGQ
+        } else if instruction.opcode == Opcode::VSHUFI32X4 {
+          Opcode::VSHUFI64X2
+        } else if instruction.opcode == Opcode::VPSHLDD {
+          Opcode::VPSHLDQ
+        } else if instruction.opcode == Opcode::VPSHRDD {
+          Opcode::VPSHRDQ
+        } else {
+          instruction.opcode
+        }
+      } else {
+        apply_broadcast(instruction, 4, sz);
+        instruction.opcode
+      };
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        deny_broadcast(instruction)?;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_imm8_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        deny_broadcast(instruction)?;
+      } else {
+        instruction.mem_size = sz;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_imm8_bcast_W0 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let sz = regs_size(instruction);
+
+      if instruction.opcode == Opcode::VSHUFPS {
+        apply_broadcast(instruction, 4, sz);
+      } else {
+        apply_broadcast(instruction, 8, sz);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::G_V_E_LL_imm8 => {
+      check_mask_reg(instruction)?;
+
+      instruction.mem_size = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_imm8 => {
+      check_mask_reg(instruction)?;
+
+      instruction.mem_size = regs_size(instruction);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_V_E_LL_imm8_bcast_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let sz = regs_size(instruction);
+
+      apply_broadcast(instruction, 8, sz);
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes_from_ll(instruction)?;
+    }
+    generated::EVEXOperandCode::Gm_ymm_E_zmm_sae_bcast_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Z, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      instruction.operands[1] = mem_oper;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper != OperandSpec::RegMMM {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          apply_broadcast(instruction, 8, 64);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        instruction.mem_size = 64;
+      }
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_xmm_E_ymm_sae_bcast_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.operands[1] = mem_oper;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper != OperandSpec::RegMMM {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          apply_broadcast(instruction, 8, 32);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          instruction.regs[0].bank = RegisterBank::Y;
+          instruction.regs[1].bank = RegisterBank::Z;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        instruction.mem_size = 32;
+      }
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_xmm_E_xmm_sae_bcast_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.operands[1] = mem_oper;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        if mem_oper != OperandSpec::RegMMM {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          apply_broadcast(instruction, 8, 16);
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          instruction.regs[0].bank = RegisterBank::Y;
+          instruction.regs[1].bank = RegisterBank::Z;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        instruction.mem_size = 16;
+      }
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::VCVTTPS2UQQ => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VCVTTPS2UQQ {
+          instruction.opcode = Opcode::VCVTTPD2UQQ;
+        } else if instruction.opcode == Opcode::VCVTPS2UQQ {
+          instruction.opcode = Opcode::VCVTPD2UQQ;
+        } else if instruction.opcode == Opcode::VCVTTPS2QQ {
+          instruction.opcode = Opcode::VCVTTPD2QQ;
+        } else if instruction.opcode == Opcode::VCVTPS2QQ {
+          instruction.opcode = Opcode::VCVTPD2QQ;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+      instruction.mem_size = 0;
+
+      let mut lp = 0;
+      if instruction.prefixes.evex_unchecked().lp() { lp |= 2; }
+      if instruction.prefixes.evex_unchecked().vex().l() { lp |= 1; }
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          if instruction.opcode == Opcode::VCVTPD2UQQ || instruction.opcode == Opcode::VCVTPS2UQQ || instruction.opcode == Opcode::VCVTPD2QQ || instruction.opcode == Opcode::VCVTPS2QQ {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          }
+          instruction.regs[0].bank = RegisterBank::Z;
+          if instruction.prefixes.evex_unchecked().vex().w() {
+            instruction.regs[1].bank = RegisterBank::Z;
+          } else {
+            instruction.regs[1].bank = RegisterBank::Y;
+          }
+        } else {
+          let (r_sz, m_sz) = if instruction.prefixes.evex_unchecked().vex().w() {
+            [
+              Ok((RegisterBank::X, RegisterBank::X)),
+              Ok((RegisterBank::Y, RegisterBank::Y)),
+              Ok((RegisterBank::Z, RegisterBank::Z)),
+              Err(DecodeError::InvalidOperand),
+            ][lp]?
+          } else {
+            [
+              Ok((RegisterBank::X, RegisterBank::X)),
+              Ok((RegisterBank::Y, RegisterBank::X)),
+              Ok((RegisterBank::Z, RegisterBank::Y)),
+              Err(DecodeError::InvalidOperand),
+            ][lp]?
+          };
+          instruction.regs[0].bank = r_sz;
+          instruction.regs[1].bank = m_sz;
+        }
+      } else {
+        let (r_sz, m_sz) = if instruction.prefixes.evex_unchecked().vex().w() {
+          [
+            Ok((RegisterBank::X, 16)),
+            Ok((RegisterBank::Y, 32)),
+            Ok((RegisterBank::Z, 64)),
+            Err(DecodeError::InvalidOperand),
+          ][lp]?
+        } else {
+          [
+            Ok((RegisterBank::X, 8)),
+            Ok((RegisterBank::Y, 16)),
+            Ok((RegisterBank::Z, 32)),
+            Err(DecodeError::InvalidOperand),
+          ][lp]?
+        };
+        instruction.regs[0].bank = r_sz;
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, m_sz);
+        } else {
+          apply_broadcast(instruction, 4, m_sz);
+        }
+      }
+    }
+    generated::EVEXOperandCode::VCVTPH2PS => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      if instruction.opcode == Opcode::VCVTPS2PD {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          return Err(DecodeError::InvalidOpcode);
+        }
+      } else if instruction.opcode == Opcode::VCVTTPS2UQQ {
+        instruction.opcode = Opcode::VCVTTPD2UQQ;
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+      instruction.mem_size = 0;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          instruction.regs[0].bank = RegisterBank::Z;
+          if instruction.opcode == Opcode::VCVTTPD2UQQ {
+            instruction.regs[1].bank = RegisterBank::Z;
+          } else {
+            instruction.regs[1].bank = RegisterBank::Y;
+          }
+        } else {
+          let (r_sz, m_sz) = match (
+            instruction.prefixes.evex_unchecked().vex().l(),
+            instruction.prefixes.evex_unchecked().lp()
+          ) {
+            (true, true) => { return Err(DecodeError::InvalidOperand); }
+            (false, true) => (RegisterBank::Z, RegisterBank::Y),
+            (true, false) => (RegisterBank::Y, RegisterBank::X),
+            (false, false) => (RegisterBank::X, RegisterBank::X),
+          };
+          instruction.regs[0].bank = r_sz;
+          instruction.regs[1].bank = m_sz;
+        }
+      } else {
+        let (r_sz, m_sz) = match (
+          instruction.prefixes.evex_unchecked().vex().l(),
+          instruction.prefixes.evex_unchecked().lp()
+        ) {
+          (true, true) => { return Err(DecodeError::InvalidOperand); }
+          (true, false) => (RegisterBank::Y, 16),
+          (false, true) => (RegisterBank::Z, 32),
+          (false, false) => (RegisterBank::X, 8),
+        };
+        instruction.regs[0].bank = r_sz;
+        if instruction.opcode == Opcode::VCVTPS2PD {
+          apply_broadcast(instruction, 4, m_sz);
+        } else {
+          apply_broadcast(instruction, 8, m_sz);
+        }
+      }
+    }
+    generated::EVEXOperandCode::VCVTDQ2PS => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VCVTDQ2PS {
+          instruction.opcode = Opcode::VCVTQQ2PS;
+        } else if instruction.opcode == Opcode::VCVTUDQ2PS {
+          instruction.opcode = Opcode::VCVTUQQ2PS;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+      instruction.mem_size = 0;
+
+      let mut lp = 0;
+      if instruction.prefixes.evex_unchecked().lp() { lp |= 2; }
+      if instruction.prefixes.evex_unchecked().vex().l() { lp |= 1; }
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          if instruction.prefixes.evex_unchecked().vex().w() {
+            instruction.regs[0].bank = RegisterBank::Y;
+          } else {
+            instruction.regs[0].bank = RegisterBank::Z;
+          }
+          instruction.regs[1].bank = RegisterBank::Z;
+        } else {
+          let (r_sz, m_sz) = if instruction.prefixes.evex_unchecked().vex().w() {
+            [
+              Ok((RegisterBank::X, RegisterBank::X)),
+              Ok((RegisterBank::X, RegisterBank::Y)),
+              Ok((RegisterBank::Y, RegisterBank::Z)),
+              Err(DecodeError::InvalidOperand),
+            ][lp]?
+          } else {
+            [
+              Ok((RegisterBank::X, RegisterBank::X)),
+              Ok((RegisterBank::Y, RegisterBank::Y)),
+              Ok((RegisterBank::Z, RegisterBank::Z)),
+              Err(DecodeError::InvalidOperand),
+            ][lp]?
+          };
+          instruction.regs[0].bank = r_sz;
+          instruction.regs[1].bank = m_sz;
+        }
+      } else {
+        let (r_sz, m_sz, item_sz) = if instruction.prefixes.evex_unchecked().vex().w() {
+          [
+            Ok((RegisterBank::X, 16, 8)),
+            Ok((RegisterBank::X, 32, 8)),
+            Ok((RegisterBank::Y, 64, 8)),
+            Err(DecodeError::InvalidOperand),
+          ][lp]?
+        } else {
+          [
+            Ok((RegisterBank::X, 16, 4)),
+            Ok((RegisterBank::Y, 32, 4)),
+            Ok((RegisterBank::Z, 64, 4)),
+            Err(DecodeError::InvalidOperand),
+          ][lp]?
+        };
+        instruction.regs[0].bank = r_sz;
+        apply_broadcast(instruction, item_sz, m_sz);
+      }
+    }
+    generated::EVEXOperandCode::VCVTTPS2UDQ => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+      instruction.mem_size = 0;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VCVTTPS2UDQ {
+          instruction.opcode = Opcode::VCVTTPD2UDQ;
+        } else if instruction.opcode == Opcode::VCVTPS2UDQ {
+          instruction.opcode = Opcode::VCVTPD2UDQ;
+        }
+      }
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          if instruction.opcode == Opcode::VCVTTPD2UDQ || instruction.opcode == Opcode::VCVTTPS2UDQ {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          }
+          if instruction.prefixes.evex_unchecked().vex().w() {
+            instruction.regs[0].bank = RegisterBank::Y;
+          } else {
+            instruction.regs[0].bank = RegisterBank::Z;
+          }
+          instruction.regs[1].bank = RegisterBank::Z;
+        } else {
+          let (r_sz, m_sz) = match (
+            instruction.prefixes.evex_unchecked().vex().l(),
+            instruction.prefixes.evex_unchecked().lp()
+          ) {
+            (true, true) => { return Err(DecodeError::InvalidOperand); }
+            (false, true) => (if instruction.prefixes.evex_unchecked().vex().w() { RegisterBank::Y } else { RegisterBank::Z }, RegisterBank::Z),
+            (true, false) => (if instruction.prefixes.evex_unchecked().vex().w() { RegisterBank::X } else { RegisterBank::Y }, RegisterBank::Y),
+            (false, false) => (RegisterBank::X, RegisterBank::X),
+          };
+          instruction.regs[0].bank = r_sz;
+          instruction.regs[1].bank = m_sz;
+        }
+      } else {
+        let (r_sz, m_sz) = match (
+          instruction.prefixes.evex_unchecked().vex().l(),
+          instruction.prefixes.evex_unchecked().lp()
+        ) {
+          (true, true) => { return Err(DecodeError::InvalidOperand); }
+//          (true, false) => (RegisterBank::Y, 32),
+          (true, false) => (if instruction.prefixes.evex_unchecked().vex().w() { RegisterBank::X } else { RegisterBank::Y }, 32),
+          (false, true) => (if instruction.prefixes.evex_unchecked().vex().w() { RegisterBank::Y } else { RegisterBank::Z }, 64),
+          (false, false) => (RegisterBank::X, 16),
+        };
+        instruction.regs[0].bank = r_sz;
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, m_sz);
+        } else {
+          apply_broadcast(instruction, 4, m_sz);
+        }
+      }
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VCVTDQ2PS {
+          instruction.opcode = Opcode::VCVTQQ2PS;
+        }
+      }
+    }
+    generated::EVEXOperandCode::VCVTTPD2DQ => {
+      check_mask_reg(instruction)?;
+      deny_vex_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+      instruction.mem_size = 0;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VCVTTPS2UDQ {
+          instruction.opcode = Opcode::VCVTTPD2UDQ;
+        }
+      }
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          if instruction.opcode == Opcode::VCVTDQ2PS || instruction.opcode == Opcode::VCVTPD2DQ {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          }
+          if instruction.opcode == Opcode::VCVTDQ2PS && !instruction.prefixes.evex_unchecked().vex().w() {
+            instruction.regs[0].bank = RegisterBank::Z;
+          } else {
+            instruction.regs[0].bank = RegisterBank::Y;
+          }
+          instruction.regs[1].bank = RegisterBank::Z;
+        } else {
+          let (r_sz, m_sz) = match (
+            instruction.prefixes.evex_unchecked().vex().l(),
+            instruction.prefixes.evex_unchecked().lp()
+          ) {
+            (true, true) => { return Err(DecodeError::InvalidOperand); }
+            (false, true) => (RegisterBank::Y, RegisterBank::Z),
+            (true, false) => (RegisterBank::X, RegisterBank::Y),
+            (false, false) => (RegisterBank::X, RegisterBank::X),
+          };
+          instruction.regs[0].bank = r_sz;
+          instruction.regs[1].bank = m_sz;
+        }
+      } else {
+        let (r_sz, m_sz) = match (
+          instruction.prefixes.evex_unchecked().vex().l(),
+          instruction.prefixes.evex_unchecked().lp()
+        ) {
+          (true, true) => { return Err(DecodeError::InvalidOperand); }
+          (true, false) => (RegisterBank::X, 32),
+          (false, true) => (RegisterBank::Y, 64),
+          (false, false) => (RegisterBank::X, 16),
+        };
+        instruction.regs[0].bank = r_sz;
+        apply_broadcast(instruction, 8, m_sz);
+      }
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VCVTDQ2PS {
+          instruction.opcode = Opcode::VCVTQQ2PS;
+        }
+      }
+    }
+    generated::EVEXOperandCode::Gm_ymm_U_zmm_sae_W1 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Z, sink)?;
+      instruction.regs[0].bank = RegisterBank::Y;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = mem_oper;
+      if mem_oper != OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Gm_V_E_xmm_sae_W1 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+      set_reg_sizes(instruction, RegisterBank::X);
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          if instruction.opcode == Opcode::VMINSD || instruction.opcode == Opcode::VMAXSD {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          } else {
+            instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+          }
+        }
+      } else {
+        instruction.mem_size = 8;
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_E_xmm_sae => {
+      check_mask_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VEXP2SS {
+          instruction.opcode = Opcode::VEXP2SD;
+        } else if instruction.opcode == Opcode::VRCP28SS {
+          instruction.opcode = Opcode::VRCP28SD;
+        } else if instruction.opcode == Opcode::VRSQRT28SS {
+          instruction.opcode = Opcode::VRSQRT28SD;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+      set_reg_sizes(instruction, RegisterBank::X);
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.mem_size = 8;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+    }
+    generated::EVEXOperandCode::Gm_E_zmm_sae_bcast => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VEXP2PS {
+          instruction.opcode = Opcode::VEXP2PD;
+        } else if instruction.opcode == Opcode::VRCP28PS {
+          instruction.opcode = Opcode::VRCP28PD;
+        } else if instruction.opcode == Opcode::VRSQRT28PS {
+          instruction.opcode = Opcode::VRSQRT28PD;
+        }
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Z, sink)?;
+
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+          set_reg_sizes(instruction, RegisterBank::Z);
+        } else {
+          let sz = regs_size(instruction);
+          if sz < 64 {
+            return Err(DecodeError::InvalidOperand);
+          }
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+          set_reg_sizes_from_ll(instruction)?;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+        let sz = regs_size(instruction);
+        if sz < 64 {
+          return Err(DecodeError::InvalidOperand);
+        }
+
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          apply_broadcast(instruction, 8, sz);
+        } else {
+          apply_broadcast(instruction, 4, sz);
+        }
+        set_reg_sizes_from_ll(instruction)?;
+      }
+    }
+    generated::EVEXOperandCode::Gm_U_zmm_sae_W0 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+
+      set_reg_sizes(instruction, RegisterBank::Z);
+    }
+    generated::EVEXOperandCode::Gm_U_zmm_imm8_sae_W0 => {
+      deny_vex_reg(instruction)?;
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      if mem_oper != OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+      instruction.operands[1] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      set_reg_sizes(instruction, RegisterBank::Z);
+    }
+    generated::EVEXOperandCode::Edd_G_xmm_imm8 => {
+      deny_vex_reg(instruction)?;
+      deny_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if isa_has_qwords() {
+          instruction.opcode = Opcode::VPEXTRQ;
+        } else {
+          instruction.opcode = Opcode::VPEXTRD;
+        }
+        if let OperandSpec::RegMMM = mem_oper {
+          instruction.regs[1].bank = DEFAULT_EVEX_REGISTER_SIZE;
+        } else {
+          instruction.mem_size = DEFAULT_EVEX_REGISTER_WIDTH;
+        }
+      } else {
+        instruction.opcode = Opcode::VPEXTRD;
+        if let OperandSpec::RegMMM = mem_oper {
+          instruction.regs[1].bank = RegisterBank::D;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+    }
+    generated::EVEXOperandCode::VCVTUSI2SD => {
+      deny_mask_reg(instruction)?;
+      deny_z(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      instruction.regs[3].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      if mem_oper == OperandSpec::RegMMM {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.regs[1].bank = DEFAULT_EVEX_REGISTER_SIZE;
+        } else {
+          instruction.regs[1].bank = RegisterBank::D;
+        }
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          if instruction.prefixes.evex_unchecked().broadcast() {
+            if isa_has_qwords() {
+              instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+            }
+          } else {
+            if instruction.prefixes.evex_unchecked().lp() || !instruction.prefixes.evex_unchecked().vex().l() {
+              return Err(DecodeError::InvalidOpcode);
+            }
+          }
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().broadcast() {
+          return Err(DecodeError::InvalidOpcode);
+        }
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.mem_size = DEFAULT_EVEX_REGISTER_WIDTH;
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::VEXTRACTPS => {
+      deny_vex_reg(instruction)?;
+      deny_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if let OperandSpec::RegMMM = mem_oper {
+        instruction.regs[1].bank = RegisterBank::D;
+      } else {
+        instruction.mem_size = 4;
+      }
+    }
+    generated::EVEXOperandCode::Ewd_G_xmm_imm8 => {
+      deny_vex_reg(instruction)?;
+      deny_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if let OperandSpec::RegMMM = mem_oper {
+        instruction.regs[1].bank = RegisterBank::D;
+      } else {
+        instruction.mem_size = 2;
+      }
+    }
+    generated::EVEXOperandCode::Ebd_G_xmm_imm8 => {
+      deny_vex_reg(instruction)?;
+      deny_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::X;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[2] = OperandSpec::ImmU8;
+      instruction.operand_count = 3;
+
+      if let OperandSpec::RegMMM = mem_oper {
+        instruction.regs[1].bank = RegisterBank::D;
+      } else {
+        instruction.mem_size = 1;
+      }
+    }
+    generated::EVEXOperandCode::Gm_V_Ed_xmm_imm8_sae => {
+      check_mask_reg(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+
+      let item_size = if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VRNDSCALESS {
+          return Err(DecodeError::InvalidOpcode);
+        } else if instruction.opcode == Opcode::VRANGESS {
+          instruction.opcode = Opcode::VRANGESD;
+          8
+        } else if instruction.opcode == Opcode::VFPCLASSSS {
+          instruction.opcode = Opcode::VFPCLASSSD;
+          8
+        } else if instruction.opcode == Opcode::VREDUCESS {
+          instruction.opcode = Opcode::VREDUCESD;
+          8
+        } else if instruction.opcode == Opcode::VFIXUPIMMSS {
+          instruction.opcode = Opcode::VFIXUPIMMSD;
+          8
+        } else if instruction.opcode == Opcode::VGETMANTSS {
+          instruction.opcode = Opcode::VGETMANTSD;
+          8
+        } else {
+          4
+        }
+      } else {
+        4
+      };
+
+      if let OperandSpec::RegMMM = mem_oper {
+        instruction.mem_size = 0;
+      } else{
+        instruction.mem_size = item_size;
+      }
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_E_xmm_imm8_sae_W1 => {
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if let OperandSpec::RegMMM = mem_oper {
+        /* no mem size */
+      } else{
+        instruction.mem_size = 8;
+      }
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.imm = read_imm_unsigned(words, 1)?;
+      instruction.operands[3] = OperandSpec::ImmU8;
+      instruction.operand_count = 4;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::Gm_V_zmm_M_xmm_W0 => {
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      instruction.regs[0].bank = RegisterBank::Z;
+      instruction.regs[3].bank = RegisterBank::Z;
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if let OperandSpec::RegMMM = mem_oper {
+        return Err(DecodeError::InvalidOperand);
+      } else{
+        instruction.mem_size = 16;
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Gm_V_M_xmm => {
+      check_mask_reg(instruction)?;
+
+      instruction.mem_size = 16;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::VMOVSD_10 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.operands[1] = OperandSpec::RegVex;
+        instruction.operands[2] = mem_oper;
+        instruction.operand_count = 3;
+
+        instruction.mem_size = 0;
+      } else {
+        instruction.operands[1] = mem_oper;
+        instruction.operand_count = 2;
+
+        instruction.mem_size = 8;
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::VMOVSD_11 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 1)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = mem_oper.masked();
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.operands[1] = OperandSpec::RegVex;
+        instruction.operands[2] = OperandSpec::RegRRR;
+        instruction.operand_count = 3;
+
+        instruction.mem_size = 0;
+      } else {
+        instruction.operands[1] = OperandSpec::RegRRR;
+        instruction.operand_count = 2;
+
+        instruction.mem_size = 8;
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::VMOVSS_10 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.operands[1] = OperandSpec::RegVex;
+        instruction.operands[2] = mem_oper;
+        instruction.operand_count = 3;
+
+        instruction.mem_size = 0;
+      } else {
+        instruction.operands[1] = mem_oper;
+        instruction.operand_count = 2;
+
+        instruction.mem_size = 4;
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::VMOVSS_11 => {
+      check_mask_reg(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = mem_oper.masked();
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.operands[1] = OperandSpec::RegVex;
+        instruction.operands[2] = OperandSpec::RegRRR;
+        instruction.operand_count = 3;
+
+        instruction.mem_size = 0;
+      } else {
+        instruction.operands[1] = OperandSpec::RegRRR;
+        instruction.operand_count = 2;
+
+        instruction.mem_size = 4;
+      }
+      set_reg_sizes(instruction, RegisterBank::X);
+    }
+    generated::EVEXOperandCode::VCVTSI2SS => {
+      check_mask_reg(instruction)?;
+      deny_z(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() && mem_oper == OperandSpec::RegMMM {
+        if (!instruction.prefixes.evex_unchecked().vex().w() || !isa_has_qwords()) && instruction.opcode == Opcode::VCVTSI2SD {
+          instruction.operands[0] = OperandSpec::RegRRR;
+        } else {
+          instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+        }
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR;
+      }
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          instruction.regs[1].bank = DEFAULT_EVEX_REGISTER_SIZE;
+        } else {
+          instruction.regs[1].bank = RegisterBank::D;
+        }
+      } else {
+        if instruction.prefixes.evex_unchecked().vex().w() {
+          if isa_has_qwords() {
+            instruction.mem_size = 8;
+          } else {
+            if [Opcode::VCVTSI2SS, Opcode::VCVTSI2SD].contains(&instruction.opcode) {
+              instruction.mem_size = 4;
+            } else {
+              instruction.mem_size = 8;
+            }
+          }
+        } else {
+          instruction.mem_size = 4;
+        }
+      }
+    }
+    generated::EVEXOperandCode::VCVTTSS2SI => {
+      check_mask_reg(instruction)?;
+      deny_z(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR;
+      }
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.regs[0].bank = DEFAULT_EVEX_REGISTER_SIZE;
+      } else {
+        instruction.regs[0].bank = RegisterBank::D;
+      }
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::VCVTSS2SI => {
+      check_mask_reg(instruction)?;
+      deny_z(instruction)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      if instruction.prefixes.evex_unchecked().broadcast() {
+        instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
+      } else {
+        instruction.operands[0] = OperandSpec::RegRRR;
+      }
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        instruction.regs[0].bank = DEFAULT_EVEX_REGISTER_SIZE;
+      } else {
+        instruction.regs[0].bank = RegisterBank::D;
+      }
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.mem_size = 0;
+      } else {
+        instruction.mem_size = 4;
+      }
+
+      instruction.operands[1] = mem_oper;
+      instruction.operand_count = 2;
+    }
+    generated::EVEXOperandCode::Operands_12_W0 => {
+      deny_mask_reg(instruction)?;
+      deny_z(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.opcode = Opcode::VMOVHLPS;
+
+        instruction.mem_size = 0;
+      } else {
+        instruction.opcode = Opcode::VMOVLPS;
+
+        instruction.mem_size = 8;
+      }
+    }
+    generated::EVEXOperandCode::Operands_16_W0 => {
+      deny_mask_reg(instruction)?;
+      deny_z(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = OperandSpec::RegRRR;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.operands[2] = mem_oper;
+      instruction.operand_count = 3;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+
+      if mem_oper == OperandSpec::RegMMM {
+        instruction.opcode = Opcode::VMOVLHPS;
+
+        instruction.mem_size = 0;
+      } else {
+        instruction.opcode = Opcode::VMOVHPS;
+
+        instruction.mem_size = 8;
+      }
+    }
+    generated::EVEXOperandCode::Mq_G_W0 => {
+      deny_mask_reg(instruction)?;
+      deny_z(instruction)?;
+      ensure_W(instruction, 0)?;
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      set_reg_sizes(instruction, RegisterBank::X);
+
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      } else {
+        instruction.mem_size = 8;
+      }
+    }
+    generated::EVEXOperandCode::Mvector_Mask_G_LL => {
+      check_mask_reg(instruction)?;
+      deny_z(instruction)?;
+
+      // we can't just `deny_vex_reg` because vp is used as bit 5 for the index register
+      if instruction.regs[3].num & 0b1111 != 0 {
+        return Err(DecodeError::InvalidOperand);
+      }
+
+      let modrm = read_modrm(words)?;
+      set_rrr(instruction, modrm);
+      let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X, sink)?;
+      instruction.regs[2].num |= instruction.regs[3].num & 0b10000;
+      instruction.operands[0] = mem_oper;
+      instruction.operands[1] = OperandSpec::RegVex;
+      instruction.regs[3].bank = RegisterBank::K;
+      instruction.regs[3].num = instruction.prefixes.evex_unchecked().mask_reg();
+      instruction.operands[2] = OperandSpec::RegRRR;
+      instruction.operand_count = 2;
+
+      if mem_oper == OperandSpec::RegMMM {
+        return Err(DecodeError::InvalidOperand);
+      }
+
+      if instruction.prefixes.evex_unchecked().lp() {
+        if instruction.prefixes.evex_unchecked().vex().l() {
+          return Err(DecodeError::InvalidOperand);
+        }
+        instruction.regs[0].bank = RegisterBank::Z;
+        instruction.regs[2].bank = RegisterBank::Z;
+      } else if instruction.prefixes.evex_unchecked().vex().l() {
+        instruction.regs[0].bank = RegisterBank::Y;
+        instruction.regs[2].bank = RegisterBank::Y;
+      } else {
+        instruction.regs[0].bank = RegisterBank::X;
+        instruction.regs[2].bank = RegisterBank::X;
+      }
+
+      if instruction.prefixes.evex_unchecked().vex().w() {
+        if instruction.opcode == Opcode::VPSCATTERDD {
+          instruction.opcode = Opcode::VPSCATTERDQ;
+        } else if instruction.opcode == Opcode::VPSCATTERQD {
+          instruction.opcode = Opcode::VPSCATTERQQ;
+        }
+        instruction.mem_size = 8;
+      } else {
+        instruction.mem_size = 4;
+      }
+      instruction.operand_count = 3;
+    }
+    generated::EVEXOperandCode::Nothing => {}
+  }
+  Ok(())
+}

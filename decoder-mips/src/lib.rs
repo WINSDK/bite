@@ -52,6 +52,7 @@ enum Format {
 pub struct Stream<'data> {
     pub bytes: &'data [u8],
     pub offset: usize,
+    pub section_base: usize,
 }
 
 pub struct Instruction {

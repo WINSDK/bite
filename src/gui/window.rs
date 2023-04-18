@@ -353,7 +353,7 @@ impl Backend {
                     }
                     LineKind::Instruction(line) => {
                         let tokens = line.stream.tokens();
-                        line.address = format!("{:#x}", line.section_base + line.offset);
+                        line.address = format!("0x{:0>10X}", line.section_base + line.offset);
 
                         // memory address
                         texts.push(
