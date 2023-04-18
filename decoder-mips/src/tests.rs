@@ -1,16 +1,16 @@
 #![cfg(test)]
 
+use decoder::Streamable;
+
 macro_rules! eq {
     ([$($bytes:tt),+] => $mnemomic:literal, $($operand:literal),*) => {{
-        use $crate::disassembler::Streamable;
-
-        let mut stream = $crate::disassembler::mips::Stream {
+        let mut stream = $crate::Stream {
             bytes: &[$($bytes),+],
             offset: 0,
         };
 
         match stream.next() {
-            Ok(inst) => {
+            Some(Ok(inst)) => {
                 assert_eq!(inst.mnemomic, $mnemomic);
 
                 let mut idx = 0;
@@ -23,7 +23,8 @@ macro_rules! eq {
                     );
                 )*
             }
-            Err(e) => panic!("failed to decode instruction: {e:?}"),
+            Some(Err(e)) => panic!("failed to decode instruction: {e:?}"),
+            None => panic!("no bytes to decode"),
         }
     }};
 }

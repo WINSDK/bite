@@ -22,6 +22,7 @@ macro_rules! decode_instructions {
 
         let mut out_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
+        out_path.push("..");
         out_path.push("target");
         out_path.push(format!("test_riscv{}", CRC.checksum($code.as_bytes())));
 
@@ -66,9 +67,9 @@ macro_rules! decode_instructions {
             section_base: section.address() as usize,
         };
 
-        loop {
-            match stream.next() {
-                Ok(ref mut inst) => {
+        while let Some(ref mut inst) = stream.next() {
+            match inst {
+                Ok(inst) => {
                     let mut fmt = inst.mnemomic.to_string();
                     let operands = &inst.operands[..inst.operand_count];
 
@@ -89,7 +90,6 @@ macro_rules! decode_instructions {
                     fmt += &operands[operands.len() - 1];
                     decoded.push(fmt);
                 },
-                Err($crate::Error::NoBytesLeft) => break,
                 Err(..) => decoded.push("????".to_string()),
             }
         }

@@ -1,5 +1,7 @@
 //! MIPS V disassembler.
 
+mod tests;
+
 use std::borrow::Cow;
 use tokenizing::colors;
 

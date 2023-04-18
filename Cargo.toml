@@ -30,3 +30,14 @@ panic = "abort"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
+
+[workspace]
+members = [
+    "disassembler",
+    "tokenizing",
+    "decoder",
+    "decoder-x86_64",
+    "decoder-arm",
+    "decoder-riscv",
+    "decoder-mips",
+]
