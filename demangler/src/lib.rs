@@ -1,3 +1,5 @@
+//! Symbol demangler for common mangling schemes.
+
 use std::borrow::Cow;
 use tokenizing::{colors, Color, Token};
 

@@ -38,11 +38,10 @@ use crate::TokenStream;
 use ast::{Demangle, Parse, ParseContext};
 use error::{Error, Result};
 use index_str::IndexStr;
-use std::fmt;
 
 pub fn parse(s: &str) -> Option<TokenStream> {
     let sym = Symbol::new(s).ok()?;
-    sym.demangle().ok()
+    Some(sym.demangle())
 }
 
 /// A mangled symbol that has been parsed into an AST.
@@ -59,35 +58,6 @@ struct Symbol<'a> {
 impl Symbol<'_> {
     /// Given some raw storage, parse the mangled symbol from it with the default
     /// options.
-    ///
-    /// ```
-    /// use itanium::Symbol;
-    /// use std::string::ToString;
-    ///
-    /// // First, something easy :)
-    ///
-    /// let mangled = b"_ZN5space3fooEibc";
-    ///
-    /// let sym = Symbol::new(&mangled[..])
-    ///     .expect("Could not parse mangled symbol!");
-    ///
-    /// let demangled = sym.to_string();
-    /// assert_eq!(demangled, "space::foo(int, bool, char)");
-    ///
-    /// // Now let's try something a little more complicated!
-    ///
-    /// let mangled =
-    ///     b"__Z28JS_GetPropertyDescriptorByIdP9JSContextN2JS6HandleIP8JSObjectEENS2_I4jsidEENS1_13MutableHandleINS1_18PropertyDescriptorEEE";
-    ///
-    /// let sym = Symbol::new(&mangled[..])
-    ///     .expect("Could not parse mangled symbol!");
-    ///
-    /// let demangled = sym.to_string();
-    /// assert_eq!(
-    ///     demangled,
-    ///     "JS_GetPropertyDescriptorById(JSContext*, JS::Handle<JSObject*>, JS::Handle<jsid>, JS::MutableHandle<JS::PropertyDescriptor>)"
-    /// );
-    /// ```
     #[inline]
     fn new(raw: &str) -> Result<Symbol> {
         let mut substitutions = subs::SubstitutionTable::new();
@@ -116,23 +86,10 @@ impl Symbol<'_> {
     ///
     /// Unlike the `ToString` implementation, this function allows options to
     /// be specified.
-    ///
-    /// ```
-    /// use itanium::Symbol;
-    /// use std::string::ToString;
-    ///
-    /// let mangled = b"_ZN5space3fooEibc";
-    ///
-    /// let sym = Symbol::new(&mangled[..])
-    ///     .expect("Could not parse mangled symbol!");
-    ///
-    /// let demangled = sym.to_string();
-    /// let demangled_again = sym.demangle().unwrap();
-    /// assert_eq!(demangled_again, demangled);
-    /// ```
-    fn demangle(&self) -> core::result::Result<TokenStream, fmt::Error> {
+    #[inline]
+    fn demangle(&self) -> TokenStream {
         let mut ctx = ast::DemangleContext::new(&self.substitutions, self.raw);
         self.parsed.demangle(&mut ctx, None);
-        Ok(ctx.stream)
+        ctx.stream
     }
 }

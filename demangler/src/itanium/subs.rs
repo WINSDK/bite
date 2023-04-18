@@ -10,7 +10,7 @@ use core::ops::Deref;
 #[doc(hidden)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(clippy::large_enum_variant)]
-pub enum Substitutable {
+pub(crate) enum Substitutable {
     /// An `<unscoped-template-name>` production.
     UnscopedTemplateName(ast::UnscopedTemplateName),
 
@@ -67,7 +67,7 @@ impl ast::IsCtorDtorConversion for Substitutable {
 /// which there are potential back-references.
 #[doc(hidden)]
 #[derive(Clone, Default, PartialEq, Eq)]
-pub struct SubstitutionTable {
+pub(crate) struct SubstitutionTable {
     substitutions: Vec<Substitutable>,
     // There are components which are typically candidates for substitution, but
     // in some particular circumstances are not. Instances of such components
@@ -91,13 +91,13 @@ impl fmt::Debug for SubstitutionTable {
 
 impl SubstitutionTable {
     /// Construct a new `SubstitutionTable`.
-    pub fn new() -> SubstitutionTable {
+    pub(crate) fn new() -> SubstitutionTable {
         Default::default()
     }
 
     /// Insert a freshly-parsed substitutable component into the table and
     /// return the index at which it now lives.
-    pub fn insert(&mut self, entity: Substitutable) -> usize {
+    pub(crate) fn insert(&mut self, entity: Substitutable) -> usize {
         let idx = self.substitutions.len();
         self.substitutions.push(entity);
         idx
@@ -105,20 +105,20 @@ impl SubstitutionTable {
 
     /// Insert a an entity into the table that is not a candidate for
     /// substitution.
-    pub fn insert_non_substitution(&mut self, entity: Substitutable) -> usize {
+    pub(crate) fn insert_non_substitution(&mut self, entity: Substitutable) -> usize {
         let idx = self.non_substitutions.len();
         self.non_substitutions.push(entity);
         idx
     }
 
     /// Does this substitution table contain a component at the given index?
-    pub fn contains(&self, idx: usize) -> bool {
+    pub(crate) fn contains(&self, idx: usize) -> bool {
         idx < self.substitutions.len()
     }
 
     /// Get the type referenced by the given handle, or None if there is no such
     /// entry, or there is an entry that is not a type.
-    pub fn get_type(&self, handle: &ast::TypeHandle) -> Option<&ast::Type> {
+    pub(crate) fn get_type(&self, handle: &ast::TypeHandle) -> Option<&ast::Type> {
         if let ast::TypeHandle::BackReference(idx) = *handle {
             self.substitutions.get(idx).and_then(|s| match *s {
                 Substitutable::Type(ref ty) => Some(ty),
@@ -131,13 +131,13 @@ impl SubstitutionTable {
 
     /// Get the `idx`th entity that is not a candidate for substitution. Panics
     /// if `idx` is out of bounds.
-    pub fn non_substitution(&self, idx: usize) -> &Substitutable {
+    pub(crate) fn non_substitution(&self, idx: usize) -> &Substitutable {
         &self.non_substitutions[idx]
     }
 
     /// Get the `idx`th entity that is not a candidate for substitution. Returns
     /// `None` if `idx` is out of bounds.
-    pub fn get_non_substitution(&self, idx: usize) -> Option<&Substitutable> {
+    pub(crate) fn get_non_substitution(&self, idx: usize) -> Option<&Substitutable> {
         self.non_substitutions.get(idx)
     }
 }

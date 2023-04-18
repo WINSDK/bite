@@ -1857,6 +1857,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb2f3770c8bce3bcda7e149193a069a0f4365bda1fa5cd88e03bca26afc1216c"
 
 [[package]]
+name = "serde_derive"
+version = "1.0.160"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "291a097c63d8497e00160b166a967a4a79c64f3facdd01cbd7502231688d77df"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.15",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2721,6 +2732,8 @@ checksum = "f1ba5c2f163fa2f866c36750c6c931566c6d93231ae9410083b0738953b609d5"
 dependencies = [
  "crossterm",
  "num-traits",
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]
@@ -2731,5 +2744,7 @@ checksum = "934a0186cc9f96af563264382d03946c95d8393e8e03f18cbbadd2efa8830b53"
 dependencies = [
  "cfg-if",
  "num-traits",
+ "serde",
+ "serde_derive",
  "yaxpeax-arch",
 ]

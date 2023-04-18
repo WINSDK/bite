@@ -5,6 +5,7 @@ use object::{Object, ObjectSection, SectionKind};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[allow(clippy::large_enum_variant)]
 pub enum LineKind {
     Newline,
     Label(std::sync::Arc<demangler::TokenStream>),
