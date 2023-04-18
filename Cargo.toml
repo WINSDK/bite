@@ -18,9 +18,9 @@ naga = { version = "0.11", features = ["glsl-in", "spv-out"], default-features =
 tokio = { version = "1.2", features = ["rt-multi-thread", "fs", "io-util", "macros", "time"] }
 png = "0.17"
 rfd = "0.11"
-bitflags = "2"
 disassembler = { path = "./disassembler" }
 tokenizing = { path = "./tokenizing" }
+demangler = { path = "./demangler" }
 
 [profile.release]
 strip = true
@@ -40,4 +40,5 @@ members = [
     "decoder-arm",
     "decoder-riscv",
     "decoder-mips",
+    "demangler",
 ]

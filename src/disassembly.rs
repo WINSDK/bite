@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 pub enum LineKind {
     Newline,
-    Label(std::sync::Arc<crate::symbols::TokenStream>),
+    Label(std::sync::Arc<demangler::TokenStream>),
     Instruction(disassembler::Line),
 }
 

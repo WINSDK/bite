@@ -34,7 +34,7 @@ mod index_str;
 mod subs;
 mod tests;
 
-use super::TokenStream;
+use crate::TokenStream;
 use ast::{Demangle, Parse, ParseContext};
 use error::{Error, Result};
 use index_str::IndexStr;
@@ -61,7 +61,7 @@ impl Symbol<'_> {
     /// options.
     ///
     /// ```
-    /// use cpp_demangle::Symbol;
+    /// use itanium::Symbol;
     /// use std::string::ToString;
     ///
     /// // First, something easy :)
@@ -118,7 +118,7 @@ impl Symbol<'_> {
     /// be specified.
     ///
     /// ```
-    /// use cpp_demangle::Symbol;
+    /// use itanium::Symbol;
     /// use std::string::ToString;
     ///
     /// let mangled = b"_ZN5space3fooEibc";

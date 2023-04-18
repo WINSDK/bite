@@ -69,13 +69,12 @@ use std::ptr;
 use std::borrow::Cow;
 use std::mem::MaybeUninit;
 
-use super::TokenStream;
 use tokenizing::colors;
 use context::{Backrefs, Context};
 
 use bitflags::bitflags;
 
-pub fn parse(s: &str) -> Option<TokenStream> {
+pub fn parse(s: &str) -> Option<crate::TokenStream> {
     let mut ctx = Context::new(s);
     let mut backrefs = Backrefs::new();
 

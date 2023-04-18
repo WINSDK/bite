@@ -3,7 +3,7 @@
 use super::error::{self, Result};
 use super::index_str::IndexStr;
 use super::subs::{Substitutable, SubstitutionTable};
-use super::TokenStream;
+use crate::TokenStream;
 use tokenizing::{colors, Color};
 
 use std::cell::Cell;

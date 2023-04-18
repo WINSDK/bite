@@ -1,20 +1,10 @@
-#[allow(dead_code)]
-pub mod config;
-
-mod itanium;
-mod msvc;
-mod rust;
-
 use object::{Object, ObjectSymbol};
 use pdb::FallibleIterator;
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use tokenizing::{Color, colors, Token};
+use demangler::TokenStream;
 use crate::threading::spawn_threaded;
-
-pub use config::Config;
 
 #[derive(Debug)]
 pub struct Index {
@@ -93,17 +83,17 @@ impl Index {
             // dbghelp in windows strips them away
 
             // parse gnu/llvm Rust/C/C++ symbols
-            if let Some(s) = itanium::parse(s) {
+            if let Some(s) = demangler::itanium::parse(s) {
                 return s;
             }
 
             // parse rust symbols that match the v0 mangling scheme
-            if let Some(s) = rust::parse(s) {
+            if let Some(s) = demangler::rust::parse(s) {
                 return s;
             }
 
             // parse windows msvc C/C++ symbols
-            if let Some(s) = msvc::parse(s) {
+            if let Some(s) = demangler::msvc::parse(s) {
                 return s;
             }
 
@@ -135,62 +125,6 @@ impl Index {
 
     pub fn get_by_line(&self, line: &disassembler::Line) -> Option<Arc<TokenStream>> {
         self.tree.get(&(line.section_base + line.offset)).cloned()
-    }
-}
-
-#[derive(Debug)]
-pub struct TokenStream {
-    /// Unmovable string which the [Token]'s have a pointer to.
-    inner: std::pin::Pin<String>,
-
-    /// Internal token representation which is unsafe to access outside of calling [Self::tokens].
-    __tokens: Vec<Token>,
-}
-
-impl TokenStream {
-    fn new(s: &str) -> Self {
-        Self {
-            inner: std::pin::Pin::new(s.to_string()),
-            __tokens: Vec::with_capacity(128),
-        }
-    }
-
-    fn simple(s: &str) -> Self {
-        let mut this = Self {
-            inner: std::pin::Pin::new(s.to_string()),
-            __tokens: Vec::with_capacity(1),
-        };
-
-        this.__tokens.push(Token {
-            text: Cow::Borrowed(this.inner()),
-            color: colors::BLUE,
-        });
-
-        this
-    }
-
-    /// SAFETY: must downcast &'static str to a lifetime that matches the lifetime of self.
-    #[inline]
-    fn inner<'a>(&self) -> &'a str {
-        unsafe { std::mem::transmute(self.inner.as_ref()) }
-    }
-
-    #[inline]
-    fn push(&mut self, text: &'static str, color: Color) {
-        self.__tokens.push(Token {
-            text: Cow::Borrowed(text),
-            color,
-        })
-    }
-
-    #[inline]
-    fn push_cow(&mut self, text: Cow<'static, str>, color: Color) {
-        self.__tokens.push(Token { text, color })
-    }
-
-    #[inline]
-    pub fn tokens<'src>(&'src self) -> &'src [Token] {
-        self.__tokens.as_slice()
     }
 }
 

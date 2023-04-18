@@ -21,7 +21,6 @@ use once_cell::sync::Lazy;
 use std::fs;
 
 static ARGS: Lazy<args::Cli> = Lazy::new(args::Cli::parse);
-static CONFIG: Lazy<symbols::Config> = Lazy::new(symbols::Config::from_env);
 
 fn set_panic_handler() {
     #[cfg(not(debug_assertions))]

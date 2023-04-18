@@ -190,8 +190,8 @@ name = "bite"
 version = "0.4.0"
 dependencies = [
  "ab_glyph",
- "bitflags 2.1.0",
  "bytemuck",
+ "demangler",
  "disassembler",
  "glam",
  "naga",
@@ -510,6 +510,14 @@ dependencies = [
 name = "decoder"
 version = "0.1.0"
 dependencies = [
+ "tokenizing",
+]
+
+[[package]]
+name = "demangler"
+version = "1.0.0"
+dependencies = [
+ "bitflags 2.1.0",
  "tokenizing",
 ]
 
