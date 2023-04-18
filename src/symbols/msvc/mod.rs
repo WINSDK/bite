@@ -70,7 +70,7 @@ use std::borrow::Cow;
 use std::mem::MaybeUninit;
 
 use super::TokenStream;
-use crate::colors;
+use tokenizing::colors;
 use context::{Backrefs, Context};
 
 use bitflags::bitflags;

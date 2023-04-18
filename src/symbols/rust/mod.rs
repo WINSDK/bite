@@ -89,7 +89,7 @@
 mod tests;
 
 use super::TokenStream;
-use crate::colors::{self, Color};
+use tokenizing::{colors, Color};
 
 /// Max recursion depth.
 const MAX_DEPTH: usize = 256;

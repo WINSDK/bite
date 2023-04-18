@@ -1,6 +1,6 @@
 use std::mem;
 
-use crate::colors::Color;
+use tokenizing::Color;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 

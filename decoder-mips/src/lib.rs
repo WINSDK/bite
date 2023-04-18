@@ -1,12 +1,24 @@
 //! MIPS V disassembler.
 
-use super::Error;
 use std::borrow::Cow;
+use tokenizing::colors;
+
+#[derive(Debug)]
+pub enum Error {
+    /// Register in instruction is impossible/unknown.
+    UnknownRegister,
+
+    /// Opcode in instruction is impossible/unknown.
+    UnknownOpcode,
+
+    /// Instruction has a valid register and opcode yet is still invalid.
+    InvalidInstruction,
+}
 
 macro_rules! operands {
-    [] => {([$crate::disassembler::EMPTY_OPERAND; 3], 0)};
+    [] => {([$crate::EMPTY_OPERAND; 3], 0)};
     [$($x:expr),+ $(,)?] => {{
-        let mut operands = [$crate::disassembler::EMPTY_OPERAND; 3];
+        let mut operands = [$crate::EMPTY_OPERAND; 3];
         let mut idx = 0;
         $(
             idx += 1;
@@ -53,12 +65,12 @@ struct TableInstruction {
     format: &'static [usize],
 }
 
-impl super::DecodableInstruction for Instruction {
-    fn tokenize(mut self) -> super::TokenStream {
-        let mut tokens = [super::EMPTY_TOKEN; 5];
+impl decoder::DecodableInstruction for Instruction {
+    fn tokenize(mut self) -> decoder::TokenStream {
+        let mut tokens = [tokenizing::EMPTY_TOKEN; 5];
         let mut token_count = 1;
 
-        tokens[0] = super::Token {
+        tokens[0] = tokenizing::Token {
             text: Cow::Borrowed(self.mnemomic),
             color: crate::colors::WHITE,
         };
@@ -67,11 +79,11 @@ impl super::DecodableInstruction for Instruction {
             let operand = std::mem::take(&mut self.operands[idx]);
 
             tokens[token_count] = match operand {
-                Cow::Owned(_) => super::Token {
+                Cow::Owned(_) => tokenizing::Token {
                     text: operand,
                     color: crate::colors::BLUE,
                 },
-                Cow::Borrowed(_) => super::Token {
+                Cow::Borrowed(_) => tokenizing::Token {
                     text: operand,
                     color: crate::colors::MAGENTA,
                 },
@@ -80,24 +92,12 @@ impl super::DecodableInstruction for Instruction {
             token_count += 1;
         }
 
-        super::TokenStream {
-            inner: tokens,
-            token_count,
-        }
+        decoder::TokenStream::new(tokens, token_count)
     }
 }
 
-impl super::Streamable for Stream<'_> {
-    type Item = Instruction;
-    type Error = super::Error;
-
-    fn next(&mut self) -> Result<Self::Item, Error> {
-        let dword = self
-            .bytes
-            .get(self.offset..self.offset + 4)
-            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
-            .ok_or(Error::NoBytesLeft)? as usize;
-
+impl Stream<'_> {
+    fn decode(&mut self, dword: usize) -> Result<Instruction, Error> {
         // nop instruction isn't included in any MIPS spec
         if dword == 0b00000000_00000000_00000000_00000000 {
             let (operands, operand_count) = operands![];
@@ -118,7 +118,7 @@ impl super::Streamable for Stream<'_> {
             });
         }
 
-        let mut operands = [super::EMPTY_OPERAND; 3];
+        let mut operands = [EMPTY_OPERAND; 3];
         let opcode = dword >> 26;
         let funct = dword & 0b111111;
 
@@ -236,10 +236,24 @@ impl super::Streamable for Stream<'_> {
     }
 }
 
+impl decoder::Streamable for Stream<'_> {
+    type Item = Instruction;
+    type Error = Error;
+
+    fn next(&mut self) -> Option<Result<Self::Item, Error>> {
+        let dword = self
+            .bytes
+            .get(self.offset..self.offset + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))? as usize;
+
+        Some(self.decode(dword))
+    }
+}
+
 /// Bitmask for order of operands [rd, rt, rs, imm].
 macro_rules! mips {
     () => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: "",
             desc: "",
             format: &[],
@@ -247,7 +261,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd, rt, imm) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 1, 3],
@@ -255,7 +269,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rt, rs, imm) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[1, 2, 3],
@@ -263,7 +277,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rs, rt, imm) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[2, 1, 3],
@@ -271,7 +285,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd, rt, rs) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 1, 2],
@@ -279,7 +293,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd, rs, rt) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 2, 1],
@@ -287,7 +301,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rt, imm, rs) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[1, 3, 2],
@@ -295,7 +309,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rs, imm) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[2, 3],
@@ -303,7 +317,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rt, imm) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[1, 3],
@@ -311,7 +325,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd, rs) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0, 2],
@@ -319,7 +333,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rs, rt) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[2, 1],
@@ -327,7 +341,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, imm) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[3],
@@ -335,7 +349,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rs) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[2],
@@ -343,7 +357,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal, rd) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[0],
@@ -351,7 +365,7 @@ macro_rules! mips {
     };
 
     ($mnemomic:literal : $desc:literal) => {
-        $crate::disassembler::mips::TableInstruction {
+        $crate::TableInstruction {
             mnemomic: $mnemomic,
             desc: $desc,
             format: &[],
@@ -460,58 +474,4 @@ const R_TYPES: [TableInstruction; 44] = [
     mips!("sltu" : "If $rs is less then $rt, $rd is set to 1 otherwise to 0 (unsigned)", rd, rs, rt),
 ];
 
-#[cfg(test)]
-mod tests {
-    macro_rules! eq {
-        ([$($bytes:tt),+] => $mnemomic:literal, $($operand:literal),*) => {{
-            use $crate::disassembler::Streamable;
-
-            let mut stream = $crate::disassembler::mips::Stream {
-                bytes: &[$($bytes),+],
-                offset: 0,
-            };
-
-            match stream.next() {
-                Ok(inst) => {
-                    assert_eq!(inst.mnemomic, $mnemomic);
-
-                    let mut idx = 0;
-                    $(
-                        idx += 1;
-
-                        assert_eq!(
-                            $operand,
-                            inst.operands.get(idx - 1).expect("not enough operands")
-                        );
-                    )*
-                }
-                Err(e) => panic!("failed to decode instruction: {e:?}"),
-            }
-        }};
-    }
-
-    #[test]
-    fn jump() {
-        eq!([0x9, 0, 0, 0] => "j", "0x0");
-    }
-
-    #[test]
-    fn beq() {
-        eq!([0x11, 0x2a, 0x10, 0x0] => "beq", "$t1", "$t2", "0x1000");
-    }
-
-    #[test]
-    fn sll() {
-        eq!([0x0, 0xa, 0x4c, 0x80] => "sll", "$t1", "$t2", "0x12");
-    }
-
-    #[test]
-    fn sllv() {
-        eq!([0x1, 0x49, 0x48, 0x4] => "sllv", "$t1", "$t1", "$t2");
-    }
-
-    #[test]
-    fn lb() {
-        eq!([0x81, 0x49, 0x0, 0x10] => "lb", "$t1", "0x10", "($t2)")
-    }
-}
+const EMPTY_OPERAND: std::borrow::Cow<'static, str> = std::borrow::Cow::Borrowed("");

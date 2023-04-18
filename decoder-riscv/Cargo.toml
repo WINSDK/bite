@@ -1,0 +1,15 @@
+[package]
+name = "riscv"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+decoder = { path = "../decoder" }
+tokenizing = { path = "../tokenizing" }
+phf = { version = "0.11", features = ["macros"], default-features = false }
+
+[dev-dependencies]
+crc = "3.0"
+object = "0.30"

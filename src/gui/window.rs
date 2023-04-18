@@ -1,14 +1,15 @@
-use crate::{
-    colors::{self, LineKind},
-    gui::{texture::Texture, uniforms, Error},
-};
+use tokenizing::colors;
+use crate::gui::Error;
+use crate::gui::texture::Texture;
+use crate::gui::uniforms;
+use crate::gui::quad;
+use crate::disassembly::LineKind;
+
 use std::mem::size_of;
 use std::sync::atomic::Ordering;
 
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
-
-use super::quad;
 
 pub struct Backend {
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -352,14 +353,7 @@ impl Backend {
                     }
                     LineKind::Instruction(line) => {
                         let tokens = line.stream.tokens();
-
-                        // calculate and pad address based on the largest possible offset
-                        let width = ctx.dissasembly.address_space.load(Ordering::Relaxed);
-                        let width = (width + 1).ilog10() as usize;
-                        line.address = crate::disassembler::encode_hex_padded(
-                            (line.section_base + line.offset) as i64,
-                            width,
-                        );
+                        line.address = format!("{:#x}", line.section_base + line.offset);
 
                         // memory address
                         texts.push(

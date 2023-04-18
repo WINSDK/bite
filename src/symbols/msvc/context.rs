@@ -1,5 +1,5 @@
 use super::{Literal, Type, TokenStream, Modifiers, NestedPath, Scope};
-use crate::colors::Color;
+use tokenizing::Color;
 
 /// Max recursion depth
 const MAX_DEPTH: usize = 256;

@@ -11,8 +11,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::colors::{self, Color, Token};
-use crate::disassembler::Line;
+use tokenizing::{Color, colors, Token};
 use crate::threading::spawn_threaded;
 
 pub use config::Config;
@@ -134,7 +133,7 @@ impl Index {
         self.tree.clear();
     }
 
-    pub fn get_by_line(&self, line: &Line) -> Option<Arc<TokenStream>> {
+    pub fn get_by_line(&self, line: &disassembler::Line) -> Option<Arc<TokenStream>> {
         self.tree.get(&(line.section_base + line.offset)).cloned()
     }
 }

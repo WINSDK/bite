@@ -9,8 +9,7 @@
 compile_error!("Bite can only be build for windows, macos and linux.");
 
 mod args;
-mod colors;
-mod disassembler;
+mod disassembly;
 mod gui;
 mod macros;
 mod symbols;

@@ -15,7 +15,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 
 use once_cell::sync::OnceCell;
 
-use crate::disassembler::Dissasembly;
+use crate::disassembly::Disassembly;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -72,7 +72,7 @@ pub struct RenderContext {
     show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
     timer10: utils::Timer,
-    dissasembly: Arc<Dissasembly>,
+    dissasembly: Arc<Disassembly>,
     listing_offset: f32,
     scale_factor: f32,
     font_size: f32,
@@ -109,7 +109,7 @@ pub async fn main() -> Result<(), Error> {
         show_donut: Arc::new(AtomicBool::new(false)),
         timer60: utils::Timer::new(60),
         timer10: utils::Timer::new(10),
-        dissasembly: Arc::new(crate::disassembler::Dissasembly::new()),
+        dissasembly: Arc::new(crate::disassembly::Disassembly::new()),
         listing_offset: 0.0,
         scale_factor: window.scale_factor() as f32,
         font_size: 20.0,

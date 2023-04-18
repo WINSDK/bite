@@ -4,7 +4,7 @@ use super::error::{self, Result};
 use super::index_str::IndexStr;
 use super::subs::{Substitutable, SubstitutionTable};
 use super::TokenStream;
-use crate::colors::{self, Color};
+use tokenizing::{colors, Color};
 
 use std::cell::Cell;
 use std::fmt;
