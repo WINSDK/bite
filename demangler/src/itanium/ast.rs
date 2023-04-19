@@ -4619,7 +4619,7 @@ impl<'subs> Demangle<'subs> for TemplateArgs {
             ctx.push(" ", Colors::spacing());
         }
 
-        ctx.push("<", Colors::brackets());
+        ctx.push("<", Colors::annotation());
         let mut need_comma = false;
         for arg_index in 0..self.0.len() {
             if need_comma {
@@ -4637,7 +4637,7 @@ impl<'subs> Demangle<'subs> for TemplateArgs {
         if ctx.last_char_written == Some('>') {
             ctx.push(" ", Colors::spacing());
         }
-        ctx.push(">", Colors::brackets());
+        ctx.push(">", Colors::annotation());
     }
 }
 
@@ -5485,33 +5485,37 @@ impl<'subs> Demangle<'subs> for Expression {
             // TODO: factor out duplicated code from cast variants.
             Expression::DynamicCast(ref ty, ref expr) => {
                 ctx.push("dynamic_cast", Colors::known());
-                ctx.push("<", Colors::brackets());
+                ctx.push("<", Colors::annotation());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", Colors::brackets());
+                ctx.push(">", Colors::annotation());
+                ctx.push("(", Colors::brackets());
                 expr.demangle(ctx, scope);
                 ctx.push(")", Colors::brackets());
             }
             Expression::StaticCast(ref ty, ref expr) => {
                 ctx.push("static_cast", Colors::known());
-                ctx.push("<", Colors::brackets());
+                ctx.push("<", Colors::annotation());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", Colors::brackets());
+                ctx.push(">", Colors::annotation());
+                ctx.push("(", Colors::brackets());
                 expr.demangle(ctx, scope);
                 ctx.push(")", Colors::brackets());
             }
             Expression::ConstCast(ref ty, ref expr) => {
                 ctx.push("const_cast", Colors::known());
-                ctx.push("<", Colors::brackets());
+                ctx.push("<", Colors::annotation());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", Colors::brackets());
+                ctx.push(">", Colors::annotation());
+                ctx.push("(", Colors::brackets());
                 expr.demangle(ctx, scope);
                 ctx.push(")", Colors::brackets());
             }
             Expression::ReinterpretCast(ref ty, ref expr) => {
                 ctx.push("reinterpret_cast", Colors::known());
-                ctx.push("<", Colors::brackets());
+                ctx.push("<", Colors::annotation());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", Colors::brackets());
+                ctx.push(">", Colors::annotation());
+                ctx.push("(", Colors::brackets());
                 expr.demangle(ctx, scope);
                 ctx.push(")", Colors::brackets());
             }
@@ -7123,7 +7127,7 @@ impl<'subs> Demangle<'subs> for SubobjectExpr {
         self.ty.demangle(ctx, scope);
         ctx.push(" at offset ", Colors::brackets());
         ctx.push_owned(self.offset.to_string(), Colors::item());
-        ctx.push(">", Colors::brackets());
+        ctx.push(">", Colors::annotation());
     }
 }
 

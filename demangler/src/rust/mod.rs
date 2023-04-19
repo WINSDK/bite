@@ -481,9 +481,9 @@ impl<'src> Parser {
 
                 self.disambiguator();
                 self.dont_print(Self::path)?;
-                self.push("<", Colors::brackets());
+                self.push("<", Colors::annotation());
                 self.tipe()?;
-                self.push(">", Colors::brackets());
+                self.push(">", Colors::annotation());
             }
             // <T as Trait> (trait impl)
             b'X' => {
@@ -491,21 +491,21 @@ impl<'src> Parser {
 
                 self.disambiguator();
                 self.dont_print(Self::path)?;
-                self.push("<", Colors::brackets());
+                self.push("<", Colors::annotation());
                 self.tipe()?;
                 self.push(" as ", Colors::annotation());
                 self.path()?;
-                self.push(">", Colors::brackets());
+                self.push(">", Colors::annotation());
             }
             // <T as Trait> (trait definition)
             b'Y' => {
                 self.offset += 1;
 
-                self.push("<", Colors::brackets());
+                self.push("<", Colors::annotation());
                 self.tipe()?;
                 self.push(" as ", Colors::annotation());
                 self.path()?;
-                self.push(">", Colors::brackets());
+                self.push(">", Colors::annotation());
             }
             // ...::ident (nested path)
             b'N' => {
@@ -561,9 +561,9 @@ impl<'src> Parser {
                     self.push("::", Colors::delimiter());
                 }
 
-                self.push("<", Colors::brackets());
+                self.push("<", Colors::annotation());
                 self.delimited(", ", Self::generic)?;
-                self.push(">", Colors::brackets());
+                self.push(">", Colors::annotation());
             }
             b'B' => {
                 self.offset += 1;
@@ -706,12 +706,12 @@ impl<'src> Parser {
 
                     // associated trait bounds e.g. Trait<Assoc = X>
                     while this.eat(b'p') {
-                        this.push("<", Colors::brackets());
+                        this.push("<", Colors::annotation());
                         let ident = this.ident()?;
                         this.push(ident, Colors::item());
                         this.push(" = ", Colors::delimiter());
                         this.tipe()?;
-                        this.push(">", Colors::brackets());
+                        this.push(">", Colors::annotation());
                     }
 
                     Some(())

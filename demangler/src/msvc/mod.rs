@@ -2403,9 +2403,9 @@ impl Parse for Template {
 impl<'a> Demangle<'a> for Template {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.name.0.demangle(ctx, backrefs);
-        ctx.stream.push("<", Colors::brackets());
+        ctx.stream.push("<", Colors::annotation());
         self.params.demangle(ctx, backrefs);
-        ctx.stream.push(">", Colors::brackets());
+        ctx.stream.push(">", Colors::annotation());
     }
 }
 
@@ -2506,9 +2506,9 @@ impl<'a> Demangle<'a> for Symbol {
                     self.path.scope.demangle(ctx, backrefs);
                     ctx.stream.push("::", Colors::delimiter());
                     ctx.stream.push("operator", Colors::known());
-                    ctx.stream.push("<", Colors::brackets());
+                    ctx.stream.push("<", Colors::annotation());
                     template.params.demangle(ctx, backrefs);
-                    ctx.stream.push("> ", Colors::brackets());
+                    ctx.stream.push("> ", Colors::annotation());
 
                     func.return_type.0.demangle(ctx, backrefs);
                     func.params.demangle(ctx, backrefs);
