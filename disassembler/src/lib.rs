@@ -9,12 +9,6 @@ use decoder::DecodableInstruction;
 pub enum Error {
     /// Either the target architecture isn't supported yet or won't be.
     UnsupportedArchitecture,
-
-    /// Riscv specific instruction decoding error.
-    Riscv(riscv::Error),
-
-    /// MIPS-V specific instruction decoding error.
-    Mips(mips::Error),
 }
 
 pub struct Line {

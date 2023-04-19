@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use once_cell::sync::Lazy;
 
 static THREAD_COUNT: Lazy<usize> = Lazy::new(|| {

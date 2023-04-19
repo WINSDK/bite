@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use demangler::TokenStream;
-use crate::threading::spawn_threaded;
 
 #[derive(Debug)]
 pub struct Index {
@@ -19,11 +18,14 @@ impl Index {
     }
 
     pub async fn parse(obj: &object::File<'_>) -> pdb::Result<Index> {
-        let symbols: Vec<(usize, &str)> = obj
+        let mut symbols: Vec<(usize, &str)> = obj
             .symbols()
             .filter_map(symbol_addr_name)
             .filter(|(_, sym)| is_valid_symbol(sym))
             .collect();
+
+        let base_addr = obj.relative_address_base() as usize;
+        let pdb_table;
 
         if let Ok(Some(pdb)) = obj.pdb_info() {
             let Ok(path) = std::str::from_utf8(pdb.path()) else {
@@ -45,13 +47,12 @@ impl Index {
             };
 
             let mut pdb = pdb::PDB::open(file)?;
-            let mut symbols = Vec::new();
 
             // get symbol table
-            let symbol_table = pdb.global_symbols()?;
+            pdb_table = pdb.global_symbols()?;
 
             // iterate through symbols collected earlier
-            let mut symbol_table = symbol_table.iter();
+            let mut symbol_table = pdb_table.iter();
 
             // retrieve addresses of symbols
             let address_map = pdb.address_map()?;
@@ -67,7 +68,7 @@ impl Index {
                 if let Some(addr) = symbol.offset.to_rva(&address_map) {
                     if let Ok(name) = std::str::from_utf8(symbol.name.as_bytes()) {
                         if is_valid_symbol(name) {
-                            symbols.push((addr.0 as usize, name));
+                            symbols.push((base_addr + addr.0 as usize, name));
                         }
                     }
                 }
@@ -101,10 +102,9 @@ impl Index {
             TokenStream::simple(s)
         };
 
-        let tree = spawn_threaded(symbols, move |(addr, symbol)| {
-            (addr, Arc::new(parser(symbol)))
-        })
-        .await;
+        let tree = symbols.iter().map(|(addr, symbol)| {
+            (*addr, Arc::new(parser(symbol)))
+        });
 
         Ok(Self {
             tree: BTreeMap::from_iter(tree),
