@@ -201,6 +201,15 @@ pub struct Stream<'data> {
 
 impl decoder::DecodableInstruction for Instruction {
     fn tokenize(self) -> decoder::TokenStream {
+        // match self {
+        //     Self::X86(inst) => {
+        //         inst.tokenize()
+        //     }
+        //     Self::X64(_inst) => {
+        //         todo!()
+        //     }
+        // }
+
         let str = match self {
             Self::X86(inst) => inst.to_string(),
             Self::X64(inst) => inst.to_string(),

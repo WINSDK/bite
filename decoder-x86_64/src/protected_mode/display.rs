@@ -3265,6 +3265,12 @@ impl <T: fmt::Write, Y: YaxColors> Colorize<T, Y> for Opcode {
     }
 }
 
+impl Instruction {
+    pub fn tokenize(&self) -> decoder::TokenStream {
+        todo!()
+    }
+}
+
 impl fmt::Display for Instruction {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         self.display_with(DisplayStyle::Intel).colorize(&NoColors, fmt)

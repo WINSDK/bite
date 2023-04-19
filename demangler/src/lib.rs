@@ -3,6 +3,8 @@
 use std::borrow::Cow;
 use tokenizing::{colors, Color, Token};
 
+type Colors = tokenizing::IBM;
+
 pub mod rust;
 pub mod msvc;
 pub mod itanium;

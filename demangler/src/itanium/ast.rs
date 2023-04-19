@@ -3,8 +3,9 @@
 use super::error::{self, Result};
 use super::index_str::IndexStr;
 use super::subs::{Substitutable, SubstitutionTable};
-use crate::TokenStream;
-use tokenizing::{colors, Color};
+use crate::{TokenStream, Colors};
+
+use tokenizing::ColorScheme;
 
 use std::cell::Cell;
 use std::fmt;
@@ -333,10 +334,6 @@ pub(crate) struct DemangleContext<'a> {
     /// What the demangled name is being written to.
     pub stream: TokenStream,
 
-    /// The total number of bytes written to `out`. This is maintained by the
-    /// `Write` implementation for `DemangleContext`.
-    bytes_written: usize,
-
     /// The last char written to `out`, if any.
     last_char_written: Option<char>,
 
@@ -367,7 +364,6 @@ impl<'a> DemangleContext<'a> {
             input: input.as_bytes(),
             source_name: None,
             stream: TokenStream::new(input),
-            bytes_written: 0,
             last_char_written: None,
             is_lambda_arg: false,
             is_template_prefix: false,
@@ -380,7 +376,7 @@ impl<'a> DemangleContext<'a> {
     #[inline]
     fn ensure(&mut self, ch: char) {
         if self.last_char_written != Some(ch) {
-            self.push_owned(format!("{ch}"), colors::GRAY40);
+            self.push_owned(format!("{ch}"), Colors::item());
         }
     }
 
@@ -415,15 +411,13 @@ impl<'a> DemangleContext<'a> {
         }
     }
 
-    fn push_owned(&mut self, text: String, color: Color) {
+    fn push_owned(&mut self, text: String, color: tokenizing::Color) {
         self.last_char_written = text.chars().last();
-        self.bytes_written += text.len();
         self.stream.push_cow(std::borrow::Cow::Owned(text), color);
     }
 
-    fn push(&mut self, text: &'static str, color: Color) {
+    fn push(&mut self, text: &'static str, color: tokenizing::Color) {
         self.last_char_written = text.chars().last();
-        self.bytes_written += text.len();
         self.stream.push(text, color);
     }
 
@@ -681,34 +675,34 @@ impl<'subs> Demangle<'subs> for FunctionArgSlice {
                 ctx.ensure_space();
             }
 
-            ctx.push("(", colors::GRAY40);
+            ctx.push("(", Colors::brackets());
         }
 
         ctx.demangle_inner_prefixes(scope);
 
         if needs_paren {
-            ctx.push(")", colors::GRAY40);
+            ctx.push(")", Colors::brackets());
         }
 
-        ctx.push("(", colors::GRAY40);
+        ctx.push("(", Colors::brackets());
 
         // To maintain compatibility with libiberty, print `()` instead of
         // `(void)` for functions that take no arguments.
         if self.len() == 1 && self[0].is_void() {
-            ctx.push(")", colors::GRAY40);
+            ctx.push(")", Colors::brackets());
             return;
         }
 
         let mut need_comma = false;
         for arg in self.iter() {
             if need_comma {
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
             }
             arg.demangle(ctx, scope);
             need_comma = true;
         }
 
-        ctx.push(")", colors::GRAY40);
+        ctx.push(")", Colors::delimiter());
         ctx.demangle_inners(scope)
     }
 }
@@ -903,7 +897,7 @@ macro_rules! define_vocabulary {
                     $($typename::$variant => $printable),*
                 });
 
-                ctx.push_owned(text, colors::MAGENTA);
+                ctx.push_owned(text, Colors::item());
             }
         }
 
@@ -1037,7 +1031,7 @@ impl<'subs> Demangle<'subs> for MangledName {
                 }
             }
             MangledName::BlockInvoke(ref enc, _) => {
-                ctx.push("invocation function for block in ", colors::GRAY40);
+                ctx.push("invocation function for block in ", Colors::comment());
                 enc.demangle(ctx, scope);
             }
             MangledName::Type(ref ty) => ty.demangle(ctx, scope),
@@ -1131,7 +1125,7 @@ impl<'subs> Demangle<'subs> for Encoding {
                     let scope = scope.push(template_args);
                     if !name.is_ctor_dtor_conversion(ctx.subs) {
                         fun_ty.0[0].demangle(ctx, scope);
-                        ctx.push(" ", colors::WHITE);
+                        ctx.push(" ", Colors::spacing());
                     }
 
                     scope
@@ -1207,14 +1201,14 @@ impl<'subs> Demangle<'subs> for CloneSuffix {
         ctx: &'ctx mut DemangleContext<'subs>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
-        ctx.push("[", colors::GRAY40);
-        ctx.push("clone", colors::BLUE);
+        ctx.push("[", Colors::brackets());
+        ctx.push("clone", Colors::item());
         self.0.demangle(ctx, scope);
         for nonnegative in &self.1 {
-            ctx.push(".", colors::GRAY20);
-            ctx.push_owned(format!("{nonnegative}"), colors::GRAY20);
+            ctx.push(".", Colors::delimiter());
+            ctx.push_owned(format!("{nonnegative}"), Colors::comment());
         }
-        ctx.push("]", colors::GRAY40);
+        ctx.push("]", Colors::brackets());
     }
 }
 
@@ -1266,11 +1260,11 @@ impl<'subs> Demangle<'subs> for GlobalCtorDtor {
 
         match *self {
             GlobalCtorDtor::Ctor(ref name) => {
-                ctx.push("global constructors keyed to ", colors::GRAY40);
+                ctx.push("global constructors keyed to ", Colors::comment());
                 name.demangle(ctx, scope)
             }
             GlobalCtorDtor::Dtor(ref name) => {
-                ctx.push("global destructors keyed to ", colors::GRAY40);
+                ctx.push("global destructors keyed to ", Colors::comment());
                 name.demangle(ctx, scope)
             }
         }
@@ -1427,8 +1421,8 @@ impl<'subs> Demangle<'subs> for UnscopedName {
         match *self {
             UnscopedName::Unqualified(ref unqualified) => unqualified.demangle(ctx, scope),
             UnscopedName::Std(ref std) => {
-                ctx.push("std", colors::MAGENTA);
-                ctx.push("::", colors::GRAY20);
+                ctx.push("std", Colors::root());
+                ctx.push("::", Colors::delimiter());
                 std.demangle(ctx, scope)
             }
         }
@@ -1621,7 +1615,7 @@ impl<'subs> Demangle<'subs> for NestedName {
             NestedName::Unqualified(_, _, ref p, ref name) => {
                 p.demangle(ctx, scope);
                 if name.accepts_double_colon() {
-                    ctx.push("::", colors::GRAY20);
+                    ctx.push("::", Colors::delimiter());
                 }
                 name.demangle(ctx, scope);
             }
@@ -1929,7 +1923,7 @@ impl<'subs> Demangle<'subs> for Prefix {
             Prefix::Nested(ref prefix, ref unqualified) => {
                 prefix.demangle(ctx, scope);
                 if unqualified.accepts_double_colon() {
-                    ctx.push("::", colors::GRAY20);
+                    ctx.push("::", Colors::delimiter());
                 }
                 unqualified.demangle(ctx, scope)
             }
@@ -1943,7 +1937,7 @@ impl<'subs> Demangle<'subs> for Prefix {
             Prefix::Decltype(ref dt) => dt.demangle(ctx, scope),
             Prefix::DataMember(ref prefix, ref member) => {
                 prefix.demangle(ctx, scope);
-                ctx.push("::", colors::GRAY20);
+                ctx.push("::", Colors::delimiter());
                 member.demangle(ctx, scope)
             }
         }
@@ -2079,7 +2073,7 @@ impl<'subs> Demangle<'subs> for UnqualifiedName {
     ) {
         match *self {
             UnqualifiedName::Operator(ref op_name) => {
-                ctx.push("operator", colors::MAGENTA);
+                ctx.push("operator", Colors::known());
                 op_name.demangle(ctx, scope)
             }
             UnqualifiedName::CtorDtor(ref ctor_dtor) => ctor_dtor.demangle(ctx, scope),
@@ -2248,10 +2242,11 @@ impl<'subs> Demangle<'subs> for TaggedName {
         ctx: &'ctx mut DemangleContext<'subs>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
-        ctx.push("[", colors::GRAY40);
-        ctx.push("abi:", colors::BLUE);
+        ctx.push("[", Colors::brackets());
+        ctx.push("abi", Colors::annotation());
+        ctx.push(":", Colors::delimiter());
         self.0.demangle(ctx, scope);
-        ctx.push("]", colors::GRAY40);
+        ctx.push("]", Colors::brackets());
     }
 }
 
@@ -2333,9 +2328,9 @@ impl<'subs> Demangle<'subs> for Identifier {
 
             match (first, second) {
                 (b'.', b'N') | (b'_', b'N') | (b'$', b'N') => {
-                    ctx.push("(", colors::GRAY40);
-                    ctx.push("anonymous namespace", colors::GRAY20);
-                    ctx.push(")", colors::GRAY40);
+                    ctx.push("(", Colors::brackets());
+                    ctx.push("anonymous namespace", Colors::comment());
+                    ctx.push(")", Colors::brackets());
                     return;
                 }
                 _ => {
@@ -2358,7 +2353,7 @@ impl<'subs> Demangle<'subs> for Identifier {
         }
 
         ctx.set_source_name(self.start, self.end);
-        ctx.push_owned(source_name.into_owned(), colors::MAGENTA);
+        ctx.push_owned(source_name.into_owned(), Colors::item());
     }
 }
 
@@ -2418,8 +2413,8 @@ impl<'subs> Demangle<'subs> for CloneTypeIdentifier {
 
         let source_name = String::from_utf8_lossy(ident);
         ctx.set_source_name(self.start, self.end);
-        ctx.push(".", colors::GRAY20);
-        ctx.push_owned(source_name.into_owned(), colors::GRAY40);
+        ctx.push(".", Colors::comment());
+        ctx.push_owned(source_name.into_owned(), Colors::item());
     }
 }
 
@@ -2614,16 +2609,16 @@ impl<'subs> Demangle<'subs> for OperatorName {
             }
             OperatorName::Literal(ref name) => {
                 name.demangle(ctx, scope);
-                ctx.push("::", colors::GRAY20);
-                ctx.push("operator ", colors::MAGENTA);
-                ctx.push("\"\"", colors::GRAY40);
+                ctx.push("::", Colors::delimiter());
+                ctx.push("operator ", Colors::known());
+                ctx.push("\"\"", Colors::comment());
             }
             OperatorName::VendorExtension(arity, ref name) => {
                 // TODO: no idea how this should be demangled...
                 name.demangle(ctx, scope);
-                ctx.push("::", colors::GRAY20);
-                ctx.push("operator ", colors::MAGENTA);
-                ctx.push_owned(format!("{arity}"), colors::GRAY40);
+                ctx.push("::", Colors::delimiter());
+                ctx.push("operator ", Colors::known());
+                ctx.push_owned(format!("{arity}"), Colors::known());
             }
         }
     }
@@ -2739,12 +2734,12 @@ impl<'subs> Demangle<'subs> for CallOffset {
     ) {
         match *self {
             CallOffset::NonVirtual(NvOffset(off)) => {
-                ctx.push_owned(format!("{{offset({off})}}"), colors::GRAY40);
+                ctx.push_owned(format!("{{offset({off})}}"), Colors::comment());
             }
             CallOffset::Virtual(VOffset(vbase, vcall)) => {
                 ctx.push_owned(
                     format!("{{virtual offset({vbase}, {vcall})}}"),
-                    colors::GRAY40,
+                    Colors::comment(),
                 );
             }
         }
@@ -2943,7 +2938,7 @@ impl<'subs> Demangle<'subs> for CtorDtorName {
             | CtorDtorName::CompleteDestructor
             | CtorDtorName::BaseDestructor
             | CtorDtorName::MaybeInChargeDestructor => {
-                ctx.push("~", colors::MAGENTA);
+                ctx.push("~", Colors::item());
                 leaf.demangle_as_leaf(ctx)
             }
         }
@@ -3277,15 +3272,15 @@ impl<'subs> Demangle<'subs> for Type {
             }
             Type::Complex(ref ty) => {
                 ty.demangle(ctx, scope);
-                ctx.push(" complex", colors::BLUE);
+                ctx.push(" complex", Colors::annotation());
             }
             Type::Imaginary(ref ty) => {
                 ty.demangle(ctx, scope);
-                ctx.push(" imaginary", colors::BLUE);
+                ctx.push(" imaginary", Colors::annotation());
             }
             Type::VendorExtension(ref name, ref template_args, ref ty) => {
                 ty.demangle(ctx, scope);
-                ctx.push(" ", colors::WHITE);
+                ctx.push(" ", Colors::spacing());
                 name.demangle(ctx, scope);
                 if let Some(ref args) = *template_args {
                     args.demangle(ctx, scope);
@@ -3294,7 +3289,7 @@ impl<'subs> Demangle<'subs> for Type {
             Type::PackExpansion(ref ty) => {
                 ty.demangle(ctx, scope);
                 if !ctx.is_template_argument_pack {
-                    ctx.push("...", colors::GRAY40);
+                    ctx.push("...", Colors::item());
                 }
             }
         }
@@ -3309,7 +3304,7 @@ impl<'subs> DemangleAsInner<'subs> for Type {
     ) {
         match *self {
             Type::Qualified(ref quals, _) => quals.demangle_as_inner(ctx, scope),
-            Type::PointerTo(_) => ctx.push("*", colors::RED),
+            Type::PointerTo(_) => ctx.push("*", Colors::special()),
             Type::RvalueRef(_) => {
                 while let Some(v) = ctx.inner.last().and_then(|ty| ty.downcast_to_type()) {
                     match v {
@@ -3325,7 +3320,7 @@ impl<'subs> DemangleAsInner<'subs> for Type {
                         _ => break,
                     }
                 }
-                ctx.push("&&", colors::RED)
+                ctx.push("&&", Colors::special())
             }
             Type::LvalueRef(_) => {
                 while let Some(v) = ctx.inner.last().and_then(|ty| ty.downcast_to_type()) {
@@ -3343,7 +3338,7 @@ impl<'subs> DemangleAsInner<'subs> for Type {
                         _ => break,
                     }
                 }
-                ctx.push("&", colors::RED)
+                ctx.push("&", Colors::special())
             }
             ref otherwise => {
                 unreachable!(
@@ -3479,17 +3474,17 @@ impl<'subs> Demangle<'subs> for CvQualifiers {
     ) {
         if self.konst {
             ctx.ensure_space();
-            ctx.push("const", colors::BLUE);
+            ctx.push("const", Colors::annotation());
         }
 
         if self.volatile {
             ctx.ensure_space();
-            ctx.push("volatile", colors::BLUE);
+            ctx.push("volatile", Colors::annotation());
         }
 
         if self.restrict {
             ctx.ensure_space();
-            ctx.push("restrict", colors::BLUE);
+            ctx.push("restrict", Colors::annotation());
         }
     }
 }
@@ -3701,12 +3696,12 @@ impl<'subs> Demangle<'subs> for ExceptionSpec {
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
         match *self {
-            ExceptionSpec::NoExcept => ctx.push("noexcept", colors::BLUE),
+            ExceptionSpec::NoExcept => ctx.push("noexcept", Colors::annotation()),
             ExceptionSpec::Computed(ref expr) => {
-                ctx.push("noexcept", colors::BLUE);
-                ctx.push("(", colors::GRAY40);
+                ctx.push("noexcept", Colors::annotation());
+                ctx.push("(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
         }
     }
@@ -3944,10 +3939,10 @@ impl<'subs> Demangle<'subs> for Decltype {
     ) {
         match *self {
             Decltype::Expression(ref expr) | Decltype::IdExpression(ref expr) => {
-                ctx.push("decltype ", colors::BLUE);
-                ctx.push("(", colors::GRAY40);
+                ctx.push("decltype ", Colors::known());
+                ctx.push("(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
         }
     }
@@ -4016,15 +4011,15 @@ impl<'subs> Demangle<'subs> for ClassEnumType {
         match *self {
             ClassEnumType::Named(ref name) => name.demangle(ctx, scope),
             ClassEnumType::ElaboratedStruct(ref name) => {
-                ctx.push("class ", colors::MAGENTA);
+                ctx.push("class ", Colors::known());
                 name.demangle(ctx, scope)
             }
             ClassEnumType::ElaboratedUnion(ref name) => {
-                ctx.push("union ", colors::MAGENTA);
+                ctx.push("union ", Colors::known());
                 name.demangle(ctx, scope)
             }
             ClassEnumType::ElaboratedEnum(ref name) => {
-                ctx.push("enum ", colors::MAGENTA);
+                ctx.push("enum ", Colors::known());
                 name.demangle(ctx, scope)
             }
         }
@@ -4086,7 +4081,7 @@ impl<'subs> Demangle<'subs> for UnnamedTypeName {
     ) {
         ctx.push_owned(
             format!("{{unnamed type#{}}}", self.0.map_or(1, |n| n + 1)),
-            colors::GRAY40,
+            Colors::comment(),
         );
     }
 }
@@ -4096,10 +4091,10 @@ impl<'subs> DemangleAsLeaf<'subs> for UnnamedTypeName {
         let text = format!("{{unnamed type#{}}}", self.0.map_or(1, |n| n + 1));
 
         if let Some(source_name) = ctx.source_name {
-            ctx.push_owned(text, colors::GRAY40);
-            ctx.push_owned(source_name.to_string(), colors::GRAY40);
+            ctx.push_owned(text, Colors::comment());
+            ctx.push_owned(source_name.to_string(), Colors::item());
         } else {
-            ctx.push_owned(text, colors::GRAY40);
+            ctx.push_owned(text, Colors::comment());
         }
     }
 }
@@ -4226,14 +4221,14 @@ impl<'subs> DemangleAsInner<'subs> for ArrayType {
                 if inner.is_qualified() {
                     inner.demangle_as_inner(ctx, scope);
                     ctx.ensure_space();
-                    ctx.push("(", colors::GRAY40);
+                    ctx.push("(", Colors::brackets());
                 } else {
-                    ctx.push("(", colors::GRAY40);
+                    ctx.push("(", Colors::brackets());
                     inner.demangle_as_inner(ctx, scope);
                 }
 
                 ctx.demangle_inners(scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
         }
 
@@ -4243,15 +4238,17 @@ impl<'subs> DemangleAsInner<'subs> for ArrayType {
 
         match *self {
             ArrayType::DimensionNumber(n, _) => {
-                ctx.push_owned(format!("[{n}]"), colors::GRAY40);
+                ctx.push("[", Colors::brackets());
+                ctx.push_owned(n.to_string(), Colors::item());
+                ctx.push("]", Colors::brackets());
             }
             ArrayType::DimensionExpression(ref expr, _) => {
-                ctx.push("[", colors::GRAY40);
+                ctx.push("[", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push("]", colors::GRAY40);
+                ctx.push("]", Colors::brackets());
             }
             ArrayType::NoDimension(_) => {
-                ctx.push("[]", colors::GRAY40);
+                ctx.push("[]", Colors::brackets());
             }
         }
     }
@@ -4328,12 +4325,16 @@ impl<'subs> DemangleAsInner<'subs> for VectorType {
     ) {
         match *self {
             VectorType::DimensionNumber(n, _) => {
-                ctx.push_owned(format!("__vector({n})"), colors::GRAY40);
+                ctx.push("__vector", Colors::root());
+                ctx.push("(", Colors::brackets());
+                ctx.push_owned(n.to_string(), Colors::item());
+                ctx.push(")", Colors::brackets());
             }
             VectorType::DimensionExpression(ref expr, _) => {
-                ctx.push("__vector(", colors::GRAY40);
+                ctx.push("__vector", Colors::root());
+                ctx.push("(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
         }
     }
@@ -4387,7 +4388,7 @@ impl<'subs> DemangleAsInner<'subs> for PointerToMemberType {
         }
 
         self.0.demangle(ctx, scope);
-        ctx.push("::*", colors::GRAY20);
+        ctx.push("::*", Colors::delimiter());
     }
 
     fn downcast_to_pointer_to_member(&self) -> Option<&PointerToMemberType> {
@@ -4430,7 +4431,9 @@ impl<'subs> Demangle<'subs> for TemplateParam {
     ) {
         if ctx.is_lambda_arg {
             // To match libiberty, template references are converted to `auto`.
-            ctx.push_owned(format!("auto:{}", self.0 + 1), colors::GRAY40);
+            ctx.push("auto", Colors::known());
+            ctx.push(":", Colors::delimiter());
+            ctx.push_owned((self.0 + 1).to_string(), Colors::item());
         } else {
             let arg = self.resolve(scope);
             arg.demangle(ctx, scope)
@@ -4574,8 +4577,8 @@ impl<'subs> Demangle<'subs> for FunctionParam {
         _: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
         match self.2 {
-            None => ctx.push("this", colors::BLUE),
-            Some(i) => ctx.push_owned(format!("{{parm#{}}}", i + 1), colors::GRAY40),
+            None => ctx.push("this", Colors::annotation()),
+            Some(i) => ctx.push_owned(format!("{{parm#{}}}", i + 1), Colors::comment()),
         }
     }
 }
@@ -4613,14 +4616,14 @@ impl<'subs> Demangle<'subs> for TemplateArgs {
         inner_barrier!(ctx);
 
         if ctx.last_char_written == Some('<') {
-            ctx.push(" ", colors::WHITE);
+            ctx.push(" ", Colors::spacing());
         }
 
-        ctx.push("<", colors::GRAY40);
+        ctx.push("<", Colors::brackets());
         let mut need_comma = false;
         for arg_index in 0..self.0.len() {
             if need_comma {
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
             }
             if let Some(ref mut scope) = scope {
                 scope.in_arg = Some((arg_index, self));
@@ -4632,9 +4635,9 @@ impl<'subs> Demangle<'subs> for TemplateArgs {
         // Ensure "> >" because old C++ sucks and libiberty (and its tests)
         // supports old C++.
         if ctx.last_char_written == Some('>') {
-            ctx.push(" ", colors::WHITE);
+            ctx.push(" ", Colors::spacing());
         }
-        ctx.push(">", colors::GRAY40);
+        ctx.push(">", Colors::brackets());
     }
 }
 
@@ -4734,7 +4737,7 @@ impl<'subs> Demangle<'subs> for TemplateArg {
                 let mut need_comma = false;
                 for arg in &args[..] {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     arg.demangle(ctx, scope);
                     need_comma = true;
@@ -4782,13 +4785,13 @@ impl<'subs> Demangle<'subs> for MemberName {
     ) {
         let needs_parens = self.0.get_template_args(ctx.subs).is_some();
         if needs_parens {
-            ctx.push("(", colors::GRAY40);
+            ctx.push("(", Colors::brackets());
         }
 
         self.0.demangle(ctx, scope);
 
         if needs_parens {
-            ctx.push(")", colors::GRAY40);
+            ctx.push(")", Colors::brackets());
         }
     }
 }
@@ -5290,11 +5293,11 @@ impl<'subs> Demangle<'subs> for Expression {
                 ref lhs,
                 ref rhs,
             ) => {
-                ctx.push("((", colors::GRAY40);
+                ctx.push("((", Colors::brackets());
                 lhs.demangle(ctx, scope);
-                ctx.push(")>(", colors::GRAY40);
+                ctx.push(")>(", Colors::brackets());
                 rhs.demangle(ctx, scope);
-                ctx.push("))", colors::GRAY40);
+                ctx.push("))", Colors::brackets());
             }
             Expression::Binary(ref op, ref lhs, ref rhs) => {
                 lhs.demangle_as_subexpr(ctx, scope);
@@ -5308,10 +5311,10 @@ impl<'subs> Demangle<'subs> for Expression {
                 ref alternative,
             ) => {
                 condition.demangle_as_subexpr(ctx, scope);
-                ctx.push("", colors::GRAY40);
+                ctx.push("", Colors::spacing());
                 consequent.demangle_as_subexpr(ctx, scope);
-                ctx.push("", colors::GRAY40);
-                ctx.push(" : ", colors::GRAY40);
+                ctx.push("", Colors::spacing());
+                ctx.push(" : ", Colors::delimiter());
                 alternative.demangle_as_subexpr(ctx, scope)
             }
             Expression::Ternary(ref op, ref e1, ref e2, ref e3) => {
@@ -5320,295 +5323,297 @@ impl<'subs> Demangle<'subs> for Expression {
                 //
                 // TODO: should we detect and reject this during parsing
                 op.demangle(ctx, scope);
-                ctx.push("(", colors::GRAY40);
+                ctx.push("(", Colors::brackets());
                 e1.demangle(ctx, scope);
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
                 e2.demangle(ctx, scope);
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
                 e3.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::PrefixInc(ref expr) => {
-                ctx.push("++", colors::GRAY40);
+                ctx.push("++", Colors::item());
                 expr.demangle(ctx, scope)
             }
             Expression::PrefixDec(ref expr) => {
-                ctx.push("--", colors::GRAY40);
+                ctx.push("--", Colors::item());
                 expr.demangle(ctx, scope)
             }
             Expression::Call(ref functor_expr, ref args) => {
                 functor_expr.demangle_as_subexpr(ctx, scope);
-                ctx.push("(", colors::GRAY40);
+                ctx.push("(", Colors::brackets());
                 let mut need_comma = false;
                 for arg in args {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     arg.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::ConversionOne(ref ty, ref expr) => {
-                ctx.push("(", colors::GRAY40);
+                ctx.push("(", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(")(", colors::GRAY40);
+                ctx.push(")(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::ConversionMany(ref ty, ref exprs) => {
                 ty.demangle(ctx, scope);
-                ctx.push("(", colors::GRAY40);
+                ctx.push("(", Colors::brackets());
                 let mut need_comma = false;
                 for expr in exprs {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     expr.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::ConversionBraced(ref ty, ref exprs) => {
                 ty.demangle(ctx, scope);
-                ctx.push("{{", colors::GRAY40);
+                ctx.push("{{", Colors::brackets());
                 let mut need_comma = false;
                 for expr in exprs {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     expr.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push("}}", colors::GRAY40);
+                ctx.push("}}", Colors::brackets());
             }
             Expression::BracedInitList(ref expr) => {
-                ctx.push("{{", colors::GRAY40);
+                ctx.push("{{", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push("}}", colors::GRAY40);
+                ctx.push("}}", Colors::brackets());
             }
             // TODO: factor out all this duplication in the `new` variants.
             Expression::New(ref exprs, ref ty, ref init) => {
-                ctx.push("new ", colors::MAGENTA);
-                ctx.push("(", colors::GRAY40);
+                ctx.push("new ", Colors::known());
+                ctx.push("(", Colors::brackets());
                 let mut need_comma = false;
                 for expr in exprs {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     expr.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push(") ", colors::GRAY40);
+                ctx.push(") ", Colors::brackets());
                 ty.demangle(ctx, scope);
                 if let Some(ref init) = *init {
                     init.demangle(ctx, scope);
                 }
             }
             Expression::GlobalNew(ref exprs, ref ty, ref init) => {
-                ctx.push("::", colors::GRAY20);
-                ctx.push("new ", colors::MAGENTA);
-                ctx.push("(", colors::GRAY40);
+                ctx.push("::", Colors::delimiter());
+                ctx.push("new ", Colors::known());
+                ctx.push("(", Colors::brackets());
                 let mut need_comma = false;
                 for expr in exprs {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     expr.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
                 ty.demangle(ctx, scope);
                 if let Some(ref init) = *init {
                     init.demangle(ctx, scope);
                 }
             }
             Expression::NewArray(ref exprs, ref ty, ref init) => {
-                ctx.push("new", colors::MAGENTA);
-                ctx.push("[]", colors::GRAY40);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("new", Colors::known());
+                ctx.push("[]", Colors::brackets());
+                ctx.push(" (", Colors::brackets());
                 let mut need_comma = false;
                 for expr in exprs {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     expr.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push(") ", colors::GRAY40);
+                ctx.push(") ", Colors::brackets());
                 ty.demangle(ctx, scope);
                 if let Some(ref init) = *init {
                     init.demangle(ctx, scope);
                 }
             }
             Expression::GlobalNewArray(ref exprs, ref ty, ref init) => {
-                ctx.push("::", colors::GRAY20);
-                ctx.push("new", colors::MAGENTA);
-                ctx.push("[]", colors::GRAY40);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("::", Colors::delimiter());
+                ctx.push("new", Colors::known());
+                ctx.push("[] (", Colors::brackets());
                 let mut need_comma = false;
                 for expr in exprs {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY20);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     expr.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push(") ", colors::GRAY20);
+                ctx.push(") ", Colors::brackets());
                 ty.demangle(ctx, scope);
                 if let Some(ref init) = *init {
                     init.demangle(ctx, scope);
                 }
             }
             Expression::Delete(ref expr) => {
-                ctx.push("delete ", colors::MAGENTA);
+                ctx.push("delete ", Colors::known());
                 expr.demangle(ctx, scope)
             }
             Expression::GlobalDelete(ref expr) => {
-                ctx.push("::", colors::GRAY20);
-                ctx.push("delete ", colors::MAGENTA);
+                ctx.push("::", Colors::item());
+                ctx.push("delete ", Colors::known());
                 expr.demangle(ctx, scope)
             }
             Expression::DeleteArray(ref expr) => {
-                ctx.push("delete ", colors::MAGENTA);
-                ctx.push("[] ", colors::GRAY40);
+                ctx.push("delete ", Colors::known());
+                ctx.push("[] ", Colors::brackets());
                 expr.demangle(ctx, scope)
             }
             Expression::GlobalDeleteArray(ref expr) => {
-                ctx.push("::", colors::GRAY20);
-                ctx.push("delete ", colors::MAGENTA);
-                ctx.push("[] ", colors::GRAY40);
+                ctx.push("::", Colors::delimiter());
+                ctx.push("delete ", Colors::known());
+                ctx.push("[] ", Colors::brackets());
                 expr.demangle(ctx, scope)
             }
             // TODO: factor out duplicated code from cast variants.
             Expression::DynamicCast(ref ty, ref expr) => {
-                ctx.push("dynamic_cast", colors::MAGENTA);
-                ctx.push("<", colors::GRAY40);
+                ctx.push("dynamic_cast", Colors::known());
+                ctx.push("<", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", colors::GRAY40);
+                ctx.push(">(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::StaticCast(ref ty, ref expr) => {
-                ctx.push("static_cast", colors::MAGENTA);
-                ctx.push("<", colors::GRAY40);
+                ctx.push("static_cast", Colors::known());
+                ctx.push("<", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", colors::GRAY40);
+                ctx.push(">(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::ConstCast(ref ty, ref expr) => {
-                ctx.push("const_cast", colors::MAGENTA);
-                ctx.push("<", colors::GRAY40);
+                ctx.push("const_cast", Colors::known());
+                ctx.push("<", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", colors::GRAY40);
+                ctx.push(">(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::ReinterpretCast(ref ty, ref expr) => {
-                ctx.push("reinterpret_cast", colors::MAGENTA);
-                ctx.push("<", colors::GRAY40);
+                ctx.push("reinterpret_cast", Colors::known());
+                ctx.push("<", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(">(", colors::GRAY40);
+                ctx.push(">(", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::TypeidType(ref ty) => {
-                ctx.push("typeid", colors::MAGENTA);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("typeid", Colors::known());
+                ctx.push(" (", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::TypeidExpr(ref expr) => {
-                ctx.push("typeid", colors::MAGENTA);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("typeid", Colors::known());
+                ctx.push(" (", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::SizeofType(ref ty) => {
-                ctx.push("sizeof", colors::MAGENTA);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("sizeof", Colors::known());
+                ctx.push(" (", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::SizeofExpr(ref expr) => {
-                ctx.push("sizeof", colors::MAGENTA);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("sizeof", Colors::known());
+                ctx.push(" (", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::AlignofType(ref ty) => {
-                ctx.push("alignof", colors::MAGENTA);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("alignof", Colors::known());
+                ctx.push(" (", Colors::brackets());
                 ty.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::AlignofExpr(ref expr) => {
-                ctx.push("alignof", colors::MAGENTA);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("alignof", Colors::known());
+                ctx.push(" (", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::Noexcept(ref expr) => {
-                ctx.push("noexcept", colors::MAGENTA);
-                ctx.push(" (", colors::GRAY40);
+                ctx.push("noexcept", Colors::known());
+                ctx.push(" (", Colors::brackets());
                 expr.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::Subobject(ref expr) => expr.demangle(ctx, scope),
             Expression::TemplateParam(ref param) => param.demangle(ctx, scope),
             Expression::FunctionParam(ref param) => param.demangle(ctx, scope),
             Expression::Member(ref expr, ref name) => {
                 expr.demangle_as_subexpr(ctx, scope);
-                ctx.push(".", colors::GRAY20);
+                ctx.push(".", Colors::delimiter());
                 name.demangle(ctx, scope)
             }
             Expression::DerefMember(ref expr, ref name) => {
                 expr.demangle(ctx, scope);
-                ctx.push("->", colors::GRAY40);
+                ctx.push("->", Colors::brackets());
                 name.demangle(ctx, scope)
             }
             Expression::PointerToMember(ref e1, ref e2) => {
                 e1.demangle(ctx, scope);
-                ctx.push(".", colors::GRAY20);
-                ctx.push("*", colors::GRAY40);
+                ctx.push(".", Colors::delimiter());
+                ctx.push("*", Colors::brackets());
                 e2.demangle(ctx, scope)
             }
             Expression::SizeofTemplatePack(ref param) => {
-                ctx.push("sizeof", colors::MAGENTA);
-                ctx.push("...(", colors::GRAY40);
+                ctx.push("sizeof", Colors::known());
+                ctx.push("...", Colors::item());
+                ctx.push("(", Colors::brackets());
                 param.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::SizeofFunctionPack(ref param) => {
-                ctx.push("sizeof", colors::MAGENTA);
-                ctx.push("...(", colors::GRAY40);
+                ctx.push("sizeof", Colors::known());
+                ctx.push("...", Colors::item());
+                ctx.push("(", Colors::brackets());
                 param.demangle(ctx, scope);
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::SizeofCapturedTemplatePack(ref args) => {
-                ctx.push("sizeof", colors::MAGENTA);
-                ctx.push("...(", colors::GRAY40);
+                ctx.push("sizeof", Colors::known());
+                ctx.push("...", Colors::item());
+                ctx.push("(", Colors::brackets());
                 let mut need_comma = false;
                 for arg in args {
                     if need_comma {
-                        ctx.push(", ", colors::GRAY40);
+                        ctx.push(", ", Colors::delimiter());
                     }
                     arg.demangle(ctx, scope);
                     need_comma = true;
                 }
-                ctx.push(")", colors::GRAY40);
+                ctx.push(")", Colors::brackets());
             }
             Expression::PackExpansion(ref pack) => {
                 pack.demangle_as_subexpr(ctx, scope);
-                ctx.push("...", colors::GRAY40);
+                ctx.push("...", Colors::item());
             }
             Expression::Throw(ref expr) => {
-                ctx.push("throw ", colors::MAGENTA);
+                ctx.push("throw ", Colors::known());
                 expr.demangle(ctx, scope)
             }
             Expression::Rethrow => {
-                ctx.push("throw", colors::MAGENTA);
+                ctx.push("throw", Colors::known());
             }
             Expression::UnresolvedName(ref name) => name.demangle(ctx, scope),
             Expression::Primary(ref expr) => expr.demangle(ctx, scope),
@@ -5628,13 +5633,13 @@ impl Expression {
         );
 
         if needs_parens {
-            ctx.push("(", colors::GRAY40);
+            ctx.push("(", Colors::brackets());
         }
 
         self.demangle(ctx, scope);
 
         if needs_parens {
-            ctx.push(")", colors::GRAY40);
+            ctx.push(")", Colors::brackets());
         }
     }
 }
@@ -5729,31 +5734,31 @@ impl<'subs> Demangle<'subs> for UnresolvedName {
         match *self {
             UnresolvedName::Name(ref name) => name.demangle(ctx, scope),
             UnresolvedName::Global(ref name) => {
-                ctx.push("::", colors::GRAY20);
+                ctx.push("::", Colors::delimiter());
                 name.demangle(ctx, scope)
             }
             UnresolvedName::Nested1(ref ty, ref levels, ref name) => {
                 ty.demangle(ctx, scope);
-                ctx.push("::", colors::GRAY20);
+                ctx.push("::", Colors::delimiter());
                 for lvl in &levels[..] {
                     lvl.demangle(ctx, scope);
-                    ctx.push("::", colors::GRAY20);
+                    ctx.push("::", Colors::delimiter());
                 }
                 name.demangle(ctx, scope)
             }
             UnresolvedName::Nested2(ref levels, ref name) => {
                 for lvl in &levels[..] {
                     lvl.demangle(ctx, scope);
-                    ctx.push("::", colors::GRAY20);
+                    ctx.push("::", Colors::delimiter());
                 }
                 name.demangle(ctx, scope)
             }
             // `::A::x` or `::N::y` or `::A<T>::z`
             UnresolvedName::GlobalNested2(ref levels, ref name) => {
-                ctx.push("::", colors::GRAY20);
+                ctx.push("::", Colors::delimiter());
                 for lvl in &levels[..] {
                     lvl.demangle(ctx, scope);
-                    ctx.push("::", colors::GRAY20);
+                    ctx.push("::", Colors::delimiter());
                 }
                 name.demangle(ctx, scope)
             }
@@ -6023,7 +6028,7 @@ impl<'subs> Demangle<'subs> for DestructorName {
         ctx: &'ctx mut DemangleContext<'subs>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
-        ctx.push("~", colors::MAGENTA);
+        ctx.push("~", Colors::item());
         match *self {
             DestructorName::Unresolved(ref ty) => ty.demangle(ctx, scope),
             DestructorName::Name(ref name) => name.demangle(ctx, scope),
@@ -6087,13 +6092,13 @@ impl<'subs> Demangle<'subs> for ExprPrimary {
         fn write_literal(ctx: &mut DemangleContext, start: usize, end: usize) {
             debug_assert!(start <= end);
             let start = if start < end && ctx.input[start] == b'n' {
-                ctx.push("-", colors::GRAY20);
+                ctx.push("-", Colors::item());
                 start + 1
             } else {
                 start
             };
-            ctx.push("-", colors::BLUE);
-            ctx.push(&ctx.stream.inner()[start..end], colors::BLUE);
+            ctx.push("-", Colors::item());
+            ctx.push(&ctx.stream.inner()[start..end], Colors::item());
         }
 
         match *self {
@@ -6103,12 +6108,12 @@ impl<'subs> Demangle<'subs> for ExprPrimary {
                 start,
                 end,
             ) => match &ctx.input[start..end] {
-                b"0" => ctx.push("false", colors::PURPLE),
-                b"1" => ctx.push("true", colors::PURPLE),
+                b"0" => ctx.push("false", Colors::known()),
+                b"1" => ctx.push("true", Colors::known()),
                 _ => {
-                    ctx.push("(", colors::GRAY40);
-                    ctx.push("bool", colors::PURPLE);
-                    ctx.push(")", colors::GRAY40);
+                    ctx.push("(", Colors::brackets());
+                    ctx.push("bool", Colors::known());
+                    ctx.push(")", Colors::brackets());
                     write_literal(ctx, start, end)
                 }
             },
@@ -6116,7 +6121,7 @@ impl<'subs> Demangle<'subs> for ExprPrimary {
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Nullptr)),
                 _,
                 _,
-            ) => ctx.push("nullptr", colors::PURPLE),
+            ) => ctx.push("nullptr", Colors::known()),
             ExprPrimary::Literal(
                 ref ty @ TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Double)),
                 start,
@@ -6128,20 +6133,21 @@ impl<'subs> Demangle<'subs> for ExprPrimary {
                 end,
             ) => {
                 if ctx.show_expression_literal_types {
-                    ctx.push("(", colors::GRAY40);
+                    ctx.push("(", Colors::brackets());
                     ty.demangle(ctx, scope);
-                    ctx.push(")", colors::GRAY40);
+                    ctx.push(")", Colors::brackets());
                 }
                 let start = if start < end && ctx.input[start] == b'n' {
-                    ctx.push("-[", colors::GRAY40);
+                    ctx.push("-", Colors::item());
+                    ctx.push("-[", Colors::brackets());
                     start + 1
                 } else {
-                    ctx.push("[", colors::GRAY40);
+                    ctx.push("[", Colors::brackets());
                     start
                 };
 
-                ctx.push(&ctx.stream.inner()[start..end], colors::BLUE);
-                ctx.push("]", colors::GRAY40);
+                ctx.push(&ctx.stream.inner()[start..end], Colors::item());
+                ctx.push("]", Colors::brackets());
             }
             ExprPrimary::Literal(
                 TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int)),
@@ -6150,9 +6156,9 @@ impl<'subs> Demangle<'subs> for ExprPrimary {
             ) => write_literal(ctx, start, end),
             ExprPrimary::Literal(ref ty, start, end) => {
                 if ctx.show_expression_literal_types {
-                    ctx.push("(", colors::GRAY40);
+                    ctx.push("(", Colors::brackets());
                     ty.demangle(ctx, scope);
-                    ctx.push(")", colors::GRAY40);
+                    ctx.push(")", Colors::brackets());
                 }
                 write_literal(ctx, start, end)
             }
@@ -6189,16 +6195,16 @@ impl<'subs> Demangle<'subs> for Initializer {
         ctx: &'ctx mut DemangleContext<'subs>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
-        ctx.push("(", colors::GRAY40);
+        ctx.push("(", Colors::brackets());
         let mut need_comma = false;
         for expr in &self.0 {
             if need_comma {
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
             }
             expr.demangle(ctx, scope);
             need_comma = true;
         }
-        ctx.push(")", colors::GRAY40);
+        ctx.push(")", Colors::brackets());
     }
 }
 
@@ -6277,14 +6283,14 @@ impl<'subs> Demangle<'subs> for LocalName {
         match *self {
             LocalName::Relative(ref encoding, Some(ref name), _) => {
                 encoding.demangle(ctx, scope);
-                ctx.push("::", colors::GRAY20);
+                ctx.push("::", Colors::delimiter());
                 name.demangle(ctx, scope)
             }
             LocalName::Relative(ref encoding, None, _) => {
                 // No name means that this is the symbol for a string literal.
                 encoding.demangle(ctx, scope);
-                ctx.push("::", colors::GRAY20);
-                ctx.push("string literal", colors::PURPLE);
+                ctx.push("::", Colors::delimiter());
+                ctx.push("string literal", Colors::known());
             }
             LocalName::Default(ref encoding, _, _) => encoding.demangle(ctx, scope),
         }
@@ -6396,11 +6402,14 @@ impl<'subs> Demangle<'subs> for ClosureTypeName {
         ctx: &'ctx mut DemangleContext<'subs>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
-        ctx.push("{{lambda(", colors::GRAY20);
+        ctx.push("{{", Colors::brackets());
+        ctx.push("lambda", Colors::known());
+        ctx.push("(", Colors::brackets());
         self.0.demangle(ctx, scope);
 
-        let text = format!(")#{}}}", self.1.map_or(1, |n| n + 2));
-        ctx.push_owned(text, colors::GRAY20);
+        ctx.push(")#", Colors::brackets());
+        ctx.push_owned(self.1.map_or(1, |n| n + 2).to_string(), Colors::item());
+        ctx.push("}}", Colors::brackets());
     }
 }
 
@@ -6452,7 +6461,7 @@ impl LambdaSig {
         let mut need_comma = false;
         for ty in &self.0 {
             if need_comma {
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
             }
             ty.demangle(ctx, scope);
             need_comma = true;
@@ -6636,12 +6645,12 @@ impl<'subs> DemangleAsLeaf<'subs> for WellKnownComponent {
             WellKnownComponent::Std => {
                 panic!("should never treat `WellKnownComponent::Std` as a leaf name")
             }
-            WellKnownComponent::StdAllocator => ctx.push("allocator", colors::PURPLE),
-            WellKnownComponent::StdString1 => ctx.push("basic_string", colors::PURPLE),
-            WellKnownComponent::StdString2 => ctx.push("string", colors::PURPLE),
-            WellKnownComponent::StdIstream => ctx.push("basic_istream", colors::PURPLE),
-            WellKnownComponent::StdOstream => ctx.push("ostream", colors::PURPLE),
-            WellKnownComponent::StdIostream => ctx.push("basic_iostream", colors::PURPLE),
+            WellKnownComponent::StdAllocator => ctx.push("allocator", Colors::known()),
+            WellKnownComponent::StdString1 => ctx.push("basic_string", Colors::known()),
+            WellKnownComponent::StdString2 => ctx.push("string", Colors::known()),
+            WellKnownComponent::StdIstream => ctx.push("basic_istream", Colors::known()),
+            WellKnownComponent::StdOstream => ctx.push("ostream", Colors::known()),
+            WellKnownComponent::StdIostream => ctx.push("basic_iostream", Colors::known()),
         }
     }
 }
@@ -6878,89 +6887,105 @@ impl<'subs> Demangle<'subs> for SpecialName {
     ) {
         match *self {
             SpecialName::VirtualTable(ref ty) => {
-                ctx.push("{{vtable(", colors::GRAY40);
+                ctx.push("{{", Colors::brackets());
+                ctx.push("vtable", Colors::known());
+                ctx.push("(", Colors::brackets());
+
                 ty.demangle(ctx, scope);
-                ctx.push(")}}", colors::GRAY40);
+
+                ctx.push(")}}", Colors::brackets());
             }
             SpecialName::Vtt(ref ty) => {
-                ctx.push("{{vtt(", colors::GRAY40);
+                ctx.push("{{", Colors::brackets());
+                ctx.push("vtt", Colors::known());
+                ctx.push("(", Colors::brackets());
+
                 ty.demangle(ctx, scope);
-                ctx.push(")}}", colors::GRAY40);
+                ctx.push(")}}", Colors::brackets());
             }
             SpecialName::Typeinfo(ref ty) => {
-                ctx.push("typeinfo", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("typeinfo", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 ty.demangle(ctx, scope)
             }
             SpecialName::TypeinfoName(ref ty) => {
-                ctx.push("typeinfo name", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("typeinfo name", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 ty.demangle(ctx, scope)
             }
             SpecialName::VirtualOverrideThunk(ref offset, ref encoding) => {
-                ctx.push("{{virtual override thunk(", colors::GRAY40);
+                ctx.push("{{", Colors::brackets());
+                ctx.push("virtual override thunk", Colors::known());
+                ctx.push("(", Colors::brackets());
+
                 offset.demangle(ctx, scope);
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
                 encoding.demangle(ctx, scope);
-                ctx.push(")}}", colors::GRAY40);
+                ctx.push(")}}", Colors::brackets());
             }
             SpecialName::VirtualOverrideThunkCovariant(
                 ref this_offset,
                 ref result_offset,
                 ref encoding,
             ) => {
-                ctx.push("{{virtual override thunk(", colors::GRAY40);
+                ctx.push("{{", Colors::brackets());
+                ctx.push("virtual override thunk", Colors::known());
+                ctx.push("(", Colors::brackets());
+
                 this_offset.demangle(ctx, scope);
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
                 result_offset.demangle(ctx, scope);
-                ctx.push(", ", colors::GRAY40);
+                ctx.push(", ", Colors::delimiter());
                 encoding.demangle(ctx, scope);
-                ctx.push(")}}", colors::GRAY40);
+                ctx.push(")}}", Colors::brackets());
             }
             SpecialName::Guard(ref name) => {
-                ctx.push("guard variable", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("guard variable", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 name.demangle(ctx, scope)
             }
             SpecialName::GuardTemporary(ref name, n) => {
-                ctx.push("reference temporary", colors::MAGENTA);
-                ctx.push_owned(format!(" #{n} for "), colors::GRAY40);
+                ctx.push("reference temporary", Colors::known());
+                ctx.push(" #", Colors::brackets());
+                ctx.push_owned(n.to_string(), Colors::item());
+                ctx.push(" for ", Colors::brackets());
                 name.demangle(ctx, scope)
             }
             SpecialName::ConstructionVtable(ref ty1, _, ref ty2) => {
-                ctx.push("construction vtable", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("construction vtable", Colors::known());
+                ctx.push(" for ", Colors::brackets());
+
                 ty1.demangle(ctx, scope);
-                ctx.push("-in-", colors::GRAY40);
+                ctx.push("-in-", Colors::brackets());
                 ty2.demangle(ctx, scope)
             }
             SpecialName::TypeinfoFunction(ref ty) => {
-                ctx.push("typeinfo fn", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("typeinfo fn", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 ty.demangle(ctx, scope)
             }
             SpecialName::TlsInit(ref name) => {
-                ctx.push("TLS init function", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("TLS init function", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 name.demangle(ctx, scope)
             }
             SpecialName::TlsWrapper(ref name) => {
-                ctx.push("TLS wrapper function", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("TLS wrapper function", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 name.demangle(ctx, scope)
             }
             SpecialName::TransactionClone(ref encoding) => {
-                ctx.push("transaction clone", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("transaction clone", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 encoding.demangle(ctx, scope)
             }
             SpecialName::NonTransactionClone(ref encoding) => {
-                ctx.push("non-transaction clone", colors::MAGENTA);
-                ctx.push(" for ", colors::GRAY40);
+                ctx.push("non-transaction clone", Colors::known());
+                ctx.push(" for ", Colors::brackets());
                 encoding.demangle(ctx, scope)
             }
             SpecialName::JavaResource(ref names) => {
-                ctx.push("java resource ", colors::MAGENTA);
+                ctx.push("java resource ", Colors::known());
                 for name in names {
                     name.demangle(ctx, scope);
                 }
@@ -7031,15 +7056,15 @@ impl<'subs> Demangle<'subs> for ResourceName {
                 // Skip past the '$'
                 i += 1;
                 match ctx.input[i] {
-                    b'S' => ctx.push("/", colors::GRAY20),
-                    b'_' => ctx.push(".", colors::GRAY20),
-                    b'$' => ctx.push("$", colors::GRAY20),
+                    b'S' => ctx.push("/", Colors::comment()),
+                    b'_' => ctx.push(".", Colors::comment()),
+                    b'$' => ctx.push("$", Colors::comment()),
                     _ => {
                         // Fall through
                     }
                 }
             } else {
-                ctx.push_owned(format!("{}", ch as char), colors::GRAY20)
+                ctx.push_owned(format!("{}", ch as char), Colors::comment())
             }
             i += 1;
         }
@@ -7093,10 +7118,12 @@ impl<'subs> Demangle<'subs> for SubobjectExpr {
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
         self.expr.demangle(ctx, scope);
-        ctx.push(".", colors::GRAY20);
-        ctx.push("<", colors::GRAY40);
+        ctx.push(".", Colors::comment());
+        ctx.push("<", Colors::brackets());
         self.ty.demangle(ctx, scope);
-        ctx.push_owned(format!(" at offset {}>", self.offset), colors::GRAY40);
+        ctx.push(" at offset ", Colors::brackets());
+        ctx.push_owned(self.offset.to_string(), Colors::item());
+        ctx.push(">", Colors::brackets());
     }
 }
 

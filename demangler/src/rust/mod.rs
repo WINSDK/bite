@@ -88,8 +88,8 @@
 //! source [2603-rust-symbol-name-mangling-v0](https://rust-lang.github.io/rfcs/2603-rust-symbol-name-mangling-v0.html)
 mod tests;
 
-use crate::TokenStream;
-use tokenizing::{colors, Color};
+use crate::{TokenStream, Colors};
+use tokenizing::ColorScheme;
 
 /// Max recursion depth.
 const MAX_DEPTH: usize = 256;
@@ -150,7 +150,7 @@ impl<'src> Parser {
     }
 
     #[inline]
-    fn push(&mut self, text: &'static str, color: Color) {
+    fn push(&mut self, text: &'static str, color: tokenizing::Color) {
         if self.printing {
             self.stream.push(text, color);
         }
@@ -227,7 +227,7 @@ impl<'src> Parser {
                 return Some(());
             }
 
-            self.push(delimiter, colors::GRAY40);
+            self.push(delimiter, Colors::delimiter());
             f(self)?;
         }
 
@@ -325,8 +325,8 @@ impl<'src> Parser {
     /// Appends a generic (which can be a lifetime, type or constant) out of a list of generics.
     fn generic(&mut self) -> Option<()> {
         if let Some(lifetime) = self.lifetime() {
-            self.push(lifetime, colors::MAGENTA);
-            self.push(" ", colors::MAGENTA);
+            self.push(lifetime, Colors::annotation());
+            self.push(" ", Colors::spacing());
             return Some(());
         }
 
@@ -369,7 +369,7 @@ impl<'src> Parser {
     fn constant(&mut self) -> Option<()> {
         // placeholder
         if self.eat(b'p') {
-            self.push("_", colors::MAGENTA);
+            self.push("_", Colors::brackets());
             return Some(());
         }
 
@@ -381,7 +381,7 @@ impl<'src> Parser {
 
         self.offset += 1;
         self.hex_nibbles()?;
-        self.push("_", colors::MAGENTA);
+        self.push("_", Colors::brackets());
         Some(())
     }
 
@@ -473,7 +473,7 @@ impl<'src> Parser {
 
                 self.disambiguator();
                 let ident = self.ident()?;
-                self.push(ident, colors::PURPLE);
+                self.push(ident, Colors::item());
             }
             // <T> (inherited impl)
             b'M' => {
@@ -481,9 +481,9 @@ impl<'src> Parser {
 
                 self.disambiguator();
                 self.dont_print(Self::path)?;
-                self.push("<", colors::BLUE);
+                self.push("<", Colors::brackets());
                 self.tipe()?;
-                self.push(">", colors::BLUE);
+                self.push(">", Colors::brackets());
             }
             // <T as Trait> (trait impl)
             b'X' => {
@@ -491,21 +491,21 @@ impl<'src> Parser {
 
                 self.disambiguator();
                 self.dont_print(Self::path)?;
-                self.push("<", colors::BLUE);
+                self.push("<", Colors::brackets());
                 self.tipe()?;
-                self.push(" as ", colors::BLUE);
+                self.push(" as ", Colors::annotation());
                 self.path()?;
-                self.push(">", colors::BLUE);
+                self.push(">", Colors::brackets());
             }
             // <T as Trait> (trait definition)
             b'Y' => {
                 self.offset += 1;
 
-                self.push("<", colors::BLUE);
+                self.push("<", Colors::brackets());
                 self.tipe()?;
-                self.push(" as ", colors::BLUE);
+                self.push(" as ", Colors::annotation());
                 self.path()?;
-                self.push(">", colors::BLUE);
+                self.push(">", Colors::brackets());
             }
             // ...::ident (nested path)
             b'N' => {
@@ -517,34 +517,35 @@ impl<'src> Parser {
                 let disambiguator = self.disambiguator();
                 let ident = self.ident()?;
 
-                self.push("::", colors::GRAY20);
+                self.push("::", Colors::delimiter());
 
                 match ns {
                     NameSpace::Closure => {
-                        self.push("{closure", colors::GRAY40);
+                        self.push("{", Colors::brackets());
+                        self.push("closure", Colors::known());
 
                         if !ident.is_empty() {
-                            self.push(":", colors::GRAY40);
-                            self.push(ident, colors::GRAY40);
+                            self.push(":", Colors::delimiter());
+                            self.push(ident, Colors::item());
                         }
 
                         match disambiguator {
-                            Some(0) => self.push("#0", colors::GRAY40),
-                            Some(1) => self.push("#1", colors::GRAY40),
-                            Some(2) => self.push("#2", colors::GRAY40),
-                            Some(3) => self.push("#3", colors::GRAY40),
-                            Some(4) => self.push("#4", colors::GRAY40),
-                            Some(5) => self.push("#5", colors::GRAY40),
-                            Some(6) => self.push("#6", colors::GRAY40),
-                            Some(7) => self.push("#7", colors::GRAY40),
-                            Some(8) => self.push("#8", colors::GRAY40),
-                            Some(9) => self.push("#9", colors::GRAY40),
+                            Some(0) => self.push("#0", Colors::brackets()),
+                            Some(1) => self.push("#1", Colors::brackets()),
+                            Some(2) => self.push("#2", Colors::brackets()),
+                            Some(3) => self.push("#3", Colors::brackets()),
+                            Some(4) => self.push("#4", Colors::brackets()),
+                            Some(5) => self.push("#5", Colors::brackets()),
+                            Some(6) => self.push("#6", Colors::brackets()),
+                            Some(7) => self.push("#7", Colors::brackets()),
+                            Some(8) => self.push("#8", Colors::brackets()),
+                            Some(9) => self.push("#9", Colors::brackets()),
                             _ => {}
                         }
 
-                        self.push("}", colors::GRAY40);
+                        self.push("}", Colors::brackets());
                     }
-                    _ => self.push(ident, colors::MAGENTA),
+                    _ => self.push(ident, Colors::item()),
                 }
             }
             // ...<T, U, ..> (generic args)
@@ -557,12 +558,12 @@ impl<'src> Parser {
 
                 // generics on types shouldn't print a '::'
                 if !next_is_type {
-                    self.push("::", colors::GRAY20);
+                    self.push("::", Colors::delimiter());
                 }
 
-                self.push("<", colors::BLUE);
+                self.push("<", Colors::brackets());
                 self.delimited(", ", Self::generic)?;
-                self.push(">", colors::BLUE);
+                self.push(">", Colors::brackets());
             }
             b'B' => {
                 self.offset += 1;
@@ -581,7 +582,7 @@ impl<'src> Parser {
 
         // basic types
         if let Some(tipe) = self.basic_tipe() {
-            self.push(tipe, colors::PURPLE);
+            self.push(tipe, Colors::known());
 
             self.depth -= 1;
             return Some(());
@@ -598,36 +599,36 @@ impl<'src> Parser {
             b'A' => {
                 self.offset += 1;
 
-                self.push("[", colors::GRAY40);
+                self.push("[", Colors::brackets());
                 self.tipe()?;
-                self.push("; ", colors::GRAY40);
+                self.push("; ", Colors::brackets());
                 self.constant()?;
-                self.push("]", colors::GRAY40);
+                self.push("]", Colors::brackets());
             }
             // [T]
             b'S' => {
                 self.offset += 1;
 
-                self.push("[", colors::GRAY40);
+                self.push("[", Colors::brackets());
                 self.tipe()?;
-                self.push("]", colors::GRAY40);
+                self.push("]", Colors::brackets());
             }
             // (T1, T2, T3, ..)
             b'T' => {
                 self.offset += 1;
 
-                self.push("(", colors::GRAY40);
+                self.push("(", Colors::brackets());
                 self.delimited(", ", Self::tipe)?;
-                self.push(")", colors::GRAY40);
+                self.push(")", Colors::brackets());
             }
             // &T
             b'R' => {
                 self.offset += 1;
 
-                self.push("&", colors::BLUE);
+                self.push("&", Colors::special());
                 if let Some(lifetime) = self.lifetime() {
-                    self.push(lifetime, colors::MAGENTA);
-                    self.push(" ", colors::MAGENTA);
+                    self.push(lifetime, Colors::annotation());
+                    self.push(" ", Colors::spacing());
                 }
 
                 self.tipe()?;
@@ -636,27 +637,29 @@ impl<'src> Parser {
             b'Q' => {
                 self.offset += 1;
 
-                self.push("&", colors::BLUE);
+                self.push("&", Colors::special());
                 if let Some(lifetime) = self.lifetime() {
-                    self.push(lifetime, colors::MAGENTA);
-                    self.push(" ", colors::MAGENTA);
+                    self.push(lifetime, Colors::annotation());
+                    self.push(" ", Colors::spacing());
                 }
 
-                self.push("mut ", colors::BLUE);
+                self.push("mut ", Colors::annotation());
                 self.tipe()?;
             }
             // *const T
             b'P' => {
                 self.offset += 1;
 
-                self.push("*const ", colors::BLUE);
+                self.push("*", Colors::special());
+                self.push("const ", Colors::annotation());
                 self.tipe()?;
             }
             // *mut T
             b'O' => {
                 self.offset += 1;
 
-                self.push("*mut ", colors::BLUE);
+                self.push("*", Colors::special());
+                self.push("mut ", Colors::annotation());
                 self.tipe()?;
             }
             // fn(..) -> ..
@@ -665,35 +668,37 @@ impl<'src> Parser {
                 self.binder();
 
                 if self.eat(b'U') {
-                    self.push("unsafe ", colors::RED);
+                    self.push("unsafe ", Colors::special());
                 }
 
                 if self.eat(b'K') {
-                    self.push("extern ", colors::RED);
+                    self.push("extern ", Colors::special());
 
                     if self.eat(b'C') {
-                        self.push("\"C\" ", colors::BLUE);
+                        self.push("\"", Colors::brackets());
+                        self.push("C", Colors::item());
+                        self.push("\" ", Colors::brackets());
                     } else {
                         let ident = self.ident()?;
 
-                        self.push("\"", colors::BLUE);
-                        self.push(ident, colors::BLUE);
-                        self.push("\"", colors::BLUE);
+                        self.push("\"", Colors::brackets());
+                        self.push(ident, Colors::item());
+                        self.push("\"", Colors::brackets());
                     }
                 }
 
-                self.push("fn", colors::MAGENTA);
-                self.push("(", colors::GRAY40);
+                self.push("fn", Colors::known());
+                self.push("(", Colors::brackets());
                 self.delimited(", ", Self::tipe)?;
-                self.push(")", colors::GRAY40);
-                self.push(" -> ", colors::BLUE);
+                self.push(")", Colors::brackets());
+                self.push(" -> ", Colors::brackets());
                 self.tipe()?;
             }
             // dyn ..
             b'D' => {
                 self.offset += 1;
                 self.binder();
-                self.push("dyn ", colors::RED);
+                self.push("dyn ", Colors::special());
 
                 // associated traits e.g. Send + Sync + Pin
                 self.delimited(" + ", |this| {
@@ -701,20 +706,20 @@ impl<'src> Parser {
 
                     // associated trait bounds e.g. Trait<Assoc = X>
                     while this.eat(b'p') {
-                        this.push("<", colors::BLUE);
+                        this.push("<", Colors::brackets());
                         let ident = this.ident()?;
-                        this.push(ident, colors::PURPLE);
-                        this.push(" = ", colors::GRAY40);
+                        this.push(ident, Colors::item());
+                        this.push(" = ", Colors::delimiter());
                         this.tipe()?;
-                        this.push(">", colors::BLUE);
+                        this.push(">", Colors::brackets());
                     }
 
                     Some(())
                 })?;
 
                 if let Some(lifetime) = self.lifetime() {
-                    self.push(" + ", colors::GRAY40);
-                    self.push(lifetime, colors::MAGENTA);
+                    self.push(" + ", Colors::delimiter());
+                    self.push(lifetime, Colors::annotation());
                 }
             }
             b'B' => {

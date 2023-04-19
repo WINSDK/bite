@@ -1,6 +1,71 @@
-//! IBM inspired colors currently used by the GUI.
+//! Colors used for rendering text in the GUI
+
+pub trait ColorScheme {
+    fn brackets() -> Color;
+    fn delimiter() -> Color;
+    fn comment() -> Color;
+    fn item() -> Color;
+
+    fn spacing() -> Color {
+        colors::WHITE
+    }
+
+    fn known() -> Color {
+        Self::item()
+    }
+
+    fn root() -> Color {
+        Self::item()
+    }
+
+    fn annotation() -> Color {
+        Self::item()
+    }
+
+    fn special() -> Color {
+        Self::item()
+    }
+}
+
+pub struct IBM;
+
+impl ColorScheme for IBM {
+    fn brackets() -> Color {
+        colors::GRAY40
+    }
+
+    fn delimiter() -> Color {
+        colors::GRAY20
+    }
+
+    fn comment() -> Color {
+        colors::GRAY20
+    }
+
+    fn item() -> Color {
+        colors::MAGENTA
+    }
+
+    fn known() -> Color {
+        colors::PURPLE
+    }
+
+    fn root() -> Color {
+        colors::PURPLE
+    }
+
+    fn annotation() -> Color {
+        colors::BLUE
+    }
+
+    fn special() -> Color {
+        colors::RED
+    }
+}
 
 pub mod colors {
+    //! IBM inspired colors
+
     use super::Color;
 
     // necessary as floating-point const function aren't stable yet
@@ -15,7 +80,7 @@ pub mod colors {
     pub const BLUE: Color = color!(0x0f, 0x62, 0xfe);
     pub const MAGENTA: Color = color!(0xf5, 0x12, 0x81);
     pub const RED: Color = color!(0xff, 0x00, 0x0b);
-    pub const PURPLE: Color = color!(0xc4, 0x91, 0xfd);
+    pub const PURPLE: Color = color!(0x89, 0x1f, 0xff);
     pub const GRAY10: Color = color!(0x10, 0x10, 0x10);
     pub const GRAY20: Color = color!(0x20, 0x20, 0x20);
     pub const GRAY40: Color = color!(0x40, 0x40, 0x40);
@@ -25,6 +90,12 @@ pub mod colors {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct Color([f32; 4]);
+
+impl Default for Color {
+    fn default() -> Self {
+        colors::WHITE
+    }
+}
 
 unsafe impl bytemuck::Zeroable for Color {}
 unsafe impl bytemuck::Pod for Color {}
