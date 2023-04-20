@@ -20,15 +20,17 @@ There is a roadmap for this project but currently I'm very busy with university.
 Whenever I have time this year I'll try implementing most of these. \
 If you're feeling like it, submit a pull request and I'll have a look at it.
 
-- [ ] Port GUI to wgpu + winit
-  - [x] Assembly listing exploration
+- [x] Port GUI to wgpu + winit
+- [ ] Header with buttons and options
+- [x] Assembly listing exploration
+- [ ] Interactive terminal
 - [ ] Assembly instruction byte patching
 - [ ] Hex binary viewer
 - [ ] Some form of debugger front-end
   - [ ] [GDB](https://www.sourceware.org/gdb) bindings + support
   - [ ] [LLDB](https://lldb.llvm.org) bindings + support
   - [ ] [WinDbg](https://windbg.org) (maybe?) / own implementation (depends)
-- [ ] X86-64 support
+- [x] X86-64 support
 - [ ] AArch64/AArch32 support
 - [x] Riscv64gc/Riscv32gc support
 - [x] MIPS-V support
@@ -36,3 +38,6 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
   - [x] MSVC
   - [x] Itanium
   - [x] Rust
+- [ ] Assembly listing lifting
+  - [ ] Resolving addresses
+  - [ ] Creating labels for relative jumps
