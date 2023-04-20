@@ -1,9 +1,7 @@
 //! Symbol demangler for common mangling schemes.
 
 use std::borrow::Cow;
-use tokenizing::{colors, Color, Token};
-
-type Colors = tokenizing::IBM;
+use tokenizing::{Colors, Color, Token, ColorScheme};
 
 pub mod rust;
 pub mod msvc;
@@ -34,7 +32,7 @@ impl TokenStream {
 
         this.__tokens.push(Token {
             text: Cow::Borrowed(this.inner()),
-            color: colors::BLUE,
+            color: Colors::item(),
         });
 
         this

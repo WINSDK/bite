@@ -101,6 +101,8 @@ mod safer_unchecked;
 mod tests;
 
 use yaxpeax_arch::{Decoder, LengthedInstruction};
+use tokenizing::{Colors, Token, ColorScheme};
+
 pub use yaxpeax_arch::U8Reader as Reader;
 
 const MEM_SIZE_STRINGS: [&'static str; 64] = [
@@ -217,9 +219,9 @@ impl decoder::DecodableInstruction for Instruction {
 
         let mut tokens = [tokenizing::EMPTY_TOKEN; 5];
 
-        tokens[0] = tokenizing::Token {
+        tokens[0] = Token {
             text: std::borrow::Cow::Owned(str),
-            color: tokenizing::colors::WHITE,
+            color: Colors::opcode(),
         };
 
         decoder::TokenStream::new(tokens, 1)

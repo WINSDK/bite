@@ -3,7 +3,7 @@
 mod tests;
 
 use decoder::encode_hex;
-use tokenizing::colors;
+use tokenizing::{ColorScheme, Colors};
 use std::borrow::Cow;
 
 #[derive(Debug)]
@@ -50,7 +50,7 @@ impl decoder::DecodableInstruction for Instruction {
 
         tokens[0] = tokenizing::Token {
             text: Cow::Borrowed(self.mnemomic),
-            color: colors::WHITE,
+            color: Colors::opcode(),
         };
 
         for idx in 0..self.operand_count {
@@ -59,11 +59,11 @@ impl decoder::DecodableInstruction for Instruction {
             tokens[token_count] = match operand {
                 Cow::Owned(_) => tokenizing::Token {
                     text: operand,
-                    color: crate::colors::BLUE,
+                    color: Colors::immediate(),
                 },
                 Cow::Borrowed(_) => tokenizing::Token {
                     text: operand,
-                    color: crate::colors::MAGENTA,
+                    color: Colors::register(),
                 },
             };
 

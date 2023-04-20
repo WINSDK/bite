@@ -1,4 +1,7 @@
-//! Colors used for rendering text in the GUI
+//! Colors used for rendering text in the GUI.
+
+/// Currently used global colorscheme
+pub type Colors = IBM;
 
 pub trait ColorScheme {
     fn brackets() -> Color;
@@ -25,6 +28,12 @@ pub trait ColorScheme {
     fn special() -> Color {
         Self::item()
     }
+
+    fn opcode() -> Color;
+    fn register() -> Color;
+    fn immediate() -> Color;
+    fn attribute() -> Color;
+    fn segment() -> Color;
 }
 
 pub struct IBM;
@@ -61,10 +70,30 @@ impl ColorScheme for IBM {
     fn special() -> Color {
         colors::RED
     }
+
+    fn opcode() -> Color {
+        colors::WHITE
+    }
+
+    fn register() -> Color {
+        colors::MAGENTA
+    }
+
+    fn immediate() -> Color {
+        colors::BLUE
+    }
+
+    fn attribute() -> Color {
+        colors::GRAY40
+    }
+
+    fn segment() -> Color {
+        colors::GREEN
+    }
 }
 
 pub mod colors {
-    //! IBM inspired colors
+    //! IBM inspired colors.
 
     use super::Color;
 
@@ -81,6 +110,7 @@ pub mod colors {
     pub const MAGENTA: Color = color!(0xf5, 0x12, 0x81);
     pub const RED: Color = color!(0xff, 0x00, 0x0b);
     pub const PURPLE: Color = color!(0x89, 0x1f, 0xff);
+    pub const GREEN: Color = color!(0x02, 0xed, 0x6e);
     pub const GRAY10: Color = color!(0x10, 0x10, 0x10);
     pub const GRAY20: Color = color!(0x20, 0x20, 0x20);
     pub const GRAY40: Color = color!(0x40, 0x40, 0x40);
