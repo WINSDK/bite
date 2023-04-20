@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{assert_exit, fail};
+use crate::{assert_exit, exit};
 
 const HELP: &str = "OVERVIEW: Decompilation tool
 
@@ -46,7 +46,7 @@ pub struct Cli {
     /// Path to symbol being disassembled.
     pub path: Option<PathBuf>,
 
-    /// Optional path to a symbol formatting config.
+    /// Optional path to config.
     pub config: Option<PathBuf>,
 }
 
@@ -72,7 +72,7 @@ impl Cli {
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "-H" | "--help" => fail!("{HELP}"),
+                "-H" | "--help" => exit!("{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
                 "-N" | "--names" => {
                     cli.names = true;
@@ -110,7 +110,7 @@ impl Cli {
                         }
                     }
 
-                    fail!("Missing path to a config.");
+                    exit!("Missing path to a config.");
                 }
                 unknown => {
                     let mut distance = u32::MAX;
@@ -125,9 +125,9 @@ impl Cli {
 
                     // A guess that's less than 3 `steps` away from a correct arg.
                     if distance < 4 {
-                        fail!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
+                        exit!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
                     } else {
-                        fail!("Unknown cmd arg '{unknown}' was entered.");
+                        exit!("Unknown cmd arg '{unknown}' was entered.");
                     }
                 }
             }

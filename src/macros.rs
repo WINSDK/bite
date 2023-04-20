@@ -1,53 +1,86 @@
 #[macro_export]
 macro_rules! exit {
-    () => {
-        std::process::exit(0)
-    };
+    () => {{
+        if let Some(window) = $crate::gui::WINDOW.get() {
+            let window = std::sync::Arc::clone(&window);
+
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_level(rfd::MessageLevel::Error)
+                .set_parent(&*window)
+                .show();
+        }
+
+        #[cfg(debug_assertion)]
+        unsafe { std::arch::asm!("int3") }
+        std::process::exit(0);
+    }};
 
     ($($arg:tt)*) => {{
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
             rfd::MessageDialog::new()
-                .set_title("Bite failed at runtime")
+                .set_title("Error")
                 .set_description(format!($($arg)*).as_str())
+                .set_level(rfd::MessageLevel::Error)
                 .set_parent(&*window)
                 .show();
         }
 
         eprintln!($($arg)*);
+        #[cfg(debug_assertion)]
+        unsafe { std::arch::asm!("int3") }
         std::process::exit(0);
     }};
 }
 
 #[macro_export]
-macro_rules! fail {
-    () => {
-        unsafe { std::arch::asm!("int3") }
-        std::process::exit(1)
-    };
+macro_rules! error {
+    () => {{
+        if let Some(window) = $crate::gui::WINDOW.get() {
+            let window = std::sync::Arc::clone(&window);
+
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_level(rfd::MessageLevel::Error)
+                .set_parent(&*window)
+                .show();
+        }
+
+        eprintln!("Error occurred");
+    }};
 
     ($($arg:tt)*) => {{
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
             rfd::MessageDialog::new()
-                .set_title("Bite failed at runtime")
+                .set_title("Error")
                 .set_description(format!($($arg)*).as_str())
+                .set_level(rfd::MessageLevel::Error)
                 .set_parent(&*window)
                 .show();
         }
 
         eprintln!($($arg)*);
-        unsafe { std::arch::asm!("int3") }
-        std::process::exit(1)
     }};
 }
 
 #[macro_export]
 macro_rules! warning {
     () => {
-        eprintln!("Unknown warning occurred.");
+        if let Some(window) = $crate::gui::WINDOW.get() {
+            let window = std::sync::Arc::clone(&window);
+
+            rfd::MessageDialog::new()
+                .set_title("Warning")
+                .set_level(rfd::MessageLevel::Warning)
+                .set_parent(&*window)
+                .show();
+        }
+
+        eprintln!("Warning occurred");
     };
 
     ($($arg:tt)*) => {{
@@ -55,8 +88,9 @@ macro_rules! warning {
             let window = std::sync::Arc::clone(&window);
 
             rfd::MessageDialog::new()
-                .set_title("Bite Warning")
+                .set_title("Warning")
                 .set_description(format!($($arg)*).as_str())
+                .set_level(rfd::MessageLevel::Warning)
                 .set_parent(&*window)
                 .show();
         }

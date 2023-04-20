@@ -1,5 +1,4 @@
 use crate::symbols::Index;
-use crate::warning;
 use object::{Object, ObjectSection, SectionKind};
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -38,6 +37,7 @@ impl Disassembly {
     {
         let now = tokio::time::Instant::now();
         let path_fmt = format!("{:?}", path.as_ref());
+        let showing_donut = Arc::clone(&show_donut);
 
         let task = tokio::spawn(async move {
             show_donut.store(true, Ordering::Relaxed);
@@ -77,7 +77,7 @@ impl Disassembly {
             // TODO: optimize for lazy chunk loading
             let base_offset = section.address() as usize;
             let stream = disassembler::InstructionStream::new(&raw[..], arch, base_offset)
-                .map_err(|_| "Failed to disassemble: UnsupportedArchitecture.")?;
+                .map_err(|_| "Unsupported target.")?;
 
             let mut lines = Vec::with_capacity(1024);
 
@@ -97,7 +97,10 @@ impl Disassembly {
         });
 
         match task.await.unwrap() {
-            Err(err) => warning!("{err:?}"),
+            Err(err) => {
+                showing_donut.store(false, Ordering::Relaxed);
+                crate::error!("{err}");
+            }
             _ => println!("took {:#?} to parse {}", now.elapsed(), path_fmt),
         };
     }

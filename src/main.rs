@@ -26,14 +26,14 @@ fn set_panic_handler() {
     #[cfg(not(debug_assertions))]
     std::panic::set_hook(Box::new(|details| {
         if let Some(msg) = details.payload().downcast_ref::<String>() {
-            fail!("{msg}");
+            exit!("{msg}");
         }
 
         if let Some(msg) = details.payload().downcast_ref::<&str>() {
-            fail!("{msg}");
+            exit!("{msg}");
         }
 
-        fail!("Panic occurred.");
+        exit!("Panic occurred.");
     }));
 }
 
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let base_offset = section.address() as usize;
         let stream = match InstructionStream::new(&raw, obj.architecture(), base_offset) {
-            Err(err) => fail!("Failed to disassemble: {err:?}"),
+            Err(err) => exit!("Failed to disassemble: {err:?}"),
             Ok(stream) => stream,
         };
 
