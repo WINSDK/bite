@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use yaxpeax_arch::{AddressBase, Decoder, U8Reader, LengthedInstruction};
 use crate::long_mode::InstDecoder;
+use decoder::ToTokens;
 
 #[allow(dead_code)]
 fn test_invalid(data: &[u8]) {
@@ -24,21 +25,24 @@ fn test_display(data: &[u8], expected: &'static str) {
     test_display_under(&InstDecoder::default(), data, expected);
 }
 
-fn test_display_under(decoder: &InstDecoder, data: &[u8], expected: &'static str) {
+fn test_display_under(dekoder: &InstDecoder, data: &[u8], expected: &'static str) {
+    let mut stream = decoder::TokenStream::new();
     let mut hex = String::new();
     for b in data {
         write!(hex, "{:02x}", b).unwrap();
     }
     let mut reader = yaxpeax_arch::U8Reader::new(data);
-    match decoder.decode(&mut reader) {
+    match dekoder.decode(&mut reader) {
         Ok(instr) => {
-            let text = format!("{}", instr);
+            instr.tokenize(&mut stream);
+            let text = stream.to_string();
+
             assert!(
                 text == expected,
                 "display error for {}:\n  decoded: {:?} under decoder {}\n displayed: {}\n expected: {}\n",
                 hex,
                 instr,
-                decoder,
+                dekoder,
                 text,
                 expected
             );
@@ -48,7 +52,7 @@ fn test_display_under(decoder: &InstDecoder, data: &[u8], expected: &'static str
             assert_eq!((0u64.wrapping_offset(instr.len()).to_linear()) as usize, data.len(), "instruction length is incorrect, wanted instruction {}", expected);
         },
         Err(e) => {
-            assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, decoder, expected);
+            assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, dekoder, expected);
         }
     }
 }

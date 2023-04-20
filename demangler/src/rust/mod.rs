@@ -227,7 +227,7 @@ impl<'src> Parser {
                 return Some(());
             }
 
-            self.push(delimiter, Colors::delimiter());
+            self.push(delimiter, Colors::expr());
             f(self)?;
         }
 
@@ -709,7 +709,7 @@ impl<'src> Parser {
                         this.push("<", Colors::annotation());
                         let ident = this.ident()?;
                         this.push(ident, Colors::item());
-                        this.push(" = ", Colors::delimiter());
+                        this.push(" = ", Colors::expr());
                         this.tipe()?;
                         this.push(">", Colors::annotation());
                     }
@@ -718,7 +718,7 @@ impl<'src> Parser {
                 })?;
 
                 if let Some(lifetime) = self.lifetime() {
-                    self.push(" + ", Colors::delimiter());
+                    self.push(" + ", Colors::expr());
                     self.push(lifetime, Colors::annotation());
                 }
             }

@@ -7,6 +7,7 @@ use crate::long_mode::InstDecoder;
 use crate::long_mode::Instruction;
 use crate::long_mode::InnerDescription;
 use yaxpeax_arch::annotation::{AnnotatingDecoder, FieldDescription};
+use decoder::ToTokens;
 
 fn test_annotations(data: &[u8], expected: &'static str, checks: &[AnnotationCheck]) {
     test_annotations_under(&InstDecoder::default(), data, expected, checks);
@@ -155,21 +156,24 @@ impl std::fmt::Display for CheckResult {
 }
 
 fn test_annotations_under(decoder: &InstDecoder, data: &[u8], expected: &'static str, checks: &[AnnotationCheck]) {
+    let mut stream = decoder::TokenStream::new();
     let mut hex = String::new();
     for b in data {
         write!(hex, "{:02x}", b).unwrap();
     }
     let mut reader = yaxpeax_arch::U8Reader::new(data);
     let mut sink = yaxpeax_arch::annotation::VecSink::new();
-    let mut inst = Instruction::default();
-    match decoder.decode_with_annotation(&mut inst, &mut reader, &mut sink) {
+    let mut instr = Instruction::default();
+    match decoder.decode_with_annotation(&mut instr, &mut reader, &mut sink) {
         Ok(()) => {
-            let text = format!("{}", inst);
+            instr.tokenize(&mut stream);
+            let text = stream.to_string();
+
             assert!(
                 text == expected,
                 "display error for {}:\n  decoded: {:?} under decoder {}\n displayed: {}\n expected: {}\n",
                 hex,
-                inst,
+                instr,
                 decoder,
                 text,
                 expected
@@ -229,7 +233,7 @@ fn test_annotations_under(decoder: &InstDecoder, data: &[u8], expected: &'static
             }
 
             if failed {
-                eprintln!("[!] annotation check for {}, `{}`, failed:", hex, inst);
+                eprintln!("[!] annotation check for {}, `{:?}`, failed:", hex, instr);
                 for ((bit_start, bit_end, desc), check) in matches {
                     let mut desc = format!("bit {}:{}; {}", bit_start, bit_end, desc);
                     while desc.len() < 60 {
@@ -261,7 +265,7 @@ fn test_annotations_under(decoder: &InstDecoder, data: &[u8], expected: &'static
 
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
-            assert_eq!((0u64.wrapping_offset(inst.len()).to_linear()) as usize, data.len(), "instruction length is incorrect, wanted instruction {}", expected);
+            assert_eq!((0u64.wrapping_offset(instr.len()).to_linear()) as usize, data.len(), "instruction length is incorrect, wanted instruction {}", expected);
         },
         Err(e) => {
             assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, decoder, expected);

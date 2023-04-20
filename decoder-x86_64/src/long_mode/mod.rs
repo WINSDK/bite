@@ -5,14 +5,14 @@ pub mod uarch;
 
 pub use crate::MemoryAccessSize;
 
-pub use self::display::{DisplayStyle, InstructionDisplayer};
-
 use std::cmp::PartialEq;
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 
+use decoder::ToTokens;
+use tokenizing::{Colors, ColorScheme};
 use yaxpeax_arch::{AddressDiff, Decoder, Reader, LengthedInstruction};
 use yaxpeax_arch::annotation::{AnnotatingDecoder, DescriptionSink, NullSink};
-use yaxpeax_arch::{DecodeError as ArchDecodeError};
+use yaxpeax_arch::DecodeError as ArchDecodeError;
 
 use std::fmt;
 impl fmt::Display for DecodeError {
@@ -541,26 +541,8 @@ const SAE_MODES: [SaeMode; 4] = [
     SaeMode::RoundUp,
     SaeMode::RoundZero,
 ];
-impl SaeMode {
-    /// a human-friendly label for this `SaeMode`:
-    ///
-    /// ```
-    /// use x86_64::long_mode::SaeMode;
-    ///
-    /// assert_eq!(SaeMode::RoundNearest.label(), "{rne-sae}");
-    /// assert_eq!(SaeMode::RoundDown.label(), "{rd-sae}");
-    /// assert_eq!(SaeMode::RoundUp.label(), "{ru-sae}");
-    /// assert_eq!(SaeMode::RoundZero.label(), "{rz-sae}");
-    /// ```
-    pub fn label(&self) -> &'static str {
-        match self {
-            SaeMode::RoundNearest => "{rne-sae}",
-            SaeMode::RoundDown => "{rd-sae}",
-            SaeMode::RoundUp => "{ru-sae}",
-            SaeMode::RoundZero => "{rz-sae}",
-        }
-    }
 
+impl SaeMode {
     fn from(l: bool, lp: bool) -> Self {
         let mut idx = 0;
         if l {
@@ -572,6 +554,23 @@ impl SaeMode {
         SAE_MODES[idx]
     }
 }
+
+impl ToTokens for SaeMode {
+    fn tokenize(self, stream: &mut decoder::TokenStream) {
+        stream.push("{", Colors::brackets());
+        stream.push(
+            match self {
+                SaeMode::RoundNearest => "rne-sae",
+                SaeMode::RoundDown => "rd-sae",
+                SaeMode::RoundUp => "ru-sae",
+                SaeMode::RoundZero => "rz-sae",
+            },
+            Colors::register()
+        );
+        stream.push("}", Colors::brackets());
+    }
+}
+
 impl Operand {
     fn from_spec(inst: &Instruction, spec: OperandSpec) -> Operand {
         match spec {
@@ -4432,25 +4431,6 @@ impl Instruction {
                     None
                 }
             }
-        }
-    }
-
-    /// wrap a reference to this instruction with a `DisplayStyle` to format the instruction with
-    /// later. see the documentation on [`display::DisplayStyle`] for more.
-    ///
-    /// ```
-    /// use x86_64::long_mode::{InstDecoder, DisplayStyle};
-    ///
-    /// let decoder = InstDecoder::default();
-    /// let inst = decoder.decode_slice(&[0x33, 0xc1]).unwrap();
-    ///
-    /// assert_eq!("eax ^= ecx", inst.display_with(DisplayStyle::C).to_string());
-    /// assert_eq!("xor eax, ecx", inst.display_with(DisplayStyle::Intel).to_string());
-    /// ```
-    pub fn display_with<'a>(&'a self, style: display::DisplayStyle) -> display::InstructionDisplayer<'a> {
-        display::InstructionDisplayer {
-            style,
-            instr: self,
         }
     }
 

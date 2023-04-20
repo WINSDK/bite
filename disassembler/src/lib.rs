@@ -3,7 +3,7 @@
 use object::Architecture;
 
 use decoder::Streamable;
-use decoder::DecodableInstruction;
+use decoder::ToTokens;
 
 #[derive(Debug)]
 pub enum Error {
@@ -104,16 +104,17 @@ impl Iterator for InstructionStream<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         let section_base;
         let mut offset = 0;
+        let mut tokens = decoder::TokenStream::new();
 
-        let tokens = match self.inner {
+        match self.inner {
             InternalInstructionStream::Riscv(ref mut stream) => {
                 section_base = stream.section_base;
                 offset += stream.offset;
                 offset += offset.saturating_sub(stream.width);
 
                 match stream.next()? {
-                    Ok(inst) => Ok(inst.tokenize()),
-                    Err(err) => Err(format!("{err:?}")),
+                    Ok(inst) => inst.tokenize(&mut tokens),
+                    Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
             }
             InternalInstructionStream::Mips(ref mut stream) => {
@@ -122,8 +123,8 @@ impl Iterator for InstructionStream<'_> {
                 offset += offset.saturating_sub(4);
 
                 match stream.next()? {
-                    Ok(inst) => Ok(inst.tokenize()),
-                    Err(err) => Err(format!("{err:?}")),
+                    Ok(inst) => inst.tokenize(&mut tokens),
+                    Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
             }
             InternalInstructionStream::X86_64(ref mut stream) => {
@@ -132,22 +133,11 @@ impl Iterator for InstructionStream<'_> {
                 offset += offset.saturating_sub(stream.width);
 
                 match stream.next()? {
-                    Ok(inst) => Ok(inst.tokenize()),
-                    Err(err) => Err(format!("{err:?}")),
+                    Ok(inst) => inst.tokenize(&mut tokens),
+                    Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
             }
         };
-
-        let tokens = tokens.unwrap_or_else(|err| {
-            let mut tokens = [tokenizing::EMPTY_TOKEN; 5];
-
-            tokens[0] = tokenizing::Token {
-                text: std::borrow::Cow::Owned(err),
-                color: tokenizing::colors::RED,
-            };
-
-            decoder::TokenStream::new(tokens, 1)
-        });
 
         Some(Line {
             section_base,

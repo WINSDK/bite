@@ -1,31 +1,29 @@
 use std::fmt::Write;
 
+use decoder::ToTokens;
 use yaxpeax_arch::{AddressBase, Decoder, LengthedInstruction};
-use crate::long_mode::{DisplayStyle, InstDecoder};
+use crate::long_mode::InstDecoder;
 
 fn test_display(data: &[u8], expected: &'static str) {
-    test_display_under(&InstDecoder::default(), DisplayStyle::Intel, data, expected);
-}
-
-fn test_c_display(data: &[u8], expected: &'static str) {
-    test_display_under(&InstDecoder::default(), DisplayStyle::C, data, expected);
-}
-
-fn test_display_under(decoder: &InstDecoder, style: DisplayStyle, data: &[u8], expected: &'static str) {
+    let dekoder = InstDecoder::default();
+    let mut stream = decoder::TokenStream::new();
     let mut hex = String::new();
     for b in data {
         write!(hex, "{:02x}", b).unwrap();
     }
+
     let mut reader = yaxpeax_arch::U8Reader::new(data);
-    match decoder.decode(&mut reader) {
+    match dekoder.decode(&mut reader) {
         Ok(instr) => {
-            let text = format!("{}", instr.display_with(style));
+            instr.tokenize(&mut stream);
+            let text = stream.to_string();
+
             assert!(
                 text == expected,
                 "display error for {}:\n  decoded: {:?} under decoder {}\n displayed: {}\n expected: {}\n",
                 hex,
                 instr,
-                decoder,
+                dekoder,
                 text,
                 expected
             );
@@ -34,7 +32,7 @@ fn test_display_under(decoder: &InstDecoder, style: DisplayStyle, data: &[u8], e
             assert_eq!((0u64.wrapping_offset(instr.len()).to_linear()) as usize, data.len(), "instruction length is incorrect, wanted instruction {}", expected);
         },
         Err(e) => {
-            assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, decoder, expected);
+            assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, dekoder, expected);
         }
     }
 }
@@ -96,101 +94,4 @@ fn test_instructions_atnt() {
 
     test_display(&[0x4f, 0x0f, 0xd1, 0x00], "psrlw (%r8), %mm0");
     test_display(&[0x0f, 0xe5, 0x3d, 0xaa, 0xbb, 0xcc, 0x77], "pmulhw 0x77ccbbaa(%rip), %mm7");
-}
-
-#[test]
-fn test_instructions_c() {
-    // just modrm
-    test_c_display(&[0x33, 0x08], "ecx ^= [rax]");
-    test_c_display(&[0x33, 0x20], "esp ^= [rax]");
-    test_c_display(&[0x33, 0x05, 0x78, 0x56, 0x34, 0x12], "eax ^= [rip + 0x12345678]");
-    test_c_display(&[0x33, 0x41, 0x23], "eax ^= [rcx + 0x23]");
-    test_c_display(&[0x33, 0x81, 0x23, 0x01, 0x65, 0x43], "eax ^= [rcx + 0x43650123]");
-    test_c_display(&[0x33, 0xc1], "eax ^= ecx");
-
-    // modrm + rex.w
-    test_c_display(&[0x48, 0x33, 0x08], "rcx ^= [rax]");
-    test_c_display(&[0x48, 0x33, 0x20], "rsp ^= [rax]");
-    test_c_display(&[0x48, 0x33, 0x05, 0x78, 0x56, 0x34, 0x12], "rax ^= [rip + 0x12345678]");
-    test_c_display(&[0x48, 0x33, 0x41, 0x23], "rax ^= [rcx + 0x23]");
-    test_c_display(&[0x48, 0x33, 0x81, 0x23, 0x01, 0x65, 0x43], "rax ^= [rcx + 0x43650123]");
-    test_c_display(&[0x48, 0x33, 0xc1], "rax ^= rcx");
-
-    // modrm + rex.r
-    test_c_display(&[0x44, 0x33, 0x08], "r9d ^= [rax]");
-    test_c_display(&[0x44, 0x33, 0x20], "r12d ^= [rax]");
-    test_c_display(&[0x44, 0x33, 0x05, 0x78, 0x56, 0x34, 0x12], "r8d ^= [rip + 0x12345678]");
-    test_c_display(&[0x44, 0x33, 0x41, 0x23], "r8d ^= [rcx + 0x23]");
-    test_c_display(&[0x44, 0x33, 0x81, 0x23, 0x01, 0x65, 0x43], "r8d ^= [rcx + 0x43650123]");
-    test_c_display(&[0x44, 0x33, 0xc1], "r8d ^= ecx");
-
-    // modrm + rex.rb
-    test_c_display(&[0x45, 0x33, 0x08], "r9d ^= [r8]");
-    test_c_display(&[0x45, 0x33, 0x20], "r12d ^= [r8]");
-    test_c_display(&[0x45, 0x33, 0x05, 0x78, 0x56, 0x34, 0x12], "r8d ^= [rip + 0x12345678]");
-    test_c_display(&[0x45, 0x33, 0x41, 0x23], "r8d ^= [r9 + 0x23]");
-    test_c_display(&[0x45, 0x33, 0x81, 0x23, 0x01, 0x65, 0x43], "r8d ^= [r9 + 0x43650123]");
-    test_c_display(&[0x45, 0x33, 0xc1], "r8d ^= r9d");
-
-    // sib
-    test_c_display(&[0x33, 0x04, 0x25, 0x11, 0x22, 0x33, 0x44], "eax ^= [0x44332211]");
-    test_c_display(&[0x41, 0x33, 0x04, 0x25, 0x11, 0x22, 0x33, 0x44], "eax ^= [0x44332211]");
-
-    test_c_display(&[0x41, 0x33, 0x44, 0x65, 0x11], "eax ^= [r13 + 0x11]");
-
-    test_c_display(&[0x42, 0x33, 0x34, 0x25, 0x20, 0x30, 0x40, 0x50], "esi ^= [r12 * 1 + 0x50403020]");
-
-    test_c_display(&[0x4f, 0x0f, 0xe7, 0x03], "[r11] = movntq(mm0)");
-    test_c_display(&[0x0f, 0xe7, 0x03], "[rbx] = movntq(mm0)");
-
-    test_c_display(&[0x4f, 0x0f, 0x7f, 0x0f], "[r15] = movq(mm1)");
-    test_c_display(&[0x0f, 0xc4, 0xc0, 0x14], "mm0 = pinsrw(mm0, eax, 0x14)");
-
-    test_c_display(&[0x4f, 0x0f, 0xd1, 0x00], "mm0 = psrlw(mm0, [r8])");
-    test_c_display(&[0x0f, 0xe5, 0x3d, 0xaa, 0xbb, 0xcc, 0x77], "mm7 = pmulhw(mm7, [rip + 0x77ccbbaa])");
-
-    test_c_display(&[0xf3, 0x48, 0xa5], "rep qword { es:[rdi++] = ds:[rsi++] }");
-    test_c_display(&[0xf3, 0xa5], "rep dword { es:[rdi++] = ds:[rsi++] }");
-    test_c_display(&[0xf3, 0x66, 0xa5], "rep word { es:[rdi++] = ds:[rsi++] }");
-    test_c_display(&[0xf3, 0xa4], "rep byte { es:[rdi++] = ds:[rsi++] }");
-
-    test_c_display(&[0xf6, 0xc2, 0x18], "rflags = flags(dl & 0x18)");
-    test_c_display(&[0xf6, 0xc2, 0x18], "rflags = flags(dl & 0x18)");
-    test_c_display(&[0x84, 0xc0], "rflags = flags(al & al)");
-    test_c_display(&[0x85, 0xc0], "rflags = flags(eax & eax)");
-    test_c_display(&[0x3a, 0xc0], "rflags = flags(al - al)");
-    test_c_display(&[0x3b, 0xc0], "rflags = flags(eax - eax)");
-
-    test_c_display(&[0x41, 0x0f, 0xbc, 0xd3], "edx = lsb(r11d) (x86 bsf)");
-    test_c_display(&[0xf3, 0x41, 0x0f, 0xbc, 0xd3], "edx = lsb(r11d)");
-    // test_c_display(&[0x41, 0x0f, 0xbc, 0xd3], "edx = lsb(r11d) (x86 bsf"); // for non-bm1
-    test_c_display(&[0x41, 0x0f, 0xbd, 0xd3], "edx = msb(r11d)");
-    // test_c_display(&[0x41, 0x0f, 0xbc, 0xd3], "edx = lsb(r11d) (x86 bsr"); // for non-bm1
-    test_c_display(&[0xd2, 0xc0], "al = al rol cl");
-    test_c_display(&[0xd2, 0xc8], "al = al ror cl");
-    test_c_display(&[0xd2, 0xd0], "al = al rcl cl");
-    test_c_display(&[0xd2, 0xd8], "al = al rcr cl");
-    test_c_display(&[0xd2, 0xe0], "al = al << cl");
-    test_c_display(&[0xd2, 0xe8], "al = al >> cl");
-    test_c_display(&[0xd2, 0xf0], "al = al <<< cl");
-    test_c_display(&[0xd2, 0xf8], "al = al >>> cl");
-
-    test_c_display(&[0xc4, 0xc3, 0x7b, 0xf0, 0x01, 0x05], "eax = [r9] ror 0x5 (x86 rorx)");
-    test_c_display(&[0xc4, 0xc2, 0xe3, 0xf7, 0x01], "rax = [r9] >> rbx (x86 shrx)");
-    test_c_display(&[0xc4, 0xc2, 0xe1, 0xf7, 0x01], "rax = [r9] << rbx (x86 shlx)");
-
-    test_c_display(&[0xd2, 0xe0], "al = al << cl");
-
-    test_c_display(&[0x66, 0x0f, 0xac, 0xcf, 0x11], "di = shrd(di, cx, 0x11)");
-    test_c_display(&[0x0f, 0xa5, 0xc9], "ecx = shld(ecx, ecx, cl)");
-
-    test_c_display(&[0x66, 0x0f, 0x38, 0xf6, 0x01], "eax += [rcx] + rflags.cf");
-    test_c_display(&[0xf3, 0x4f, 0x0f, 0x38, 0xf6, 0x01], "r8 += [r9] + rflags.of");
-
-    test_c_display(&[0xfe, 0x00], "byte [rax]++");
-    test_c_display(&[0x66, 0xff, 0x08], "word [rax]--");
-    test_c_display(&[0xff, 0x00], "dword [rax]++");
-    test_c_display(&[0x48, 0xff, 0x00], "qword [rax]++");
-
-    test_c_display(&[0xff, 0xe0], "jmp rax");
 }

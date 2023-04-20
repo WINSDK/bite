@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use object::{Object, ObjectSection, SectionKind};
-use decoder::Streamable;
+use decoder::{Streamable, ToTokens};
 
 macro_rules! decode_instructions {
     ($code:literal) => {{
@@ -67,28 +67,13 @@ macro_rules! decode_instructions {
             section_base: section.address() as usize,
         };
 
-        while let Some(ref mut inst) = stream.next() {
+        while let Some(inst) = stream.next() {
             match inst {
                 Ok(inst) => {
-                    let mut fmt = inst.mnemomic.to_string();
-                    let operands = &inst.operands[..inst.operand_count];
+                    let mut stream = decoder::TokenStream::new();
 
-                    if operands.is_empty() {
-                        decoded.push(fmt);
-                        continue;
-                    }
-
-                    fmt += " ";
-
-                    if operands.len() > 1 {
-                        for operand in &operands[..operands.len() - 1] {
-                            fmt += operand;
-                            fmt += ", ";
-                        }
-                    }
-
-                    fmt += &operands[operands.len() - 1];
-                    decoded.push(fmt);
+                    inst.tokenize(&mut stream);
+                    decoded.push(stream.to_string());
                 },
                 Err(..) => decoded.push("????".to_string()),
             }

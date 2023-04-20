@@ -1,117 +1,50 @@
 //! # `yaxpeax-x86`, a decoder for x86-family instruction sets
 //!
-//! `yaxpeax-x86` provides x86 decoders, for 64-, 32-, and 16-bit modes. `yaxpeax-x86` also
+//! `yaxpeax-x86` provides x86 decoders, for 64-, and 32-bit modes. `yaxpeax-x86` also
 //! implements traits defined by `yaxpeax_arch`, making it suitable for interchangeable use with
 //! other `yaxpeax`-family instruction decoders.
-//!
-//! ## usage
-//!
-//! the fastest way to decode an x86 instruction is through [`long_mode::InstDecoder::decode_slice()`]:
-//! ```
-//! let decoder = x86_64::long_mode::InstDecoder::default();
-//!
-//! let inst = decoder.decode_slice(&[0x33, 0xc0]).unwrap();
-//!
-//! assert_eq!("xor eax, eax", inst.to_string());
-//! ```
 //!
 //! instructions, operands, registers, and generally all decoding structures, are in their mode's
 //! respective submodule:
 //! * `x86_64`/`amd64` decoding is under [`long_mode`]
 //! * `x86_32`/`x86` decoding is under [`protected_mode`]
-//! * `x86_16`/`8086` decoding is under [`real_mode`]
-//!
-//! all modes have equivalent data available in a decoded instruction. for example, all modes have
-//! library-friendly `Operand` and `RegSpec` types:
-//!
-//! ```
-//! use x86_64::long_mode::{InstDecoder, Operand, RegSpec};
-//!
-//! let decoder = x86_64::long_mode::InstDecoder::default();
-//!
-//! let inst = decoder.decode_slice(&[0x33, 0x01]).unwrap();
-//!
-//! assert_eq!("xor eax, dword [rcx]", inst.to_string());
-//!
-//! assert_eq!(Operand::Register(RegSpec::eax()), inst.operand(0));
-//! assert_eq!("eax", inst.operand(0).to_string());
-//! assert_eq!(Operand::RegDeref(RegSpec::rcx()), inst.operand(1));
-//!
-//! // an operand in isolation does not know the size of memory it references, if any
-//! assert_eq!("[rcx]", inst.operand(1).to_string());
-//!
-//! // and for memory operands, the size must be read from the instruction itself:
-//! let mem_size: x86_64::long_mode::MemoryAccessSize = inst.mem_size().unwrap();
-//! assert_eq!("dword", mem_size.size_name());
-//!
-//! // `MemoryAccessSize::size_name()` is how its `Display` impl works, as well:
-//! assert_eq!("dword", mem_size.to_string());
-//! ```
-//!
-//! `yaxpeax-x86` can also be used to decode instructions generically through the `yaxpeax-arch`
-//! traits:
-//! ```
-//! mod decoder {
-//!     use yaxpeax_arch::{Arch, AddressDisplay, Decoder, Reader, ReaderBuilder};
-//!
-//!     // have to play some games so this example works right even without `fmt` enabled!
-//!     trait InstBound: std::fmt::Display {}
-//!
-//!     impl <T: std::fmt::Display> InstBound for T {}
-//!
-//!     pub fn decode_stream<
-//!         'data,
-//!         A: yaxpeax_arch::Arch,
-//!         U: ReaderBuilder<A::Address, A::Word>,
-//!     >(data: U) where
-//!         A::Instruction: InstBound,
-//!     {
-//!         let mut reader = ReaderBuilder::read_from(data);
-//!         let mut address: A::Address = reader.total_offset();
-//!
-//!         let decoder = A::Decoder::default();
-//!         let mut decode_res = decoder.decode(&mut reader);
-//!         loop {
-//!             match decode_res {
-//!                 Ok(ref inst) => {
-//!                     println!("{}: {}", address.show(), inst);
-//!                     decode_res = decoder.decode(&mut reader);
-//!                     address = reader.total_offset();
-//!                 }
-//!                 Err(e) => {
-//!                     println!("{}: decode error: {}", address.show(), e);
-//!                     break;
-//!                 }
-//!             }
-//!         }
-//!     }
-//! }
-//!
-//! use x86_64::long_mode::{Arch as x86_64};
-//! use yaxpeax_arch::{ReaderBuilder, U8Reader};
-//! let data: &[u8] = &[0x55, 0x33, 0xc0, 0x48, 0x8b, 0x02, 0x5d, 0xc3];
-//! decoder::decode_stream::<x86_64, _>(data);
-//! ```
 
 pub mod long_mode;
 pub mod protected_mode;
-pub mod real_mode;
 
 mod safer_unchecked;
 mod tests;
 
 use yaxpeax_arch::{Decoder, LengthedInstruction};
-use tokenizing::{Colors, Token, ColorScheme};
+use decoder::ToTokens;
+use tokenizing::{Colors, ColorScheme};
 
 pub use yaxpeax_arch::U8Reader as Reader;
 
 const MEM_SIZE_STRINGS: [&'static str; 64] = [
-    "byte", "word", "BUG", "dword", "ptr", "far", "BUG", "qword", "BUG", "mword", "BUG", "BUG",
-    "BUG", "BUG", "BUG", "xmmword", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG",
-    "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "ymmword", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG",
-    "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG",
-    "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "ptr", "zmmword",
+    "byte ", "word ", "BUG ", "dword ", "ptr ", "far ", "BUG ", "qword ", "BUG ", "mword ", "BUG ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "xmmword ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "ymmword ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "ptr ", "zmmword "
 ];
+
+struct Number(i32);
+
+impl ToTokens for Number {
+    fn tokenize(self, stream: &mut decoder::TokenStream) {
+        if self.0 == core::i32::MIN {
+            stream.push(" - ", Colors::expr());
+            stream.push("0x7fffffff", Colors::immediate());
+        } else if self.0 < 0 {
+            stream.push(" - ", Colors::expr());
+            stream.push_owned(decoder::encode_hex(-self.0 as i64), Colors::immediate());
+        } else {
+            stream.push(" + ", Colors::expr());
+            stream.push_owned(decoder::encode_hex(self.0 as i64), Colors::immediate());
+        }
+    }
+}
 
 pub struct MemoryAccessSize {
     size: u8,
@@ -201,30 +134,12 @@ pub struct Stream<'data> {
     pub section_base: usize,
 }
 
-impl decoder::DecodableInstruction for Instruction {
-    fn tokenize(self) -> decoder::TokenStream {
-        // match self {
-        //     Self::X86(inst) => {
-        //         inst.tokenize()
-        //     }
-        //     Self::X64(_inst) => {
-        //         todo!()
-        //     }
-        // }
-
-        let str = match self {
-            Self::X86(inst) => inst.to_string(),
-            Self::X64(inst) => inst.to_string(),
+impl ToTokens for Instruction {
+    fn tokenize(self, stream: &mut decoder::TokenStream) {
+        match self {
+            Self::X86(inst) => inst.tokenize(stream),
+            Self::X64(inst) => inst.tokenize(stream),
         };
-
-        let mut tokens = [tokenizing::EMPTY_TOKEN; 5];
-
-        tokens[0] = Token {
-            text: std::borrow::Cow::Owned(str),
-            color: Colors::opcode(),
-        };
-
-        decoder::TokenStream::new(tokens, 1)
     }
 }
 

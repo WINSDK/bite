@@ -8,6 +8,7 @@ mod reuse_test;
 
 use std::fmt::Write;
 
+use decoder::ToTokens;
 use yaxpeax_arch::{AddressBase, Decoder, LengthedInstruction};
 use crate::long_mode::InstDecoder;
 
@@ -15,12 +16,12 @@ fn test_invalid(data: &[u8]) {
     test_invalid_under(&InstDecoder::default(), data);
 }
 
-fn test_invalid_under(decoder: &InstDecoder, data: &[u8]) {
+fn test_invalid_under(dekoder: &InstDecoder, data: &[u8]) {
     let mut reader = yaxpeax_arch::U8Reader::new(data);
-    if let Ok(inst) = decoder.decode(&mut reader)  {
+    if let Ok(inst) = dekoder.decode(&mut reader)  {
         // realistically, the chances an error only shows up under non-fmt builds seems unlikely,
         // but try to report *something* in such cases.
-        panic!("decoded {:?} from {:02x?} under decoder {}", inst.opcode(), data, decoder);
+        panic!("decoded {:?} from {:02x?} under decoder {}", inst.opcode(), data, dekoder);
     } else {
         // this is fine
     }
@@ -30,21 +31,25 @@ fn test_display(data: &[u8], expected: &'static str) {
     test_display_under(&InstDecoder::default(), data, expected);
 }
 
-fn test_display_under(decoder: &InstDecoder, data: &[u8], expected: &'static str) {
+fn test_display_under(dekoder: &InstDecoder, data: &[u8], expected: &'static str) {
+    let mut stream = decoder::TokenStream::new();
     let mut hex = String::new();
     for b in data {
         write!(hex, "{:02x}", b).unwrap();
     }
+
     let mut reader = yaxpeax_arch::U8Reader::new(data);
-    match decoder.decode(&mut reader) {
+    match dekoder.decode(&mut reader) {
         Ok(instr) => {
-            let text = format!("{}", instr);
+            instr.tokenize(&mut stream);
+            let text = stream.to_string();
+
             assert!(
                 text == expected,
                 "display error for {}:\n  decoded: {:?} under decoder {}\n displayed: {}\n expected: {}\n",
                 hex,
                 instr,
-                decoder,
+                dekoder,
                 text,
                 expected
             );
@@ -53,7 +58,7 @@ fn test_display_under(decoder: &InstDecoder, data: &[u8], expected: &'static str
             assert_eq!((0u64.wrapping_offset(instr.len()).to_linear()) as usize, data.len(), "instruction length is incorrect, wanted instruction {}", expected);
         },
         Err(e) => {
-            assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, decoder, expected);
+            assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, dekoder, expected);
         }
     }
 }

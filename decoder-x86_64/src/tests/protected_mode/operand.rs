@@ -22,9 +22,9 @@ fn memory_widths() {
     }
 
     // and checking the memory size direcly reports correct names
-    assert_eq!(mem_size_of(&[0x32, 0x00]).size_name(), "byte");
-    assert_eq!(mem_size_of(&[0x66, 0x33, 0x00]).size_name(), "word");
-    assert_eq!(mem_size_of(&[0x33, 0x00]).size_name(), "dword");
+    assert_eq!(mem_size_of(&[0x32, 0x00]).size_name(), "byte ");
+    assert_eq!(mem_size_of(&[0x66, 0x33, 0x00]).size_name(), "word ");
+    assert_eq!(mem_size_of(&[0x33, 0x00]).size_name(), "dword ");
 }
 
 #[test]

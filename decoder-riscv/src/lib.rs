@@ -43,34 +43,29 @@ pub struct Instruction {
     operand_count: usize,
 }
 
-impl decoder::DecodableInstruction for Instruction {
-    fn tokenize(mut self) -> decoder::TokenStream {
-        let mut tokens = [tokenizing::EMPTY_TOKEN; 5];
-        let mut token_count = 1;
+impl decoder::ToTokens for Instruction {
+    fn tokenize(mut self, stream: &mut decoder::TokenStream) {
+        stream.push(self.mnemomic, Colors::opcode());
 
-        tokens[0] = tokenizing::Token {
-            text: Cow::Borrowed(self.mnemomic),
-            color: Colors::opcode(),
-        };
+        // there are operands
+        if self.operand_count > 0 {
+            stream.push(" ", Colors::spacing());
 
-        for idx in 0..self.operand_count {
-            let operand = std::mem::take(&mut self.operands[idx]);
+            // iterate through operands
+            for idx in 0..self.operand_count {
+                let operand = std::mem::take(&mut self.operands[idx]);
 
-            tokens[token_count] = match operand {
-                Cow::Owned(_) => tokenizing::Token {
-                    text: operand,
-                    color: Colors::immediate(),
-                },
-                Cow::Borrowed(_) => tokenizing::Token {
-                    text: operand,
-                    color: Colors::register(),
-                },
-            };
+                match operand {
+                    Cow::Owned(s) => stream.push_owned(s, Colors::immediate()),
+                    Cow::Borrowed(s) => stream.push(s, Colors::register()),
+                };
 
-            token_count += 1;
+                // separator
+                if idx != self.operand_count - 1 {
+                    stream.push(", ", Colors::expr());
+                }
+            }
         }
-
-        decoder::TokenStream::new(tokens, token_count)
     }
 }
 

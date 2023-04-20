@@ -29,6 +29,7 @@ pub trait ColorScheme {
         Self::item()
     }
 
+    fn expr() -> Color;
     fn opcode() -> Color;
     fn register() -> Color;
     fn immediate() -> Color;
@@ -69,6 +70,10 @@ impl ColorScheme for IBM {
 
     fn special() -> Color {
         colors::RED
+    }
+
+    fn expr() -> Color {
+        colors::GRAY99
     }
 
     fn opcode() -> Color {

@@ -320,7 +320,6 @@ impl Backend {
         if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
             ctx.show_donut.store(false, Ordering::Relaxed);
 
-            let pad = "        ";
             let line_count = (self.size.height as f32 / font_size).ceil() as usize;
             let mut texts = Vec::with_capacity(line_count * 10);
 
@@ -365,33 +364,20 @@ impl Backend {
                         // spacing
                         texts.push(wgpu_glyph::Text::new("  ").with_scale(font_size));
 
-                        // mnemomic
-                        texts.push(tokens[0].text(font_size));
+                        let mut tokens = tokens.iter();
 
-                        // mnemomic padding up to 8 character wide instructions
-                        let pad = &pad[std::cmp::min(tokens[0].text.len(), pad.len())..];
-                        texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
+                        // opcode
+                        if let Some(token) = tokens.next() {
+                            // assuming 8 is the max length of an opcode
+                            let pad = &"        "[..8usize.saturating_sub(token.text.len())];
 
-                        if tokens.len() > 1 {
-                            // separator
-                            texts.push(wgpu_glyph::Text::new(" ").with_scale(font_size));
+                            texts.push(token.text(font_size));
+                            texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
+                        }
 
-                            if tokens.len() > 2 {
-                                for token in &tokens[..tokens.len() - 1][1..] {
-                                    // operand
-                                    texts.push(token.text(font_size));
-
-                                    // separator
-                                    texts.push(
-                                        wgpu_glyph::Text::new(", ")
-                                            .with_scale(font_size)
-                                            .with_color(colors::WHITE),
-                                    );
-                                }
-                            }
-
-                            // last operand, which doesn't require a comma
-                            texts.push(tokens[tokens.len() - 1].text(font_size));
+                        // instruction
+                        for token in tokens {
+                            texts.push(token.text(font_size));
                         }
 
                         // next instruction

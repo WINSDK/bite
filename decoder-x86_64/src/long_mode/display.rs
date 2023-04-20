@@ -1,11 +1,11 @@
 use std::fmt;
 
-use yaxpeax_arch::{Colorize, ShowContextual, NoColors, YaxColors};
-use yaxpeax_arch::display::*;
-
 use crate::safer_unchecked::GetSaferUnchecked as _;
-use crate::MEM_SIZE_STRINGS;
+use crate::{MEM_SIZE_STRINGS, Number};
 use crate::long_mode::{RegSpec, Opcode, Operand, MergeMode, InstDecoder, Instruction, Segment, PrefixRex, OperandSpec};
+
+use decoder::ToTokens;
+use tokenizing::{Colors, ColorScheme};
 
 impl fmt::Display for InstDecoder {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -137,209 +137,257 @@ impl fmt::Display for RegSpec {
     }
 }
 
-impl fmt::Display for Operand {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        self.colorize(&NoColors, fmt)
-    }
-}
-
-impl <T: fmt::Write, Y: YaxColors> Colorize<T, Y> for Operand {
-    fn colorize(&self, colors: &Y, f: &mut T) -> fmt::Result {
+impl ToTokens for Operand {
+    fn tokenize(self, stream: &mut decoder::TokenStream) {
         match self {
-            &Operand::ImmediateU8(imm) => {
-                write!(f, "{}", colors.number(u8_hex(imm)))
+            Operand::ImmediateU8(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             }
-            &Operand::ImmediateI8(imm) => {
-                write!(f, "{}",
-                    colors.number(signed_i8_hex(imm)))
+            Operand::ImmediateI8(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             },
-            &Operand::ImmediateU16(imm) => {
-                write!(f, "{}", colors.number(u16_hex(imm)))
+            Operand::ImmediateU16(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             }
-            &Operand::ImmediateI16(imm) => {
-                write!(f, "{}",
-                    colors.number(signed_i16_hex(imm)))
+            Operand::ImmediateI16(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             },
-            &Operand::ImmediateU32(imm) => {
-                write!(f, "{}", colors.number(u32_hex(imm)))
+            Operand::ImmediateU32(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             }
-            &Operand::ImmediateI32(imm) => {
-                write!(f, "{}",
-                    colors.number(signed_i32_hex(imm)))
+            Operand::ImmediateI32(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             },
-            &Operand::ImmediateU64(imm) => {
-                write!(f, "{}", colors.number(u64_hex(imm)))
+            Operand::ImmediateU64(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             }
-            &Operand::ImmediateI64(imm) => {
-                write!(f, "{}",
-                    colors.number(signed_i64_hex(imm)))
+            Operand::ImmediateI64(imm) => {
+                let text = decoder::encode_hex(imm as i64);
+                stream.push_owned(text, Colors::immediate());
             },
-            &Operand::Register(ref spec) => {
-                f.write_str(regspec_label(spec))
+            Operand::Register(ref spec) => {
+                stream.push(regspec_label(spec), Colors::register());
             }
-            &Operand::RegisterMaskMerge(ref spec, ref mask, merge_mode) => {
-                f.write_str(regspec_label(spec))?;
+            Operand::RegisterMaskMerge(ref spec, ref mask, merge_mode) => {
+                stream.push(regspec_label(spec), Colors::register());
+
                 if mask.num != 0 {
-                    f.write_str("{")?;
-                    f.write_str(regspec_label(mask))?;
-                    f.write_str("}")?;
+                    stream.push("{", Colors::brackets());
+                    stream.push(regspec_label(mask), Colors::register());
+                    stream.push("}", Colors::brackets());
                 }
                 if let MergeMode::Zero = merge_mode {
-                    f.write_str("{z}")?;
+                    stream.push("{", Colors::brackets());
+                    stream.push("z", Colors::register());
+                    stream.push("}", Colors::brackets());
                 }
-                Ok(())
             }
-            &Operand::RegisterMaskMergeSae(ref spec, ref mask, merge_mode, sae_mode) => {
-                f.write_str(regspec_label(spec))?;
+            Operand::RegisterMaskMergeSae(ref spec, ref mask, merge_mode, sae_mode) => {
+                stream.push(regspec_label(spec), Colors::register());
+
                 if mask.num != 0 {
-                    f.write_str("{")?;
-                    f.write_str(regspec_label(mask))?;
-                    f.write_str("}")?;
+                    stream.push("{", Colors::brackets());
+                    stream.push(regspec_label(mask), Colors::register());
+                    stream.push("}", Colors::brackets());
                 }
                 if let MergeMode::Zero = merge_mode {
-                    f.write_str("{z}")?;
+                    stream.push("{", Colors::brackets());
+                    stream.push("z", Colors::register());
+                    stream.push("}", Colors::brackets());
                 }
-                f.write_str(sae_mode.label())?;
-                Ok(())
+
+                sae_mode.tokenize(stream);
             }
-            &Operand::RegisterMaskMergeSaeNoround(ref spec, ref mask, merge_mode) => {
-                f.write_str(regspec_label(spec))?;
+            Operand::RegisterMaskMergeSaeNoround(ref spec, ref mask, merge_mode) => {
+                stream.push(regspec_label(spec), Colors::register());
+
                 if mask.num != 0 {
-                    f.write_str("{")?;
-                    f.write_str(regspec_label(mask))?;
-                    f.write_str("}")?;
+                    stream.push("{", Colors::brackets());
+                    stream.push(regspec_label(mask), Colors::register());
+                    stream.push("}", Colors::brackets());
                 }
                 if let MergeMode::Zero = merge_mode {
-                    f.write_str("{z}")?;
+                    stream.push("{", Colors::brackets());
+                    stream.push("z", Colors::register());
+                    stream.push("}", Colors::brackets());
                 }
-                f.write_str("{sae}")?;
-                Ok(())
+
+                stream.push("{", Colors::brackets());
+                stream.push("sae", Colors::register());
+                stream.push("}", Colors::brackets());
             }
-            &Operand::DisplacementU32(imm) => {
-                write!(f, "[{}]", colors.address(u32_hex(imm)))
+            Operand::DisplacementU32(imm) => {
+                stream.push("[", Colors::brackets());
+                stream.push_owned(decoder::encode_hex(imm as i64), Colors::immediate());
+                stream.push("]", Colors::brackets());
             }
-            &Operand::DisplacementU64(imm) => {
-                write!(f, "[{}]", colors.address(u64_hex(imm)))
+            Operand::DisplacementU64(imm) => {
+                stream.push("[", Colors::brackets());
+                stream.push_owned(decoder::encode_hex(imm as i64), Colors::immediate());
+                stream.push("]", Colors::brackets());
             }
-            &Operand::RegDisp(ref spec, disp) => {
-                write!(f, "[{} ", regspec_label(spec))?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")
+            Operand::RegDisp(ref spec, disp) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
             },
-            &Operand::RegDeref(ref spec) => {
-                f.write_str("[")?;
-                f.write_str(regspec_label(spec))?;
-                f.write_str("]")
+            Operand::RegDeref(ref spec) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                stream.push("]", Colors::brackets());
             },
-            &Operand::RegScale(ref spec, scale) => {
-                write!(f, "[{} * {}]",
-                    regspec_label(spec),
-                    colors.number(scale)
-                )
+            Operand::RegScale(ref spec, scale) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(scale.to_string(), Colors::immediate());
+                stream.push("]", Colors::brackets());
             },
-            &Operand::RegScaleDisp(ref spec, scale, disp) => {
-                write!(f, "[{} * {} ",
-                    regspec_label(spec),
-                    colors.number(scale),
-                )?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")
+            Operand::RegScaleDisp(ref spec, scale, disp) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(format!("{scale}"), Colors::immediate());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
             },
-            &Operand::RegIndexBase(ref base, ref index) => {
-                f.write_str("[")?;
-                f.write_str(regspec_label(base))?;
-                f.write_str(" + ")?;
-                f.write_str(regspec_label(index))?;
-                f.write_str("]")
+            Operand::RegIndexBase(ref base, ref index) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                stream.push("]", Colors::brackets());
             }
-            &Operand::RegIndexBaseDisp(ref base, ref index, disp) => {
-                write!(f, "[{} + {} ",
-                    regspec_label(base),
-                    regspec_label(index),
-                )?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")
+            Operand::RegIndexBaseDisp(ref base, ref index, disp) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
             },
-            &Operand::RegIndexBaseScale(ref base, ref index, scale) => {
-                write!(f, "[{} + {} * {}]",
-                    regspec_label(base),
-                    regspec_label(index),
-                    colors.number(scale)
-                )
+            Operand::RegIndexBaseScale(ref base, ref index, scale) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(scale.to_string(), Colors::immediate());
+                stream.push("]", Colors::brackets());
             }
-            &Operand::RegIndexBaseScaleDisp(ref base, ref index, scale, disp) => {
-                write!(f, "[{} + {} * {} ",
-                    regspec_label(base),
-                    regspec_label(index),
-                    colors.number(scale),
-                )?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")
+            Operand::RegIndexBaseScaleDisp(ref base, ref index, scale, disp) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(scale.to_string(), Colors::immediate());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
             },
-            &Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
-                write!(f, "[{} ", regspec_label(spec))?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             },
-            &Operand::RegDerefMasked(ref spec, ref mask_reg) => {
-                f.write_str("[")?;
-                f.write_str(regspec_label(spec))?;
-                f.write_str("]")?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegDerefMasked(ref spec, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             },
-            &Operand::RegScaleMasked(ref spec, scale, ref mask_reg) => {
-                write!(f, "[{} * {}]",
-                    regspec_label(spec),
-                    colors.number(scale)
-                )?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegScaleMasked(ref spec, scale, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(scale.to_string(), Colors::register());
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             },
-            &Operand::RegScaleDispMasked(ref spec, scale, disp, ref mask_reg) => {
-                write!(f, "[{} * {} ",
-                    regspec_label(spec),
-                    colors.number(scale),
-                )?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegScaleDispMasked(ref spec, scale, disp, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(spec), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(scale.to_string(), Colors::register());
+                stream.push(" ", Colors::spacing());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             },
-            &Operand::RegIndexBaseMasked(ref base, ref index, ref mask_reg) => {
-                f.write_str("[")?;
-                f.write_str(regspec_label(base))?;
-                f.write_str(" + ")?;
-                f.write_str(regspec_label(index))?;
-                f.write_str("]")?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegIndexBaseMasked(ref base, ref index, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             }
-            &Operand::RegIndexBaseDispMasked(ref base, ref index, disp, ref mask_reg) => {
-                write!(f, "[{} + {} ",
-                    regspec_label(base),
-                    regspec_label(index),
-                )?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegIndexBaseDispMasked(ref base, ref index, disp, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                stream.push(" ", Colors::spacing());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             },
-            &Operand::RegIndexBaseScaleMasked(ref base, ref index, scale, ref mask_reg) => {
-                write!(f, "[{} + {} * {}]",
-                    regspec_label(base),
-                    regspec_label(index),
-                    colors.number(scale)
-                )?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegIndexBaseScaleMasked(ref base, ref index, scale, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(scale.to_string(), Colors::immediate());
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             }
-            &Operand::RegIndexBaseScaleDispMasked(ref base, ref index, scale, disp, ref mask_reg) => {
-                write!(f, "[{} + {} * {} ",
-                    regspec_label(base),
-                    regspec_label(index),
-                    colors.number(scale),
-                )?;
-                format_number_i32(colors, f, disp, NumberStyleHint::HexSignedWithSignSplit)?;
-                write!(f, "]")?;
-                write!(f, "{{{}}}", regspec_label(mask_reg))
+            Operand::RegIndexBaseScaleDispMasked(ref base, ref index, scale, disp, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                stream.push(regspec_label(base), Colors::register());
+                stream.push(" + ", Colors::expr());
+                stream.push(regspec_label(index), Colors::register());
+                stream.push(" * ", Colors::expr());
+                stream.push_owned(scale.to_string(), Colors::immediate());
+                Number(disp).tokenize(stream);
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
             },
-            &Operand::Nothing => { Ok(()) },
+            Operand::Nothing => {},
         }
     }
 }
@@ -1816,2068 +1864,189 @@ impl Opcode {
     }
 }
 
-impl <T: fmt::Write, Y: YaxColors> Colorize<T, Y> for Opcode {
-    fn colorize(&self, colors: &Y, out: &mut T) -> fmt::Result {
-        match self {
-            Opcode::VGF2P8AFFINEQB |
-            Opcode::VGF2P8AFFINEINVQB |
-            Opcode::VPSHRDQ |
-            Opcode::VPSHRDD |
-            Opcode::VPSHRDW |
-            Opcode::VPSHLDQ |
-            Opcode::VPSHLDD |
-            Opcode::VPSHLDW |
-            Opcode::VBROADCASTF32X8 |
-            Opcode::VBROADCASTF64X4 |
-            Opcode::VBROADCASTF32X4 |
-            Opcode::VBROADCASTF64X2 |
-            Opcode::VBROADCASTF32X2 |
-            Opcode::VBROADCASTI32X8 |
-            Opcode::VBROADCASTI64X4 |
-            Opcode::VBROADCASTI32X4 |
-            Opcode::VBROADCASTI64X2 |
-            Opcode::VBROADCASTI32X2 |
-            Opcode::VEXTRACTI32X8 |
-            Opcode::VEXTRACTF32X8 |
-            Opcode::VINSERTI32X8 |
-            Opcode::VINSERTF32X8 |
-            Opcode::VINSERTI32X4 |
-            Opcode::V4FNMADDSS |
-            Opcode::V4FNMADDPS |
-            Opcode::VCVTNEPS2BF16 |
-            Opcode::V4FMADDSS |
-            Opcode::V4FMADDPS |
-            Opcode::VCVTNE2PS2BF16 |
-            Opcode::VP2INTERSECTD |
-            Opcode::VP2INTERSECTQ |
-            Opcode::VP4DPWSSDS |
-            Opcode::VP4DPWSSD |
-            Opcode::VPDPWSSDS |
-            Opcode::VPDPWSSD |
-            Opcode::VPDPBUSDS |
-            Opcode::VDPBF16PS |
-            Opcode::VPBROADCASTMW2D |
-            Opcode::VPBROADCASTMB2Q |
-            Opcode::VPMOVD2M |
-            Opcode::VPMOVQD |
-            Opcode::VPMOVWB |
-            Opcode::VPMOVDB |
-            Opcode::VPMOVDW |
-            Opcode::VPMOVQB |
-            Opcode::VPMOVQW |
-            Opcode::VGF2P8MULB |
-            Opcode::VPMADD52HUQ |
-            Opcode::VPMADD52LUQ |
-            Opcode::VPSHUFBITQMB |
-            Opcode::VPERMB |
-            Opcode::VPEXPANDD |
-            Opcode::VPEXPANDQ |
-            Opcode::VPABSQ |
-            Opcode::VPRORVD |
-            Opcode::VPRORVQ |
-            Opcode::VPMULTISHIFTQB |
-            Opcode::VPERMT2B |
-            Opcode::VPERMT2W |
-            Opcode::VPSHRDVQ |
-            Opcode::VPSHRDVD |
-            Opcode::VPSHRDVW |
-            Opcode::VPSHLDVQ |
-            Opcode::VPSHLDVD |
-            Opcode::VPSHLDVW |
-            Opcode::VPCOMPRESSB |
-            Opcode::VPCOMPRESSW |
-            Opcode::VPEXPANDB |
-            Opcode::VPEXPANDW |
-            Opcode::VPOPCNTD |
-            Opcode::VPOPCNTQ |
-            Opcode::VPOPCNTB |
-            Opcode::VPOPCNTW |
-            Opcode::VSCALEFSS |
-            Opcode::VSCALEFSD |
-            Opcode::VSCALEFPS |
-            Opcode::VSCALEFPD |
-            Opcode::VPDPBUSD |
-            Opcode::VCVTUSI2SD |
-            Opcode::VCVTUSI2SS |
-            Opcode::VPXORD |
-            Opcode::VPXORQ |
-            Opcode::VPORD |
-            Opcode::VPORQ |
-            Opcode::VPANDND |
-            Opcode::VPANDNQ |
-            Opcode::VPANDD |
-            Opcode::VPANDQ |
-
-            Opcode::VHADDPS |
-            Opcode::VHSUBPS |
-            Opcode::VADDSUBPS |
-            Opcode::VADDPD |
-            Opcode::VADDPS |
-            Opcode::VADDSD |
-            Opcode::VADDSS |
-            Opcode::VADDSUBPD |
-            Opcode::VFMADD132PD |
-            Opcode::VFMADD132PS |
-            Opcode::VFMADD132SD |
-            Opcode::VFMADD132SS |
-            Opcode::VFMADD213PD |
-            Opcode::VFMADD213PS |
-            Opcode::VFMADD213SD |
-            Opcode::VFMADD213SS |
-            Opcode::VFMADD231PD |
-            Opcode::VFMADD231PS |
-            Opcode::VFMADD231SD |
-            Opcode::VFMADD231SS |
-            Opcode::VFMADDSUB132PD |
-            Opcode::VFMADDSUB132PS |
-            Opcode::VFMADDSUB213PD |
-            Opcode::VFMADDSUB213PS |
-            Opcode::VFMADDSUB231PD |
-            Opcode::VFMADDSUB231PS |
-            Opcode::VFMSUB132PD |
-            Opcode::VFMSUB132PS |
-            Opcode::VFMSUB132SD |
-            Opcode::VFMSUB132SS |
-            Opcode::VFMSUB213PD |
-            Opcode::VFMSUB213PS |
-            Opcode::VFMSUB213SD |
-            Opcode::VFMSUB213SS |
-            Opcode::VFMSUB231PD |
-            Opcode::VFMSUB231PS |
-            Opcode::VFMSUB231SD |
-            Opcode::VFMSUB231SS |
-            Opcode::VFMSUBADD132PD |
-            Opcode::VFMSUBADD132PS |
-            Opcode::VFMSUBADD213PD |
-            Opcode::VFMSUBADD213PS |
-            Opcode::VFMSUBADD231PD |
-            Opcode::VFMSUBADD231PS |
-            Opcode::VFNMADD132PD |
-            Opcode::VFNMADD132PS |
-            Opcode::VFNMADD132SD |
-            Opcode::VFNMADD132SS |
-            Opcode::VFNMADD213PD |
-            Opcode::VFNMADD213PS |
-            Opcode::VFNMADD213SD |
-            Opcode::VFNMADD213SS |
-            Opcode::VFNMADD231PD |
-            Opcode::VFNMADD231PS |
-            Opcode::VFNMADD231SD |
-            Opcode::VFNMADD231SS |
-            Opcode::VFNMSUB132PD |
-            Opcode::VFNMSUB132PS |
-            Opcode::VFNMSUB132SD |
-            Opcode::VFNMSUB132SS |
-            Opcode::VFNMSUB213PD |
-            Opcode::VFNMSUB213PS |
-            Opcode::VFNMSUB213SD |
-            Opcode::VFNMSUB213SS |
-            Opcode::VFNMSUB231PD |
-            Opcode::VFNMSUB231PS |
-            Opcode::VFNMSUB231SD |
-            Opcode::VFNMSUB231SS |
-            Opcode::VDIVPD |
-            Opcode::VDIVPS |
-            Opcode::VDIVSD |
-            Opcode::VDIVSS |
-            Opcode::VHADDPD |
-            Opcode::VHSUBPD |
-            Opcode::HADDPD |
-            Opcode::HSUBPD |
-            Opcode::VMULPD |
-            Opcode::VMULPS |
-            Opcode::VMULSD |
-            Opcode::VMULSS |
-            Opcode::VPABSB |
-            Opcode::VPABSD |
-            Opcode::VPABSW |
-            Opcode::PABSB |
-            Opcode::PABSD |
-            Opcode::PABSW |
-            Opcode::VPSIGNB |
-            Opcode::VPSIGND |
-            Opcode::VPSIGNW |
-            Opcode::PSIGNB |
-            Opcode::PSIGND |
-            Opcode::PSIGNW |
-            Opcode::VPADDB |
-            Opcode::VPADDD |
-            Opcode::VPADDQ |
-            Opcode::VPADDSB |
-            Opcode::VPADDSW |
-            Opcode::VPADDUSB |
-            Opcode::VPADDUSW |
-            Opcode::VPADDW |
-            Opcode::VPAVGB |
-            Opcode::VPAVGW |
-            Opcode::VPMULDQ |
-            Opcode::VPMULHRSW |
-            Opcode::VPMULHUW |
-            Opcode::VPMULHW |
-            Opcode::VPMULLQ |
-            Opcode::VPMULLD |
-            Opcode::VPMULLW |
-            Opcode::VPMULUDQ |
-            Opcode::PCLMULQDQ |
-            Opcode::PMULDQ |
-            Opcode::PMULHRSW |
-            Opcode::PMULLD |
-            Opcode::VPSUBB |
-            Opcode::VPSUBD |
-            Opcode::VPSUBQ |
-            Opcode::VPSUBSB |
-            Opcode::VPSUBSW |
-            Opcode::VPSUBUSB |
-            Opcode::VPSUBUSW |
-            Opcode::VPSUBW |
-            Opcode::VROUNDPD |
-            Opcode::VROUNDPS |
-            Opcode::VEXP2PD |
-            Opcode::VEXP2PS |
-            Opcode::VEXP2SD |
-            Opcode::VEXP2SS |
-            Opcode::VRCP28PD |
-            Opcode::VRCP28PS |
-            Opcode::VRCP28SD |
-            Opcode::VRCP28SS |
-            Opcode::VRCP14PD |
-            Opcode::VRCP14PS |
-            Opcode::VRCP14SD |
-            Opcode::VRCP14SS |
-            Opcode::VRNDSCALEPD |
-            Opcode::VRNDSCALEPS |
-            Opcode::VRNDSCALESD |
-            Opcode::VRNDSCALESS |
-            Opcode::VRSQRT14PD |
-            Opcode::VRSQRT14PS |
-            Opcode::VRSQRT14SD |
-            Opcode::VRSQRT14SS |
-            Opcode::VSCALEDPD |
-            Opcode::VSCALEDPS |
-            Opcode::VSCALEDSD |
-            Opcode::VSCALEDSS |
-            Opcode::VRSQRT28PD |
-            Opcode::VRSQRT28PS |
-            Opcode::VRSQRT28SD |
-            Opcode::VRSQRT28SS |
-            Opcode::VRSQRTPS |
-            Opcode::VSQRTPD |
-            Opcode::VSQRTPS |
-            Opcode::VSUBPD |
-            Opcode::VSUBPS |
-            Opcode::VSUBSD |
-            Opcode::VSUBSS |
-            Opcode::VRCPSS |
-            Opcode::VROUNDSD |
-            Opcode::VROUNDSS |
-            Opcode::ROUNDPD |
-            Opcode::ROUNDPS |
-            Opcode::ROUNDSD |
-            Opcode::ROUNDSS |
-            Opcode::VRSQRTSS |
-            Opcode::VSQRTSD |
-            Opcode::VSQRTSS |
-            Opcode::VPSADBW |
-            Opcode::VMPSADBW |
-            Opcode::VDBPSADBW |
-            Opcode::VPHADDD |
-            Opcode::VPHADDSW |
-            Opcode::VPHADDW |
-            Opcode::VPHSUBD |
-            Opcode::VPHSUBSW |
-            Opcode::VPHSUBW |
-            Opcode::VPMADDUBSW |
-            Opcode::VPMADDWD |
-            Opcode::VDPPD |
-            Opcode::VDPPS |
-            Opcode::VRCPPS |
-            Opcode::VORPD |
-            Opcode::VORPS |
-            Opcode::VANDPD |
-            Opcode::VANDPS |
-            Opcode::VANDNPD |
-            Opcode::VANDNPS |
-            Opcode::VPAND |
-            Opcode::VPANDN |
-            Opcode::VPOR |
-            Opcode::VPXOR |
-            Opcode::VXORPD |
-            Opcode::VXORPS |
-            Opcode::VPSLLD |
-            Opcode::VPSLLDQ |
-            Opcode::VPSLLQ |
-            Opcode::VPSLLVD |
-            Opcode::VPSLLVQ |
-            Opcode::VPSLLW |
-            Opcode::VPROLD |
-            Opcode::VPROLQ |
-            Opcode::VPROLVD |
-            Opcode::VPROLVQ |
-            Opcode::VPRORD |
-            Opcode::VPRORQ |
-            Opcode::VPRORRD |
-            Opcode::VPRORRQ |
-            Opcode::VPSLLVW |
-            Opcode::VPSRAQ |
-            Opcode::VPSRAVQ |
-            Opcode::VPSRAVW |
-            Opcode::VPSRLVW |
-            Opcode::VPSRAD |
-            Opcode::VPSRAVD |
-            Opcode::VPSRAW |
-            Opcode::VPSRLD |
-            Opcode::VPSRLDQ |
-            Opcode::VPSRLQ |
-            Opcode::VPSRLVD |
-            Opcode::VPSRLVQ |
-            Opcode::VPSRLW |
-            Opcode::PHADDD |
-            Opcode::PHADDSW |
-            Opcode::PHADDW |
-            Opcode::PHSUBD |
-            Opcode::PHSUBSW |
-            Opcode::PHSUBW |
-            Opcode::PMADDUBSW |
-            Opcode::ADDSUBPD |
-            Opcode::DPPS |
-            Opcode::DPPD |
-            Opcode::MPSADBW |
-            Opcode::RCPSS |
-            Opcode::RSQRTSS |
-            Opcode::SQRTSD |
-            Opcode::ADDSD |
-            Opcode::SUBSD |
-            Opcode::MULSD |
-            Opcode::DIVSD |
-            Opcode::SQRTSS |
-            Opcode::ADDSS |
-            Opcode::SUBSS |
-            Opcode::MULSS |
-            Opcode::DIVSS |
-            Opcode::HADDPS |
-            Opcode::HSUBPS |
-            Opcode::ADDSUBPS |
-            Opcode::PMULHRW |
-            Opcode::PFRCP |
-            Opcode::PFRSQRT |
-            Opcode::PFSUB |
-            Opcode::PFADD |
-            Opcode::PFRCPIT1 |
-            Opcode::PFRSQIT1 |
-            Opcode::PFSUBR |
-            Opcode::PFACC |
-            Opcode::PFMUL |
-            Opcode::PFMULHRW |
-            Opcode::PFRCPIT2 |
-            Opcode::PFNACC |
-            Opcode::PFPNACC |
-            Opcode::PSWAPD |
-            Opcode::PAVGUSB |
-            Opcode::XADD|
-            Opcode::DIV |
-            Opcode::IDIV |
-            Opcode::MUL |
-            Opcode::MULX |
-            Opcode::NEG |
-            Opcode::NOT |
-            Opcode::SAR |
-            Opcode::SAL |
-            Opcode::SHR |
-            Opcode::SARX |
-            Opcode::SHLX |
-            Opcode::SHRX |
-            Opcode::SHRD |
-            Opcode::SHL |
-            Opcode::RCR |
-            Opcode::RCL |
-            Opcode::ROR |
-            Opcode::RORX |
-            Opcode::ROL |
-            Opcode::INC |
-            Opcode::DEC |
-            Opcode::SBB |
-            Opcode::AND |
-            Opcode::XOR |
-            Opcode::OR |
-            Opcode::LEA |
-            Opcode::ADD |
-            Opcode::ADC |
-            Opcode::ADCX |
-            Opcode::ADOX |
-            Opcode::SUB |
-            Opcode::POPCNT |
-            Opcode::LZCNT |
-            Opcode::VPLZCNTD |
-            Opcode::VPLZCNTQ |
-            Opcode::BT |
-            Opcode::BTS |
-            Opcode::BTR |
-            Opcode::BTC |
-            Opcode::BSF |
-            Opcode::BSR |
-            Opcode::BZHI |
-            Opcode::PDEP |
-            Opcode::PEXT |
-            Opcode::TZCNT |
-            Opcode::ANDN |
-            Opcode::BEXTR |
-            Opcode::BLSI |
-            Opcode::BLSMSK |
-            Opcode::BLSR |
-            Opcode::ADDPS |
-            Opcode::ADDPD |
-            Opcode::ANDNPS |
-            Opcode::ANDNPD |
-            Opcode::ANDPS |
-            Opcode::ANDPD |
-            Opcode::COMISD |
-            Opcode::COMISS |
-            Opcode::DIVPS |
-            Opcode::DIVPD |
-            Opcode::MULPS |
-            Opcode::MULPD |
-            Opcode::ORPS |
-            Opcode::ORPD |
-            Opcode::PADDB |
-            Opcode::PADDD |
-            Opcode::PADDQ |
-            Opcode::PADDSB |
-            Opcode::PADDSW |
-            Opcode::PADDUSB |
-            Opcode::PADDUSW |
-            Opcode::PADDW |
-            Opcode::PAND |
-            Opcode::PANDN |
-            Opcode::PAVGB |
-            Opcode::PAVGW |
-            Opcode::PMADDWD |
-            Opcode::PMULHUW |
-            Opcode::PMULHW |
-            Opcode::PMULLW |
-            Opcode::PMULUDQ |
-            Opcode::POR |
-            Opcode::PSADBW |
-            Opcode::PSHUFD |
-            Opcode::PSHUFW |
-            Opcode::PSHUFB |
-            Opcode::PSLLD |
-            Opcode::PSLLDQ |
-            Opcode::PSLLQ |
-            Opcode::PSLLW |
-            Opcode::PSRAD |
-            Opcode::PSRAW |
-            Opcode::PSRLD |
-            Opcode::PSRLDQ |
-            Opcode::PSRLQ |
-            Opcode::PSRLW |
-            Opcode::PSUBB |
-            Opcode::PSUBD |
-            Opcode::PSUBQ |
-            Opcode::PSUBSB |
-            Opcode::PSUBSW |
-            Opcode::PSUBUSB |
-            Opcode::PSUBUSW |
-            Opcode::PSUBW |
-            Opcode::PXOR |
-            Opcode::RSQRTPS |
-            Opcode::SQRTPS |
-            Opcode::SQRTPD |
-            Opcode::SUBPS |
-            Opcode::SUBPD |
-            Opcode::XORPS |
-            Opcode::XORPD |
-            Opcode::RCPPS |
-            Opcode::SHLD |
-            Opcode::SLHD |
-            Opcode::UCOMISD |
-            Opcode::UCOMISS |
-            Opcode::F2XM1 |
-            Opcode::FABS |
-            Opcode::FADD |
-            Opcode::FADDP |
-            Opcode::FCHS |
-            Opcode::FCOS |
-            Opcode::FDIV |
-            Opcode::FDIVP |
-            Opcode::FDIVR |
-            Opcode::FDIVRP |
-            Opcode::FIADD |
-            Opcode::FIDIV |
-            Opcode::FIDIVR |
-            Opcode::FIMUL |
-            Opcode::FISUB |
-            Opcode::FISUBR |
-            Opcode::FMUL |
-            Opcode::FMULP |
-            Opcode::FNCLEX |
-            Opcode::FNINIT |
-            Opcode::FPATAN |
-            Opcode::FPREM |
-            Opcode::FPREM1 |
-            Opcode::FPTAN |
-            Opcode::FRNDINT |
-            Opcode::FSCALE |
-            Opcode::FSIN |
-            Opcode::FSINCOS |
-            Opcode::FSQRT |
-            Opcode::FSUB |
-            Opcode::FSUBP |
-            Opcode::FSUBR |
-            Opcode::FSUBRP |
-            Opcode::FXTRACT |
-            Opcode::FYL2X |
-            Opcode::FYL2XP1 |
-            Opcode::KADDB |
-            Opcode::KANDB |
-            Opcode::KANDNB |
-            Opcode::KNOTB |
-            Opcode::KORB |
-            Opcode::KSHIFTLB |
-            Opcode::KSHIFTRB |
-            Opcode::KXNORB |
-            Opcode::KXORB |
-            Opcode::KADDW |
-            Opcode::KANDW |
-            Opcode::KANDNW |
-            Opcode::KNOTW |
-            Opcode::KORW |
-            Opcode::KSHIFTLW |
-            Opcode::KSHIFTRW |
-            Opcode::KXNORW |
-            Opcode::KXORW |
-            Opcode::KADDD |
-            Opcode::KANDD |
-            Opcode::KANDND |
-            Opcode::KNOTD |
-            Opcode::KORD |
-            Opcode::KSHIFTLD |
-            Opcode::KSHIFTRD |
-            Opcode::KXNORD |
-            Opcode::KXORD |
-            Opcode::KADDQ |
-            Opcode::KANDQ |
-            Opcode::KANDNQ |
-            Opcode::KNOTQ |
-            Opcode::KORQ |
-            Opcode::KSHIFTLQ |
-            Opcode::KSHIFTRQ |
-            Opcode::KXNORQ |
-            Opcode::KXORQ |
-            Opcode::IMUL => { write!(out, "{}", colors.arithmetic_op(self)) }
-            Opcode::POPF |
-            Opcode::PUSHF |
-            Opcode::ENTER |
-            Opcode::LEAVE |
-            Opcode::PUSH |
-            Opcode::POP => { write!(out, "{}", colors.stack_op(self)) }
-            Opcode::WAIT |
-            Opcode::FNOP |
-            Opcode::FDISI8087_NOP |
-            Opcode::FENI8087_NOP |
-            Opcode::FSETPM287_NOP |
-            Opcode::PREFETCHNTA |
-            Opcode::PREFETCH0 |
-            Opcode::PREFETCH1 |
-            Opcode::PREFETCH2 |
-            Opcode::PREFETCHW |
-            Opcode::NOP => { write!(out, "{}", colors.nop_op(self)) }
-
-            /* Control flow */
-            Opcode::HLT |
-            Opcode::INT |
-            Opcode::INTO |
-            Opcode::IRET |
-            Opcode::IRETD |
-            Opcode::IRETQ |
-            Opcode::RETF |
-            Opcode::RETURN => { write!(out, "{}", colors.stop_op(self)) }
-            Opcode::LOOPNZ |
-            Opcode::LOOPZ |
-            Opcode::LOOP |
-            Opcode::JRCXZ |
-            Opcode::CALL |
-            Opcode::CALLF |
-            Opcode::JMP |
-            Opcode::JMPF |
-            Opcode::JO |
-            Opcode::JNO |
-            Opcode::JB |
-            Opcode::JNB |
-            Opcode::JZ |
-            Opcode::JNZ |
-            Opcode::JA |
-            Opcode::JNA |
-            Opcode::JS |
-            Opcode::JNS |
-            Opcode::JP |
-            Opcode::JNP |
-            Opcode::JL |
-            Opcode::JGE |
-            Opcode::JLE |
-            Opcode::JG => { write!(out, "{}", colors.control_flow_op(self)) }
-
-            /* Data transfer */
-            Opcode::PI2FW |
-            Opcode::PI2FD |
-            Opcode::PF2ID |
-            Opcode::PF2IW |
-            Opcode::VCVTDQ2PD |
-            Opcode::VCVTDQ2PS |
-            Opcode::VCVTPD2DQ |
-            Opcode::VCVTPD2PS |
-            Opcode::VCVTPH2PS |
-            Opcode::VCVTPS2DQ |
-            Opcode::VCVTPS2PD |
-            Opcode::VCVTPS2PH |
-            Opcode::VCVTTPD2DQ |
-            Opcode::VCVTTPS2DQ |
-            Opcode::VCVTSD2SI |
-            Opcode::VCVTSD2SS |
-            Opcode::VCVTSI2SD |
-            Opcode::VCVTSI2SS |
-            Opcode::VCVTSS2SD |
-            Opcode::VCVTSS2SI |
-            Opcode::VCVTTSD2SI |
-            Opcode::VCVTTSS2SI |
-            Opcode::VCVTPD2UDQ |
-            Opcode::VCVTTPD2UDQ |
-            Opcode::VCVTPS2UDQ |
-            Opcode::VCVTTPS2UDQ |
-            Opcode::VCVTQQ2PD |
-            Opcode::VCVTQQ2PS |
-            Opcode::VCVTSD2USI |
-            Opcode::VCVTTSD2USI |
-            Opcode::VCVTSS2USI |
-            Opcode::VCVTTSS2USI |
-            Opcode::VCVTUDQ2PD |
-            Opcode::VCVTUDQ2PS |
-            Opcode::VCVTUSI2USD |
-            Opcode::VCVTUSI2USS |
-            Opcode::VCVTTPD2QQ |
-            Opcode::VCVTPD2QQ |
-            Opcode::VCVTTPD2UQQ |
-            Opcode::VCVTPD2UQQ |
-            Opcode::VCVTTPS2QQ |
-            Opcode::VCVTPS2QQ |
-            Opcode::VCVTTPS2UQQ |
-            Opcode::VCVTPS2UQQ |
-            Opcode::VCVTUQQ2PD |
-            Opcode::VCVTUQQ2PS |
-            Opcode::VMOVDDUP |
-            Opcode::VPSHUFLW |
-            Opcode::VPSHUFHW |
-            Opcode::VBLENDMPD |
-            Opcode::VBLENDMPS |
-            Opcode::VPBLENDMD |
-            Opcode::VPBLENDMQ |
-            Opcode::VBLENDPD |
-            Opcode::VBLENDPS |
-            Opcode::VBLENDVPD |
-            Opcode::VBLENDVPS |
-            Opcode::VPBLENDMB |
-            Opcode::VPBLENDMW |
-            Opcode::PBLENDVB |
-            Opcode::PBLENDW |
-            Opcode::BLENDPD |
-            Opcode::BLENDPS |
-            Opcode::BLENDVPD |
-            Opcode::BLENDVPS |
-            Opcode::BLENDW |
-            Opcode::VBROADCASTF128 |
-            Opcode::VBROADCASTI128 |
-            Opcode::VBROADCASTSD |
-            Opcode::VBROADCASTSS |
-            Opcode::VPBROADCASTM |
-            Opcode::VEXTRACTF128 |
-            Opcode::VEXTRACTI128 |
-            Opcode::VEXTRACTPS |
-            Opcode::EXTRACTPS |
-            Opcode::VGATHERDPD |
-            Opcode::VGATHERDPS |
-            Opcode::VGATHERQPD |
-            Opcode::VGATHERQPS |
-            Opcode::VGATHERPF0DPD |
-            Opcode::VGATHERPF0DPS |
-            Opcode::VGATHERPF0QPD |
-            Opcode::VGATHERPF0QPS |
-            Opcode::VGATHERPF1DPD |
-            Opcode::VGATHERPF1DPS |
-            Opcode::VGATHERPF1QPD |
-            Opcode::VGATHERPF1QPS |
-            Opcode::VSCATTERDD |
-            Opcode::VSCATTERDQ |
-            Opcode::VSCATTERQD |
-            Opcode::VSCATTERQQ |
-            Opcode::VPSCATTERDD |
-            Opcode::VPSCATTERDQ |
-            Opcode::VPSCATTERQD |
-            Opcode::VPSCATTERQQ |
-            Opcode::VSCATTERPF0DPD |
-            Opcode::VSCATTERPF0DPS |
-            Opcode::VSCATTERPF0QPD |
-            Opcode::VSCATTERPF0QPS |
-            Opcode::VSCATTERPF1DPD |
-            Opcode::VSCATTERPF1DPS |
-            Opcode::VSCATTERPF1QPD |
-            Opcode::VSCATTERPF1QPS |
-            Opcode::VINSERTF128 |
-            Opcode::VINSERTI128 |
-            Opcode::VINSERTPS |
-            Opcode::INSERTPS |
-            Opcode::VEXTRACTF32X4 |
-            Opcode::VEXTRACTF64X2 |
-            Opcode::VEXTRACTF64X4 |
-            Opcode::VEXTRACTI32X4 |
-            Opcode::VEXTRACTI64X2 |
-            Opcode::VEXTRACTI64X4 |
-            Opcode::VINSERTF32X4 |
-            Opcode::VINSERTF64X2 |
-            Opcode::VINSERTF64X4 |
-            Opcode::VINSERTI64X2 |
-            Opcode::VINSERTI64X4 |
-            Opcode::VSHUFF32X4 |
-            Opcode::VSHUFF64X2 |
-            Opcode::VSHUFI32X4 |
-            Opcode::VSHUFI64X2 |
-            Opcode::VMASKMOVDQU |
-            Opcode::VMASKMOVPD |
-            Opcode::VMASKMOVPS |
-            Opcode::VMOVAPD |
-            Opcode::VMOVAPS |
-            Opcode::VMOVD |
-            Opcode::VMOVDQA |
-            Opcode::VMOVDQU |
-            Opcode::VMOVHLPS |
-            Opcode::VMOVHPD |
-            Opcode::VMOVHPS |
-            Opcode::VMOVLHPS |
-            Opcode::VMOVLPD |
-            Opcode::VMOVLPS |
-            Opcode::VMOVMSKPD |
-            Opcode::VMOVMSKPS |
-            Opcode::VMOVNTDQ |
-            Opcode::VMOVNTDQA |
-            Opcode::VMOVNTPD |
-            Opcode::VMOVNTPS |
-            Opcode::MOVDIR64B |
-            Opcode::MOVDIRI |
-            Opcode::MOVNTDQA |
-            Opcode::VMOVQ |
-            Opcode::VMOVSHDUP |
-            Opcode::VMOVSLDUP |
-            Opcode::VMOVUPD |
-            Opcode::VMOVUPS |
-            Opcode::VMOVSD |
-            Opcode::VMOVSS |
-            Opcode::VMOVDQA32 |
-            Opcode::VMOVDQA64 |
-            Opcode::VMOVDQU32 |
-            Opcode::VMOVDQU64 |
-            Opcode::VPMOVM2B |
-            Opcode::VPMOVM2W |
-            Opcode::VPMOVB2M |
-            Opcode::VPMOVW2M |
-            Opcode::VPMOVSWB |
-            Opcode::VPMOVUSWB |
-            Opcode::VPMOVSQB |
-            Opcode::VPMOVUSQB |
-            Opcode::VPMOVSQW |
-            Opcode::VPMOVUSQW |
-            Opcode::VPMOVSQD |
-            Opcode::VPMOVUSQD |
-            Opcode::VPMOVSDB |
-            Opcode::VPMOVUSDB |
-            Opcode::VPMOVSDW |
-            Opcode::VPMOVUSDW |
-            Opcode::VPMOVM2D |
-            Opcode::VPMOVM2Q |
-            Opcode::VPMOVB2D |
-            Opcode::VPMOVQ2M |
-            Opcode::VMOVDQU8 |
-            Opcode::VMOVDQU16 |
-
-            Opcode::VPBLENDD |
-            Opcode::VPBLENDVB |
-            Opcode::VPBLENDW |
-            Opcode::VPBROADCASTB |
-            Opcode::VPBROADCASTD |
-            Opcode::VPBROADCASTQ |
-            Opcode::VPBROADCASTW |
-            Opcode::VPGATHERDD |
-            Opcode::VPGATHERDQ |
-            Opcode::VPGATHERQD |
-            Opcode::VPGATHERQQ |
-            Opcode::VPCLMULQDQ |
-            Opcode::VPMOVMSKB |
-            Opcode::VPMOVSXBD |
-            Opcode::VPMOVSXBQ |
-            Opcode::VPMOVSXBW |
-            Opcode::VPMOVSXDQ |
-            Opcode::VPMOVSXWD |
-            Opcode::VPMOVSXWQ |
-            Opcode::VPMOVZXBD |
-            Opcode::VPMOVZXBQ |
-            Opcode::VPMOVZXBW |
-            Opcode::VPMOVZXDQ |
-            Opcode::VPMOVZXWD |
-            Opcode::VPMOVZXWQ |
-            Opcode::PMOVSXBD |
-            Opcode::PMOVSXBQ |
-            Opcode::PMOVSXBW |
-            Opcode::PMOVSXDQ |
-            Opcode::PMOVSXWD |
-            Opcode::PMOVSXWQ |
-            Opcode::PMOVZXBD |
-            Opcode::PMOVZXBQ |
-            Opcode::PMOVZXBW |
-            Opcode::PMOVZXDQ |
-            Opcode::PMOVZXWD |
-            Opcode::PMOVZXWQ |
-            Opcode::KUNPCKBW |
-            Opcode::KUNPCKWD |
-            Opcode::KUNPCKDQ |
-            Opcode::VUNPCKHPD |
-            Opcode::VUNPCKHPS |
-            Opcode::VUNPCKLPD |
-            Opcode::VUNPCKLPS |
-            Opcode::VPUNPCKHBW |
-            Opcode::VPUNPCKHDQ |
-            Opcode::VPUNPCKHQDQ |
-            Opcode::VPUNPCKHWD |
-            Opcode::VPUNPCKLBW |
-            Opcode::VPUNPCKLDQ |
-            Opcode::VPUNPCKLQDQ |
-            Opcode::VPUNPCKLWD |
-            Opcode::VSHUFPD |
-            Opcode::VSHUFPS |
-            Opcode::VPACKSSDW |
-            Opcode::VPACKUSDW |
-            Opcode::PACKUSDW |
-            Opcode::VPACKSSWB |
-            Opcode::VPACKUSWB |
-            Opcode::VALIGND |
-            Opcode::VALIGNQ |
-            Opcode::VPALIGNR |
-            Opcode::PALIGNR |
-            Opcode::VPERM2F128 |
-            Opcode::VPERM2I128 |
-            Opcode::VPERMD |
-            Opcode::VPERMILPD |
-            Opcode::VPERMILPS |
-            Opcode::VPERMPD |
-            Opcode::VPERMPS |
-            Opcode::VPERMQ |
-            Opcode::VPERMI2D |
-            Opcode::VPERMI2Q |
-            Opcode::VPERMI2PD |
-            Opcode::VPERMI2PS |
-            Opcode::VPERMT2D |
-            Opcode::VPERMT2Q |
-            Opcode::VPERMT2PD |
-            Opcode::VPERMT2PS |
-            Opcode::VPERMI2B |
-            Opcode::VPERMI2W |
-            Opcode::VPERMW |
-            Opcode::VPEXTRB |
-            Opcode::VPEXTRD |
-            Opcode::VPEXTRQ |
-            Opcode::VPEXTRW |
-            Opcode::PEXTRB |
-            Opcode::PEXTRD |
-            Opcode::PEXTRQ |
-            Opcode::EXTRQ |
-            Opcode::PINSRB |
-            Opcode::PINSRD |
-            Opcode::PINSRQ |
-            Opcode::INSERTQ |
-            Opcode::VPINSRB |
-            Opcode::VPINSRD |
-            Opcode::VPINSRQ |
-            Opcode::VPINSRW |
-            Opcode::VPMASKMOVD |
-            Opcode::VPMASKMOVQ |
-            Opcode::VCOMPRESSPD |
-            Opcode::VCOMPRESSPS |
-            Opcode::VPCOMPRESSQ |
-            Opcode::VPCOMPRESSD |
-            Opcode::VEXPANDPD |
-            Opcode::VEXPANDPS |
-            Opcode::VPSHUFB |
-            Opcode::VPSHUFD |
-            Opcode::VPHMINPOSUW |
-            Opcode::PHMINPOSUW |
-            Opcode::VZEROUPPER |
-            Opcode::VZEROALL |
-            Opcode::VFIXUPIMMPD |
-            Opcode::VFIXUPIMMPS |
-            Opcode::VFIXUPIMMSD |
-            Opcode::VFIXUPIMMSS |
-            Opcode::VREDUCEPD |
-            Opcode::VREDUCEPS |
-            Opcode::VREDUCESD |
-            Opcode::VREDUCESS |
-            Opcode::VGETEXPPD |
-            Opcode::VGETEXPPS |
-            Opcode::VGETEXPSD |
-            Opcode::VGETEXPSS |
-            Opcode::VGETMANTPD |
-            Opcode::VGETMANTPS |
-            Opcode::VGETMANTSD |
-            Opcode::VGETMANTSS |
-            Opcode::VLDDQU |
-            Opcode::BSWAP |
-            Opcode::CVTDQ2PD |
-            Opcode::CVTDQ2PS |
-            Opcode::CVTPS2DQ |
-            Opcode::CVTPD2DQ |
-            Opcode::CVTPI2PS |
-            Opcode::CVTPI2PD |
-            Opcode::CVTPS2PD |
-            Opcode::CVTPD2PS |
-            Opcode::CVTPS2PI |
-            Opcode::CVTPD2PI |
-            Opcode::CVTSD2SI |
-            Opcode::CVTSD2SS |
-            Opcode::CVTSI2SD |
-            Opcode::CVTSI2SS |
-            Opcode::CVTSS2SD |
-            Opcode::CVTSS2SI |
-            Opcode::CVTTPD2DQ |
-            Opcode::CVTTPS2DQ |
-            Opcode::CVTTPS2PI |
-            Opcode::CVTTPD2PI |
-            Opcode::CVTTSD2SI |
-            Opcode::CVTTSS2SI |
-            Opcode::MASKMOVQ |
-            Opcode::MASKMOVDQU |
-            Opcode::MOVAPS |
-            Opcode::MOVAPD |
-            Opcode::MOVD |
-            Opcode::MOVHPS |
-            Opcode::MOVHPD |
-            Opcode::MOVHLPS |
-            Opcode::MOVLPS |
-            Opcode::MOVLPD |
-            Opcode::MOVLHPS |
-            Opcode::MOVMSKPS |
-            Opcode::MOVMSKPD |
-            Opcode::MOVNTI |
-            Opcode::MOVNTPS |
-            Opcode::MOVNTPD |
-            Opcode::MOVNTSS |
-            Opcode::MOVNTSD |
-            Opcode::MOVNTQ |
-            Opcode::MOVNTDQ |
-            Opcode::MOVSD |
-            Opcode::MOVSS |
-            Opcode::MOVUPD |
-            Opcode::PSHUFHW |
-            Opcode::PSHUFLW |
-            Opcode::PUNPCKHBW |
-            Opcode::PUNPCKHDQ |
-            Opcode::PUNPCKHWD |
-            Opcode::PUNPCKLBW |
-            Opcode::PUNPCKLDQ |
-            Opcode::PUNPCKLWD |
-            Opcode::PUNPCKLQDQ |
-            Opcode::PUNPCKHQDQ |
-            Opcode::PACKSSDW |
-            Opcode::PACKSSWB |
-            Opcode::PACKUSWB |
-            Opcode::UNPCKHPS |
-            Opcode::UNPCKHPD |
-            Opcode::UNPCKLPS |
-            Opcode::UNPCKLPD |
-            Opcode::SHUFPD |
-            Opcode::SHUFPS |
-            Opcode::PMOVMSKB |
-            Opcode::KMOVB |
-            Opcode::KMOVW |
-            Opcode::KMOVD |
-            Opcode::KMOVQ |
-            Opcode::BNDMOV |
-            Opcode::LDDQU |
-            Opcode::CMC |
-            Opcode::CLC |
-            Opcode::CLI |
-            Opcode::CLD |
-            Opcode::STC |
-            Opcode::STI |
-            Opcode::STD |
-            Opcode::CBW |
-            Opcode::CWDE |
-            Opcode::CDQE |
-            Opcode::CWD |
-            Opcode::CDQ |
-            Opcode::CQO |
-            Opcode::MOVDDUP |
-            Opcode::MOVSLDUP |
-            Opcode::MOVDQ2Q |
-            Opcode::MOVDQU |
-            Opcode::MOVDQA |
-            Opcode::MOVQ |
-            Opcode::MOVQ2DQ |
-            Opcode::MOVSHDUP |
-            Opcode::MOVUPS |
-            Opcode::PEXTRW |
-            Opcode::PINSRW |
-            Opcode::MOV |
-            Opcode::MOVBE |
-            Opcode::LODS |
-            Opcode::STOS |
-            Opcode::LAHF |
-            Opcode::SAHF |
-            Opcode::MOVS |
-            Opcode::INS |
-            Opcode::IN |
-            Opcode::OUTS |
-            Opcode::OUT |
-            Opcode::MOVZX |
-            Opcode::MOVSX |
-            Opcode::MOVSXD |
-            Opcode::FILD |
-            Opcode::FBLD |
-            Opcode::FBSTP |
-            Opcode::FIST |
-            Opcode::FISTP |
-            Opcode::FISTTP |
-            Opcode::FLD |
-            Opcode::FLD1 |
-            Opcode::FLDCW |
-            Opcode::FLDENV |
-            Opcode::FLDL2E |
-            Opcode::FLDL2T |
-            Opcode::FLDLG2 |
-            Opcode::FLDLN2 |
-            Opcode::FLDPI |
-            Opcode::FLDZ |
-            Opcode::FST |
-            Opcode::FSTP |
-            Opcode::FSTPNCE |
-            Opcode::FNSAVE |
-            Opcode::FNSTCW |
-            Opcode::FNSTENV |
-            Opcode::FNSTOR |
-            Opcode::FNSTSW |
-            Opcode::FRSTOR |
-            Opcode::FXCH |
-            Opcode::XCHG |
-            Opcode::XLAT |
-            Opcode::CMOVA |
-            Opcode::CMOVB |
-            Opcode::CMOVG |
-            Opcode::CMOVGE |
-            Opcode::CMOVL |
-            Opcode::CMOVLE |
-            Opcode::CMOVNA |
-            Opcode::CMOVNB |
-            Opcode::CMOVNO |
-            Opcode::CMOVNP |
-            Opcode::CMOVNS |
-            Opcode::CMOVNZ |
-            Opcode::CMOVO |
-            Opcode::CMOVP |
-            Opcode::CMOVS |
-            Opcode::CMOVZ |
-            Opcode::FCMOVB |
-            Opcode::FCMOVBE |
-            Opcode::FCMOVE |
-            Opcode::FCMOVNB |
-            Opcode::FCMOVNBE |
-            Opcode::FCMOVNE |
-            Opcode::FCMOVNU |
-            Opcode::FCMOVU |
-            Opcode::SALC |
-            Opcode::SETO |
-            Opcode::SETNO |
-            Opcode::SETB |
-            Opcode::SETAE |
-            Opcode::SETZ |
-            Opcode::SETNZ |
-            Opcode::SETBE |
-            Opcode::SETA |
-            Opcode::SETS |
-            Opcode::SETNS |
-            Opcode::SETP |
-            Opcode::SETNP |
-            Opcode::SETL |
-            Opcode::SETGE |
-            Opcode::SETLE |
-            Opcode::SETG => { write!(out, "{}", colors.data_op(self)) }
-
-            Opcode::VCOMISD |
-            Opcode::VCOMISS |
-            Opcode::VUCOMISD |
-            Opcode::VUCOMISS |
-            Opcode::KORTESTB |
-            Opcode::KTESTB |
-            Opcode::KORTESTW |
-            Opcode::KTESTW |
-            Opcode::KORTESTD |
-            Opcode::KTESTD |
-            Opcode::KORTESTQ |
-            Opcode::KTESTQ |
-            Opcode::VPTESTNMD |
-            Opcode::VPTESTNMQ |
-            Opcode::VPTERNLOGD |
-            Opcode::VPTERNLOGQ |
-            Opcode::VPTESTMD |
-            Opcode::VPTESTMQ |
-            Opcode::VPTESTNMB |
-            Opcode::VPTESTNMW |
-            Opcode::VPTESTMB |
-            Opcode::VPTESTMW |
-            Opcode::VPCMPD |
-            Opcode::VPCMPUD |
-            Opcode::VPCMPQ |
-            Opcode::VPCMPUQ |
-            Opcode::VPCMPB |
-            Opcode::VPCMPUB |
-            Opcode::VPCMPW |
-            Opcode::VPCMPUW |
-            Opcode::VCMPPD |
-            Opcode::VCMPPS |
-            Opcode::VCMPSD |
-            Opcode::VCMPSS |
-            Opcode::VMAXPD |
-            Opcode::VMAXPS |
-            Opcode::VMAXSD |
-            Opcode::VMAXSS |
-            Opcode::VPMAXSQ |
-            Opcode::VPMAXUQ |
-            Opcode::VPMINSQ |
-            Opcode::VPMINUQ |
-            Opcode::VMINPD |
-            Opcode::VMINPS |
-            Opcode::VMINSD |
-            Opcode::VMINSS |
-            Opcode::VPCMPEQB |
-            Opcode::VPCMPEQD |
-            Opcode::VPCMPEQQ |
-            Opcode::VPCMPEQW |
-            Opcode::VPCMPGTB |
-            Opcode::VPCMPGTD |
-            Opcode::VPCMPGTQ |
-            Opcode::VPCMPGTW |
-            Opcode::VPCMPESTRI |
-            Opcode::VPCMPESTRM |
-            Opcode::VPCMPISTRI |
-            Opcode::VPCMPISTRM |
-            Opcode::VPMAXSB |
-            Opcode::VPMAXSD |
-            Opcode::VPMAXSW |
-            Opcode::VPMAXUB |
-            Opcode::VPMAXUW |
-            Opcode::VPMAXUD |
-            Opcode::VPMINSB |
-            Opcode::VPMINSW |
-            Opcode::VPMINSD |
-            Opcode::VPMINUB |
-            Opcode::VPMINUW |
-            Opcode::VPMINUD |
-            Opcode::VFPCLASSPD |
-            Opcode::VFPCLASSPS |
-            Opcode::VFPCLASSSD |
-            Opcode::VFPCLASSSS |
-            Opcode::VRANGEPD |
-            Opcode::VRANGEPS |
-            Opcode::VRANGESD |
-            Opcode::VRANGESS |
-            Opcode::VPCONFLICTD |
-            Opcode::VPCONFLICTQ |
-            Opcode::VPTEST |
-            Opcode::VTESTPD |
-            Opcode::VTESTPS |
-            Opcode::PCMPEQB |
-            Opcode::PCMPEQD |
-            Opcode::PCMPEQQ |
-            Opcode::PCMPEQW |
-            Opcode::PCMPESTRI |
-            Opcode::PCMPESTRM |
-            Opcode::PCMPGTB |
-            Opcode::PCMPGTD |
-            Opcode::PCMPGTQ |
-            Opcode::PCMPGTW |
-            Opcode::PCMPISTRI |
-            Opcode::PCMPISTRM |
-            Opcode::PTEST |
-            Opcode::MAXPD |
-            Opcode::MAXPS |
-            Opcode::MAXSD |
-            Opcode::MAXSS |
-            Opcode::MINPD |
-            Opcode::MINPS |
-            Opcode::MINSD |
-            Opcode::MINSS |
-            Opcode::PMAXSB |
-            Opcode::PMAXSD |
-            Opcode::PMAXSW |
-            Opcode::PMAXUB |
-            Opcode::PMAXUD |
-            Opcode::PMAXUW |
-            Opcode::PMINSB |
-            Opcode::PMINSD |
-            Opcode::PMINSW |
-            Opcode::PMINUB |
-            Opcode::PMINUD |
-            Opcode::PMINUW |
-            Opcode::PFCMPGE |
-            Opcode::PFMIN |
-            Opcode::PFCMPGT |
-            Opcode::PFMAX |
-            Opcode::PFCMPEQ |
-            Opcode::CMPS |
-            Opcode::SCAS |
-            Opcode::TEST |
-            Opcode::FTST |
-            Opcode::FXAM |
-            Opcode::FUCOM |
-            Opcode::FUCOMI |
-            Opcode::FUCOMIP |
-            Opcode::FUCOMP |
-            Opcode::FUCOMPP |
-            Opcode::FCOM |
-            Opcode::FCOMI |
-            Opcode::FCOMIP |
-            Opcode::FCOMP |
-            Opcode::FCOMPP |
-            Opcode::FICOM |
-            Opcode::FICOMP |
-            Opcode::CMPSD |
-            Opcode::CMPSS |
-            Opcode::CMP |
-            Opcode::CMPPS |
-            Opcode::CMPPD |
-            Opcode::CMPXCHG8B |
-            Opcode::CMPXCHG16B |
-            Opcode::CMPXCHG => { write!(out, "{}", colors.comparison_op(self)) }
-
-            Opcode::WRMSR |
-            Opcode::RDMSR |
-            Opcode::RDTSC |
-            Opcode::RDPMC |
-            Opcode::RDPID |
-            Opcode::RDFSBASE |
-            Opcode::RDGSBASE |
-            Opcode::WRFSBASE |
-            Opcode::WRGSBASE |
-            Opcode::FXSAVE |
-            Opcode::FXRSTOR |
-            Opcode::LDMXCSR |
-            Opcode::STMXCSR |
-            Opcode::VLDMXCSR |
-            Opcode::VSTMXCSR |
-            Opcode::XSAVE |
-            Opcode::XSAVEC |
-            Opcode::XSAVES |
-            Opcode::XSAVEC64 |
-            Opcode::XSAVES64 |
-            Opcode::XRSTOR |
-            Opcode::XRSTORS |
-            Opcode::XRSTORS64 |
-            Opcode::XSAVEOPT |
-            Opcode::LFENCE |
-            Opcode::MFENCE |
-            Opcode::SFENCE |
-            Opcode::CLFLUSH |
-            Opcode::CLFLUSHOPT |
-            Opcode::CLWB |
-            Opcode::SGDT |
-            Opcode::SIDT |
-            Opcode::LGDT |
-            Opcode::LIDT |
-            Opcode::SMSW |
-            Opcode::LMSW |
-            Opcode::SWAPGS |
-            Opcode::RDTSCP |
-            Opcode::INVEPT |
-            Opcode::INVVPID |
-            Opcode::INVPCID |
-            Opcode::INVLPG |
-            Opcode::INVLPGA |
-            Opcode::INVLPGB |
-            Opcode::TLBSYNC |
-            Opcode::PSMASH |
-            Opcode::PVALIDATE |
-            Opcode::RMPADJUST |
-            Opcode::RMPUPDATE |
-            Opcode::CPUID |
-            Opcode::WBINVD |
-            Opcode::INVD |
-            Opcode::SYSRET |
-            Opcode::CLTS |
-            Opcode::SYSCALL |
-            Opcode::TDCALL |
-            Opcode::SEAMRET |
-            Opcode::SEAMOPS |
-            Opcode::SEAMCALL |
-            Opcode::TPAUSE |
-            Opcode::UMONITOR |
-            Opcode::UMWAIT |
-            Opcode::LSL |
-            Opcode::SLDT |
-            Opcode::STR |
-            Opcode::LLDT |
-            Opcode::LTR |
-            Opcode::VERR |
-            Opcode::VERW |
-            Opcode::JMPE |
-            Opcode::EMMS |
-            Opcode::FEMMS |
-            Opcode::GETSEC |
-            Opcode::LFS |
-            Opcode::LGS |
-            Opcode::LSS |
-            Opcode::RSM |
-            Opcode::SYSENTER |
-            Opcode::SYSEXIT |
-            Opcode::VMREAD |
-            Opcode::VMWRITE |
-            Opcode::VMCLEAR |
-            Opcode::VMPTRLD |
-            Opcode::VMPTRST |
-            Opcode::VMXON |
-            Opcode::VMCALL |
-            Opcode::VMLAUNCH |
-            Opcode::VMRESUME |
-            Opcode::VMLOAD |
-            Opcode::VMMCALL |
-            Opcode::VMSAVE |
-            Opcode::VMRUN |
-            Opcode::VMXOFF |
-            Opcode::PCONFIG |
-            Opcode::MONITOR |
-            Opcode::MWAIT |
-            Opcode::MONITORX |
-            Opcode::MWAITX |
-            Opcode::SKINIT |
-            Opcode::CLGI |
-            Opcode::STGI |
-            Opcode::CLAC |
-            Opcode::STAC |
-            Opcode::ENCLS |
-            Opcode::ENCLV |
-            Opcode::XGETBV |
-            Opcode::XSETBV |
-            Opcode::VMFUNC |
-            Opcode::XEND |
-            Opcode::XTEST |
-            Opcode::XABORT |
-            Opcode::XBEGIN |
-            Opcode::ENCLU |
-            Opcode::RDPKRU |
-            Opcode::WRPKRU |
-            Opcode::RDPRU |
-            Opcode::CLZERO |
-            Opcode::ENQCMD |
-            Opcode::ENQCMDS |
-            Opcode::PTWRITE |
-            Opcode::UIRET |
-            Opcode::TESTUI |
-            Opcode::CLUI |
-            Opcode::STUI |
-            Opcode::SENDUIPI |
-            Opcode::XSUSLDTRK |
-            Opcode::XRESLDTRK |
-            Opcode::BNDMK |
-            Opcode::BNDCL |
-            Opcode::BNDCU |
-            Opcode::BNDCN |
-            Opcode::BNDLDX |
-            Opcode::BNDSTX |
-            Opcode::LAR => { write!(out, "{}", colors.platform_op(self)) }
-
-            Opcode::CRC32 |
-            Opcode::RDSEED |
-            Opcode::RDRAND |
-            Opcode::SHA1RNDS4 |
-            Opcode::SHA1NEXTE |
-            Opcode::SHA1MSG1 |
-            Opcode::SHA1MSG2 |
-            Opcode::SHA256RNDS2 |
-            Opcode::SHA256MSG1 |
-            Opcode::SHA256MSG2 |
-            Opcode::FFREE |
-            Opcode::FFREEP |
-            Opcode::FDECSTP |
-            Opcode::FINCSTP |
-            Opcode::GF2P8MULB |
-            Opcode::GF2P8AFFINEQB |
-            Opcode::GF2P8AFFINEINVQB |
-            Opcode::AESDEC128KL |
-            Opcode::AESDEC256KL |
-            Opcode::AESDECWIDE128KL |
-            Opcode::AESDECWIDE256KL |
-            Opcode::AESENC128KL |
-            Opcode::AESENC256KL |
-            Opcode::AESENCWIDE128KL |
-            Opcode::AESENCWIDE256KL |
-            Opcode::ENCODEKEY128 |
-            Opcode::ENCODEKEY256 |
-            Opcode::LOADIWKEY |
-            Opcode::HRESET |
-            Opcode::WRUSS |
-            Opcode::WRSS |
-            Opcode::INCSSP |
-            Opcode::SAVEPREVSSP |
-            Opcode::SETSSBSY |
-            Opcode::CLRSSBSY |
-            Opcode::RSTORSSP |
-            Opcode::ENDBR64 |
-            Opcode::ENDBR32 |
-            Opcode::AESDEC |
-            Opcode::AESDECLAST |
-            Opcode::AESENC |
-            Opcode::AESENCLAST |
-            Opcode::AESIMC |
-            Opcode::AESKEYGENASSIST |
-            Opcode::VAESDEC |
-            Opcode::VAESDECLAST |
-            Opcode::VAESENC |
-            Opcode::VAESENCLAST |
-            Opcode::VAESIMC |
-            Opcode::VAESKEYGENASSIST => { write!(out, "{}", colors.misc_op(self)) }
-
-            Opcode::UD0 |
-            Opcode::UD1 |
-            Opcode::UD2 |
-            Opcode::Invalid => { write!(out, "{}", colors.invalid_op(self)) }
+impl ToTokens for Instruction {
+    fn tokenize(self, stream: &mut decoder::TokenStream) {
+        if self.xacquire() {
+            stream.push("xacquire ", Colors::expr());
         }
-    }
-}
-
-impl fmt::Display for Instruction {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        self.display_with(DisplayStyle::Intel).colorize(&NoColors, fmt)
-    }
-}
-
-impl<'instr> fmt::Display for InstructionDisplayer<'instr> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        self.colorize(&NoColors, fmt)
-    }
-}
-
-/// enum controlling how `Instruction::display_with` renders instructions. `Intel` is more or less
-/// intel syntax, though memory operand sizes are elided if they can be inferred from other
-/// operands.
-#[derive(Copy, Clone)]
-pub enum DisplayStyle {
-    /// intel-style syntax for instructions, like
-    /// `add rax, [rdx + rcx * 2 + 0x1234]`
-    Intel,
-    /// C-style syntax for instructions, like
-    /// `rax += [rdx + rcx * 2 + 0x1234]`
-    C,
-    // one might imagine an ATT style here, which is mostly interesting for reversing operand
-    // order.
-    // well.
-    // it also complicates memory operands in an offset-only operand, and is just kind of awful, so
-    // it's just not implemented yet.
-    // ATT,
-}
-
-/// implementation of [`Display`](fmt::Display) that renders instructions using a specified display
-/// style.
-pub struct InstructionDisplayer<'instr> {
-    pub(crate) instr: &'instr Instruction,
-    pub(crate) style: DisplayStyle,
-}
-
-/*
- * Can't implement this as accepting a formatter because rust
- * doesn't let me build one outside println! or write! or whatever.
- *
- * can't write this as an intermediate struct because i refuse to copy
- * all data into the struct, and having a function producing a struct with
- * some lifetimes gets really hairy if it's from a trait - same GAT kind
- * of nonsense as i saw with ContextRead, because someone could hold onto
- * the dang intermediate struct forever.
- *
- * so write to some Write thing i guess. bite me. i really just want to
- * stop thinking about how to support printing instructions...
- */
-impl <'instr, T: fmt::Write, Y: YaxColors> Colorize<T, Y> for InstructionDisplayer<'instr> {
-    fn colorize(&self, colors: &Y, out: &mut T) -> fmt::Result {
-        // TODO: I DONT LIKE THIS, there is no address i can give contextualize here,
-        // the address operand maybe should be optional..
-        self.contextualize(colors, 0, Some(&NoContext), out)
-    }
-}
-
-/// No per-operand context when contextualizing an instruction!
-struct NoContext;
-
-impl Instruction {
-    pub fn write_to<T: fmt::Write>(&self, out: &mut T) -> fmt::Result {
-        self.display_with(DisplayStyle::Intel).contextualize(&NoColors, 0, Some(&NoContext), out)
-    }
-}
-
-fn contextualize_intel<T: fmt::Write, Y: YaxColors>(instr: &Instruction, colors: &Y, _address: u64, _context: Option<&NoContext>, out: &mut T) -> fmt::Result {
-    if instr.xacquire() {
-        out.write_str("xacquire ")?;
-    }
-    if instr.xrelease() {
-        out.write_str("xrelease ")?;
-    }
-    if instr.prefixes.lock() {
-        out.write_str("lock ")?;
-    }
-
-    if instr.prefixes.rep_any() {
-        if [Opcode::MOVS, Opcode::CMPS, Opcode::LODS, Opcode::STOS, Opcode::INS, Opcode::OUTS].contains(&instr.opcode) {
-            if instr.prefixes.rep() {
-                write!(out, "rep ")?;
-            } else if instr.prefixes.repnz() {
-                write!(out, "repnz ")?;
-            }
+        if self.xrelease() {
+            stream.push("xrelease ", Colors::expr());
         }
-    }
-
-    out.write_str(instr.opcode.name())?;
-
-    if instr.opcode == Opcode::XBEGIN {
-        if (instr.imm as i32) >= 0 {
-            return write!(out, " $+{}", colors.number(signed_i32_hex(instr.imm as i32)));
-        } else {
-            return write!(out, " ${}", colors.number(signed_i32_hex(instr.imm as i32)));
+        if self.prefixes.lock() {
+            stream.push("lock ", Colors::expr());
         }
-    }
 
-    if instr.operand_count > 0 {
-        out.write_str(" ")?;
-
-        let x = Operand::from_spec(instr, instr.operands[0]);
-
-        const RELATIVE_BRANCHES: [Opcode; 21] = [
-            Opcode::JMP, Opcode::JRCXZ,
-            Opcode::LOOP, Opcode::LOOPZ, Opcode::LOOPNZ,
-            Opcode::JO, Opcode::JNO,
-            Opcode::JB, Opcode::JNB,
-            Opcode::JZ, Opcode::JNZ,
-            Opcode::JNA, Opcode::JA,
-            Opcode::JS, Opcode::JNS,
-            Opcode::JP, Opcode::JNP,
-            Opcode::JL, Opcode::JGE,
-            Opcode::JLE, Opcode::JG,
-        ];
-
-        if instr.operands[0] == OperandSpec::ImmI8 || instr.operands[0] == OperandSpec::ImmI32 {
-            if RELATIVE_BRANCHES.contains(&instr.opcode) {
-                return match x {
-                    Operand::ImmediateI8(rel) => {
-                        if rel >= 0 {
-                            write!(out, "$+{}", colors.number(signed_i32_hex(rel as i32)))
-                        } else {
-                            write!(out, "${}", colors.number(signed_i32_hex(rel as i32)))
-                        }
-                    }
-                    Operand::ImmediateI32(rel) => {
-                        if rel >= 0 {
-                            write!(out, "$+{}", colors.number(signed_i32_hex(rel)))
-                        } else {
-                            write!(out, "${}", colors.number(signed_i32_hex(rel)))
-                        }
-                    }
-                    _ => { unreachable!() }
-                };
+        if self.prefixes.rep_any() {
+            if [Opcode::MOVS, Opcode::CMPS, Opcode::LODS, Opcode::STOS, Opcode::INS, Opcode::OUTS].contains(&self.opcode) {
+                if self.prefixes.rep() {
+                    stream.push("rep ", Colors::expr());
+                } else if self.prefixes.repnz() {
+                    stream.push("repnz ", Colors::expr());
+                }
             }
         }
 
-        if x.is_memory() {
-            out.write_str(MEM_SIZE_STRINGS[instr.mem_size as usize - 1])?;
-            out.write_str(" ")?;
+        stream.push(self.opcode.name(), Colors::opcode());
+
+        if self.opcode == Opcode::XBEGIN {
+            if (self.imm as i64) >= 0 {
+                stream.push(" $+", Colors::expr());
+                stream.push_owned(decoder::encode_hex(self.imm as i64), Colors::immediate());
+                return;
+            } else {
+                stream.push(" $", Colors::expr());
+                stream.push_owned(decoder::encode_hex(self.imm as i64), Colors::immediate());
+                return;
+            }
         }
 
-        if let Some(prefix) = instr.segment_override_for_op(0) {
-            write!(out, "{}:", prefix)?;
-        }
-        x.colorize(colors, out)?;
+        if self.operand_count > 0 {
+            stream.push(" ", Colors::spacing());
 
-        for i in 1..instr.operand_count {
-            match instr.opcode {
-                _ => {
-                    match &instr.operands[i as usize] {
-                        &OperandSpec::Nothing => {
-                            return Ok(());
-                        },
-                        _ => {
-                            out.write_str(", ")?;
-                            let x = Operand::from_spec(instr, instr.operands[i as usize]);
-                            if x.is_memory() {
-                                out.write_str(MEM_SIZE_STRINGS[instr.mem_size as usize - 1])?;
-                                out.write_str(" ")?;
+            let op = Operand::from_spec(&self, self.operands[0]);
+
+            const RELATIVE_BRANCHES: [Opcode; 21] = [
+                Opcode::JMP, Opcode::JRCXZ,
+                Opcode::LOOP, Opcode::LOOPZ, Opcode::LOOPNZ,
+                Opcode::JO, Opcode::JNO,
+                Opcode::JB, Opcode::JNB,
+                Opcode::JZ, Opcode::JNZ,
+                Opcode::JNA, Opcode::JA,
+                Opcode::JS, Opcode::JNS,
+                Opcode::JP, Opcode::JNP,
+                Opcode::JL, Opcode::JGE,
+                Opcode::JLE, Opcode::JG,
+            ];
+
+            if self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32 {
+                if RELATIVE_BRANCHES.contains(&self.opcode) {
+                    return match op {
+                        Operand::ImmediateI8(rel) => {
+                            if rel >= 0 {
+                                stream.push("$+", Colors::expr());
+                                let rel = decoder::encode_hex(rel as i64);
+                                stream.push_owned(rel, Colors::immediate());
+                            } else {
+                                stream.push("$", Colors::expr());
+                                let rel = decoder::encode_hex(rel as i64);
+                                stream.push_owned(rel, Colors::immediate());
                             }
-                            if let Some(prefix) = instr.segment_override_for_op(i) {
-                                write!(out, "{}:", prefix)?;
+                        }
+                        Operand::ImmediateI32(rel) => {
+                            if rel >= 0 {
+                                stream.push("$+", Colors::expr());
+                                let rel = decoder::encode_hex(rel as i64);
+                                stream.push_owned(rel, Colors::immediate());
+                            } else {
+                                stream.push("$", Colors::expr());
+                                let rel = decoder::encode_hex(rel as i64);
+                                stream.push_owned(rel, Colors::immediate());
                             }
-                            x.colorize(colors, out)?;
-                            if let Some(evex) = instr.prefixes.evex() {
-                                if evex.broadcast() && x.is_memory() {
-                                    let scale = if instr.opcode == Opcode::VCVTPD2PS || instr.opcode == Opcode::VCVTTPD2UDQ || instr.opcode == Opcode::VCVTPD2UDQ || instr.opcode == Opcode::VCVTUDQ2PD || instr.opcode == Opcode::VCVTPS2PD || instr.opcode == Opcode::VCVTQQ2PS || instr.opcode == Opcode::VCVTDQ2PD || instr.opcode == Opcode::VCVTTPD2DQ || instr.opcode == Opcode::VFPCLASSPS || instr.opcode == Opcode::VFPCLASSPD || instr.opcode == Opcode::VCVTNEPS2BF16 || instr.opcode == Opcode::VCVTUQQ2PS || instr.opcode == Opcode::VCVTPD2DQ || instr.opcode == Opcode::VCVTTPS2UQQ || instr.opcode == Opcode::VCVTPS2UQQ || instr.opcode == Opcode::VCVTTPS2QQ || instr.opcode == Opcode::VCVTPS2QQ {
-                                        if instr.opcode == Opcode::VFPCLASSPS || instr.opcode ==  Opcode::VCVTNEPS2BF16 {
-                                            if evex.vex().l() {
-                                                8
-                                            } else if evex.lp() {
-                                                16
-                                            } else {
-                                                4
-                                            }
-                                        } else if instr.opcode == Opcode::VFPCLASSPD {
-                                            if evex.vex().l() {
-                                                4
-                                            } else if evex.lp() {
-                                                8
-                                            } else {
-                                                2
-                                            }
-                                        } else {
-                                            // vcvtpd2ps is "cool": in broadcast mode, it can read a
-                                            // double-precision float (qword), resize to single-precision,
-                                            // then broadcast that to the whole destination register. this
-                                            // means we need to show `xmm, qword [addr]{1to4}` if vector
-                                            // size is 256. likewise, scale of 8 for the same truncation
-                                            // reason if vector size is 512.
-                                            // vcvtudq2pd is the same story.
-                                            // vfpclassp{s,d} is a mystery to me.
-                                            if evex.vex().l() {
-                                                4
-                                            } else if evex.lp() {
-                                                8
-                                            } else {
-                                                2
-                                            }
-                                        }
-                                    } else {
-                                        // this should never be `None` - that would imply two
-                                        // memory operands for a broadcasted operation.
-                                        if let Some(width) = Operand::from_spec(instr, instr.operands[i as usize - 1]).width() {
-                                            width / instr.mem_size
-                                        } else {
-                                            0
-                                        }
-                                    };
-                                    write!(out, "{{1to{}}}", scale)?;
+                        }
+                        _ => { unreachable!() }
+                    };
+                }
+            }
+
+            if op.is_memory() {
+                stream.push(MEM_SIZE_STRINGS[self.mem_size as usize - 1], Colors::annotation());
+            }
+
+            if let Some(prefix) = self.segment_override_for_op(0) {
+                stream.push_owned(prefix.to_string(), Colors::segment());
+                stream.push(":", Colors::expr());
+            }
+
+            op.tokenize(stream);
+
+            for idx in 1..self.operand_count {
+                if self.operands[idx as usize] == OperandSpec::Nothing {
+                    continue;
+                }
+
+                stream.push(", ", Colors::expr());
+                let op = Operand::from_spec(&self, self.operands[idx as usize]);
+                if op.is_memory() {
+                    stream.push(MEM_SIZE_STRINGS[self.mem_size as usize - 1], Colors::expr());
+                }
+                if let Some(prefix) = self.segment_override_for_op(idx) {
+                    stream.push_owned(prefix.to_string(), Colors::segment());
+                    stream.push(":", Colors::expr());
+                }
+
+                // TODO: remove clone
+                op.clone().tokenize(stream);
+
+                if let Some(evex) = self.prefixes.evex() {
+                    if evex.broadcast() && op.is_memory() {
+                        let scale = if self.opcode == Opcode::VCVTPD2PS
+                            || self.opcode == Opcode::VCVTTPD2UDQ
+                            || self.opcode == Opcode::VCVTPD2UDQ
+                            || self.opcode == Opcode::VCVTUDQ2PD
+                            || self.opcode == Opcode::VCVTPS2PD
+                            || self.opcode == Opcode::VCVTQQ2PS
+                            || self.opcode == Opcode::VCVTDQ2PD
+                            || self.opcode == Opcode::VCVTTPD2DQ
+                            || self.opcode == Opcode::VFPCLASSPS
+                            || self.opcode == Opcode::VFPCLASSPD
+                            || self.opcode == Opcode::VCVTNEPS2BF16
+                            || self.opcode == Opcode::VCVTUQQ2PS
+                            || self.opcode == Opcode::VCVTPD2DQ
+                            || self.opcode == Opcode::VCVTTPS2UQQ
+                            || self.opcode == Opcode::VCVTPS2UQQ
+                            || self.opcode == Opcode::VCVTTPS2QQ
+                            || self.opcode == Opcode::VCVTPS2QQ
+                        {
+                            if self.opcode == Opcode::VFPCLASSPS || self.opcode ==  Opcode::VCVTNEPS2BF16 {
+                                if evex.vex().l() {
+                                    8
+                                } else if evex.lp() {
+                                    16
+                                } else {
+                                    4
+                                }
+                            } else if self.opcode == Opcode::VFPCLASSPD {
+                                if evex.vex().l() {
+                                    4
+                                } else if evex.lp() {
+                                    8
+                                } else {
+                                    2
+                                }
+                            } else {
+                                // vcvtpd2ps is "cool": in broadcast mode, it can read a
+                                // double-precision float (qword), resize to single-precision,
+                                // then broadcast that to the whole destination register. this
+                                // means we need to show `xmm, qword [addr]{1to4}` if vector
+                                // size is 256. likewise, scale of 8 for the same truncation
+                                // reason if vector size is 512.
+                                // vcvtudq2pd is the same story.
+                                // vfpclassp{s,d} is a mystery to me.
+                                if evex.vex().l() {
+                                    4
+                                } else if evex.lp() {
+                                    8
+                                } else {
+                                    2
                                 }
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn contextualize_c<T: fmt::Write, Y: YaxColors>(instr: &Instruction, colors: &Y, _address: u64, _context: Option<&NoContext>, out: &mut T) -> fmt::Result {
-    let mut brace_count = 0;
-
-    let mut prefixed = false;
-
-    if instr.xacquire() {
-        out.write_str("xacquire ")?;
-        prefixed = true;
-    }
-    if instr.xrelease() {
-        out.write_str("xrelease ")?;
-        prefixed = true;
-    }
-    if instr.prefixes.lock() {
-        out.write_str("lock ")?;
-        prefixed = true;
-    }
-
-    if prefixed {
-        out.write_str("{ ")?;
-        brace_count += 1;
-    }
-
-    if instr.prefixes.rep_any() {
-        if [Opcode::MOVS, Opcode::CMPS, Opcode::LODS, Opcode::STOS, Opcode::INS, Opcode::OUTS].contains(&instr.opcode) {
-            let word_str = match instr.mem_size {
-                1 => "byte",
-                2 => "word",
-                4 => "dword",
-                8 => "qword",
-                _ => { unreachable!("invalid word size") }
-            };
-
-            // only a few of you actually use the prefix...
-            if instr.prefixes.rep() {
-                out.write_str("rep ")?;
-            } else if instr.prefixes.repnz() {
-                out.write_str("repnz ")?;
-            } // TODO: other rep kinds?
-
-            out.write_str(word_str)?;
-            out.write_str(" { ")?;
-            brace_count += 1;
-        }
-    }
-
-    fn write_jmp_operand<T: fmt::Write, Y: YaxColors>(op: Operand, colors: &Y, out: &mut T) -> fmt::Result {
-        match op {
-            Operand::ImmediateI8(rel) => {
-                if rel >= 0 {
-                    write!(out, "$+{}", colors.number(signed_i32_hex(rel as i32)))
-                } else {
-                    write!(out, "${}", colors.number(signed_i32_hex(rel as i32)))
-                }
-            }
-            Operand::ImmediateI32(rel) => {
-                if rel >= 0 {
-                    write!(out, "$+{}", colors.number(signed_i32_hex(rel)))
-                } else {
-                    write!(out, "${}", colors.number(signed_i32_hex(rel)))
-                }
-            }
-            other => {
-                write!(out, "{}", other)
-            }
-        }
-    }
-
-    match instr.opcode {
-        Opcode::Invalid => { out.write_str("invalid")?; },
-        Opcode::MOVS => {
-            out.write_str("es:[rdi++] = ds:[rsi++]")?;
-        },
-        Opcode::CMPS => {
-            out.write_str("rflags = flags(ds:[rsi++] - es:[rdi++])")?;
-        },
-        Opcode::LODS => {
-            // TODO: size
-            out.write_str("rax = ds:[rsi++]")?;
-        },
-        Opcode::STOS => {
-            // TODO: size
-            out.write_str("es:[rdi++] = rax")?;
-        },
-        Opcode::INS => {
-            // TODO: size
-            out.write_str("es:[rdi++] = port(dx)")?;
-        },
-        Opcode::OUTS => {
-            // TODO: size
-            out.write_str("port(dx) = ds:[rsi++]")?;
-        }
-        Opcode::ADD => {
-            write!(out, "{} += {}", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::OR => {
-            write!(out, "{} |= {}", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::ADC => {
-            write!(out, "{} += {} + rflags.cf", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::ADCX => {
-            write!(out, "{} += {} + rflags.cf", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::ADOX => {
-            write!(out, "{} += {} + rflags.of", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::SBB => {
-            write!(out, "{} -= {} + rflags.cf", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::AND => {
-            write!(out, "{} &= {}", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::XOR => {
-            write!(out, "{} ^= {}", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::SUB => {
-            write!(out, "{} -= {}", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::CMP => {
-            write!(out, "rflags = flags({} - {})", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::TEST => {
-            write!(out, "rflags = flags({} & {})", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::XADD => {
-            write!(out, "({}, {}) = ({} + {}, {})", instr.operand(0), instr.operand(1), instr.operand(0), instr.operand(1), instr.operand(0))?;
-        }
-        Opcode::BT => {
-            write!(out, "bt")?;
-        }
-        Opcode::BTS => {
-            write!(out, "bts")?;
-        }
-        Opcode::BTC => {
-            write!(out, "btc")?;
-        }
-        Opcode::BSR => {
-            write!(out, "{} = msb({})", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::BSF => {
-            write!(out, "{} = lsb({}) (x86 bsf)", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::TZCNT => {
-            write!(out, "{} = lsb({})", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::MOV => {
-            write!(out, "{} = {}", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::SAR => {
-            write!(out, "{} = {} >>> {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::SAL => {
-            write!(out, "{} = {} <<< {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::SHR => {
-            write!(out, "{} = {} >> {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::SHRX => {
-            write!(out, "{} = {} >> {} (x86 shrx)", instr.operand(0), instr.operand(1), instr.operand(2))?;
-        }
-        Opcode::SHL => {
-            write!(out, "{} = {} << {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::SHLX => {
-            write!(out, "{} = {} << {} (x86 shlx)", instr.operand(0), instr.operand(1), instr.operand(2))?;
-        }
-        Opcode::ROR => {
-            write!(out, "{} = {} ror {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::RORX => {
-            write!(out, "{} = {} ror {} (x86 rorx)", instr.operand(0), instr.operand(1), instr.operand(2))?;
-        }
-        Opcode::ROL => {
-            write!(out, "{} = {} rol {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::RCR => {
-            write!(out, "{} = {} rcr {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::RCL => {
-            write!(out, "{} = {} rcl {}", instr.operand(0), instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::PUSH => {
-            write!(out, "push({})", instr.operand(0))?;
-        }
-        Opcode::POP => {
-            write!(out, "{} = pop()", instr.operand(0))?;
-        }
-        Opcode::MOVD => {
-            write!(out, "{} = movd({})", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::MOVQ => {
-            write!(out, "{} = movq({})", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::MOVNTQ => {
-            write!(out, "{} = movntq({})", instr.operand(0), instr.operand(1))?;
-        }
-        Opcode::INC => {
-            if instr.operand(0).is_memory() {
-                match instr.mem_size {
-                    1 => { write!(out, "byte {}++", instr.operand(0))?; },
-                    2 => { write!(out, "word {}++", instr.operand(0))?; },
-                    4 => { write!(out, "dword {}++", instr.operand(0))?; },
-                    _ => { write!(out, "qword {}++", instr.operand(0))?; }, // sizes that are not 1, 2, or 4, *better* be 8.
-                }
-            } else {
-                write!(out, "{}++", instr.operand(0))?;
-            }
-        }
-        Opcode::DEC => {
-            if instr.operand(0).is_memory() {
-                match instr.mem_size {
-                    1 => { write!(out, "byte {}--", instr.operand(0))?; },
-                    2 => { write!(out, "word {}--", instr.operand(0))?; },
-                    4 => { write!(out, "dword {}--", instr.operand(0))?; },
-                    _ => { write!(out, "qword {}--", instr.operand(0))?; }, // sizes that are not 1, 2, or 4, *better* be 8.
-                }
-            } else {
-                write!(out, "{}--", instr.operand(0))?;
-            }
-        }
-        Opcode::JMP => {
-            out.write_str("jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JRCXZ => {
-            out.write_str("if rcx == 0 then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::LOOP => {
-            out.write_str("rcx--; if rcx != 0 then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::LOOPZ => {
-            out.write_str("rcx--; if rcx != 0 and zero(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::LOOPNZ => {
-            out.write_str("rcx--; if rcx != 0 and !zero(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JO => {
-            out.write_str("if _(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JNO => {
-            out.write_str("if _(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JB => {
-            out.write_str("if /* unsigned */ below(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JNB => {
-            out.write_str("if /* unsigned */ above_or_equal(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JZ => {
-            out.write_str("if zero(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JNZ => {
-            out.write_str("if !zero(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JNA => {
-            out.write_str("if /* unsigned */ below_or_equal(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JA => {
-            out.write_str("if /* unsigned */ above(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JS => {
-            out.write_str("if signed(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JNS => {
-            out.write_str("if !signed(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JP => {
-            out.write_str("if parity(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JNP => {
-            out.write_str("if !parity(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JL => {
-            out.write_str("if /* signed */ less(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JGE => {
-            out.write_str("if /* signed */ greater_or_equal(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JLE => {
-            out.write_str("if /* signed */ less_or_equal(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::JG => {
-            out.write_str("if /* signed */ greater(rflags) then jmp ")?;
-            write_jmp_operand(instr.operand(0), colors, out)?;
-        },
-        Opcode::NOP => {
-            write!(out, "nop")?;
-        }
-        _ => {
-            if instr.operand_count() == 0 {
-                write!(out, "{}()", instr.opcode())?;
-            } else {
-                write!(out, "{} = {}({}", instr.operand(0), instr.opcode(), instr.operand(0))?;
-                let mut comma = true;
-                for i in 1..instr.operand_count() {
-                    if comma {
-                        write!(out, ", ")?;
-                    }
-                    write!(out, "{}", instr.operand(i))?;
-                    comma = true;
-                }
-                write!(out, ")")?;
-            }
-        }
-    }
-
-    while brace_count > 0 {
-        out.write_str(" }")?;
-        brace_count -= 1;
-    }
-
-    Ok(())
-}
-
-impl <'instr, T: fmt::Write, Y: YaxColors> ShowContextual<u64, NoContext, T, Y> for InstructionDisplayer<'instr> {
-    fn contextualize(&self, colors: &Y, address: u64, context: Option<&NoContext>, out: &mut T) -> fmt::Result {
-        let InstructionDisplayer {
-            instr,
-            style,
-        } = self;
-
-        match style {
-            DisplayStyle::Intel => {
-                contextualize_intel(instr, colors, address, context, out)
-            }
-            DisplayStyle::C => {
-                contextualize_c(instr, colors, address, context, out)
-            }
-        }
-    }
-}
-
-impl <T: fmt::Write, Y: YaxColors> ShowContextual<u64, [Option<String>], T, Y> for Instruction {
-    fn contextualize(&self, colors: &Y, _address: u64, context: Option<&[Option<String>]>, out: &mut T) -> fmt::Result {
-        if self.prefixes.lock() {
-            write!(out, "lock ")?;
-        }
-
-        if [Opcode::MOVS, Opcode::CMPS, Opcode::LODS, Opcode::STOS, Opcode::INS, Opcode::OUTS].contains(&self.opcode) {
-            // only a few of you actually use the prefix...
-            if self.prefixes.rep() {
-                write!(out, "rep ")?;
-            } else if self.prefixes.repnz() {
-                write!(out, "repnz ")?;
-            }
-        }
-
-        self.opcode.colorize(colors, out)?;
-
-        match context.and_then(|xs| xs[0].as_ref()) {
-            Some(s) => { write!(out, " {}", s)?; },
-            None => {
-                match self.operands[0] {
-                    OperandSpec::Nothing => {
-                        return Ok(());
-                    },
-                    _ => {
-                        write!(out, " ")?;
-                        if let Some(prefix) = self.segment_override_for_op(0) {
-                            write!(out, "{}:", prefix)?;
-                        }
-                    }
-                }
-                let x = Operand::from_spec(self, self.operands[0]);
-                x.colorize(colors, out)?;
-            }
-        };
-        for i in 1..self.operand_count {
-            let i = i as usize;
-            match context.and_then(|xs| xs[i].as_ref()) {
-                Some(s) => { write!(out, ", {}", s)? }
-                None => {
-                    match &self.operands[i] {
-                        &OperandSpec::Nothing => {
-                            return Ok(());
-                        },
-                        _ => {
-                            write!(out, ", ")?;
-                            if let Some(prefix) = self.segment_override_for_op(1) {
-                                write!(out, "{}:", prefix)?;
+                        } else {
+                            // this should never be `None` - that would imply two
+                            // memory operands for a broadcasted operation.
+                            if let Some(width) = Operand::from_spec(&self, self.operands[idx as usize - 1]).width() {
+                                width / self.mem_size
+                            } else {
+                                0
                             }
-                            let x = Operand::from_spec(self, self.operands[i]);
-                            x.colorize(colors, out)?
-                        }
+                        };
+
+                        stream.push("{", Colors::brackets());
+                        stream.push("1to", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        stream.push("}", Colors::brackets());
                     }
                 }
             }
         }
-        Ok(())
     }
 }
