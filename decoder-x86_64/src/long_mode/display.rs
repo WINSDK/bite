@@ -1866,27 +1866,31 @@ impl Opcode {
 
 impl ToTokens for Instruction {
     fn tokenize(self, stream: &mut decoder::TokenStream) {
+        let opcode_name = self.opcode().name();
+        let mut op = String::with_capacity(opcode_name.len());
+
         if self.xacquire() {
-            stream.push("xacquire ", Colors::expr());
+            op.push_str("xacquire ");
         }
         if self.xrelease() {
-            stream.push("xrelease ", Colors::expr());
+            op.push_str("xrelease ");
         }
         if self.prefixes.lock() {
-            stream.push("lock ", Colors::expr());
+            op.push_str("lock ");
         }
 
         if self.prefixes.rep_any() {
             if [Opcode::MOVS, Opcode::CMPS, Opcode::LODS, Opcode::STOS, Opcode::INS, Opcode::OUTS].contains(&self.opcode) {
                 if self.prefixes.rep() {
-                    stream.push("rep ", Colors::expr());
+                    op.push_str("rep ");
                 } else if self.prefixes.repnz() {
-                    stream.push("repnz ", Colors::expr());
+                    op.push_str("repnz ");
                 }
             }
         }
 
-        stream.push(self.opcode.name(), Colors::opcode());
+        op.push_str(opcode_name);
+        stream.push_owned(op, Colors::opcode());
 
         if self.opcode == Opcode::XBEGIN {
             if (self.imm as i64) >= 0 {
