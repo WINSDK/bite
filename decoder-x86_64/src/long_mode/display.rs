@@ -1971,7 +1971,7 @@ impl ToTokens for Instruction {
                 stream.push(", ", Colors::expr());
                 let op = Operand::from_spec(&self, self.operands[idx as usize]);
                 if op.is_memory() {
-                    stream.push(MEM_SIZE_STRINGS[self.mem_size as usize - 1], Colors::expr());
+                    stream.push(MEM_SIZE_STRINGS[self.mem_size as usize - 1], Colors::annotation());
                 }
                 if let Some(prefix) = self.segment_override_for_op(idx) {
                     stream.push_owned(prefix.to_string(), Colors::segment());
