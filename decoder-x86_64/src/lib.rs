@@ -15,7 +15,7 @@ pub mod protected_mode;
 mod safer_unchecked;
 mod tests;
 
-use yaxpeax_arch::{Decoder, LengthedInstruction};
+use yaxpeax_arch::Decoder;
 use decoder::ToTokens;
 use tokenizing::{Colors, ColorScheme};
 
@@ -157,7 +157,7 @@ impl decoder::Streamable for Stream<'_> {
     type Error = Error;
 
     fn next(&mut self) -> Option<Result<Self::Item, Error>> {
-        match self.decoder {
+        let result = match self.decoder {
             DecoderKind::X86(decoder) => match decoder.decode(&mut self.reader) {
                 Err(protected_mode::DecodeError::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
                 Err(protected_mode::DecodeError::InvalidOperand) => Some(Err(Error::InvalidOperand)),
@@ -167,12 +167,7 @@ impl decoder::Streamable for Stream<'_> {
                     protected_mode::DecodeError::ExhaustedInput
                     | protected_mode::DecodeError::IncompleteDecoder,
                 ) => None,
-                Ok(inst) => {
-                    let width = inst.len().to_const() as usize;
-                    self.offset += width;
-                    self.width = width;
-                    Some(Ok(Instruction::X86(inst)))
-                }
+                Ok(inst) => Some(Ok(Instruction::X86(inst)))
             }
             DecoderKind::X64(decoder) => match decoder.decode(&mut self.reader) {
                 Err(long_mode::DecodeError::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
@@ -183,13 +178,13 @@ impl decoder::Streamable for Stream<'_> {
                     long_mode::DecodeError::ExhaustedInput
                     | long_mode::DecodeError::IncompleteDecoder,
                 ) => None,
-                Ok(inst) => {
-                    let width = inst.len().to_const() as usize;
-                    self.offset += width;
-                    self.width = width;
-                    Some(Ok(Instruction::X64(inst)))
-                }
+                Ok(inst) => Some(Ok(Instruction::X64(inst)))
             },
-        }
+        };
+
+        let width = <Reader as yaxpeax_arch::Reader<u64, u8>>::offset(&mut self.reader) as usize;
+        self.offset += width;
+        self.width = width;
+        return result;
     }
 }

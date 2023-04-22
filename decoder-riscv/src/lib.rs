@@ -227,7 +227,7 @@ impl Stream<'_> {
                 _ => Err(Error::UnknownOpcode),
             },
             0b0111011 => match bytes >> 25 {
-                _ if !self.is_64 => return Err(Error::UnknownOpcode),
+                _ if !self.is_64 => Err(Error::UnknownOpcode),
                 0b0000000 => match bytes >> 12 & 0b111 {
                     0b000 => decode_triplet("addw", bytes),
                     0b001 => decode_triplet("sllw", bytes),

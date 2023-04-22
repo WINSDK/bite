@@ -130,11 +130,11 @@ impl Stream<'_> {
         let rt = dword >> 16 & 0b11111;
         let rd = dword >> 11 & 0b11111;
 
+        self.offset += 4;
+
         if inst.mnemomic.is_empty() {
             return Err(Error::InvalidInstruction);
         }
-
-        self.offset += 4;
 
         match format {
             Format::R => {
