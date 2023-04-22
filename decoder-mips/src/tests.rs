@@ -7,6 +7,7 @@ macro_rules! eq {
         let mut stream = $crate::Stream {
             bytes: &[$($bytes),+],
             offset: 0,
+            width: 0,
             section_base: 0,
         };
 
