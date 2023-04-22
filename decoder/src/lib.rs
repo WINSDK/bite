@@ -150,11 +150,28 @@ pub fn encode_hex_bytes(bytes: &[u8]) -> String {
     repr
 }
 
-pub fn encode_hex_bytes_padded(bytes: &[u8], width: usize) -> String {
-    let pad = width.saturating_sub(bytes.len() * 3);
+/// Truncates string past the max width with a '..'.
+pub fn encode_hex_bytes_padded(bytes: &[u8], max_width: usize) -> String {
+    assert!(max_width > 2, "max width most be at least 2");
+
+    let pad = max_width.saturating_sub(bytes.len() * 3);
     let mut repr = String::with_capacity(bytes.len() * 3 + pad);
 
     const TABLE: &[u8] = "0123456789ABCDEF".as_bytes();
+
+    // truncation has to occur
+    if bytes.len() * 3 > max_width {
+        let bytes = &bytes[..(max_width - 2) / 3];
+
+        for byte in bytes {
+            repr.push(TABLE[(byte >> 4) as usize] as char);
+            repr.push(TABLE[(byte & 0x0f) as usize] as char);
+            repr.push(' ');
+        }
+
+        repr.push_str("..  ");
+        return repr;
+    }
 
     for byte in bytes {
         repr.push(TABLE[(byte >> 4) as usize] as char);
