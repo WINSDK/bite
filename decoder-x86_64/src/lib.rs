@@ -157,27 +157,24 @@ impl decoder::Streamable for Stream<'_> {
     type Error = Error;
 
     fn next(&mut self) -> Option<Result<Self::Item, Error>> {
+        use protected_mode::DecodeError as X86Error;
+        use long_mode::DecodeError as X64Error;
+
         let result = match self.decoder {
             DecoderKind::X86(decoder) => match decoder.decode(&mut self.reader) {
-                Err(protected_mode::DecodeError::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
-                Err(protected_mode::DecodeError::InvalidOperand) => Some(Err(Error::InvalidOperand)),
-                Err(protected_mode::DecodeError::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
-                Err(protected_mode::DecodeError::TooLong) => Some(Err(Error::TooLong)),
-                Err(
-                    protected_mode::DecodeError::ExhaustedInput
-                    | protected_mode::DecodeError::IncompleteDecoder,
-                ) => None,
+                Err(X86Error::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
+                Err(X86Error::InvalidOperand) => Some(Err(Error::InvalidOperand)),
+                Err(X86Error::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
+                Err(X86Error::TooLong) => Some(Err(Error::TooLong)),
+                Err(X86Error::ExhaustedInput | X86Error::IncompleteDecoder) => None,
                 Ok(inst) => Some(Ok(Instruction::X86(inst)))
             }
             DecoderKind::X64(decoder) => match decoder.decode(&mut self.reader) {
-                Err(long_mode::DecodeError::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
-                Err(long_mode::DecodeError::InvalidOperand) => Some(Err(Error::InvalidOperand)),
-                Err(long_mode::DecodeError::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
-                Err(long_mode::DecodeError::TooLong) => Some(Err(Error::TooLong)),
-                Err(
-                    long_mode::DecodeError::ExhaustedInput
-                    | long_mode::DecodeError::IncompleteDecoder,
-                ) => None,
+                Err(X64Error::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
+                Err(X64Error::InvalidOperand) => Some(Err(Error::InvalidOperand)),
+                Err(X64Error::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
+                Err(X64Error::TooLong) => Some(Err(Error::TooLong)),
+                Err(X64Error::ExhaustedInput | X64Error::IncompleteDecoder) => None,
                 Ok(inst) => Some(Ok(Instruction::X64(inst)))
             },
         };
