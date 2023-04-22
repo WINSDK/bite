@@ -80,7 +80,6 @@ impl Disassembly {
                 .map_err(|_| "Unsupported target.")?;
 
             let mut lines = Vec::with_capacity(1024);
-
             for line in stream {
                 if let Some(label) = symbols.get_by_line(&line) {
                     lines.push(LineKind::Newline);

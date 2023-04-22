@@ -14,14 +14,15 @@ pub enum Error {
 pub struct Line {
     pub section_base: usize,
     pub offset: usize,
-    pub stream: decoder::TokenStream,
+    pub tokens: decoder::TokenStream,
     pub address: String,
+    pub bytes: String,
 }
 
 impl ToString for Line {
     fn to_string(&self) -> String {
         let mut fmt = String::with_capacity(30);
-        let tokens = self.stream.tokens();
+        let tokens = &self.tokens;
         let operands = &tokens[1..];
 
         fmt += &tokens[0].text;
@@ -79,6 +80,7 @@ impl<'data> InstructionStream<'data> {
             }),
             Architecture::X86_64_X32 => InternalInstructionStream::X86_64(x86_64::Stream {
                 reader: x86_64::Reader::new(bytes),
+                bytes,
                 decoder: x86_64::DecoderKind::x86(),
                 offset: 0,
                 width: 0,
@@ -86,6 +88,7 @@ impl<'data> InstructionStream<'data> {
             }),
             Architecture::X86_64 => InternalInstructionStream::X86_64(x86_64::Stream {
                 reader: x86_64::Reader::new(bytes),
+                bytes,
                 decoder: x86_64::DecoderKind::x64(),
                 offset: 0,
                 width: 0,
@@ -103,36 +106,61 @@ impl Iterator for InstructionStream<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let section_base;
-        let mut offset = 0;
+        let offset;
+        let address;
+        let bytes;
         let mut tokens = decoder::TokenStream::new();
 
         match self.inner {
             InternalInstructionStream::Riscv(ref mut stream) => {
-                section_base = stream.section_base;
-                offset += stream.offset;
-                offset += offset.saturating_sub(stream.width);
+                let inst = stream.next()?;
+                let width = stream.width;
 
-                match stream.next()? {
+                section_base = stream.section_base;
+                offset = stream.offset - width;
+                address = format!("0x{:0>10X}  ", section_base + offset);
+                bytes = decoder::encode_hex_bytes_padded(
+                    &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
+                    13
+                );
+
+                match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
                     Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
             }
             InternalInstructionStream::Mips(ref mut stream) => {
-                section_base = stream.section_base;
-                offset += stream.offset;
-                offset += offset.saturating_sub(4);
+                let inst = stream.next()?;
+                let width = 4;
 
-                match stream.next()? {
+                section_base = stream.section_base;
+                offset = stream.offset - width;
+                address = format!("0x{:0>10X}  ", section_base + offset);
+                bytes = decoder::encode_hex_bytes_padded(
+                    &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
+                    13
+                );
+
+                match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
                     Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
             }
             InternalInstructionStream::X86_64(ref mut stream) => {
-                section_base = stream.section_base;
-                offset += stream.offset;
-                offset += offset.saturating_sub(stream.width);
+                let inst = stream.next()?;
+                let width = stream.width;
 
-                match stream.next()? {
+                section_base = stream.section_base;
+                offset = stream.offset - width;
+                address = format!("0x{:0>10X}  ", section_base + offset);
+
+                // TODO: if byte array overflows, put it on a newline
+                bytes = decoder::encode_hex_bytes_padded(
+                    &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
+                    25
+                );
+
+                match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
                     Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
@@ -142,8 +170,9 @@ impl Iterator for InstructionStream<'_> {
         Some(Line {
             section_base,
             offset,
-            stream: tokens,
-            address: String::new(),
+            tokens,
+            address,
+            bytes,
         })
     }
 }

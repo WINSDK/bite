@@ -17,6 +17,13 @@ impl Index {
         }
     }
 
+    fn pdb_file(obj: &object::File<'_>) -> Option<std::fs::File> {
+        let pdb = obj.pdb_info().ok()??;
+        let path = std::str::from_utf8(pdb.path()).ok()?;
+
+        std::fs::File::open(path).ok()
+    }
+
     pub async fn parse(obj: &object::File<'_>) -> pdb::Result<Index> {
         let mut symbols: Vec<(usize, &str)> = obj
             .symbols()
@@ -27,25 +34,7 @@ impl Index {
         let base_addr = obj.relative_address_base() as usize;
         let pdb_table;
 
-        if let Ok(Some(pdb)) = obj.pdb_info() {
-            let Ok(path) = std::str::from_utf8(pdb.path()) else {
-                let tree = symbols
-                    .into_iter()
-                    .map(|(addr, symbol)| (addr, Arc::new(TokenStream::new(symbol))))
-                    .collect();
-
-                return Ok(Self { tree });
-            };
-
-            let Ok(file) = std::fs::File::open(path) else {
-                let tree = symbols
-                    .into_iter()
-                    .map(|(addr, symbol)| (addr, Arc::new(TokenStream::new(symbol))))
-                    .collect();
-
-                return Ok(Self { tree });
-            };
-
+        if let Some(file) = Self::pdb_file(obj) {
             let mut pdb = pdb::PDB::open(file)?;
 
             // get symbol table
@@ -102,13 +91,22 @@ impl Index {
             TokenStream::simple(s)
         };
 
-        let tree = symbols.iter().map(|(addr, symbol)| {
-            (*addr, Arc::new(parser(symbol)))
-        });
+        // insert entrypoint into known symbols
+        let entrypoint = obj.entry() as usize;
+        println!("entrypoint {entrypoint:#x}");
 
-        Ok(Self {
-            tree: BTreeMap::from_iter(tree),
-        })
+        // iterator of just the entrypoint.
+        // (first as it may be replaced by a symbol with the same address)
+        let entrypoint = std::iter::once((
+            entrypoint,
+            Arc::new(demangler::TokenStream::simple("entry")),
+        ));
+
+        let symbols = symbols
+            .iter()
+            .map(|(addr, symbol)| (*addr, Arc::new(parser(symbol))));
+
+        Ok(Self { tree: entrypoint.chain(symbols).collect() })
     }
 
     pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Arc<TokenStream>> {
@@ -128,7 +126,7 @@ impl Index {
     }
 }
 
-fn symbol_addr_name<'a>(symbol: object::Symbol<'a, 'a>) -> Option<(usize, &'a str)> {
+fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(usize, &'sym str)> {
     if let Ok(name) = symbol.name() {
         return Some((symbol.address() as usize, name));
     }

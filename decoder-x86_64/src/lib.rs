@@ -128,6 +128,7 @@ pub enum Instruction {
 
 pub struct Stream<'data> {
     pub reader: yaxpeax_arch::U8Reader<'data>,
+    pub bytes: &'data [u8],
     pub decoder: DecoderKind,
     pub offset: usize,
     pub width: usize,

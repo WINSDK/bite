@@ -351,9 +351,6 @@ impl Backend {
                         );
                     }
                     LineKind::Instruction(line) => {
-                        let tokens = line.stream.tokens();
-                        line.address = format!("0x{:0>10X}", line.section_base + line.offset);
-
                         // memory address
                         texts.push(
                             wgpu_glyph::Text::new(&line.address)
@@ -361,10 +358,14 @@ impl Backend {
                                 .with_color(colors::GRAY40),
                         );
 
-                        // spacing
-                        texts.push(wgpu_glyph::Text::new("  ").with_scale(font_size));
+                        // instruction's bytes
+                        texts.push(
+                            wgpu_glyph::Text::new(&line.bytes)
+                                .with_scale(font_size)
+                                .with_color(colors::GREEN),
+                        );
 
-                        let mut tokens = tokens.iter();
+                        let mut tokens = line.tokens.iter();
 
                         // opcode
                         if let Some(token) = tokens.next() {

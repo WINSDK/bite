@@ -26,10 +26,6 @@ impl TokenStream {
         }
     }
 
-    pub fn tokens(&self) -> &[tokenizing::Token] {
-        &self.inner[..self.token_count]
-    }
-
     pub fn push(&mut self, text: &'static str, color: tokenizing::Color) {
         #[cfg(debug_assertions)]
         if self.token_count == self.inner.len() {
@@ -59,9 +55,17 @@ impl TokenStream {
     }
 }
 
+impl std::ops::Deref for TokenStream {
+    type Target = [Token];
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner[..self.token_count]
+    }
+}
+
 impl ToString for TokenStream {
     fn to_string(&self) -> String {
-        self.tokens().iter().map(|t| &t.text as &str).collect()
+        self.iter().map(|t| &t.text as &str).collect()
     }
 }
 
@@ -130,4 +134,37 @@ pub fn encode_hex(imm: i64) -> String {
 
     // unsafe { raw.set_len(off) }
     // hex
+}
+
+pub fn encode_hex_bytes(bytes: &[u8]) -> String {
+    let mut repr = String::with_capacity(bytes.len() * 3);
+
+    const TABLE: &[u8] = "0123456789ABCDEF".as_bytes();
+
+    for byte in bytes {
+        repr.push(TABLE[(byte >> 4) as usize] as char);
+        repr.push(TABLE[(byte & 0x0f) as usize] as char);
+        repr.push(' ');
+    }
+
+    repr
+}
+
+pub fn encode_hex_bytes_padded(bytes: &[u8], width: usize) -> String {
+    let pad = width.saturating_sub(bytes.len() * 3);
+    let mut repr = String::with_capacity(bytes.len() * 3 + pad);
+
+    const TABLE: &[u8] = "0123456789ABCDEF".as_bytes();
+
+    for byte in bytes {
+        repr.push(TABLE[(byte >> 4) as usize] as char);
+        repr.push(TABLE[(byte & 0x0f) as usize] as char);
+        repr.push(' ');
+    }
+
+    for _ in 0..pad {
+        repr.push(' ');
+    }
+
+    repr
 }
