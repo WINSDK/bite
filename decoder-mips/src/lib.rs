@@ -52,6 +52,7 @@ enum Format {
 pub struct Stream<'data> {
     pub bytes: &'data [u8],
     pub offset: usize,
+    pub width: usize,
     pub section_base: usize,
 }
 
@@ -129,8 +130,6 @@ impl Stream<'_> {
         let rs = dword >> 21 & 0b11111;
         let rt = dword >> 16 & 0b11111;
         let rd = dword >> 11 & 0b11111;
-
-        self.offset += 4;
 
         if inst.mnemomic.is_empty() {
             return Err(Error::InvalidInstruction);
@@ -244,7 +243,18 @@ impl decoder::Streamable for Stream<'_> {
             .get(self.offset..self.offset + 4)
             .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))? as usize;
 
-        Some(self.decode(dword))
+        Some(match self.decode(dword) {
+            Ok(inst) => {
+                self.width = 4;
+                self.offset += self.width;
+                Ok(inst)
+            }
+            Err(err) => {
+                self.width = 1;
+                self.offset += self.width;
+                Err(err)
+            }
+        })
     }
 }
 

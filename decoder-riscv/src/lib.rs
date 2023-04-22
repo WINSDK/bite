@@ -141,16 +141,22 @@ impl Stream<'_> {
                 _ => Err(Error::UnknownOpcode),
             };
 
-            self.width = 2;
-            self.offset += 2;
+            return match decoded_inst {
+                Ok(mut inst) => {
+                    if let Some(map_to_psuedo) = PSUEDOS.get(inst.mnemomic) {
+                        map_to_psuedo(&mut inst);
+                    }
 
-            return decoded_inst.map(|mut inst| {
-                if let Some(map_to_psuedo) = PSUEDOS.get(inst.mnemomic) {
-                    map_to_psuedo(&mut inst);
+                    self.width = 2;
+                    self.offset += self.width;
+                    Ok(inst)
                 }
-
-                inst
-            });
+                Err(err) => {
+                    self.width = 1;
+                    self.offset += self.width;
+                    Err(err)
+                }
+            }
         }
 
         let decoded_inst = match opcode {
@@ -244,16 +250,22 @@ impl Stream<'_> {
             _ => Err(Error::UnknownOpcode),
         };
 
-        self.width = 4;
-        self.offset += 4;
+        match decoded_inst {
+            Ok(mut inst) => {
+                if let Some(map_to_psuedo) = PSUEDOS.get(inst.mnemomic) {
+                    map_to_psuedo(&mut inst);
+                }
 
-        decoded_inst.map(|mut inst| {
-            if let Some(map_to_psuedo) = PSUEDOS.get(inst.mnemomic) {
-                map_to_psuedo(&mut inst);
+                self.width = 4;
+                self.offset += self.width;
+                Ok(inst)
             }
-
-            inst
-        })
+            Err(err) => {
+                self.width = 1;
+                self.offset += self.width;
+                Err(err)
+            }
+        }
     }
 }
 

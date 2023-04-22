@@ -58,11 +58,13 @@ enum InternalInstructionStream<'data> {
 impl<'data> InstructionStream<'data> {
     pub fn new(bytes: &'data [u8], arch: Architecture, section_base: usize) -> Result<Self, Error> {
         let inner = match arch {
-            Architecture::Mips => {
-                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0, section_base })
-            }
-            Architecture::Mips64 => {
-                InternalInstructionStream::Mips(mips::Stream { bytes, offset: 0, section_base })
+            Architecture::Mips | Architecture::Mips64 => {
+                InternalInstructionStream::Mips(mips::Stream {
+                    bytes,
+                    offset: 0,
+                    width: 0,
+                    section_base,
+                })
             }
             Architecture::Riscv32 => InternalInstructionStream::Riscv(riscv::Stream {
                 bytes,
@@ -121,7 +123,7 @@ impl Iterator for InstructionStream<'_> {
                 address = format!("0x{:0>10X}  ", section_base + offset);
                 bytes = decoder::encode_hex_bytes_padded(
                     &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-                    13
+                    13,
                 );
 
                 match inst {
@@ -131,14 +133,14 @@ impl Iterator for InstructionStream<'_> {
             }
             InternalInstructionStream::Mips(ref mut stream) => {
                 let inst = stream.next()?;
-                let width = 4;
+                let width = stream.width;
 
                 section_base = stream.section_base;
                 offset = stream.offset - width;
                 address = format!("0x{:0>10X}  ", section_base + offset);
                 bytes = decoder::encode_hex_bytes_padded(
                     &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-                    13
+                    13,
                 );
 
                 match inst {
@@ -157,7 +159,7 @@ impl Iterator for InstructionStream<'_> {
                 // TODO: if byte array overflows, put it on a newline
                 bytes = decoder::encode_hex_bytes_padded(
                     &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-                    25
+                    25,
                 );
 
                 match inst {
