@@ -12,10 +12,9 @@ OPTIONS:
   -N, --names         Print all symbols exposed by object
   -S, --simplify      Replace common types with shortened paths
   -D, --disassemble   Path to object you're disassembling
-  -C, --config        Path to config used for disassembling
-  -G, --gui           Launch a GUI to explore a give object";
+  -C, --config        Path to config used for disassembling";
 
-const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C", "-G"];
+const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C"];
 const NAMES: &[&str] = &[
     "--help",
     "--libs",
@@ -23,7 +22,6 @@ const NAMES: &[&str] = &[
     "--simplify",
     "--disassemble",
     "--config",
-    "--gui",
 ];
 
 #[derive(Debug, Clone)]
@@ -40,9 +38,6 @@ pub struct Cli {
     /// Disassemble object into `readable` assembly,
     pub disassemble: bool,
 
-    /// Launch a GUI to explore a give object.
-    pub gui: bool,
-
     /// Path to symbol being disassembled.
     pub path: Option<PathBuf>,
 
@@ -57,18 +52,11 @@ impl Cli {
             names: false,
             simplify: false,
             disassemble: false,
-            gui: false,
             config: None,
             path: None,
         };
 
         let mut args = std::env::args().skip(1).peekable();
-
-        // start the gui when no arguements are given
-        if args.peek().is_none() {
-            cli.gui = true;
-            return cli;
-        }
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -101,7 +89,6 @@ impl Cli {
                         }
                     }
                 }
-                "-G" | "--gui" => cli.gui = true,
                 "-C" | "--config" => {
                     if let Some(path) = args.next().as_deref() {
                         if !NAMES.contains(&path) && !ABBRV.contains(&path) {
@@ -153,12 +140,9 @@ impl Cli {
             );
         }
 
-        // you aren't required to pass an object if the GUI is used
-        if !self.gui {
-            assert_exit!(
-                self.disassemble ^ self.libs ^ self.names,
-                "Invalid combination of arguements.\n\n{HELP}"
-            );
-        }
+        assert_exit!(
+            self.disassemble ^ self.libs ^ self.names,
+            "Invalid combination of arguements.\n\n{HELP}"
+        );
     }
 }

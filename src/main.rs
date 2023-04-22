@@ -15,8 +15,7 @@ mod macros;
 mod symbols;
 mod threading;
 
-use disassembler::InstructionStream;
-use object::{Object, ObjectSection, SectionKind};
+use object::Object;
 use once_cell::sync::Lazy;
 use std::fs;
 
@@ -38,23 +37,15 @@ fn set_panic_handler() {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     set_panic_handler();
 
-    if ARGS.gui {
-        return match gui::main().await {
-            Err(err) => panic!("{err:?}"),
-            Ok(..) => Ok(()),
-        };
+    if ARGS.disassemble {
+        gui::main().await.unwrap();
     }
 
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
-
     let obj = object::File::parse(&*binary).expect("Not a valid object.");
-    let index = symbols::Index::parse(&obj)
-        .await
-        .expect("Failed to parse symbols table.");
-
     let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {
@@ -80,6 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if ARGS.names {
+        let index = symbols::Index::parse(&obj).expect("Failed to parse symbols table.");
+
         if index.is_empty() {
             exit!("Object \"{path}\" doesn't seem to export any symbols.");
         }
@@ -91,33 +84,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{symbol}");
         }
     }
-
-    if ARGS.disassemble {
-        let section = obj
-            .sections()
-            .filter(|s| s.kind() == SectionKind::Text)
-            .find(|t| t.name() == Ok(".text"))
-            .expect("Failed to find `.text` section.");
-
-        let raw = section
-            .uncompressed_data()
-            .expect("Failed to decompress .text section.");
-
-        unchecked_println!(
-            "Disassembly of section {}:\n",
-            section.name().unwrap_or("???")
-        );
-
-        let base_offset = section.address() as usize;
-        let stream = match InstructionStream::new(&raw, obj.architecture(), base_offset) {
-            Err(err) => exit!("Failed to disassemble: {err:?}"),
-            Ok(stream) => stream,
-        };
-
-        for instruction in stream {
-            unchecked_println!("{}", instruction.to_string());
-        }
-    }
-
-    Ok(())
 }

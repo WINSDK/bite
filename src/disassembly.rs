@@ -70,9 +70,7 @@ impl Disassembly {
                 .uncompressed_data()
                 .map_err(|_| "Failed to decompress .text section.")?;
 
-            let symbols = Index::parse(&obj)
-                .await
-                .map_err(|_| "Failed to parse symbols table.")?;
+            let symbols = Index::parse(&obj).map_err(|_| "Failed to parse symbols table.")?;
 
             // TODO: optimize for lazy chunk loading
             let base_offset = section.address() as usize;

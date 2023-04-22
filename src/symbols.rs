@@ -24,7 +24,7 @@ impl Index {
         std::fs::File::open(path).ok()
     }
 
-    pub async fn parse(obj: &object::File<'_>) -> pdb::Result<Index> {
+    pub fn parse(obj: &object::File<'_>) -> pdb::Result<Index> {
         let mut symbols: Vec<(usize, &str)> = obj
             .symbols()
             .filter_map(symbol_addr_name)
