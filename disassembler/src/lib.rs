@@ -107,74 +107,73 @@ impl Iterator for InstructionStream<'_> {
     type Item = Line;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let section_base;
-        let offset;
-        let address;
-        let bytes;
         let mut tokens = decoder::TokenStream::new();
 
         match self.inner {
             InternalInstructionStream::Riscv(ref mut stream) => {
                 let inst = stream.next()?;
                 let width = stream.width;
-
-                section_base = stream.section_base;
-                offset = stream.offset - width;
-                address = format!("0x{:0>10X}  ", section_base + offset);
-                bytes = decoder::encode_hex_bytes_padded(
-                    &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-                    13,
-                );
+                let offset = stream.offset - width;
 
                 match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
                     Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
+
+                return Some(Line {
+                    section_base: stream.section_base,
+                    offset,
+                    tokens,
+                    address: format!("0x{:0>10X}  ", stream.section_base + offset),
+                    bytes: decoder::encode_hex_bytes_padded(
+                        &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
+                        13, // 4 bytes shown (4 bytes * (2 hex + 1 space) + 1 pad)
+                    ),
+                })
             }
             InternalInstructionStream::Mips(ref mut stream) => {
                 let inst = stream.next()?;
                 let width = stream.width;
-
-                section_base = stream.section_base;
-                offset = stream.offset - width;
-                address = format!("0x{:0>10X}  ", section_base + offset);
-                bytes = decoder::encode_hex_bytes_padded(
-                    &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-                    13,
-                );
+                let offset = stream.offset - width;
 
                 match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
                     Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
+
+                Some(Line {
+                    section_base: stream.section_base,
+                    offset,
+                    tokens,
+                    address: format!("0x{:0>10X}  ", stream.section_base + offset),
+                    bytes: decoder::encode_hex_bytes_padded(
+                        &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
+                        13, // 4 bytes shown (4 bytes * (2 hex + 1 space) + 1 pad)
+                    ),
+                })
             }
             InternalInstructionStream::X86_64(ref mut stream) => {
                 let inst = stream.next()?;
                 let width = stream.width;
-
-                section_base = stream.section_base;
-                offset = stream.offset - width;
-                address = format!("0x{:0>10X}  ", section_base + offset);
-
-                // TODO: if byte array overflows, put it on a newline
-                bytes = decoder::encode_hex_bytes_padded(
-                    &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-                    25,
-                );
+                let offset = stream.offset - width;
 
                 match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
                     Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
                 }
-            }
-        };
 
-        Some(Line {
-            section_base,
-            offset,
-            tokens,
-            address,
-            bytes,
-        })
+                // TODO: if byte array overflows, put it on a newline
+                Some(Line {
+                    section_base: stream.section_base,
+                    offset,
+                    tokens,
+                    address: format!("0x{:0>10X}  ", stream.section_base + offset),
+                    bytes: decoder::encode_hex_bytes_padded(
+                        &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
+                        25, // 8 bytes shown (8 bytes * (2 hex + 1 space) + 1 pad)
+                    ),
+                })
+            }
+        }
     }
 }
