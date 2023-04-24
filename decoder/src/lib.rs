@@ -69,119 +69,179 @@ impl ToString for TokenStream {
     }
 }
 
-#[macro_export]
-macro_rules! push_unsafe {
-    ($v:expr, $off:expr, $c:expr) => {
-        unsafe {
-            *$v.get_unchecked_mut($off) = $c;
-            $off += 1;
+const HEX_NUGGET: [u8; 16] = *b"0123456789abcdef";
+
+#[inline]
+#[cold]
+fn cold() {}
+
+#[inline]
+fn likely(b: bool) -> bool {
+    if !b { cold() }
+    b
+}
+
+#[inline]
+fn unlikely(b: bool) -> bool {
+    if b { cold() }
+    b
+}
+
+/// Encode 64-bit number with a leading '0x' and in lowercase.
+pub fn encode_hex(mut imm: i64) -> String {
+    unsafe {
+        let mut buffer = Vec::with_capacity(19);
+        let slice = &mut buffer[..];
+        let mut idx = 0;
+
+        if imm.is_negative() {
+            imm = -imm;
+            *slice.get_unchecked_mut(idx) = b'-';
+            idx += 1;
         }
-    };
-}
 
-// #[rustfmt::skip]
-// const ENCODED_NUGGETS: [u8; 16] = [
-//     b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9',
-//     b'a', b'b', b'c', b'd', b'e', b'f',
-// ];
-//
-// #[inline(always)]
-// #[rustfmt::skip]
-// fn reverse_hex_nuggets(mut imm: usize) -> usize {
-//     imm = (imm & 0x00000000ffffffff) << 32 | (imm & 0xffffffff00000000) >> 32;
-//     imm = (imm & 0x0000ffff0000ffff) << 16 | (imm & 0xffff0000ffff0000) >> 16;
-//     imm = (imm & 0x00ff00ff00ff00ff) << 8  | (imm & 0xff00ff00ff00ff00) >> 8;
-//     imm = (imm & 0x0f0f0f0f0f0f0f0f) << 4  | (imm & 0xf0f0f0f0f0f0f0f0) >> 4;
-//     imm
-// }
+        *slice.get_unchecked_mut(idx) = b'0';
+        idx += 1;
+        *slice.get_unchecked_mut(idx) = b'x';
+        idx += 1;
 
-// FIXME: `encode_hex` has a bug related to ilog
-pub fn encode_hex(imm: i64) -> String {
-    if imm.is_negative() {
-        return format!("-{:#x}", -imm);
+        if unlikely(imm == 0) {
+            *slice.get_unchecked_mut(idx) = b'0';
+            idx += 1;
+            buffer.set_len(idx);
+            return String::from_utf8_unchecked(buffer)
+        }
+
+        // imm is already checked to not be zero, therefore this can't fail
+        let len = imm.checked_ilog(16).unwrap_unchecked() as usize + 1;
+        let mut jdx = idx + len;
+
+        while likely(jdx != idx) {
+            let digit = imm & 0b1111;
+            let chr = HEX_NUGGET[digit as usize];
+
+            imm >>= 4;
+            jdx -= 1;
+
+            *slice.get_unchecked_mut(jdx) = chr;
+        }
+
+        buffer.set_len(idx + len);
+        String::from_utf8_unchecked(buffer)
     }
-
-    format!("{imm:#x}")
-
-    // let mut hex = String::with_capacity(20); // max length of an i64
-    // let raw = unsafe { hex.as_mut_vec() };
-    // let mut off = 0;
-
-    // if imm < 0 {
-    //     push_unsafe!(raw, off, b'-');
-    //     imm = -imm;
-    // }
-
-    // push_unsafe!(raw, off, b'0');
-    // push_unsafe!(raw, off, b'x');
-
-    // // log of 0 is undefined
-    // if imm == 0 {
-    //     push_unsafe!(raw, off, b'0');
-    //     unsafe { raw.set_len(off) }
-    //     return hex;
-    // }
-
-    // let num_len = imm.ilog(16) as usize + 1;
-    // let leading_zeros = (16 - num_len) * 4;
-    // let mut imm = reverse_hex_nuggets(imm as usize);
-
-    // imm >>= leading_zeros;
-    // for _ in 0..num_len {
-    //     push_unsafe!(raw, off, ENCODED_NUGGETS[imm & 0b1111]);
-    //     imm >>= 4;
-    // }
-
-    // unsafe { raw.set_len(off) }
-    // hex
 }
 
+/// Encode bytes as 2 digit hex number separated by a space with a leading space.
 pub fn encode_hex_bytes(bytes: &[u8]) -> String {
-    let mut repr = String::with_capacity(bytes.len() * 3);
+    unsafe {
+        let mut buffer = Vec::with_capacity(bytes.len());
+        let slice = &mut buffer[..];
+        let mut idx = 0;
 
-    const TABLE: &[u8] = "0123456789ABCDEF".as_bytes();
+        for byte in bytes {
+            *slice.get_unchecked_mut(idx) = HEX_NUGGET[(byte >> 4) as usize];
+            *slice.get_unchecked_mut(idx + 1) = HEX_NUGGET[(byte & 0b1111) as usize];
+            *slice.get_unchecked_mut(idx + 2) = b' ';
+            idx += 3;
+        }
 
-    for byte in bytes {
-        repr.push(TABLE[(byte >> 4) as usize] as char);
-        repr.push(TABLE[(byte & 0x0f) as usize] as char);
-        repr.push(' ');
+        buffer.set_len(idx);
+        String::from_utf8_unchecked(buffer)
     }
-
-    repr
 }
 
 /// Truncates string past the max width with a '..'.
-pub fn encode_hex_bytes_padded(bytes: &[u8], max_width: usize) -> String {
-    assert!(max_width > 2, "max width most be at least 2");
+pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize) -> String {
+    unsafe {
+        assert!(max_width > 2, "max width most be at least 2");
 
-    let pad = max_width.saturating_sub(bytes.len() * 3);
-    let mut repr = String::with_capacity(bytes.len() * 3 + pad);
+        let pad = max_width.saturating_sub(bytes.len() * 3);
+        let mut buffer = Vec::with_capacity(bytes.len() * 3 + pad);
+        let slice = &mut buffer[..];
+        let mut idx = 0;
 
-    const TABLE: &[u8] = "0123456789ABCDEF".as_bytes();
+        // truncation has to occur
+        if bytes.len() * 3 > max_width {
+            let bytes = &bytes[..max_width / 3];
 
-    // truncation has to occur
-    if bytes.len() * 3 > max_width {
-        let bytes = &bytes[..(max_width - 2) / 3];
+            for byte in bytes {
+                *slice.get_unchecked_mut(idx) = HEX_NUGGET[(byte >> 4) as usize];
+                *slice.get_unchecked_mut(idx + 1) = HEX_NUGGET[(byte & 0b1111) as usize];
+                *slice.get_unchecked_mut(idx + 2) = b' ';
+                idx += 3;
+            }
 
-        for byte in bytes {
-            repr.push(TABLE[(byte >> 4) as usize] as char);
-            repr.push(TABLE[(byte & 0x0f) as usize] as char);
-            repr.push(' ');
+            *slice.get_unchecked_mut(idx) = b'.';
+            *slice.get_unchecked_mut(idx + 1) = b'.';
+            *slice.get_unchecked_mut(idx + 2) = b' ';
+            idx += 3;
+
+            buffer.set_len(idx);
+            return String::from_utf8_unchecked(buffer);
         }
 
-        repr.push_str("..  ");
-        return repr;
+        for byte in bytes {
+            *slice.get_unchecked_mut(idx) = HEX_NUGGET[(byte >> 4) as usize];
+            *slice.get_unchecked_mut(idx + 1) = HEX_NUGGET[(byte & 0b1111) as usize];
+            *slice.get_unchecked_mut(idx + 2) = b' ';
+            idx += 3;
+        }
+
+        for _ in 0..pad {
+            *slice.get_unchecked_mut(idx) = b' ';
+            idx += 1;
+        }
+
+        buffer.set_len(idx);
+        String::from_utf8_unchecked(buffer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn encode_hex() {
+        assert_eq!(super::encode_hex(0x123123), "0x123123");
+        assert_eq!(super::encode_hex(-0x123123), "-0x123123");
+        assert_eq!(super::encode_hex(-0x48848), "-0x48848");
+
+        assert_eq!(super::encode_hex(0x0), "0x0");
+        assert_eq!(super::encode_hex(-0x800000000000000), "-0x800000000000000");
+        assert_eq!(super::encode_hex(0x7fffffffffffffff), "0x7fffffffffffffff");
     }
 
-    for byte in bytes {
-        repr.push(TABLE[(byte >> 4) as usize] as char);
-        repr.push(TABLE[(byte & 0x0f) as usize] as char);
-        repr.push(' ');
+    #[test]
+    fn encode_hex_bytes() {
+        assert_eq!(super::encode_hex_bytes(&[0x10, 0x12, 0x3]), "10 12 03 ");
+        assert_eq!(super::encode_hex_bytes(&[0x10]), "10 ");
+        assert_eq!(super::encode_hex_bytes(&[0xff, 0x1, 0x1, 0x1]), "ff 01 01 01 ");
     }
 
-    for _ in 0..pad {
-        repr.push(' ');
-    }
+    #[test]
+    fn encode_hex_bytes_truncted() {
+        assert_eq!(
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 5),
+            "10 .. "
+        );
 
-    repr
+        assert_eq!(
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 7),
+            "10 12 .. "
+        );
+
+        assert_eq!(
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 8),
+            "10 12 .. "
+        );
+
+        assert_eq!(
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 9),
+            "10 12 03 "
+        );
+
+        assert_eq!(
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 10),
+            "10 12 03  "
+        );
+    }
 }
