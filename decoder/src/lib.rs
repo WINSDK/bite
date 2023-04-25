@@ -6,8 +6,14 @@ pub trait ToTokens {
     fn tokenize(self, stream: &mut TokenStream);
 }
 
+pub trait Decodable {
+    fn is_call(&self) -> bool;
+    fn is_ret(&self) -> bool;
+    fn is_jump(&self) -> bool;
+}
+
 pub trait Streamable {
-    type Item: ToTokens;
+    type Item: ToTokens + Decodable;
     type Error;
 
     fn next(&mut self) -> Option<Result<Self::Item, Self::Error>>;

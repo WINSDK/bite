@@ -125,7 +125,7 @@ impl Iterator for InstructionStream<'_> {
                     offset,
                     tokens,
                     address: format!("0x{:0>10X}  ", stream.section_base + offset),
-                    bytes: decoder::encode_hex_bytes_padded(
+                    bytes: decoder::encode_hex_bytes_truncated(
                         &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
                         13, // 4 bytes shown (4 bytes * (2 hex + 1 space) + 1 pad)
                     ),
@@ -146,7 +146,7 @@ impl Iterator for InstructionStream<'_> {
                     offset,
                     tokens,
                     address: format!("0x{:0>10X}  ", stream.section_base + offset),
-                    bytes: decoder::encode_hex_bytes_padded(
+                    bytes: decoder::encode_hex_bytes_truncated(
                         &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
                         13, // 4 bytes shown (4 bytes * (2 hex + 1 space) + 1 pad)
                     ),
@@ -168,7 +168,7 @@ impl Iterator for InstructionStream<'_> {
                     offset,
                     tokens,
                     address: format!("0x{:0>10X}  ", stream.section_base + offset),
-                    bytes: decoder::encode_hex_bytes_padded(
+                    bytes: decoder::encode_hex_bytes_truncated(
                         &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
                         25, // 8 bytes shown (8 bytes * (2 hex + 1 space) + 1 pad)
                     ),

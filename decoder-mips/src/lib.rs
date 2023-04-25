@@ -56,17 +56,34 @@ pub struct Stream<'data> {
     pub section_base: usize,
 }
 
+struct TableInstruction {
+    mnemomic: &'static str,
+    #[allow(dead_code)]
+    desc: &'static str,
+    format: &'static [usize],
+}
+
 pub struct Instruction {
     mnemomic: &'static str,
     operands: [std::borrow::Cow<'static, str>; 3],
     operand_count: usize,
 }
 
-struct TableInstruction {
-    mnemomic: &'static str,
-    #[allow(dead_code)]
-    desc: &'static str,
-    format: &'static [usize],
+impl decoder::Decodable for Instruction {
+    fn is_call(&self) -> bool {
+        // crazy but return isn't implement as "jal" isn't implemented
+        // FIXME: implement return's in MIPS
+        eprintln!("returns aren't implemented in mips");
+        self.mnemomic == "jal"
+    }
+
+    fn is_ret(&self) -> bool {
+        self.mnemomic == "jr"
+    }
+
+    fn is_jump(&self) -> bool {
+        self.mnemomic == "j"
+    }
 }
 
 impl decoder::ToTokens for Instruction {

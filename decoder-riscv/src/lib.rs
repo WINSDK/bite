@@ -43,6 +43,20 @@ pub struct Instruction {
     operand_count: usize,
 }
 
+impl decoder::Decodable for Instruction {
+    fn is_call(&self) -> bool {
+        self.mnemomic == "call"
+    }
+
+    fn is_ret(&self) -> bool {
+        self.mnemomic == "ret"
+    }
+
+    fn is_jump(&self) -> bool {
+        self.mnemomic.starts_with("jal")
+    }
+}
+
 impl decoder::ToTokens for Instruction {
     fn tokenize(mut self, stream: &mut decoder::TokenStream) {
         stream.push(self.mnemomic, Colors::opcode());
@@ -492,10 +506,19 @@ static PSUEDOS: phf::Map<&str, fn(&mut Instruction)> = phf::phf_map! {
             inst.operands.swap(0, 1);
             inst.operand_count = 1;
         }
+
+        if inst.operands[0] == "zero" || inst.operands[0] == "ra" {
+            inst.mnemomic = "call";
+            inst.operands.swap(0, 1);
+            inst.operand_count = 1;
+            return;
+        }
     },
     "auipc" => |inst| {
-        if inst.operands[0] == "t2" {
-            // todo!();
+        if inst.operands[0] == "t1" || inst.operands[0] == "ra" {
+            inst.operands.swap(0, 1);
+            inst.operand_count = 1;
+            inst.mnemomic = "call";
         }
     }
     // TODO: table p2
@@ -979,8 +1002,8 @@ fn decode_branch(
 
     let mut imm = 0;
 
-    // FIXME: this can be done better
-    imm |= ((bytes & 0b10000000000000000000000000000000) as i32 >> 19) as usize;
+    // sign extend the 32nd bit and shift it into the 13th bit
+    imm |= ((bytes & (1 << 31)) as i32 >> 19) as usize;
     imm |= bytes << 4 & 0b100000000000;
     imm |= bytes >> 20 & 0b011111100000;
     imm |= bytes >> 7 & 0b000000011110;

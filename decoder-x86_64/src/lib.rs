@@ -126,13 +126,87 @@ pub enum Instruction {
     X64(long_mode::Instruction),
 }
 
-pub struct Stream<'data> {
-    pub reader: yaxpeax_arch::U8Reader<'data>,
-    pub bytes: &'data [u8],
-    pub decoder: DecoderKind,
-    pub offset: usize,
-    pub width: usize,
-    pub section_base: usize,
+impl decoder::Decodable for Instruction {
+    fn is_call(&self) -> bool {
+        match self {
+            Self::X86(inst) => match inst.opcode() {
+                protected_mode::Opcode::CALL | protected_mode::Opcode::CALLF => true,
+                _ => false
+            },
+            Self::X64(inst) => match inst.opcode() {
+                long_mode::Opcode::CALL | long_mode::Opcode::CALLF => true,
+                _ => false
+            },
+        }
+    }
+
+    fn is_ret(&self) -> bool {
+        match self {
+            Self::X86(inst) => match inst.opcode() {
+                protected_mode::Opcode::RETURN | protected_mode::Opcode::RETF => true,
+                _ => false
+            }
+            Self::X64(inst) => match inst.opcode() {
+                long_mode::Opcode::RETURN | long_mode::Opcode::RETF => true,
+                _ => false
+            }
+        }
+    }
+
+    fn is_jump(&self) -> bool {
+        match self {
+            Self::X86(inst) => match inst.opcode() {
+                // unconditional jumps
+                protected_mode::Opcode::JMP |
+                protected_mode::Opcode::JMPE |
+                // conditional jumps
+                protected_mode::Opcode::JO |
+                protected_mode::Opcode::JNO |
+                protected_mode::Opcode::JB |
+                protected_mode::Opcode::JNB |
+                protected_mode::Opcode::JZ |
+                protected_mode::Opcode::JNZ |
+                protected_mode::Opcode::JA |
+                protected_mode::Opcode::JNA |
+                protected_mode::Opcode::JS |
+                protected_mode::Opcode::JNS |
+                protected_mode::Opcode::JP |
+                protected_mode::Opcode::JNP |
+                protected_mode::Opcode::JL |
+                protected_mode::Opcode::JGE |
+                protected_mode::Opcode::JLE |
+                protected_mode::Opcode::JG |
+                protected_mode::Opcode::JECXZ
+                => true,
+                _ => false,
+            }
+            Self::X64(inst) => match inst.opcode() {
+                // unconditional jumps
+                long_mode::Opcode::JMP |
+                long_mode::Opcode::JMPE |
+                // conditional jumps
+                long_mode::Opcode::JO |
+                long_mode::Opcode::JNO |
+                long_mode::Opcode::JB |
+                long_mode::Opcode::JNB |
+                long_mode::Opcode::JZ |
+                long_mode::Opcode::JNZ |
+                long_mode::Opcode::JA |
+                long_mode::Opcode::JNA |
+                long_mode::Opcode::JS |
+                long_mode::Opcode::JNS |
+                long_mode::Opcode::JP |
+                long_mode::Opcode::JNP |
+                long_mode::Opcode::JL |
+                long_mode::Opcode::JGE |
+                long_mode::Opcode::JLE |
+                long_mode::Opcode::JG |
+                long_mode::Opcode::JRCXZ
+                => true,
+                _ => false,
+            }
+        }
+    }
 }
 
 impl ToTokens for Instruction {
@@ -142,6 +216,15 @@ impl ToTokens for Instruction {
             Self::X64(inst) => inst.tokenize(stream),
         };
     }
+}
+
+pub struct Stream<'data> {
+    pub reader: yaxpeax_arch::U8Reader<'data>,
+    pub bytes: &'data [u8],
+    pub decoder: DecoderKind,
+    pub offset: usize,
+    pub width: usize,
+    pub section_base: usize,
 }
 
 #[derive(Debug)]
