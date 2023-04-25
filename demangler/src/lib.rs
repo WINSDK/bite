@@ -45,7 +45,7 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn push(&mut self, text: &'static str, color: Color) {
+    pub fn push(&mut self, text: &'static str, color: &'static Color) {
         self.tokens.push(Token {
             text: Cow::Borrowed(text),
             color,
@@ -53,7 +53,7 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn push_cow(&mut self, text: Cow<'static, str>, color: Color) {
+    pub fn push_cow(&mut self, text: Cow<'static, str>, color: &'static Color) {
         self.tokens.push(Token { text, color })
     }
 

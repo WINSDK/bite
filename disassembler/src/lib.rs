@@ -117,7 +117,7 @@ impl Iterator for InstructionStream<'_> {
 
                 match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
-                    Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
+                    Err(err) => tokens.push_owned(format!("{err:?}"), &tokenizing::colors::RED),
                 }
 
                 return Some(Line {
@@ -138,7 +138,7 @@ impl Iterator for InstructionStream<'_> {
 
                 match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
-                    Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
+                    Err(err) => tokens.push_owned(format!("{err:?}"), &tokenizing::colors::RED),
                 }
 
                 Some(Line {
@@ -159,7 +159,7 @@ impl Iterator for InstructionStream<'_> {
 
                 match inst {
                     Ok(inst) => inst.tokenize(&mut tokens),
-                    Err(err) => tokens.push_owned(format!("{err:?}"), tokenizing::colors::RED),
+                    Err(err) => tokens.push_owned(format!("{err:?}"), &tokenizing::colors::RED),
                 }
 
                 // TODO: if byte array overflows, put it on a newline

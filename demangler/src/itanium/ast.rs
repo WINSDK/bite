@@ -5,7 +5,7 @@ use super::index_str::IndexStr;
 use super::subs::{Substitutable, SubstitutionTable};
 use crate::{TokenStream, Colors};
 
-use tokenizing::ColorScheme;
+use tokenizing::{Color, ColorScheme};
 
 use std::cell::Cell;
 use std::fmt;
@@ -411,12 +411,12 @@ impl<'a> DemangleContext<'a> {
         }
     }
 
-    fn push_owned(&mut self, text: String, color: tokenizing::Color) {
+    fn push_owned(&mut self, text: String, color: &'static Color) {
         self.last_char_written = text.chars().last();
         self.stream.push_cow(std::borrow::Cow::Owned(text), color);
     }
 
-    fn push(&mut self, text: &'static str, color: tokenizing::Color) {
+    fn push(&mut self, text: &'static str, color: &'static Color) {
         self.last_char_written = text.chars().last();
         self.stream.push(text, color);
     }

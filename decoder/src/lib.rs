@@ -1,6 +1,6 @@
 //! Shared behaviour required between decoder crates. 
 
-use tokenizing::Token;
+use tokenizing::{Token, Color};
 
 pub trait ToTokens {
     fn tokenize(self, stream: &mut TokenStream);
@@ -32,13 +32,13 @@ impl TokenStream {
         }
     }
 
-    pub fn push(&mut self, text: &'static str, color: tokenizing::Color) {
+    pub fn push(&mut self, text: &'static str, color: &'static Color) {
         #[cfg(debug_assertions)]
         if self.token_count == self.inner.len() {
             panic!("failed to push token");
         }
 
-        self.inner[self.token_count] = tokenizing::Token {
+        self.inner[self.token_count] = Token {
             text: std::borrow::Cow::Borrowed(text),
             color
         };
@@ -46,13 +46,13 @@ impl TokenStream {
         self.token_count += 1;
     }
 
-    pub fn push_owned(&mut self, text: String, color: tokenizing::Color) {
+    pub fn push_owned(&mut self, text: String, color: &'static Color) {
         #[cfg(debug_assertions)]
         if self.token_count == self.inner.len() {
             panic!("failed to push token");
         }
 
-        self.inner[self.token_count] = tokenizing::Token {
+        self.inner[self.token_count] = Token {
             text: std::borrow::Cow::Owned(text),
             color
         };

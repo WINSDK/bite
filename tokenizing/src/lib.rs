@@ -4,96 +4,96 @@
 pub type Colors = IBM;
 
 pub trait ColorScheme {
-    fn brackets() -> Color;
-    fn delimiter() -> Color;
-    fn comment() -> Color;
-    fn item() -> Color;
+    fn brackets() -> &'static Color;
+    fn delimiter() -> &'static Color;
+    fn comment() -> &'static Color;
+    fn item() -> &'static Color;
 
-    fn spacing() -> Color {
-        colors::WHITE
+    fn spacing() -> &'static Color {
+        &colors::WHITE
     }
 
-    fn known() -> Color {
+    fn known() -> &'static Color {
+        &Self::item()
+    }
+
+    fn root() -> &'static Color {
+        &Self::item()
+    }
+
+    fn annotation() -> &'static Color {
+        &Self::item()
+    }
+
+    fn special() -> &'static Color {
         Self::item()
     }
 
-    fn root() -> Color {
-        Self::item()
-    }
-
-    fn annotation() -> Color {
-        Self::item()
-    }
-
-    fn special() -> Color {
-        Self::item()
-    }
-
-    fn expr() -> Color;
-    fn opcode() -> Color;
-    fn register() -> Color;
-    fn immediate() -> Color;
-    fn attribute() -> Color;
-    fn segment() -> Color;
+    fn expr() -> &'static Color;
+    fn opcode() -> &'static Color;
+    fn register() -> &'static Color;
+    fn immediate() -> &'static Color;
+    fn attribute() -> &'static Color;
+    fn segment() -> &'static Color;
 }
 
 pub struct IBM;
 
 impl ColorScheme for IBM {
-    fn brackets() -> Color {
-        colors::GRAY40
+    fn brackets() -> &'static Color {
+        &colors::GRAY40
     }
 
-    fn delimiter() -> Color {
-        colors::GRAY20
+    fn delimiter() -> &'static Color {
+        &colors::GRAY20
     }
 
-    fn comment() -> Color {
-        colors::GRAY20
+    fn comment() -> &'static Color {
+        &colors::GRAY20
     }
 
-    fn item() -> Color {
-        colors::MAGENTA
+    fn item() -> &'static Color {
+        &colors::MAGENTA
     }
 
-    fn known() -> Color {
-        colors::PURPLE
+    fn known() -> &'static Color {
+        &colors::PURPLE
     }
 
-    fn root() -> Color {
-        colors::PURPLE
+    fn root() -> &'static Color {
+        &colors::PURPLE
     }
 
-    fn annotation() -> Color {
-        colors::BLUE
+    fn annotation() -> &'static Color {
+        &colors::BLUE
     }
 
-    fn special() -> Color {
-        colors::RED
+    fn special() -> &'static Color {
+        &colors::RED
     }
 
-    fn expr() -> Color {
-        colors::GRAY99
+    fn expr() -> &'static Color {
+        &colors::GRAY99
     }
 
-    fn opcode() -> Color {
-        colors::WHITE
+    fn opcode() -> &'static Color {
+        &colors::WHITE
     }
 
-    fn register() -> Color {
-        colors::MAGENTA
+    fn register() -> &'static Color {
+        &colors::MAGENTA
     }
 
-    fn immediate() -> Color {
-        colors::BLUE
+    fn immediate() -> &'static Color {
+        &colors::BLUE
     }
 
-    fn attribute() -> Color {
-        colors::GRAY40
+    fn attribute() -> &'static Color {
+        &colors::GRAY40
     }
 
-    fn segment() -> Color {
-        colors::GREEN
+    fn segment() -> &'static Color {
+        &colors::GREEN
     }
 }
 
@@ -144,18 +144,18 @@ impl From<Color> for [f32; 4] {
 #[derive(Debug, Clone)]
 pub struct Token {
     pub text: std::borrow::Cow<'static, str>,
-    pub color: Color,
+    pub color: &'static Color,
 }
 
 impl Token {
     pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
         wgpu_glyph::Text::new(&self.text)
-            .with_color(self.color)
+            .with_color(*self.color)
             .with_scale(scale)
     }
 }
 
 pub const EMPTY_TOKEN: Token = Token {
-    color: colors::WHITE,
+    color: &colors::WHITE,
     text: std::borrow::Cow::Borrowed(""),
 };

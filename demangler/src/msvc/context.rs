@@ -100,7 +100,7 @@ impl Context<'_> {
     }
 
     /// Pushes a [`Literal`] to the [`TokenStream`], resolving any indexing within a literal.
-    pub fn push_literal(&mut self, literal: &Literal, color: Color) {
+    pub fn push_literal(&mut self, literal: &Literal, color: &'static Color) {
         let literal = &self.stream.inner()[literal.start..literal.end];
         let literal: &'static str = unsafe { std::mem::transmute(literal) };
 

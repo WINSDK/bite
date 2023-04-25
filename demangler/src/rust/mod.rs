@@ -89,7 +89,7 @@
 mod tests;
 
 use crate::{TokenStream, Colors};
-use tokenizing::ColorScheme;
+use tokenizing::{Color, ColorScheme};
 
 /// Max recursion depth.
 const MAX_DEPTH: usize = 256;
@@ -150,7 +150,7 @@ impl<'src> Parser {
     }
 
     #[inline]
-    fn push(&mut self, text: &'static str, color: tokenizing::Color) {
+    fn push(&mut self, text: &'static str, color: &'static Color) {
         if self.printing {
             self.stream.push(text, color);
         }

@@ -15,25 +15,26 @@ pub mod protected_mode;
 mod safer_unchecked;
 mod tests;
 
-use yaxpeax_arch::Decoder;
 use decoder::ToTokens;
-use tokenizing::{Colors, ColorScheme};
+use tokenizing::{ColorScheme, Colors};
+use yaxpeax_arch::Decoder;
 
 pub use yaxpeax_arch::U8Reader as Reader;
 
 const MEM_SIZE_STRINGS: [&'static str; 64] = [
-    "byte ", "word ", "BUG ", "dword ", "ptr ", "far ", "BUG ", "qword ", "BUG ", "mword ", "BUG ", "BUG ",
-    "BUG ", "BUG ", "BUG ", "xmmword ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
-    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "ymmword ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
-    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
-    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "ptr ", "zmmword "
+    "byte ", "word ", "BUG ", "dword ", "ptr ", "far ", "BUG ", "qword ", "BUG ", "mword ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "xmmword ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "ymmword ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
+    "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "ptr ", "zmmword ",
 ];
 
 struct Number(i32);
 
 impl ToTokens for Number {
     fn tokenize(self, stream: &mut decoder::TokenStream) {
-        if self.0 == core::i32::MIN {
+        if self.0 == i32::MIN {
             stream.push(" - ", Colors::expr());
             stream.push("0x7fffffff", Colors::immediate());
         } else if self.0 < 0 {
@@ -94,18 +95,6 @@ impl MemoryAccessSize {
     }
 }
 
-impl std::fmt::Display for MemoryAccessSize {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str(self.size_name())
-    }
-}
-
-impl std::fmt::Debug for MemoryAccessSize {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        std::fmt::Display::fmt(self, f)
-    }
-}
-
 pub enum DecoderKind {
     X86(protected_mode::InstDecoder),
     X64(long_mode::InstDecoder),
@@ -131,25 +120,37 @@ impl decoder::Decodable for Instruction {
         match self {
             Self::X86(inst) => match inst.opcode() {
                 protected_mode::Opcode::CALL | protected_mode::Opcode::CALLF => true,
-                _ => false
+                _ => false,
             },
             Self::X64(inst) => match inst.opcode() {
                 long_mode::Opcode::CALL | long_mode::Opcode::CALLF => true,
-                _ => false
+                _ => false,
             },
         }
     }
 
     fn is_ret(&self) -> bool {
+        // iret isn't handled as it returns to the address in eax which
+        // we can't know without more introspection
         match self {
             Self::X86(inst) => match inst.opcode() {
                 protected_mode::Opcode::RETURN | protected_mode::Opcode::RETF => true,
-                _ => false
-            }
+                protected_mode::Opcode::IRET
+                | protected_mode::Opcode::IRETD
+                | protected_mode::Opcode::IRETQ => {
+                    eprintln!("iret instruction isn't decodable");
+                    false
+                }
+                _ => false,
+            },
             Self::X64(inst) => match inst.opcode() {
                 long_mode::Opcode::RETURN | long_mode::Opcode::RETF => true,
-                _ => false
-            }
+                long_mode::Opcode::IRET | long_mode::Opcode::IRETD | long_mode::Opcode::IRETQ => {
+                    eprintln!("iret instruction isn't decodable");
+                    false
+                }
+                _ => false,
+            },
         }
     }
 
@@ -179,7 +180,7 @@ impl decoder::Decodable for Instruction {
                 protected_mode::Opcode::JECXZ
                 => true,
                 _ => false,
-            }
+            },
             Self::X64(inst) => match inst.opcode() {
                 // unconditional jumps
                 long_mode::Opcode::JMP |
@@ -204,7 +205,7 @@ impl decoder::Decodable for Instruction {
                 long_mode::Opcode::JRCXZ
                 => true,
                 _ => false,
-            }
+            },
         }
     }
 }
@@ -240,8 +241,8 @@ impl decoder::Streamable for Stream<'_> {
     type Error = Error;
 
     fn next(&mut self) -> Option<Result<Self::Item, Error>> {
-        use protected_mode::DecodeError as X86Error;
         use long_mode::DecodeError as X64Error;
+        use protected_mode::DecodeError as X86Error;
 
         let result = match self.decoder {
             DecoderKind::X86(decoder) => match decoder.decode(&mut self.reader) {
@@ -250,15 +251,15 @@ impl decoder::Streamable for Stream<'_> {
                 Err(X86Error::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
                 Err(X86Error::TooLong) => Some(Err(Error::TooLong)),
                 Err(X86Error::ExhaustedInput | X86Error::IncompleteDecoder) => None,
-                Ok(inst) => Some(Ok(Instruction::X86(inst)))
-            }
+                Ok(inst) => Some(Ok(Instruction::X86(inst))),
+            },
             DecoderKind::X64(decoder) => match decoder.decode(&mut self.reader) {
                 Err(X64Error::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
                 Err(X64Error::InvalidOperand) => Some(Err(Error::InvalidOperand)),
                 Err(X64Error::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
                 Err(X64Error::TooLong) => Some(Err(Error::TooLong)),
                 Err(X64Error::ExhaustedInput | X64Error::IncompleteDecoder) => None,
-                Ok(inst) => Some(Ok(Instruction::X64(inst)))
+                Ok(inst) => Some(Ok(Instruction::X64(inst))),
             },
         };
 
