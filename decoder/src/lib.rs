@@ -183,17 +183,16 @@ fn unlikely(b: bool) -> bool {
 }
 
 /// Encode 64-bit number with a leading '0x' and in lowercase.
-pub fn encode_hex(imm: i64) -> String {
+pub fn encode_hex(mut imm: i64) -> String {
     unsafe {
         let mut buffer = Vec::with_capacity(19);
         let slice = &mut buffer[..];
         let mut idx = 0;
 
-        let is_negative = imm.is_negative();
-        let mut imm = imm as u64;
-        if is_negative {
+        if imm.is_negative() {
             *slice.get_unchecked_mut(idx) = b'-';
             idx += 1;
+            imm = imm.wrapping_neg()
         }
 
         *slice.get_unchecked_mut(idx) = b'0';
