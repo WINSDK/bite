@@ -1,11 +1,11 @@
 //! Symbol demangler for common mangling schemes.
 
 use std::borrow::Cow;
-use tokenizing::{Colors, Color, Token, ColorScheme};
+use tokenizing::{Color, ColorScheme, Colors, Token};
 
-pub mod rust;
-pub mod msvc;
 pub mod itanium;
+pub mod msvc;
+pub mod rust;
 
 #[derive(Debug)]
 pub struct TokenStream {

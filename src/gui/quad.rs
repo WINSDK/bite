@@ -1,7 +1,7 @@
 use std::mem;
 
-use tokenizing::Color;
 use bytemuck::{Pod, Zeroable};
+use tokenizing::Color;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]

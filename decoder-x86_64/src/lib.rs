@@ -1,8 +1,6 @@
 //! # `yaxpeax-x86`, a decoder for x86-family instruction sets
 //!
-//! `yaxpeax-x86` provides x86 decoders, for 64-, and 32-bit modes. `yaxpeax-x86` also
-//! implements traits defined by `yaxpeax_arch`, making it suitable for interchangeable use with
-//! other `yaxpeax`-family instruction decoders.
+//! `yaxpeax-x86` provides x86 decoders, for 64-bit and 32-bit modes.
 //!
 //! instructions, operands, registers, and generally all decoding structures, are in their mode's
 //! respective submodule:
@@ -15,11 +13,8 @@ pub mod protected_mode;
 mod safer_unchecked;
 mod tests;
 
-use decoder::ToTokens;
+use decoder::{Decoded, ToTokens};
 use tokenizing::{ColorScheme, Colors};
-use yaxpeax_arch::Decoder;
-
-pub use yaxpeax_arch::U8Reader as Reader;
 
 const MEM_SIZE_STRINGS: [&'static str; 64] = [
     "byte ", "word ", "BUG ", "dword ", "ptr ", "far ", "BUG ", "qword ", "BUG ", "mword ", "BUG ",
@@ -95,117 +90,17 @@ impl MemoryAccessSize {
     }
 }
 
-pub enum DecoderKind {
-    X86(protected_mode::InstDecoder),
-    X64(long_mode::InstDecoder),
-}
-
-impl DecoderKind {
-    pub fn x86() -> Self {
-        Self::X86(protected_mode::InstDecoder::default())
-    }
-
-    pub fn x64() -> Self {
-        Self::X64(long_mode::InstDecoder::default())
-    }
-}
-
+#[derive(Debug)]
 pub enum Instruction {
     X86(protected_mode::Instruction),
     X64(long_mode::Instruction),
 }
 
-impl decoder::Decodable for Instruction {
-    fn is_call(&self) -> bool {
+impl Instruction {
+    pub fn len(&self) -> usize {
         match self {
-            Self::X86(inst) => match inst.opcode() {
-                protected_mode::Opcode::CALL | protected_mode::Opcode::CALLF => true,
-                _ => false,
-            },
-            Self::X64(inst) => match inst.opcode() {
-                long_mode::Opcode::CALL | long_mode::Opcode::CALLF => true,
-                _ => false,
-            },
-        }
-    }
-
-    fn is_ret(&self) -> bool {
-        // iret isn't handled as it returns to the address in eax which
-        // we can't know without more introspection
-        match self {
-            Self::X86(inst) => match inst.opcode() {
-                protected_mode::Opcode::RETURN | protected_mode::Opcode::RETF => true,
-                protected_mode::Opcode::IRET
-                | protected_mode::Opcode::IRETD
-                | protected_mode::Opcode::IRETQ => {
-                    eprintln!("iret instruction isn't decodable");
-                    false
-                }
-                _ => false,
-            },
-            Self::X64(inst) => match inst.opcode() {
-                long_mode::Opcode::RETURN | long_mode::Opcode::RETF => true,
-                long_mode::Opcode::IRET | long_mode::Opcode::IRETD | long_mode::Opcode::IRETQ => {
-                    eprintln!("iret instruction isn't decodable");
-                    false
-                }
-                _ => false,
-            },
-        }
-    }
-
-    fn is_jump(&self) -> bool {
-        match self {
-            Self::X86(inst) => match inst.opcode() {
-                // unconditional jumps
-                protected_mode::Opcode::JMP |
-                protected_mode::Opcode::JMPE |
-                // conditional jumps
-                protected_mode::Opcode::JO |
-                protected_mode::Opcode::JNO |
-                protected_mode::Opcode::JB |
-                protected_mode::Opcode::JNB |
-                protected_mode::Opcode::JZ |
-                protected_mode::Opcode::JNZ |
-                protected_mode::Opcode::JA |
-                protected_mode::Opcode::JNA |
-                protected_mode::Opcode::JS |
-                protected_mode::Opcode::JNS |
-                protected_mode::Opcode::JP |
-                protected_mode::Opcode::JNP |
-                protected_mode::Opcode::JL |
-                protected_mode::Opcode::JGE |
-                protected_mode::Opcode::JLE |
-                protected_mode::Opcode::JG |
-                protected_mode::Opcode::JECXZ
-                => true,
-                _ => false,
-            },
-            Self::X64(inst) => match inst.opcode() {
-                // unconditional jumps
-                long_mode::Opcode::JMP |
-                long_mode::Opcode::JMPE |
-                // conditional jumps
-                long_mode::Opcode::JO |
-                long_mode::Opcode::JNO |
-                long_mode::Opcode::JB |
-                long_mode::Opcode::JNB |
-                long_mode::Opcode::JZ |
-                long_mode::Opcode::JNZ |
-                long_mode::Opcode::JA |
-                long_mode::Opcode::JNA |
-                long_mode::Opcode::JS |
-                long_mode::Opcode::JNS |
-                long_mode::Opcode::JP |
-                long_mode::Opcode::JNP |
-                long_mode::Opcode::JL |
-                long_mode::Opcode::JGE |
-                long_mode::Opcode::JLE |
-                long_mode::Opcode::JG |
-                long_mode::Opcode::JRCXZ
-                => true,
-                _ => false,
-            },
+            Instruction::X86(inst) => inst.len(),
+            Instruction::X64(inst) => inst.len(),
         }
     }
 }
@@ -219,53 +114,24 @@ impl ToTokens for Instruction {
     }
 }
 
-pub struct Stream<'data> {
-    pub reader: yaxpeax_arch::U8Reader<'data>,
-    pub bytes: &'data [u8],
-    pub decoder: DecoderKind,
-    pub offset: usize,
-    pub width: usize,
-    pub section_base: usize,
-}
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Error {
     InvalidOpcode,
     InvalidOperand,
     InvalidPrefixes,
     TooLong,
+    ExhaustedInput,
+    IncompleteDecoder,
 }
 
-impl decoder::Streamable for Stream<'_> {
-    type Item = Instruction;
-    type Error = Error;
+impl decoder::Complete for Error {
+    #[inline]
+    fn is_complete(&self) -> bool {
+        !matches!(self, Error::ExhaustedInput | Error::IncompleteDecoder)
+    }
 
-    fn next(&mut self) -> Option<Result<Self::Item, Error>> {
-        use long_mode::DecodeError as X64Error;
-        use protected_mode::DecodeError as X86Error;
-
-        let result = match self.decoder {
-            DecoderKind::X86(decoder) => match decoder.decode(&mut self.reader) {
-                Err(X86Error::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
-                Err(X86Error::InvalidOperand) => Some(Err(Error::InvalidOperand)),
-                Err(X86Error::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
-                Err(X86Error::TooLong) => Some(Err(Error::TooLong)),
-                Err(X86Error::ExhaustedInput | X86Error::IncompleteDecoder) => None,
-                Ok(inst) => Some(Ok(Instruction::X86(inst))),
-            },
-            DecoderKind::X64(decoder) => match decoder.decode(&mut self.reader) {
-                Err(X64Error::InvalidOpcode) => Some(Err(Error::InvalidOpcode)),
-                Err(X64Error::InvalidOperand) => Some(Err(Error::InvalidOperand)),
-                Err(X64Error::InvalidPrefixes) => Some(Err(Error::InvalidPrefixes)),
-                Err(X64Error::TooLong) => Some(Err(Error::TooLong)),
-                Err(X64Error::ExhaustedInput | X64Error::IncompleteDecoder) => None,
-                Ok(inst) => Some(Ok(Instruction::X64(inst))),
-            },
-        };
-
-        let width = <Reader as yaxpeax_arch::Reader<u64, u8>>::offset(&mut self.reader) as usize;
-        self.offset += width;
-        self.width = width;
-        return result;
+    #[inline]
+    fn incomplete_size(&self) -> usize {
+        1
     }
 }

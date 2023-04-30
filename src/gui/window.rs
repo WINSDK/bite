@@ -1,9 +1,9 @@
-use tokenizing::colors;
-use crate::gui::Error;
+use crate::disassembly::LineKind;
+use crate::gui::quad;
 use crate::gui::texture::Texture;
 use crate::gui::uniforms;
-use crate::gui::quad;
-use crate::disassembly::LineKind;
+use crate::gui::Error;
+use tokenizing::colors;
 
 use std::mem::size_of;
 use std::sync::atomic::Ordering;
@@ -352,20 +352,20 @@ impl Backend {
                     }
                     LineKind::Instruction(line) => {
                         // memory address
-                        texts.push(
-                            wgpu_glyph::Text::new(&line.address)
-                                .with_scale(font_size)
-                                .with_color(colors::GRAY40),
-                        );
+                        // texts.push(
+                        //     wgpu_glyph::Text::new(&line.address)
+                        //         .with_scale(font_size)
+                        //         .with_color(colors::GRAY40),
+                        // );
 
                         // instruction's bytes
-                        texts.push(
-                            wgpu_glyph::Text::new(&line.bytes)
-                                .with_scale(font_size)
-                                .with_color(colors::GREEN),
-                        );
+                        // texts.push(
+                        //     wgpu_glyph::Text::new(&line.bytes)
+                        //         .with_scale(font_size)
+                        //         .with_color(colors::GREEN),
+                        // );
 
-                        let mut tokens = line.tokens.iter();
+                        let mut tokens = line.iter();
 
                         // opcode
                         if let Some(token) = tokens.next() {

@@ -1,4 +1,4 @@
-use crate::long_mode::{InstDecoder, Operand, RegSpec};
+use crate::long_mode::{Decoder, Operand, RegSpec};
 use crate::MemoryAccessSize;
 
 #[test]
@@ -18,7 +18,7 @@ fn memory_widths() {
     assert_eq!(Operand::RegDeref(RegSpec::rsp()).width(), None);
 
     fn mem_size_of(data: &[u8]) -> MemoryAccessSize {
-        let decoder = InstDecoder::default();
+        let decoder = Decoder::default();
         decoder.decode_slice(data).unwrap().mem_size().unwrap()
     }
 
@@ -32,8 +32,13 @@ fn memory_widths() {
 #[test]
 fn test_implied_memory_width() {
     fn mem_size_of(data: &[u8]) -> Option<u8> {
-        let decoder = InstDecoder::default();
-        decoder.decode_slice(data).unwrap().mem_size().unwrap().bytes_size()
+        let decoder = Decoder::default();
+        decoder
+            .decode_slice(data)
+            .unwrap()
+            .mem_size()
+            .unwrap()
+            .bytes_size()
     }
 
     // test push, pop, call, and ret

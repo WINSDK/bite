@@ -15,6 +15,21 @@ pub enum Error {
 
     /// Instruction has a valid register and opcode yet is still invalid.
     InvalidInstruction,
+
+    /// There are no more bytes left to consume.
+    Exhausted,
+}
+
+impl decoder::Complete for Error {
+    #[inline]
+    fn is_complete(&self) -> bool {
+        !matches!(self, Error::Exhausted)
+    }
+
+    #[inline]
+    fn incomplete_size(&self) -> usize {
+        4
+    }
 }
 
 macro_rules! operands {
@@ -33,27 +48,38 @@ macro_rules! operands {
 
 #[rustfmt::skip]
 pub const REGISTERS: [&str; 32] = [
-    "$zero", "$at",
-    "$v0", "$v1",
-    "$a0", "$a1", "$a2", "$a3",
-    "$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7",
-    "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
-    "$t8", "$t9",
-    "$k0", "$k1", 
-    "$gp", "$sp", "$fp", "$ra",
+    "zero", "at",
+    "v0", "v1",
+    "a0", "a1", "a2", "a3",
+    "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+    "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7","t8", "t9",
+    "k0", "k1", "gp", "sp", "fp", "ra",
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+#[rustfmt::skip]
+pub enum Register {
+    Zero, At,
+    V0, V1,
+    A0, A1, A2, A3,
+    T0, T1, T2, T3, T4, T5, T6, T7,
+    S0, S1, S2, S3, S4, S5, S6, S7, T8, T9,
+    K0, K1, Gp, Sp, Fp, Ra
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Operand {
+    Register(Register),
+    Immediate(i64),
+    #[default]
+    Nothing,
+}
 
 enum Format {
     R,
     I,
     J,
-}
-
-pub struct Stream<'data> {
-    pub bytes: &'data [u8],
-    pub offset: usize,
-    pub width: usize,
-    pub section_base: usize,
 }
 
 struct TableInstruction {
@@ -63,13 +89,22 @@ struct TableInstruction {
     format: &'static [usize],
 }
 
+#[derive(Debug, Default)]
 pub struct Instruction {
     mnemomic: &'static str,
     operands: [std::borrow::Cow<'static, str>; 3],
     operand_count: usize,
 }
 
-impl decoder::Decodable for Instruction {
+impl decoder::Decoded for Instruction {
+    type Instruction = Instruction;
+    type Operand = std::borrow::Cow<'static, str>;
+
+    #[inline]
+    fn len(&self) -> usize {
+        4
+    }
+
     fn is_call(&self) -> bool {
         // crazy but return isn't implement as "jal" isn't implemented
         // FIXME: implement return's in MIPS
@@ -86,34 +121,19 @@ impl decoder::Decodable for Instruction {
     }
 }
 
-impl decoder::ToTokens for Instruction {
-    fn tokenize(mut self, stream: &mut decoder::TokenStream) {
-        stream.push(self.mnemomic, Colors::opcode());
+#[derive(Default)]
+pub struct Decoder;
 
-        // there are operands
-        if self.operand_count > 1 {
-            stream.push(" ", Colors::spacing());
+impl decoder::Decodable for Decoder {
+    type Instruction = Instruction;
+    type Error = Error;
+    type Operand = std::borrow::Cow<'static, str>;
 
-            // iterate through operands
-            for idx in 1..self.operand_count {
-                let operand = std::mem::take(&mut self.operands[idx]);
+    fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Self::Error> {
+        let mut bytes = [0u8; 4];
+        reader.next_n(&mut bytes).ok_or(Error::Exhausted)?;
+        let dword = u32::from_le_bytes(bytes) as usize;
 
-                match operand {
-                    Cow::Owned(s) => stream.push_owned(s, Colors::immediate()),
-                    Cow::Borrowed(s) => stream.push(s, Colors::register()),
-                };
-
-                // separator
-                if idx != self.operand_count - 1 {
-                    stream.push(", ", Colors::expr());
-                }
-            }
-        }
-    }
-}
-
-impl Stream<'_> {
-    fn decode(&mut self, dword: usize) -> Result<Instruction, Error> {
         // nop instruction isn't included in any MIPS spec
         if dword == 0b00000000_00000000_00000000_00000000 {
             let (operands, operand_count) = operands![];
@@ -250,28 +270,29 @@ impl Stream<'_> {
     }
 }
 
-impl decoder::Streamable for Stream<'_> {
-    type Item = Instruction;
-    type Error = Error;
+impl decoder::ToTokens for Instruction {
+    fn tokenize(mut self, stream: &mut decoder::TokenStream) {
+        stream.push(self.mnemomic, Colors::opcode());
 
-    fn next(&mut self) -> Option<Result<Self::Item, Error>> {
-        let dword = self
-            .bytes
-            .get(self.offset..self.offset + 4)
-            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))? as usize;
+        // there are operands
+        if self.operand_count > 1 {
+            stream.push(" ", Colors::spacing());
 
-        Some(match self.decode(dword) {
-            Ok(inst) => {
-                self.width = 4;
-                self.offset += self.width;
-                Ok(inst)
+            // iterate through operands
+            for idx in 1..self.operand_count {
+                let operand = std::mem::take(&mut self.operands[idx]);
+
+                match operand {
+                    Cow::Owned(s) => stream.push_owned(s, Colors::immediate()),
+                    Cow::Borrowed(s) => stream.push(s, Colors::register()),
+                };
+
+                // separator
+                if idx != self.operand_count - 1 {
+                    stream.push(", ", Colors::expr());
+                }
             }
-            Err(err) => {
-                self.width = 1;
-                self.offset += self.width;
-                Err(err)
-            }
-        })
+        }
     }
 }
 

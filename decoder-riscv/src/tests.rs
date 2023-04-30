@@ -1,13 +1,14 @@
 #![cfg(test)]
 
-use object::{Object, ObjectSection, SectionKind};
 use decoder::{Streamable, ToTokens};
+use object::{Object, ObjectSection, SectionKind};
 
 macro_rules! decode_instructions {
     ($code:literal) => {{
         static CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
 
-        let code = format!("
+        let code = format!(
+            "
             #![deny(warnings)]
             #![no_std]
             #![no_main]
@@ -18,7 +19,9 @@ macro_rules! decode_instructions {
             fn panic(_: &core::panic::PanicInfo) -> ! {{
                 loop {{}}
             }}
-        ", $code);
+        ",
+            $code
+        );
 
         let mut out_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
@@ -74,7 +77,7 @@ macro_rules! decode_instructions {
 
                     inst.tokenize(&mut stream);
                     decoded.push(stream.to_string());
-                },
+                }
                 Err(..) => decoded.push("????".to_string()),
             }
         }
@@ -85,7 +88,8 @@ macro_rules! decode_instructions {
 
 #[test]
 fn deref() -> Result<(), Box<dyn std::error::Error>> {
-    let decoded = decode_instructions!("
+    let decoded = decode_instructions!(
+        "
         .global _start
         _start:
             lui	a0, 4096
@@ -93,7 +97,8 @@ fn deref() -> Result<(), Box<dyn std::error::Error>> {
             sw	a1, 0(a0)
             li	a0, 0
             ret
-   ");
+   "
+    );
 
     let test = [
         "lui a0, 4096",
@@ -115,7 +120,8 @@ fn deref() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn sha256() -> Result<(), Box<dyn std::error::Error>> {
-    let decoded = decode_instructions!("
+    let decoded = decode_instructions!(
+        "
         .global _start
         memset:
             li	a3, 0
@@ -519,7 +525,8 @@ fn sha256() -> Result<(), Box<dyn std::error::Error>> {
             ld	ra, 120(sp)
             addi	sp, sp, 128
             ret
-   ");
+   "
+    );
 
     let test = [
         "li a3, 0",
@@ -774,7 +781,6 @@ fn sha256() -> Result<(), Box<dyn std::error::Error>> {
         "addi a0, a0, 1",
         "sb zero, a3, 0",
         "bne a0, a2, 0x113ce",
-
         "j 0x11406",
         "li a1, 63",
         "addiw a0, a0, 1",
@@ -877,7 +883,7 @@ fn sha256() -> Result<(), Box<dyn std::error::Error>> {
         "jal 0x1139a",
         "ldsp ra, 120",
         "addi16sp 128",
-        "ret"
+        "ret",
     ];
 
     for (test, decoded) in test.iter().zip(decoded) {

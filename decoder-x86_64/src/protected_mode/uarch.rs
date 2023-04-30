@@ -16,20 +16,19 @@ pub mod amd {
     //! as retrieved 2020 may 19,
     //! `sha256: 87ff152ae18c017dcbfb9f7ee6e88a9f971f6250fd15a70a3dd87c3546323bd5`
 
-    use crate::protected_mode::InstDecoder;
+    use crate::protected_mode::Decoder;
 
     /// `k8` was the first AMD microarchitecture to implement x86_64, launched in 2003. while later
     /// `k8`-based processors supported SSE3, these predefined decoders pick the lower end of
     /// support - SSE2 and no later.
-    pub fn k8() -> InstDecoder {
-        InstDecoder::minimal()
+    pub fn k8() -> Decoder {
+        Decoder::minimal()
     }
 
     /// `k10` was the successor to `k8`, launched in 2007. `k10` cores extended SSE support through
     /// to SSE4.2a, as well as consistent `cmov` support, among other features.
-    pub fn k10() -> InstDecoder {
-        k8()
-            .with_cmov()
+    pub fn k10() -> Decoder {
+        k8().with_cmov()
             .with_cmpxchg16b()
             .with_svm()
             .with_abm()
@@ -43,7 +42,7 @@ pub mod amd {
 
     /// `Bulldozer` was the successor to `K10`, launched in 2011. `Bulldozer` cores include AVX
     /// support among other extensions, and are notable for including `AESNI`.
-    pub fn bulldozer() -> InstDecoder {
+    pub fn bulldozer() -> Decoder {
         k10()
             .with_bmi1()
             .with_aesni()
@@ -55,21 +54,18 @@ pub mod amd {
     }
 
     /// `Piledriver` was the successor to `Bulldozer`, launched in 2012.
-    pub fn piledriver() -> InstDecoder {
-        bulldozer()
-            .with_tbm()
-            .with_fma3()
-            .with_fma4()
+    pub fn piledriver() -> Decoder {
+        bulldozer().with_tbm().with_fma3().with_fma4()
     }
 
     /// `Steamroller` was the successor to `Piledriver`, launched in 2014. unlike `Piledriver`
     /// cores, these cores do not support `TBM` or `FMA3`.
-    pub fn steamroller() -> InstDecoder {
+    pub fn steamroller() -> Decoder {
         bulldozer()
     }
 
     /// `Excavator` was the successor to `Steamroller`, launched in 2015.
-    pub fn excavator() -> InstDecoder {
+    pub fn excavator() -> Decoder {
         steamroller()
             .with_movbe()
             .with_bmi2()
@@ -85,7 +81,7 @@ pub mod amd {
     /// `Zen` was the successor to `Excavator`, launched in 2017. `Zen` cores extend SIMD
     /// instructions to AVX2 and discarded FMA4, TBM, and XOP extensions. they also gained ADX,
     /// SHA, RDSEED, and other extensions.
-    pub fn zen() -> InstDecoder {
+    pub fn zen() -> Decoder {
         k10()
             .with_avx()
             .with_avx2()
@@ -100,23 +96,21 @@ pub mod amd {
             .with_sha()
             .with_rdseed()
             .with_fma3()
-            // TODO: XSAVEC, XSAVES, XRSTORS, CLFLUSHOPT, CLZERO?
+        // TODO: XSAVEC, XSAVES, XRSTORS, CLFLUSHOPT, CLZERO?
     }
 }
 
 pub mod intel {
     //! sourced by walking wikipedia pages. seriously! this stuff is kinda hard to figure out!
 
-    use crate::protected_mode::InstDecoder;
+    use crate::protected_mode::Decoder;
 
     /// `Netburst` was the first Intel microarchitecture to implement x86_64, beginning with the
     /// `Prescott` family launched in 2004. while the wider `Netburst` family launched in 2000
     /// with only SSE2, the first `x86_64`-supporting incarnation was `Prescott` which indeed
     /// included SSE3.
-    pub fn netburst() -> InstDecoder {
-        InstDecoder::minimal()
-            .with_cmov()
-            .with_sse3()
+    pub fn netburst() -> Decoder {
+        Decoder::minimal().with_cmov().with_sse3()
     }
 
     /// `Core` was the successor to `Netburst`, launched in 2006. it included up to SSE4, with
@@ -124,54 +118,44 @@ pub mod intel {
     /// "Woodcrest", for mobile, desktop, and server processors respectively. not to be confused
     /// with the later `Nehalem` microarchitecture that introduced the `Core i*` product lines,
     /// `Core 2 *` processors used the `Core` architecture.
-    pub fn core() -> InstDecoder {
-        netburst()
-            .with_ssse3()
-            .with_sse4()
+    pub fn core() -> Decoder {
+        netburst().with_ssse3().with_sse4()
     }
 
     /// `Penryn` was the successor to `Core`, launched in early 2008. it added SSE4.1, along with
     /// virtualization extensions.
-    pub fn penryn() -> InstDecoder {
-        core()
-            .with_sse4_1()
+    pub fn penryn() -> Decoder {
+        core().with_sse4_1()
     }
 
     /// `Nehalem` was the successor to `Penryn`, launched in late 2008. not to be confused with the
     /// earlier `Core` microarchitecture, the `Core i*` products were based on `Nehalem` cores.
     /// `Nehalem` added SSE4.2 extensions, along with the `POPCNT` instruction.
-    pub fn nehalem() -> InstDecoder {
-        penryn()
-            .with_sse4_2()
-            .with_popcnt()
+    pub fn nehalem() -> Decoder {
+        penryn().with_sse4_2().with_popcnt()
     }
 
     /// `Westmere` was the successor to `Nehalem`, launched in 2010. it added AES-NI and CLMUL
     /// extensions.
-    pub fn westmere() -> InstDecoder {
-        nehalem()
-            .with_aesni()
-            .with_pclmulqdq()
+    pub fn westmere() -> Decoder {
+        nehalem().with_aesni().with_pclmulqdq()
     }
 
     /// `Sandy Bridge` was the successor to `Westmere`, launched in 2011. it added AVX
     /// instructions.
-    pub fn sandybridge() -> InstDecoder {
-        westmere()
-            .with_avx()
+    pub fn sandybridge() -> Decoder {
+        westmere().with_avx()
     }
 
     /// `Ivy Bridge` was the successor to `Sandy Bridge`, launched in 2012. it added F16C
     /// extensions for 16-bit floating point conversion, and the RDRAND instruction.
-    pub fn ivybridge() -> InstDecoder {
-        sandybridge()
-            .with_f16c()
-            .with_rdrand()
+    pub fn ivybridge() -> Decoder {
+        sandybridge().with_f16c().with_rdrand()
     }
 
     /// `Haswell` was the successor to `Ivy Bridge`, launched in 2013. it added several instruction
     /// set extensions: AVX2, BMI1, BMI2, ABM, and FMA3.
-    pub fn haswell() -> InstDecoder {
+    pub fn haswell() -> Decoder {
         ivybridge()
             .with_bmi1()
             .with_bmi2()
@@ -182,20 +166,16 @@ pub mod intel {
 
     /// `Haswell-EX` was a variant of `Haswell` launched in 2015 with functional TSX. these cores
     /// were shipped as `E7-48xx/E7-88xx v3` models of processors.
-    pub fn haswell_ex() -> InstDecoder {
-        haswell()
-            .with_tsx()
+    pub fn haswell_ex() -> Decoder {
+        haswell().with_tsx()
     }
 
     /// `Broadwell` was the successor to `Haswell`, launched in late 2014. it added ADX, RDSEED,
     /// and PREFETCHW, as well as broadly rolling out TSX. TSX is enabled on this decoder because
     /// some chips of this microarchitecture rolled out with TSX, and lack of TSX seems to be
     /// reported as an errata (for example, the `Broadwell-Y` line of parts).
-    pub fn broadwell() -> InstDecoder {
-        haswell_ex()
-            .with_adx()
-            .with_rdseed()
-            .with_prefetchw()
+    pub fn broadwell() -> Decoder {
+        haswell_ex().with_adx().with_rdseed().with_prefetchw()
     }
 
     /// `Skylake` was the successor to `Broadwell`, launched in mid 2015. it added MPX and SGX
@@ -211,15 +191,13 @@ pub mod intel {
     ///     .with_avx512_dq();
     /// ```
     /// is likely your best option.
-    pub fn skylake() -> InstDecoder {
-        broadwell()
-            .with_mpx()
-            .with_sgx()
+    pub fn skylake() -> Decoder {
+        broadwell().with_mpx().with_sgx()
     }
 
     /// `Kaby Lake` was the successor to `Sky Lake`, launched in 2016. it adds no extensions to
     /// x86_64 implementaiton beyond `skylake`.
-    pub fn kabylake() -> InstDecoder {
+    pub fn kabylake() -> Decoder {
         skylake()
     }
     // ice lake is shipping so that should probably be included...

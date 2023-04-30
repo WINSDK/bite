@@ -1,22 +1,33 @@
-//! Shared behaviour required between decoder crates. 
+//! Shared behaviour required between decoder crates.
 
-use tokenizing::{Token, Color};
+use std::fmt::Debug;
+use tokenizing::{Color, Token};
 
 pub trait ToTokens {
     fn tokenize(self, stream: &mut TokenStream);
 }
 
-pub trait Decodable {
+pub trait Decoded {
+    type Instruction: Debug + Default;
+    type Operand;
+
+    fn len(&self) -> usize;
     fn is_call(&self) -> bool;
     fn is_ret(&self) -> bool;
     fn is_jump(&self) -> bool;
 }
 
-pub trait Streamable {
-    type Item: ToTokens + Decodable;
-    type Error;
+pub trait Complete {
+    fn is_complete(&self) -> bool;
+    fn incomplete_size(&self) -> usize;
+}
 
-    fn next(&mut self) -> Option<Result<Self::Item, Self::Error>>;
+pub trait Decodable {
+    type Instruction: Debug + Decoded + ToTokens;
+    type Error: Debug + Complete;
+    type Operand;
+
+    fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Self::Error>;
 }
 
 pub struct TokenStream {
@@ -40,7 +51,7 @@ impl TokenStream {
 
         self.inner[self.token_count] = Token {
             text: std::borrow::Cow::Borrowed(text),
-            color
+            color,
         };
 
         self.token_count += 1;
@@ -54,7 +65,7 @@ impl TokenStream {
 
         self.inner[self.token_count] = Token {
             text: std::borrow::Cow::Owned(text),
-            color
+            color,
         };
 
         self.token_count += 1;
@@ -75,6 +86,80 @@ impl ToString for TokenStream {
     }
 }
 
+pub struct Reader<'data> {
+    start: *const u8,
+    position: *const u8,
+    end: *const u8,
+    mark: *const u8,
+    _marker: core::marker::PhantomData<&'data [u8]>,
+}
+
+impl<'data> Reader<'data> {
+    pub fn new(data: &'data [u8]) -> Self {
+        Self {
+            start: data.as_ptr(),
+            position: data.as_ptr(),
+            end: unsafe { data.as_ptr().add(data.len()) },
+            mark: data.as_ptr(),
+            _marker: core::marker::PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn next(&mut self) -> Option<u8> {
+        let width = self.end as usize - self.position as usize;
+
+        if width == 0 {
+            return None;
+        }
+
+        unsafe {
+            let byte = self.position.read();
+            self.position = self.position.add(1);
+            Some(byte)
+        }
+    }
+
+    /// read `buf`-many items from this reader in bulk. if `Reader` cannot read `buf`-many items,
+    /// return `ReadError::ExhaustedInput`.
+    #[inline]
+    pub fn next_n(&mut self, buf: &mut [u8]) -> Option<()> {
+        let width = self.end as usize - self.position as usize;
+
+        if buf.len() > width {
+            return None;
+        }
+
+        unsafe {
+            core::ptr::copy_nonoverlapping(self.position, buf.as_mut_ptr(), buf.len());
+
+            self.position = self.position.add(buf.len());
+            Some(())
+        }
+    }
+
+    /// mark the current position as where to measure `offset` against.
+    #[inline]
+    pub fn mark(&mut self) {
+        self.mark = self.position;
+    }
+
+    /// the difference, between the current `Reader` position and its last `mark`.
+    /// when created, a `Reader`'s initial position is `mark`ed, so creating a `Reader` and
+    /// immediately calling `offset()` must return 0.
+    #[inline]
+    pub fn offset(&mut self) -> usize {
+        self.position as usize - self.mark as usize
+    }
+
+    /// the difference, between the current `Reader` position and the initial offset
+    /// when constructed.
+    #[inline]
+    pub fn total_offset(&mut self) -> usize {
+        self.position as usize - self.start as usize
+    }
+}
+
 const HEX_NUGGET: [u8; 16] = *b"0123456789abcdef";
 
 #[inline]
@@ -83,25 +168,30 @@ fn cold() {}
 
 #[inline]
 fn likely(b: bool) -> bool {
-    if !b { cold() }
+    if !b {
+        cold()
+    }
     b
 }
 
 #[inline]
 fn unlikely(b: bool) -> bool {
-    if b { cold() }
+    if b {
+        cold()
+    }
     b
 }
 
 /// Encode 64-bit number with a leading '0x' and in lowercase.
-pub fn encode_hex(mut imm: i64) -> String {
+pub fn encode_hex(imm: i64) -> String {
     unsafe {
         let mut buffer = Vec::with_capacity(19);
         let slice = &mut buffer[..];
         let mut idx = 0;
 
-        if imm.is_negative() {
-            imm = -imm;
+        let is_negative = imm.is_negative();
+        let mut imm = imm as u64;
+        if is_negative {
             *slice.get_unchecked_mut(idx) = b'-';
             idx += 1;
         }
@@ -115,7 +205,7 @@ pub fn encode_hex(mut imm: i64) -> String {
             *slice.get_unchecked_mut(idx) = b'0';
             idx += 1;
             buffer.set_len(idx);
-            return String::from_utf8_unchecked(buffer)
+            return String::from_utf8_unchecked(buffer);
         }
 
         // imm is already checked to not be zero, therefore this can't fail

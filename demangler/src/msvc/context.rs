@@ -1,7 +1,7 @@
-use super::{Literal, Type, Modifiers, NestedPath, Scope};
+use super::{Literal, Modifiers, NestedPath, Scope, Type};
 
-use tokenizing::Color;
 use crate::TokenStream;
+use tokenizing::Color;
 
 /// Max recursion depth
 const MAX_DEPTH: usize = 256;
@@ -30,7 +30,7 @@ impl Backrefs {
             memorized: [NO_PATH; 10],
             memorized_count: 0,
             params: [NO_TYPE; 10],
-            param_count: 0
+            param_count: 0,
         }
     }
 

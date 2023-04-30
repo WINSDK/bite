@@ -106,7 +106,9 @@ impl Index {
             .iter()
             .map(|(addr, symbol)| (*addr, Arc::new(parser(symbol))));
 
-        Ok(Self { tree: entrypoint.chain(symbols).collect() })
+        Ok(Self {
+            tree: entrypoint.chain(symbols).collect(),
+        })
     }
 
     pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Arc<TokenStream>> {
@@ -121,8 +123,8 @@ impl Index {
         self.tree.clear();
     }
 
-    pub fn get_by_line(&self, line: &disassembler::Line) -> Option<Arc<TokenStream>> {
-        self.tree.get(&(line.section_base + line.offset)).cloned()
+    pub fn get_by_addr(&self, addr: usize) -> Option<Arc<TokenStream>> {
+        self.tree.get(&addr).cloned()
     }
 }
 

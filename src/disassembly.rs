@@ -1,4 +1,5 @@
 use crate::symbols::Index;
+use disassembler::ToTokens;
 use object::{Object, ObjectSection, SectionKind};
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -8,7 +9,7 @@ use std::sync::{Arc, Mutex};
 pub enum LineKind {
     Newline,
     Label(std::sync::Arc<demangler::TokenStream>),
-    Instruction(disassembler::Line),
+    Instruction(disassembler::TokenStream),
 }
 
 pub struct Disassembly {
@@ -20,6 +21,31 @@ pub struct Disassembly {
 
     /// Symbol lookup by RVA.
     pub symbols: Mutex<Index>,
+}
+
+fn tokenize_lines<D: disassembler::Decodable>(
+    proc: disassembler::Processor<D>,
+    symbols: &Index,
+) -> Vec<LineKind> {
+    let mut lines = Vec::with_capacity(1024);
+
+    for (addr, inst) in proc.instructions {
+        if let Some(label) = symbols.get_by_addr(addr) {
+            lines.push(LineKind::Newline);
+            lines.push(LineKind::Label(label));
+        }
+
+        let mut line = disassembler::TokenStream::new();
+
+        match inst {
+            Ok(inst) => inst.tokenize(&mut line),
+            Err(err) => line.push_owned(format!("{err:?}"), &tokenizing::colors::RED),
+        }
+
+        lines.push(LineKind::Instruction(line));
+    }
+
+    lines
 }
 
 impl Disassembly {
@@ -50,13 +76,13 @@ impl Disassembly {
             let binary: &'static [u8] = unsafe { std::mem::transmute(&binary[..]) };
 
             let obj = object::File::parse(binary).map_err(|_| "Not a valid object.")?;
-            let arch = obj.architecture();
 
+            let entrypoint = obj.entry();
             let section = obj
                 .sections()
                 .filter(|s| s.kind() == SectionKind::Text)
-                .find(|t| t.name() == Ok(".text"))
-                .ok_or("Failed to find `.text` section.")?;
+                .find(|t| (t.address()..t.address() + t.size()).contains(&entrypoint))
+                .ok_or("Failed to find a section with the given entrypoint.")?;
 
             self.address_space.store(
                 (obj.relative_address_base() + section.size()) as usize,
@@ -71,21 +97,81 @@ impl Disassembly {
                 .map_err(|_| "Failed to decompress .text section.")?;
 
             let symbols = Index::parse(&obj).map_err(|_| "Failed to parse symbols table.")?;
+            let section_base = section.address() as usize;
 
-            // TODO: optimize for lazy chunk loading
-            let base_offset = section.address() as usize;
-            let stream = disassembler::InstructionStream::new(&raw[..], arch, base_offset)
-                .map_err(|_| "Unsupported target.")?;
+            let lines = match obj.architecture() {
+                object::Architecture::Riscv32 => {
+                    let decoder = disassembler::riscv::Decoder { is_64: false };
 
-            let mut lines = Vec::with_capacity(1024);
-            for line in stream {
-                if let Some(label) = symbols.get_by_line(&line) {
-                    lines.push(LineKind::Newline);
-                    lines.push(LineKind::Label(label));
+                    let mut proc: disassembler::Processor<disassembler::riscv::Decoder> =
+                        disassembler::Processor::new(
+                            &raw[..],
+                            section_base,
+                            obj.entry() as usize,
+                            decoder,
+                        );
+
+                    proc.recurse();
+                    tokenize_lines(proc, &symbols)
                 }
+                object::Architecture::Riscv64 => {
+                    let decoder = disassembler::riscv::Decoder { is_64: true };
 
-                lines.push(LineKind::Instruction(line));
-            }
+                    let mut proc: disassembler::Processor<disassembler::riscv::Decoder> =
+                        disassembler::Processor::new(
+                            &raw[..],
+                            section_base,
+                            obj.entry() as usize,
+                            decoder,
+                        );
+
+                    proc.recurse();
+                    tokenize_lines(proc, &symbols)
+                }
+                object::Architecture::Mips | object::Architecture::Mips64 => {
+                    let decoder = disassembler::mips::Decoder::default();
+
+                    let mut proc: disassembler::Processor<disassembler::mips::Decoder> =
+                        disassembler::Processor::new(
+                            &raw[..],
+                            section_base,
+                            obj.entry() as usize,
+                            decoder,
+                        );
+
+                    proc.recurse();
+                    tokenize_lines(proc, &symbols)
+                }
+                object::Architecture::X86_64_X32 => {
+                    let decoder = disassembler::x86::Decoder::default();
+
+                    let mut proc: disassembler::Processor<disassembler::x86::Decoder> =
+                        disassembler::Processor::new(
+                            &raw[..],
+                            section_base,
+                            obj.entry() as usize,
+                            decoder,
+                        );
+
+                    proc.recurse();
+                    tokenize_lines(proc, &symbols)
+                }
+                object::Architecture::X86_64 => {
+                    let decoder = disassembler::x64::Decoder::default();
+
+                    let mut proc: disassembler::Processor<disassembler::x64::Decoder> =
+                        disassembler::Processor::new(
+                            &raw[..],
+                            section_base,
+                            obj.entry() as usize,
+                            decoder,
+                        );
+
+                    proc.recurse();
+                    tokenize_lines(proc, &symbols)
+                }
+                err => todo!("decoder doesn't exist for {err:?}"),
+            };
 
             *self.symbols.lock().unwrap() = symbols;
             *self.lines.lock().unwrap() = lines;
@@ -93,8 +179,12 @@ impl Disassembly {
             Ok::<(), &str>(())
         });
 
-        match task.await.unwrap() {
+        match task.await {
             Err(err) => {
+                showing_donut.store(false, Ordering::Relaxed);
+                eprintln!("{err:?}");
+            }
+            Ok(Err(err)) => {
                 showing_donut.store(false, Ordering::Relaxed);
                 crate::error!("{err}");
             }

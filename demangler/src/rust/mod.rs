@@ -88,7 +88,7 @@
 //! source [2603-rust-symbol-name-mangling-v0](https://rust-lang.github.io/rfcs/2603-rust-symbol-name-mangling-v0.html)
 mod tests;
 
-use crate::{TokenStream, Colors};
+use crate::{Colors, TokenStream};
 use tokenizing::{Color, ColorScheme};
 
 /// Max recursion depth.

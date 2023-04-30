@@ -65,13 +65,13 @@
 mod context;
 mod tests;
 
-use std::ptr;
 use std::borrow::Cow;
 use std::mem::MaybeUninit;
+use std::ptr;
 
-use tokenizing::ColorScheme;
-use context::{Backrefs, Context};
 use bitflags::bitflags;
+use context::{Backrefs, Context};
+use tokenizing::ColorScheme;
 
 use crate::Colors;
 
@@ -354,18 +354,12 @@ impl Parse for Type {
             b'T' => Type::Union(modi, Path::parse(ctx, backrefs)?),
             b'U' => Type::Struct(modi, Path::parse(ctx, backrefs)?),
             b'V' => Type::Class(modi, Path::parse(ctx, backrefs)?),
-            b'A' => Type::Ref(
-                modi,
-                Box::new(Pointee::parse(ctx, backrefs)?.0),
-            ),
+            b'A' => Type::Ref(modi, Box::new(Pointee::parse(ctx, backrefs)?.0)),
             b'B' => Type::Ref(
                 Modifiers::VOLATILE,
                 Box::new(Pointee::parse(ctx, backrefs)?.0),
             ),
-            b'P' => Type::Ptr(
-                modi,
-                Box::new(Pointee::parse(ctx, backrefs)?.0),
-            ),
+            b'P' => Type::Ptr(modi, Box::new(Pointee::parse(ctx, backrefs)?.0)),
             b'Q' => Type::Ptr(Modifiers::CONST, Box::new(Pointee::parse(ctx, backrefs)?.0)),
             b'R' => Type::Ptr(
                 Modifiers::VOLATILE,
@@ -638,7 +632,8 @@ impl<'a> PositionalDemangle<'a> for Type {
                 ctx.stream.push("`", Colors::brackets());
                 ctx.stream.push("template-parameter", Colors::known());
                 ctx.stream.push("-", Colors::delimiter());
-                ctx.stream.push_cow(Cow::Owned(idx.to_string()), Colors::item());
+                ctx.stream
+                    .push_cow(Cow::Owned(idx.to_string()), Colors::item());
                 ctx.stream.push("'", Colors::brackets());
             }
             Type::Typedef(modi, name) => {
@@ -1420,7 +1415,8 @@ impl<'a> Demangle<'a> for Intrinsics {
             }
             Intrinsics::DynamicAtExitDtor(ref tipe) => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("dynamic atexit destructor for ", Colors::known());
+                ctx.stream
+                    .push("dynamic atexit destructor for ", Colors::known());
                 ctx.stream.push("'", Colors::brackets());
 
                 tipe.demangle(ctx, backrefs);
@@ -1445,19 +1441,24 @@ impl<'a> Demangle<'a> for Intrinsics {
                 flags,
             } => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("RTTI Base Class Descriptor at ", Colors::known());
+                ctx.stream
+                    .push("RTTI Base Class Descriptor at ", Colors::known());
                 ctx.stream.push("(", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(nv_off.to_string()), Colors::annotation());
+                ctx.stream
+                    .push_cow(Cow::Owned(nv_off.to_string()), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(ptr_off.to_string()), Colors::annotation());
+                ctx.stream
+                    .push_cow(Cow::Owned(ptr_off.to_string()), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(vbtable_off.to_string()), Colors::annotation());
+                ctx.stream
+                    .push_cow(Cow::Owned(vbtable_off.to_string()), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(flags.to_string()), Colors::annotation());
+                ctx.stream
+                    .push_cow(Cow::Owned(flags.to_string()), Colors::annotation());
                 ctx.stream.push(")'", Colors::brackets());
                 return;
             }
@@ -1469,13 +1470,15 @@ impl<'a> Demangle<'a> for Intrinsics {
             }
             Intrinsics::RTTIClassHierarchyDescriptor => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("RTTI Class Hierarchy Descriptor", Colors::known());
+                ctx.stream
+                    .push("RTTI Class Hierarchy Descriptor", Colors::known());
                 ctx.stream.push("'", Colors::brackets());
                 return;
             }
             Intrinsics::RTTIClassCompleteObjectLocator => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("RTTI Complete Object Locator", Colors::known());
+                ctx.stream
+                    .push("RTTI Complete Object Locator", Colors::known());
                 ctx.stream.push("'", Colors::brackets());
                 return;
             }
@@ -2275,7 +2278,8 @@ impl<'a> Demangle<'a> for NestedPath {
             NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
             NestedPath::Disambiguator(val) => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push_cow(Cow::Owned(val.to_string()), Colors::item());
+                ctx.stream
+                    .push_cow(Cow::Owned(val.to_string()), Colors::item());
                 ctx.stream.push("'", Colors::brackets());
             }
             NestedPath::MD5(md5) => md5.demangle(ctx, backrefs),
@@ -2303,9 +2307,7 @@ impl Parse for UnqualifiedPath {
         // return memorized ident
         if let Some(digit) = ctx.base10() {
             ctx.ascent();
-            return backrefs
-                .get_memorized_path(digit)
-                .map(UnqualifiedPath);
+            return backrefs.get_memorized_path(digit).map(UnqualifiedPath);
         }
 
         // special intrinsic
@@ -2396,7 +2398,10 @@ impl Parse for Template {
         let name = UnqualifiedPath::parse(ctx, &mut temp)?;
         let params = Parameters::parse(ctx, &mut temp)?;
 
-        Some(Template { name: Box::new(name), params })
+        Some(Template {
+            name: Box::new(name),
+            params,
+        })
     }
 }
 
@@ -2498,7 +2503,7 @@ impl<'a> Demangle<'a> for Symbol {
 
         // weird typecasting of class member with templates
         if let NestedPath::Template(ref template) = self.path.name.0 {
-            if let NestedPath::Intrinsics(Intrinsics::TypeCast)= template.name.0 {
+            if let NestedPath::Intrinsics(Intrinsics::TypeCast) = template.name.0 {
                 if let Type::MemberFunction(ref func) = self.tipe {
                     func.storage_scope.demangle(ctx, backrefs);
                     func.calling_conv.demangle(ctx, backrefs);

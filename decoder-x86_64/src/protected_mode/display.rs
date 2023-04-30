@@ -1,75 +1,189 @@
-use std::fmt;
 use crate::safer_unchecked::GetSaferUnchecked as _;
+use std::fmt;
 
-use crate::{MEM_SIZE_STRINGS, Number};
-use crate::protected_mode::{RegSpec, Opcode, Operand, MergeMode, InstDecoder, Instruction, Segment, PrefixVex, OperandSpec};
+use crate::protected_mode::{
+    Decoder, Instruction, MergeMode, Opcode, Operand, OperandSpec, PrefixVex, RegSpec, Segment,
+};
+use crate::{Number, MEM_SIZE_STRINGS};
 
 use decoder::ToTokens;
-use tokenizing::{Colors, ColorScheme};
+use tokenizing::{ColorScheme, Colors};
 
-impl fmt::Display for InstDecoder {
+impl fmt::Display for Decoder {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self == &InstDecoder::default() {
+        if self == &Decoder::default() {
             return write!(f, "<all features>");
-        } else if self == &InstDecoder::minimal() {
+        } else if self == &Decoder::minimal() {
             return write!(f, "<no features>");
         }
-        if self.sse3() { write!(f, "sse3 ")? }
-        if self.ssse3() { write!(f, "ssse3 ")? }
-        if self.monitor() { write!(f, "monitor ")? }
-        if self.vmx() { write!(f, "vmx ")? }
-        if self.fma3() { write!(f, "fma3 ")? }
-        if self.cmpxchg16b() { write!(f, "cmpxchg16b ")? }
-        if self.sse4_1() { write!(f, "sse4_1 ")? }
-        if self.sse4_2() { write!(f, "sse4_2 ")? }
-        if self.movbe() { write!(f, "movbe ")? }
-        if self.popcnt() { write!(f, "popcnt ")? }
-        if self.aesni() { write!(f, "aesni ")? }
-        if self.xsave() { write!(f, "xsave ")? }
-        if self.rdrand() { write!(f, "rdrand ")? }
-        if self.sgx() { write!(f, "sgx ")? }
-        if self.bmi1() { write!(f, "bmi1 ")? }
-        if self.avx2() { write!(f, "avx2 ")? }
-        if self.bmi2() { write!(f, "bmi2 ")? }
-        if self.invpcid() { write!(f, "invpcid ")? }
-        if self.mpx() { write!(f, "mpx ")? }
-        if self.avx512_f() { write!(f, "avx512_f ")? }
-        if self.avx512_dq() { write!(f, "avx512_dq ")? }
-        if self.rdseed() { write!(f, "rdseed ")? }
-        if self.adx() { write!(f, "adx ")? }
-        if self.avx512_fma() { write!(f, "avx512_fma ")? }
-        if self.pcommit() { write!(f, "pcommit ")? }
-        if self.clflushopt() { write!(f, "clflushopt ")? }
-        if self.clwb() { write!(f, "clwb ")? }
-        if self.avx512_pf() { write!(f, "avx512_pf ")? }
-        if self.avx512_er() { write!(f, "avx512_er ")? }
-        if self.avx512_cd() { write!(f, "avx512_cd ")? }
-        if self.sha() { write!(f, "sha ")? }
-        if self.avx512_bw() { write!(f, "avx512_bw ")? }
-        if self.avx512_vl() { write!(f, "avx512_vl ")? }
-        if self.prefetchwt1() { write!(f, "prefetchwt1 ")? }
-        if self.avx512_vbmi() { write!(f, "avx512_vbmi ")? }
-        if self.avx512_vbmi2() { write!(f, "avx512_vbmi2 ")? }
-        if self.gfni() { write!(f, "gfni ")? }
-        if self.vaes() { write!(f, "vaes ")? }
-        if self.pclmulqdq() { write!(f, "pclmulqdq ")? }
-        if self.avx_vnni() { write!(f, "avx_vnni ")? }
-        if self.avx512_bitalg() { write!(f, "avx512_bitalg ")? }
-        if self.avx512_vpopcntdq() { write!(f, "avx512_vpopcntdq ")? }
-        if self.avx512_4vnniw() { write!(f, "avx512_4vnniw ")? }
-        if self.avx512_4fmaps() { write!(f, "avx512_4fmaps ")? }
-        if self.cx8() { write!(f, "cx8 ")? }
-        if self.syscall() { write!(f, "syscall ")? }
-        if self.rdtscp() { write!(f, "rdtscp ")? }
-        if self.abm() { write!(f, "abm ")? }
-        if self.sse4a() { write!(f, "sse4a ")? }
-        if self._3dnowprefetch() { write!(f, "_3dnowprefetch ")? }
-        if self.xop() { write!(f, "xop ")? }
-        if self.skinit() { write!(f, "skinit ")? }
-        if self.tbm() { write!(f, "tbm ")? }
-        if self.intel_quirks() { write!(f, "intel_quirks ")? }
-        if self.amd_quirks() { write!(f, "amd_quirks ")? }
-        if self.avx() { write!(f, "avx ")? }
+        if self.sse3() {
+            write!(f, "sse3 ")?
+        }
+        if self.ssse3() {
+            write!(f, "ssse3 ")?
+        }
+        if self.monitor() {
+            write!(f, "monitor ")?
+        }
+        if self.vmx() {
+            write!(f, "vmx ")?
+        }
+        if self.fma3() {
+            write!(f, "fma3 ")?
+        }
+        if self.cmpxchg16b() {
+            write!(f, "cmpxchg16b ")?
+        }
+        if self.sse4_1() {
+            write!(f, "sse4_1 ")?
+        }
+        if self.sse4_2() {
+            write!(f, "sse4_2 ")?
+        }
+        if self.movbe() {
+            write!(f, "movbe ")?
+        }
+        if self.popcnt() {
+            write!(f, "popcnt ")?
+        }
+        if self.aesni() {
+            write!(f, "aesni ")?
+        }
+        if self.xsave() {
+            write!(f, "xsave ")?
+        }
+        if self.rdrand() {
+            write!(f, "rdrand ")?
+        }
+        if self.sgx() {
+            write!(f, "sgx ")?
+        }
+        if self.bmi1() {
+            write!(f, "bmi1 ")?
+        }
+        if self.avx2() {
+            write!(f, "avx2 ")?
+        }
+        if self.bmi2() {
+            write!(f, "bmi2 ")?
+        }
+        if self.invpcid() {
+            write!(f, "invpcid ")?
+        }
+        if self.mpx() {
+            write!(f, "mpx ")?
+        }
+        if self.avx512_f() {
+            write!(f, "avx512_f ")?
+        }
+        if self.avx512_dq() {
+            write!(f, "avx512_dq ")?
+        }
+        if self.rdseed() {
+            write!(f, "rdseed ")?
+        }
+        if self.adx() {
+            write!(f, "adx ")?
+        }
+        if self.avx512_fma() {
+            write!(f, "avx512_fma ")?
+        }
+        if self.pcommit() {
+            write!(f, "pcommit ")?
+        }
+        if self.clflushopt() {
+            write!(f, "clflushopt ")?
+        }
+        if self.clwb() {
+            write!(f, "clwb ")?
+        }
+        if self.avx512_pf() {
+            write!(f, "avx512_pf ")?
+        }
+        if self.avx512_er() {
+            write!(f, "avx512_er ")?
+        }
+        if self.avx512_cd() {
+            write!(f, "avx512_cd ")?
+        }
+        if self.sha() {
+            write!(f, "sha ")?
+        }
+        if self.avx512_bw() {
+            write!(f, "avx512_bw ")?
+        }
+        if self.avx512_vl() {
+            write!(f, "avx512_vl ")?
+        }
+        if self.prefetchwt1() {
+            write!(f, "prefetchwt1 ")?
+        }
+        if self.avx512_vbmi() {
+            write!(f, "avx512_vbmi ")?
+        }
+        if self.avx512_vbmi2() {
+            write!(f, "avx512_vbmi2 ")?
+        }
+        if self.gfni() {
+            write!(f, "gfni ")?
+        }
+        if self.vaes() {
+            write!(f, "vaes ")?
+        }
+        if self.pclmulqdq() {
+            write!(f, "pclmulqdq ")?
+        }
+        if self.avx_vnni() {
+            write!(f, "avx_vnni ")?
+        }
+        if self.avx512_bitalg() {
+            write!(f, "avx512_bitalg ")?
+        }
+        if self.avx512_vpopcntdq() {
+            write!(f, "avx512_vpopcntdq ")?
+        }
+        if self.avx512_4vnniw() {
+            write!(f, "avx512_4vnniw ")?
+        }
+        if self.avx512_4fmaps() {
+            write!(f, "avx512_4fmaps ")?
+        }
+        if self.cx8() {
+            write!(f, "cx8 ")?
+        }
+        if self.syscall() {
+            write!(f, "syscall ")?
+        }
+        if self.rdtscp() {
+            write!(f, "rdtscp ")?
+        }
+        if self.abm() {
+            write!(f, "abm ")?
+        }
+        if self.sse4a() {
+            write!(f, "sse4a ")?
+        }
+        if self._3dnowprefetch() {
+            write!(f, "_3dnowprefetch ")?
+        }
+        if self.xop() {
+            write!(f, "xop ")?
+        }
+        if self.skinit() {
+            write!(f, "skinit ")?
+        }
+        if self.tbm() {
+            write!(f, "tbm ")?
+        }
+        if self.intel_quirks() {
+            write!(f, "intel_quirks ")?
+        }
+        if self.amd_quirks() {
+            write!(f, "amd_quirks ")?
+        }
+        if self.avx() {
+            write!(f, "avx ")?
+        }
         Ok(())
     }
 }
@@ -77,7 +191,9 @@ impl fmt::Display for InstDecoder {
 impl fmt::Display for PrefixVex {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.present() {
-            write!(f, "vex:{}{}{}{}",
+            write!(
+                f,
+                "vex:{}{}{}{}",
                 if self.w() { "w" } else { "-" },
                 if self.r() { "r" } else { "-" },
                 if self.x() { "x" } else { "-" },
@@ -105,22 +221,22 @@ impl fmt::Display for Segment {
 // register names are grouped by indices scaled by 16.
 // xmm, ymm, zmm all get two indices.
 const REG_NAMES: &[&'static str] = &[
-    "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
-    "ax", "cx", "dx", "bx", "sp", "bp", "si", "di",
-    "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh",
-    "cr0", "cr1", "cr2", "cr3", "cr4", "cr5", "cr6", "cr7",
-    "dr0", "dr1", "dr2", "dr3", "dr4", "dr5", "dr6", "dr7",
-    "es", "cs", "ss", "ds", "fs", "gs", "", "",
-    "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
-    "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31",
-    "ymm0", "ymm1", "ymm2", "ymm3", "ymm4", "ymm5", "ymm6", "ymm7", "ymm8", "ymm9", "ymm10", "ymm11", "ymm12", "ymm13", "ymm14", "ymm15",
-    "ymm16", "ymm17", "ymm18", "ymm19", "ymm20", "ymm21", "ymm22", "ymm23", "ymm24", "ymm25", "ymm26", "ymm27", "ymm28", "ymm29", "ymm30", "ymm31",
-    "zmm0", "zmm1", "zmm2", "zmm3", "zmm4", "zmm5", "zmm6", "zmm7", "zmm8", "zmm9", "zmm10", "zmm11", "zmm12", "zmm13", "zmm14", "zmm15", "zmm16", "zmm17", "zmm18", "zmm19", "zmm20", "zmm21", "zmm22", "zmm23", "zmm24", "zmm25", "zmm26", "zmm27", "zmm28", "zmm29", "zmm30", "zmm31",
-    "st(0)", "st(1)", "st(2)", "st(3)", "st(4)", "st(5)", "st(6)", "st(7)",
-    "mm0", "mm1", "mm2", "mm3", "mm4", "mm5", "mm6", "mm7",
-    "k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7",
-    "eip", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG",
-    "eflags", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG",
+    "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "ax", "cx", "dx", "bx", "sp", "bp",
+    "si", "di", "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh", "cr0", "cr1", "cr2", "cr3", "cr4",
+    "cr5", "cr6", "cr7", "dr0", "dr1", "dr2", "dr3", "dr4", "dr5", "dr6", "dr7", "es", "cs", "ss",
+    "ds", "fs", "gs", "", "", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+    "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "xmm16", "xmm17",
+    "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23", "xmm24", "xmm25", "xmm26", "xmm27",
+    "xmm28", "xmm29", "xmm30", "xmm31", "ymm0", "ymm1", "ymm2", "ymm3", "ymm4", "ymm5", "ymm6",
+    "ymm7", "ymm8", "ymm9", "ymm10", "ymm11", "ymm12", "ymm13", "ymm14", "ymm15", "ymm16", "ymm17",
+    "ymm18", "ymm19", "ymm20", "ymm21", "ymm22", "ymm23", "ymm24", "ymm25", "ymm26", "ymm27",
+    "ymm28", "ymm29", "ymm30", "ymm31", "zmm0", "zmm1", "zmm2", "zmm3", "zmm4", "zmm5", "zmm6",
+    "zmm7", "zmm8", "zmm9", "zmm10", "zmm11", "zmm12", "zmm13", "zmm14", "zmm15", "zmm16", "zmm17",
+    "zmm18", "zmm19", "zmm20", "zmm21", "zmm22", "zmm23", "zmm24", "zmm25", "zmm26", "zmm27",
+    "zmm28", "zmm29", "zmm30", "zmm31", "st(0)", "st(1)", "st(2)", "st(3)", "st(4)", "st(5)",
+    "st(6)", "st(7)", "mm0", "mm1", "mm2", "mm3", "mm4", "mm5", "mm6", "mm7", "k0", "k1", "k2",
+    "k3", "k4", "k5", "k6", "k7", "eip", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "eflags",
+    "BUG", "BUG", "BUG", "BUG", "BUG", "BUG", "BUG",
 ];
 
 pub(crate) fn regspec_label(spec: &RegSpec) -> &'static str {
@@ -143,7 +259,7 @@ impl ToTokens for Operand {
             Operand::ImmediateI8(imm) => {
                 let text = decoder::encode_hex(imm as i64);
                 stream.push_owned(text, Colors::immediate());
-            },
+            }
             Operand::ImmediateU16(imm) => {
                 let text = decoder::encode_hex(imm as i64);
                 stream.push_owned(text, Colors::immediate());
@@ -151,7 +267,7 @@ impl ToTokens for Operand {
             Operand::ImmediateI16(imm) => {
                 let text = decoder::encode_hex(imm as i64);
                 stream.push_owned(text, Colors::immediate());
-            },
+            }
             Operand::ImmediateU32(imm) => {
                 let text = decoder::encode_hex(imm as i64);
                 stream.push_owned(text, Colors::immediate());
@@ -159,12 +275,12 @@ impl ToTokens for Operand {
             Operand::ImmediateI32(imm) => {
                 let text = decoder::encode_hex(imm as i64);
                 stream.push_owned(text, Colors::immediate());
-            },
+            }
             Operand::AbsoluteFarAddress { segment, address } => {
                 stream.push_owned(decoder::encode_hex(segment as i64), Colors::immediate());
                 stream.push(":", Colors::expr());
                 stream.push_owned(decoder::encode_hex(address as i64), Colors::immediate());
-            },
+            }
             Operand::Register(ref spec) => {
                 stream.push(regspec_label(spec), Colors::register());
             }
@@ -231,19 +347,19 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(spec), Colors::register());
                 Number(disp).tokenize(stream);
                 stream.push("]", Colors::brackets());
-            },
+            }
             Operand::RegDeref(ref spec) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
                 stream.push("]", Colors::brackets());
-            },
+            }
             Operand::RegScale(ref spec, scale) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
                 stream.push(" * ", Colors::expr());
                 stream.push_owned(scale.to_string(), Colors::immediate());
                 stream.push("]", Colors::brackets());
-            },
+            }
             Operand::RegScaleDisp(ref spec, scale, disp) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
@@ -251,7 +367,7 @@ impl ToTokens for Operand {
                 stream.push_owned(format!("{scale}"), Colors::immediate());
                 Number(disp).tokenize(stream);
                 stream.push("]", Colors::brackets());
-            },
+            }
             Operand::RegIndexBase(ref base, ref index) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(base), Colors::register());
@@ -266,7 +382,7 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(index), Colors::register());
                 Number(disp).tokenize(stream);
                 stream.push("]", Colors::brackets());
-            },
+            }
             Operand::RegIndexBaseScale(ref base, ref index, scale) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(base), Colors::register());
@@ -285,7 +401,7 @@ impl ToTokens for Operand {
                 stream.push_owned(scale.to_string(), Colors::immediate());
                 Number(disp).tokenize(stream);
                 stream.push("]", Colors::brackets());
-            },
+            }
             Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
@@ -295,7 +411,7 @@ impl ToTokens for Operand {
                 stream.push("{", Colors::brackets());
                 stream.push(regspec_label(mask_reg), Colors::register());
                 stream.push("}", Colors::brackets());
-            },
+            }
             Operand::RegDerefMasked(ref spec, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
@@ -304,7 +420,7 @@ impl ToTokens for Operand {
                 stream.push("{", Colors::brackets());
                 stream.push(regspec_label(mask_reg), Colors::register());
                 stream.push("}", Colors::brackets());
-            },
+            }
             Operand::RegScaleMasked(ref spec, scale, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
@@ -315,7 +431,7 @@ impl ToTokens for Operand {
                 stream.push("{", Colors::brackets());
                 stream.push(regspec_label(mask_reg), Colors::register());
                 stream.push("}", Colors::brackets());
-            },
+            }
             Operand::RegScaleDispMasked(ref spec, scale, disp, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
@@ -327,7 +443,7 @@ impl ToTokens for Operand {
                 stream.push("{", Colors::brackets());
                 stream.push(regspec_label(mask_reg), Colors::register());
                 stream.push("}", Colors::brackets());
-            },
+            }
             Operand::RegIndexBaseMasked(ref base, ref index, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(base), Colors::register());
@@ -350,7 +466,7 @@ impl ToTokens for Operand {
                 stream.push("{", Colors::brackets());
                 stream.push(regspec_label(mask_reg), Colors::register());
                 stream.push("}", Colors::brackets());
-            },
+            }
             Operand::RegIndexBaseScaleMasked(ref base, ref index, scale, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(base), Colors::register());
@@ -364,7 +480,13 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(mask_reg), Colors::register());
                 stream.push("}", Colors::brackets());
             }
-            Operand::RegIndexBaseScaleDispMasked(ref base, ref index, scale, disp, ref mask_reg) => {
+            Operand::RegIndexBaseScaleDispMasked(
+                ref base,
+                ref index,
+                scale,
+                disp,
+                ref mask_reg,
+            ) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(base), Colors::register());
                 stream.push(" + ", Colors::expr());
@@ -377,8 +499,8 @@ impl ToTokens for Operand {
                 stream.push("{", Colors::brackets());
                 stream.push(regspec_label(mask_reg), Colors::register());
                 stream.push("}", Colors::brackets());
-            },
-            Operand::Nothing => {},
+            }
+            Operand::Nothing => {}
         }
     }
 }
@@ -1280,7 +1402,6 @@ const MNEMONICS: &[&'static str] = &[
     "crc32",
     "salc",
     "xlat",
-
     "f2xm1",
     "fabs",
     "fadd",
@@ -1400,10 +1521,8 @@ const MNEMONICS: &[&'static str] = &[
     "encodekey128",
     "encodekey256",
     "loadiwkey",
-
     // unsure
     "hreset",
-
     // 3dnow
     "femms",
     "pi2fw",
@@ -1431,24 +1550,19 @@ const MNEMONICS: &[&'static str] = &[
     "pfpnacc",
     "pswapd",
     "pavgusb",
-
     // ENQCMD
     "enqcmd",
     "enqcmds",
-
     // INVPCID,
     "invept",
     "invvpid",
     "invpcid",
-
     // PTWRITE
     "ptwrite",
-
     // GFNI
     "gf2p8affineqb",
     "gf2p8affineinvqb",
     "gf2p8mulb",
-
     // CET
     "wruss",
     "wrss",
@@ -1459,29 +1573,24 @@ const MNEMONICS: &[&'static str] = &[
     "rstorssp",
     "endbr64",
     "endbr32",
-
     // TDX
     "tdcall",
     "seamret",
     "seamops",
     "seamcall",
-
     // WAITPKG
     "tpause",
     "umonitor",
     "umwait",
-
     // UINTR
     "uiret",
     "testui",
     "clui",
     "stui",
     "senduipi",
-
     // TSXLDTRK
     "xsusldtrk",
     "xresldtrk",
-
     // AVX512F
     "valignd",
     "valignq",
@@ -1602,7 +1711,6 @@ const MNEMONICS: &[&'static str] = &[
     "vshuff64x2",
     "vshufi32x4",
     "vshufi64x2",
-
     // AVX512DQ
     "vcvttpd2qq",
     "vcvtpd2qq",
@@ -1634,7 +1742,6 @@ const MNEMONICS: &[&'static str] = &[
     "vreduceps",
     "vreducesd",
     "vreducess",
-
     // AVX512BW
     "vdbpsadbw",
     "vmovdqu8",
@@ -1661,18 +1768,15 @@ const MNEMONICS: &[&'static str] = &[
     "vptestnmw",
     "vptestmb",
     "vptestmw",
-
     // AVX512CD
     "vpbroadcastm",
     "vpconflictd",
     "vpconflictq",
     "vplzcntd",
     "vplzcntq",
-
     "kunpckbw",
     "kunpckwd",
     "kunpckdq",
-
     "kaddb",
     "kandb",
     "kandnb",
@@ -1721,7 +1825,6 @@ const MNEMONICS: &[&'static str] = &[
     "ktestq",
     "kxnorq",
     "kxorq",
-
     // AVX512ER
     "vexp2pd",
     "vexp2ps",
@@ -1735,7 +1838,6 @@ const MNEMONICS: &[&'static str] = &[
     "vrsqrt28ps",
     "vrsqrt28sd",
     "vrsqrt28ss",
-
     // AVX512PF
     "vgatherpf0dpd",
     "vgatherpf0dps",
@@ -1753,7 +1855,6 @@ const MNEMONICS: &[&'static str] = &[
     "vscatterpf1dps",
     "vscatterpf1qpd",
     "vscatterpf1qps",
-
     // MPX
     "bndmk",
     "bndcl",
@@ -1762,9 +1863,6 @@ const MNEMONICS: &[&'static str] = &[
     "bndmov",
     "bndldx",
     "bndstx",
-
-
-
     "vgf2p8affineqb",
     "vgf2p8affineinvqb",
     "vpshrdq",
@@ -1861,9 +1959,7 @@ const MNEMONICS: &[&'static str] = &[
 
 impl Opcode {
     fn name(&self) -> &'static str {
-        unsafe {
-            MNEMONICS.get_kinda_unchecked(*self as usize)
-        }
+        unsafe { MNEMONICS.get_kinda_unchecked(*self as usize) }
     }
 }
 
@@ -1883,7 +1979,16 @@ impl ToTokens for Instruction {
         }
 
         if self.prefixes.rep_any() {
-            if [Opcode::MOVS, Opcode::CMPS, Opcode::LODS, Opcode::STOS, Opcode::INS, Opcode::OUTS].contains(&self.opcode) {
+            if [
+                Opcode::MOVS,
+                Opcode::CMPS,
+                Opcode::LODS,
+                Opcode::STOS,
+                Opcode::INS,
+                Opcode::OUTS,
+            ]
+            .contains(&self.opcode)
+            {
                 if self.prefixes.rep() {
                     op.push_str("rep ");
                 } else if self.prefixes.repnz() {
@@ -1913,16 +2018,27 @@ impl ToTokens for Instruction {
             let op = Operand::from_spec(&self, self.operands[0]);
 
             const RELATIVE_BRANCHES: [Opcode; 21] = [
-                Opcode::JMP, Opcode::JECXZ,
-                Opcode::LOOP, Opcode::LOOPZ, Opcode::LOOPNZ,
-                Opcode::JO, Opcode::JNO,
-                Opcode::JB, Opcode::JNB,
-                Opcode::JZ, Opcode::JNZ,
-                Opcode::JNA, Opcode::JA,
-                Opcode::JS, Opcode::JNS,
-                Opcode::JP, Opcode::JNP,
-                Opcode::JL, Opcode::JGE,
-                Opcode::JLE, Opcode::JG,
+                Opcode::JMP,
+                Opcode::JECXZ,
+                Opcode::LOOP,
+                Opcode::LOOPZ,
+                Opcode::LOOPNZ,
+                Opcode::JO,
+                Opcode::JNO,
+                Opcode::JB,
+                Opcode::JNB,
+                Opcode::JZ,
+                Opcode::JNZ,
+                Opcode::JNA,
+                Opcode::JA,
+                Opcode::JS,
+                Opcode::JNS,
+                Opcode::JP,
+                Opcode::JNP,
+                Opcode::JL,
+                Opcode::JGE,
+                Opcode::JLE,
+                Opcode::JG,
             ];
 
             if self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32 {
@@ -1950,13 +2066,18 @@ impl ToTokens for Instruction {
                                 stream.push_owned(rel, Colors::immediate());
                             }
                         }
-                        _ => { unreachable!() }
+                        _ => {
+                            unreachable!()
+                        }
                     };
                 }
             }
 
             if op.is_memory() {
-                stream.push(MEM_SIZE_STRINGS[self.mem_size as usize - 1], Colors::annotation());
+                stream.push(
+                    MEM_SIZE_STRINGS[self.mem_size as usize - 1],
+                    Colors::annotation(),
+                );
             }
 
             if let Some(prefix) = self.segment_override_for_op(0) {
@@ -1974,7 +2095,10 @@ impl ToTokens for Instruction {
                 stream.push(", ", Colors::expr());
                 let op = Operand::from_spec(&self, self.operands[idx as usize]);
                 if op.is_memory() {
-                    stream.push(MEM_SIZE_STRINGS[self.mem_size as usize - 1], Colors::annotation());
+                    stream.push(
+                        MEM_SIZE_STRINGS[self.mem_size as usize - 1],
+                        Colors::annotation(),
+                    );
                 }
                 if let Some(prefix) = self.segment_override_for_op(idx) {
                     stream.push_owned(prefix.to_string(), Colors::segment());
@@ -2003,7 +2127,9 @@ impl ToTokens for Instruction {
                             || self.opcode == Opcode::VCVTTPS2QQ
                             || self.opcode == Opcode::VCVTPS2QQ
                         {
-                            if self.opcode == Opcode::VFPCLASSPS || self.opcode ==  Opcode::VCVTNEPS2BF16 {
+                            if self.opcode == Opcode::VFPCLASSPS
+                                || self.opcode == Opcode::VCVTNEPS2BF16
+                            {
                                 if evex.vex().l() {
                                     8
                                 } else if evex.lp() {
@@ -2039,7 +2165,9 @@ impl ToTokens for Instruction {
                         } else {
                             // this should never be `None` - that would imply two
                             // memory operands for a broadcasted operation.
-                            if let Some(width) = Operand::from_spec(&self, self.operands[idx as usize - 1]).width() {
+                            if let Some(width) =
+                                Operand::from_spec(&self, self.operands[idx as usize - 1]).width()
+                            {
                                 width / self.mem_size
                             } else {
                                 0

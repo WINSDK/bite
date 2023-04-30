@@ -3,7 +3,7 @@
 use super::error::{self, Result};
 use super::index_str::IndexStr;
 use super::subs::{Substitutable, SubstitutionTable};
-use crate::{TokenStream, Colors};
+use crate::{Colors, TokenStream};
 
 use tokenizing::{Color, ColorScheme};
 
@@ -3036,7 +3036,10 @@ define_handle! {
 
 impl TypeHandle {
     fn is_void(&self) -> bool {
-        matches!(self, TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Void)))
+        matches!(
+            self,
+            TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Void))
+        )
     }
 }
 
@@ -4442,10 +4445,7 @@ impl<'subs> Demangle<'subs> for TemplateParam {
 }
 
 impl TemplateParam {
-    fn resolve<'subs>(
-        &'subs self,
-        scope: Option<ArgScopeStack<'_, 'subs>>,
-    ) -> &'subs TemplateArg {
+    fn resolve<'subs>(&'subs self, scope: Option<ArgScopeStack<'_, 'subs>>) -> &'subs TemplateArg {
         static FAILED: TemplateArg = TemplateArg::ArgPack(Vec::new());
 
         scope

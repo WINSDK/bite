@@ -1,16 +1,16 @@
 use std::fmt::Write;
 
-use yaxpeax_arch::{AddressBase, LengthedInstruction};
+use crate::long_mode::Decoder;
+use crate::long_mode::InnerDescription;
+use crate::long_mode::Instruction;
 use crate::long_mode::Opcode;
 use crate::long_mode::RegSpec;
-use crate::long_mode::InstDecoder;
-use crate::long_mode::Instruction;
-use crate::long_mode::InnerDescription;
-use yaxpeax_arch::annotation::{AnnotatingDecoder, FieldDescription};
 use decoder::ToTokens;
+use yaxpeax_arch::annotation::{AnnotatingDecoder, FieldDescription};
+use yaxpeax_arch::{AddressBase, LengthedInstruction};
 
 fn test_annotations(data: &[u8], expected: &'static str, checks: &[AnnotationCheck]) {
-    test_annotations_under(&InstDecoder::default(), data, expected, checks);
+    test_annotations_under(&Decoder::default(), data, expected, checks);
 }
 
 // pair up field descriptions and the check that matched them. we'll use this for
@@ -48,7 +48,7 @@ enum AnnotationCheck {
         check: fn(&InnerDescription) -> bool,
         start_bit: u32,
         end_bit: u32,
-    }
+    },
 }
 
 impl std::fmt::Display for AnnotationCheck {
@@ -57,7 +57,11 @@ impl std::fmt::Display for AnnotationCheck {
             AnnotationCheck::NoExtra => {
                 write!(f, "no further field descriptions expected")
             }
-            AnnotationCheck::Exact { desc, start_bit, end_bit } => {
+            AnnotationCheck::Exact {
+                desc,
+                start_bit,
+                end_bit,
+            } => {
                 write!(f, "bit {}:{}; {}", start_bit, end_bit, desc)
             }
             AnnotationCheck::Approximate {
@@ -90,18 +94,28 @@ impl AnnotationCheck {
         AnnotationCheck::NoExtra
     }
 
-    fn matches(&self, actual_start: u32, actual_end: u32, actual_desc: InnerDescription) -> CheckResult {
+    fn matches(
+        &self,
+        actual_start: u32,
+        actual_end: u32,
+        actual_desc: InnerDescription,
+    ) -> CheckResult {
         match self {
-            AnnotationCheck::NoExtra => {
-                CheckResult::Failed
-            },
-            AnnotationCheck::Exact { start_bit, end_bit, desc } => {
+            AnnotationCheck::NoExtra => CheckResult::Failed,
+            AnnotationCheck::Exact {
+                start_bit,
+                end_bit,
+                desc,
+            } => {
                 let bits_match = *start_bit == actual_start && *end_bit == actual_end;
                 let desc_match = desc == &actual_desc;
                 let fail_anyway = match (desc, &actual_desc) {
                     // expect that there's only one `Number` field with a given name, so if the
                     // bits are wrong or the value is wrong, that's a guaranteed fail.
-                    (InnerDescription::Number(expected_name, _), InnerDescription::Number(actual_name, _)) => {
+                    (
+                        InnerDescription::Number(expected_name, _),
+                        InnerDescription::Number(actual_name, _),
+                    ) => {
                         if expected_name == actual_name {
                             true
                         } else {
@@ -110,14 +124,12 @@ impl AnnotationCheck {
                     }
                     // expect that there's only one opcode field. there won't be a second one that
                     // we might match on later.
-                    (InnerDescription::Opcode(_), InnerDescription::Opcode(_)) => {
-                        true
-                    }
-                    (_expected, _actual) => false
+                    (InnerDescription::Opcode(_), InnerDescription::Opcode(_)) => true,
+                    (_expected, _actual) => false,
                 };
 
                 if (!bits_match && !desc_match) && !fail_anyway {
-                   return CheckResult::Ignored;
+                    return CheckResult::Ignored;
                 }
 
                 if bits_match && desc_match {
@@ -125,13 +137,17 @@ impl AnnotationCheck {
                 } else {
                     CheckResult::Failed
                 }
-            },
-            AnnotationCheck::Approximate { start_bit, end_bit, check } => {
+            }
+            AnnotationCheck::Approximate {
+                start_bit,
+                end_bit,
+                check,
+            } => {
                 let bits_match = *start_bit == actual_start && *end_bit == actual_end;
                 let desc_match = check(&actual_desc);
 
                 if !bits_match && !desc_match {
-                   return CheckResult::Ignored;
+                    return CheckResult::Ignored;
                 }
 
                 if bits_match && desc_match {
@@ -148,14 +164,19 @@ impl std::fmt::Display for CheckResult {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let s = match self {
             CheckResult::Matched => "\x1b[32mmatched\x1b[0m   ",
-            CheckResult::Failed  => "\x1b[31mfailed\x1b[0m    ",
+            CheckResult::Failed => "\x1b[31mfailed\x1b[0m    ",
             CheckResult::Ignored => "\x1b[33mignored\x1b[0m",
         };
         f.write_str(s)
     }
 }
 
-fn test_annotations_under(decoder: &InstDecoder, data: &[u8], expected: &'static str, checks: &[AnnotationCheck]) {
+fn test_annotations_under(
+    decoder: &Decoder,
+    data: &[u8],
+    expected: &'static str,
+    checks: &[AnnotationCheck],
+) {
     let mut stream = decoder::TokenStream::new();
     let mut hex = String::new();
     for b in data {
@@ -201,10 +222,13 @@ fn test_annotations_under(decoder: &InstDecoder, data: &[u8], expected: &'static
                         failed = true;
                     }
 
-                    matches.push(((bit_start, bit_end, desc.desc().clone()), Some(MatchResult {
-                        check: curr_check.clone(),
-                        result: check_result
-                    })));
+                    matches.push((
+                        (bit_start, bit_end, desc.desc().clone()),
+                        Some(MatchResult {
+                            check: curr_check.clone(),
+                            result: check_result,
+                        }),
+                    ));
 
                     if check_result.consumed_check() {
                         check = check_iter.next();
@@ -241,13 +265,8 @@ fn test_annotations_under(decoder: &InstDecoder, data: &[u8], expected: &'static
                     }
                     desc.push(' ');
                     let comment = match check {
-                        None => {
-                            "\x1b[34mno check\x1b[0m".to_owned()
-                        }
-                        Some(MatchResult {
-                            result,
-                            check
-                        }) => {
+                        None => "\x1b[34mno check\x1b[0m".to_owned(),
+                        Some(MatchResult { result, check }) => {
                             if result == CheckResult::Ignored {
                                 result.to_string()
                             } else {
@@ -265,76 +284,159 @@ fn test_annotations_under(decoder: &InstDecoder, data: &[u8], expected: &'static
 
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
-            assert_eq!((0u64.wrapping_offset(instr.len()).to_linear()) as usize, data.len(), "instruction length is incorrect, wanted instruction {}", expected);
-        },
+            assert_eq!(
+                (0u64.wrapping_offset(instr.len()).to_linear()) as usize,
+                data.len(),
+                "instruction length is incorrect, wanted instruction {}",
+                expected
+            );
+        }
         Err(e) => {
-            assert!(false, "decode error ({}) for {} under decoder {}:\n  expected: {}\n", e, hex, decoder, expected);
+            assert!(
+                false,
+                "decode error ({}) for {} under decoder {}:\n  expected: {}\n",
+                e, hex, decoder, expected
+            );
         }
     }
 }
 
 #[test]
 fn test_modrm_decode() {
-    test_annotations(&[0xff, 0xc0], "inc eax", &[
-        AnnotationCheck::exact(11, 13, InnerDescription::Opcode(Opcode::INC)),
-        AnnotationCheck::approximate(0, 7, |desc| { desc.to_string().contains("ModRM_0xff_Ev") }),
-        AnnotationCheck::approximate(14, 15, |desc| {
-            desc.to_string().contains("mmm") &&
-            desc.to_string().contains("register number") &&
-            desc.to_string().contains("mod bits: 11")
-        }),
-        AnnotationCheck::exact(8, 10, InnerDescription::RegisterNumber("mmm", 0, RegSpec::eax())),
-        AnnotationCheck::no_extra(),
-    ]);
-    test_annotations(&[0xc1, 0xe0, 0x03], "shl eax, 0x3", &[
-        AnnotationCheck::exact(11, 13, InnerDescription::Opcode(Opcode::SHL)),
-        AnnotationCheck::exact(16, 23, InnerDescription::Number("imm", 3)),
-        AnnotationCheck::approximate(0, 7, |desc| { desc.to_string().contains("ModRM_0xc1_Ev_Ib") }),
-        AnnotationCheck::approximate(14, 15, |desc| {
-            desc.to_string().contains("mmm") &&
-            desc.to_string().contains("register number") &&
-            desc.to_string().contains("mod bits: 11")
-        }),
-        AnnotationCheck::exact(8, 10, InnerDescription::RegisterNumber("mmm", 0, RegSpec::eax())),
-        AnnotationCheck::no_extra(),
-    ]);
-    test_annotations(&[0x33, 0x08], "xor ecx, dword [rax]", &[
-        AnnotationCheck::exact(0, 7, InnerDescription::Opcode(Opcode::XOR)),
-        AnnotationCheck::approximate(0, 7, |desc| { desc.to_string() == "operand code `Gv_Ev`" }),
-        AnnotationCheck::approximate(7, 7, |desc| { desc.to_string().contains("operands begin") }),
-        AnnotationCheck::approximate(14, 15, |desc| {
-            desc.to_string().contains("memory operand is [reg]") &&
-            desc.to_string().contains("mod bits: 00")
-        }),
-        AnnotationCheck::exact(11, 13, InnerDescription::RegisterNumber("rrr", 1, RegSpec::ecx())),
-        AnnotationCheck::exact(8, 10, InnerDescription::RegisterNumber("mmm", 0, RegSpec::rax())),
-        AnnotationCheck::no_extra(),
-    ]);
-    test_annotations(&[0x66, 0x0f, 0x38, 0x00, 0xc1], "pshufb xmm0, xmm1", &[
-        AnnotationCheck::exact(0, 7, InnerDescription::Misc("operand size override (to 16 bits)")),
-        AnnotationCheck::approximate(38, 39, |desc| {
-            desc.to_string().contains("mmm") &&
-            desc.to_string().contains("register number") &&
-            desc.to_string().contains("mod bits: 11")
-        }),
-        AnnotationCheck::exact(32, 34, InnerDescription::RegisterNumber("mmm", 1, RegSpec::ecx())),
-        AnnotationCheck::exact(35, 37, InnerDescription::RegisterNumber("rrr", 0, RegSpec::eax())),
-        AnnotationCheck::no_extra(),
-    ]);
+    test_annotations(
+        &[0xff, 0xc0],
+        "inc eax",
+        &[
+            AnnotationCheck::exact(11, 13, InnerDescription::Opcode(Opcode::INC)),
+            AnnotationCheck::approximate(0, 7, |desc| desc.to_string().contains("ModRM_0xff_Ev")),
+            AnnotationCheck::approximate(14, 15, |desc| {
+                desc.to_string().contains("mmm")
+                    && desc.to_string().contains("register number")
+                    && desc.to_string().contains("mod bits: 11")
+            }),
+            AnnotationCheck::exact(
+                8,
+                10,
+                InnerDescription::RegisterNumber("mmm", 0, RegSpec::eax()),
+            ),
+            AnnotationCheck::no_extra(),
+        ],
+    );
+    test_annotations(
+        &[0xc1, 0xe0, 0x03],
+        "shl eax, 0x3",
+        &[
+            AnnotationCheck::exact(11, 13, InnerDescription::Opcode(Opcode::SHL)),
+            AnnotationCheck::exact(16, 23, InnerDescription::Number("imm", 3)),
+            AnnotationCheck::approximate(0, 7, |desc| {
+                desc.to_string().contains("ModRM_0xc1_Ev_Ib")
+            }),
+            AnnotationCheck::approximate(14, 15, |desc| {
+                desc.to_string().contains("mmm")
+                    && desc.to_string().contains("register number")
+                    && desc.to_string().contains("mod bits: 11")
+            }),
+            AnnotationCheck::exact(
+                8,
+                10,
+                InnerDescription::RegisterNumber("mmm", 0, RegSpec::eax()),
+            ),
+            AnnotationCheck::no_extra(),
+        ],
+    );
+    test_annotations(
+        &[0x33, 0x08],
+        "xor ecx, dword [rax]",
+        &[
+            AnnotationCheck::exact(0, 7, InnerDescription::Opcode(Opcode::XOR)),
+            AnnotationCheck::approximate(0, 7, |desc| desc.to_string() == "operand code `Gv_Ev`"),
+            AnnotationCheck::approximate(7, 7, |desc| desc.to_string().contains("operands begin")),
+            AnnotationCheck::approximate(14, 15, |desc| {
+                desc.to_string().contains("memory operand is [reg]")
+                    && desc.to_string().contains("mod bits: 00")
+            }),
+            AnnotationCheck::exact(
+                11,
+                13,
+                InnerDescription::RegisterNumber("rrr", 1, RegSpec::ecx()),
+            ),
+            AnnotationCheck::exact(
+                8,
+                10,
+                InnerDescription::RegisterNumber("mmm", 0, RegSpec::rax()),
+            ),
+            AnnotationCheck::no_extra(),
+        ],
+    );
+    test_annotations(
+        &[0x66, 0x0f, 0x38, 0x00, 0xc1],
+        "pshufb xmm0, xmm1",
+        &[
+            AnnotationCheck::exact(
+                0,
+                7,
+                InnerDescription::Misc("operand size override (to 16 bits)"),
+            ),
+            AnnotationCheck::approximate(38, 39, |desc| {
+                desc.to_string().contains("mmm")
+                    && desc.to_string().contains("register number")
+                    && desc.to_string().contains("mod bits: 11")
+            }),
+            AnnotationCheck::exact(
+                32,
+                34,
+                InnerDescription::RegisterNumber("mmm", 1, RegSpec::ecx()),
+            ),
+            AnnotationCheck::exact(
+                35,
+                37,
+                InnerDescription::RegisterNumber("rrr", 0, RegSpec::eax()),
+            ),
+            AnnotationCheck::no_extra(),
+        ],
+    );
 
     // modrm + rex.w
     test_annotations(&[0x48, 0x33, 0x08], "xor rcx, qword [rax]", &[]);
     test_annotations(&[0x48, 0x33, 0x20], "xor rsp, qword [rax]", &[]);
-    test_annotations(&[0x48, 0x33, 0x05, 0x78, 0x56, 0x34, 0x12], "xor rax, qword [rip + 0x12345678]", &[]);
+    test_annotations(
+        &[0x48, 0x33, 0x05, 0x78, 0x56, 0x34, 0x12],
+        "xor rax, qword [rip + 0x12345678]",
+        &[],
+    );
 
     // specifically sib with base == 0b101
     // mod bits 00
-    test_annotations(&[0x42, 0x33, 0x34, 0x25, 0x20, 0x30, 0x40, 0x50], "xor esi, dword [r12 * 1 + 0x50403020]", &[]);
-    test_annotations(&[0x43, 0x33, 0x34, 0x25, 0x20, 0x30, 0x40, 0x50], "xor esi, dword [r12 * 1 + 0x50403020]", &[]);
+    test_annotations(
+        &[0x42, 0x33, 0x34, 0x25, 0x20, 0x30, 0x40, 0x50],
+        "xor esi, dword [r12 * 1 + 0x50403020]",
+        &[],
+    );
+    test_annotations(
+        &[0x43, 0x33, 0x34, 0x25, 0x20, 0x30, 0x40, 0x50],
+        "xor esi, dword [r12 * 1 + 0x50403020]",
+        &[],
+    );
     // mod bits 01
-    test_annotations(&[0x42, 0x33, 0x74, 0x25, 0x20], "xor esi, dword [rbp + r12 * 1 + 0x20]", &[]);
-    test_annotations(&[0x43, 0x33, 0x74, 0x25, 0x20], "xor esi, dword [r13 + r12 * 1 + 0x20]", &[]);
+    test_annotations(
+        &[0x42, 0x33, 0x74, 0x25, 0x20],
+        "xor esi, dword [rbp + r12 * 1 + 0x20]",
+        &[],
+    );
+    test_annotations(
+        &[0x43, 0x33, 0x74, 0x25, 0x20],
+        "xor esi, dword [r13 + r12 * 1 + 0x20]",
+        &[],
+    );
     // mod bits 10
-    test_annotations(&[0x42, 0x33, 0xb4, 0x25, 0x20, 0x30, 0x40, 0x50], "xor esi, dword [rbp + r12 * 1 + 0x50403020]", &[]);
-    test_annotations(&[0x43, 0x33, 0xb4, 0x25, 0x20, 0x30, 0x40, 0x50], "xor esi, dword [r13 + r12 * 1 + 0x50403020]", &[]);
+    test_annotations(
+        &[0x42, 0x33, 0xb4, 0x25, 0x20, 0x30, 0x40, 0x50],
+        "xor esi, dword [rbp + r12 * 1 + 0x50403020]",
+        &[],
+    );
+    test_annotations(
+        &[0x43, 0x33, 0xb4, 0x25, 0x20, 0x30, 0x40, 0x50],
+        "xor esi, dword [r13 + r12 * 1 + 0x50403020]",
+        &[],
+    );
 }
