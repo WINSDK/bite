@@ -132,7 +132,7 @@ impl decoder::Decodable for Decoder {
     fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Self::Error> {
         let mut bytes = [0u8; 4];
         reader.next_n(&mut bytes).ok_or(Error::Exhausted)?;
-        let dword = u32::from_le_bytes(bytes) as usize;
+        let dword = u32::from_be_bytes(bytes) as usize;
 
         // nop instruction isn't included in any MIPS spec
         if dword == 0b00000000_00000000_00000000_00000000 {
@@ -219,8 +219,8 @@ impl decoder::Decodable for Decoder {
                 if inst.format == [1, 3, 2] {
                     let (operands, operand_count) = operands![
                         Cow::Borrowed(REGISTERS[rt]),
+                        Cow::Borrowed(REGISTERS[rs]),
                         Cow::Owned(format!("{immediate:#x}")),
-                        Cow::Owned(format!("({})", REGISTERS[rs]))
                     ];
 
                     return Ok(Instruction {
@@ -273,13 +273,14 @@ impl decoder::Decodable for Decoder {
 impl decoder::ToTokens for Instruction {
     fn tokenize(mut self, stream: &mut decoder::TokenStream) {
         stream.push(self.mnemomic, Colors::opcode());
+        dbg!(&self);
 
         // there are operands
-        if self.operand_count > 1 {
+        if self.operand_count > 0 {
             stream.push(" ", Colors::spacing());
 
             // iterate through operands
-            for idx in 1..self.operand_count {
+            for idx in 0..self.operand_count {
                 let operand = std::mem::take(&mut self.operands[idx]);
 
                 match operand {
