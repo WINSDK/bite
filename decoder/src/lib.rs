@@ -229,7 +229,7 @@ pub fn encode_hex(mut imm: i64) -> String {
 /// Encode bytes as 2 digit hex number separated by a space with a leading space.
 pub fn encode_hex_bytes(bytes: &[u8]) -> String {
     unsafe {
-        let mut buffer = Vec::with_capacity(bytes.len());
+        let mut buffer = Vec::with_capacity(bytes.len() * 3);
         let slice = &mut buffer[..];
         let mut idx = 0;
 

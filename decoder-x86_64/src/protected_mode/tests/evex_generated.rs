@@ -22,11 +22,6 @@ fn test_invalid_under(decoder: &Decoder, data: &[u8]) {
     }
 }
 
-#[allow(dead_code)]
-fn test_display(data: &[u8], expected: &'static str) {
-    test_display_under(&Decoder::default(), data, expected);
-}
-
 fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
     let mut stream = decoder::TokenStream::new();
     let mut hex = String::new();
