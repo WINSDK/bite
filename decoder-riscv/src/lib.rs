@@ -724,7 +724,7 @@ pub enum Operand {
     #[default]
     Nothing,
     Register(Register),
-    Immediate(i64),
+    Immediate(i32),
 }
 
 impl Operand {
@@ -808,7 +808,7 @@ impl decoder::Decodable for Decoder {
                 0b01 => match jump3 {
                     0b000 if bytes >> 7 & 0b11111 == 0 => decode_comp_unique(C_NOP),
                     0b000 if bytes >> 7 & 0b11111 != 0 => decode_comp_addi(C_ADDI, bytes),
-                    0b001 if !self.is_64 => decode_comp_jump(JAL, bytes),
+                    0b001 if !self.is_64 => decode_comp_jump(C_JAL, bytes),
                     0b001 if self.is_64 => decode_comp_addi(C_ADDIW, bytes),
                     0b010 => decode_comp_li(C_LI, bytes),
                     0b011 if bytes >> 7 & 0b11111 == 2 => decode_addi16sp(bytes),
@@ -827,7 +827,7 @@ impl decoder::Decodable for Decoder {
                         },
                         _ => Err(Error::UnknownOpcode),
                     },
-                    0b101 => decode_comp_jump(J, bytes),
+                    0b101 => decode_comp_jump(C_J, bytes),
                     0b110 => decode_comp_branch(C_BEQZ, bytes),
                     0b111 => decode_comp_branch(C_BNEZ, bytes),
                     _ => Err(Error::UnknownOpcode),
@@ -1006,8 +1006,28 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
             return;
         }
 
-        if inst.operands[2] == Operand::Immediate(0) {
+        if inst.operands[0] == inst.operands[1] && inst.operands[2] == Operand::Immediate(0) {
             inst.opcode = Opcode::MV;
+            inst.operand_count = 2;
+            return;
+        }
+
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_ADDW as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::ADDW as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
             inst.operand_count = 2;
         }
     };
@@ -1029,8 +1049,68 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
             return;
         }
 
-        if inst.operands[2] == Operand::Immediate(0) {
+        if inst.operands[0] == inst.operands[1] && inst.operands[2] == Operand::Immediate(0) {
             inst.opcode = Opcode::MV;
+            inst.operand_count = 2;
+            return;
+        }
+
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::ADD as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_ADD as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_ADDIW as usize] = |inst| {
+        if inst.operands[2] == Operand::Immediate(0) {
+            inst.opcode = Opcode::SEXT_W;
+            inst.operand_count = 2;
+            return;
+        }
+
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::ADDIW as usize] = |inst| {
+        if inst.operands[2] == Operand::Immediate(0) {
+            inst.opcode = Opcode::SEXT_W;
+            inst.operand_count = 2;
+            return;
+        }
+
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_XOR as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::XOR as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
             inst.operand_count = 2;
         }
     };
@@ -1038,6 +1118,46 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
     MAPPING[Opcode::XORI as usize] = |inst| {
         if inst.operands[2] == Operand::Immediate(-1) {
             inst.opcode = Opcode::NOT;
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_AND as usize] = |inst| {
+        if inst.operands[2] == Operand::Immediate(-1) {
+            inst.opcode = Opcode::NOT;
+            inst.operand_count = 2;
+            return;
+        }
+
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::AND as usize] = |inst| {
+        if inst.operands[2] == Operand::Immediate(-1) {
+            inst.opcode = Opcode::NOT;
+            inst.operand_count = 2;
+            return;
+        }
+
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::OR as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_OR as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
             inst.operand_count = 2;
         }
     };
@@ -1070,20 +1190,6 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
         if inst.operands[1] == Operand::Register(Register::Zero) {
             inst.opcode = Opcode::NEG;
             inst.operands.swap(1, 2);
-            inst.operand_count = 2;
-        }
-    };
-
-    MAPPING[Opcode::C_ADDIW as usize] = |inst| {
-        if inst.operands[2] == Operand::Immediate(0) {
-            inst.opcode = Opcode::SEXT_W;
-            inst.operand_count = 2;
-        }
-    };
-
-    MAPPING[Opcode::ADDIW as usize] = |inst| {
-        if inst.operands[2] == Operand::Immediate(0) {
-            inst.opcode = Opcode::SEXT_W;
             inst.operand_count = 2;
         }
     };
@@ -1211,14 +1317,13 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
 
     MAPPING[Opcode::C_JAL as usize] = |inst| {
         if inst.operands[0] == Operand::Register(Register::Zero) {
-            inst.opcode = Opcode::J;
+            inst.opcode = Opcode::C_J;
             inst.operands.swap(0, 1);
             inst.operand_count = 1;
             return;
         }
 
         if inst.operands[0] == Operand::Register(Register::Ra) {
-            inst.opcode = Opcode::JAL;
             inst.operands.swap(0, 1);
             inst.operand_count = 1;
         }
@@ -1233,7 +1338,6 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
         }
 
         if inst.operands[0] == Operand::Register(Register::Ra) {
-            inst.opcode = Opcode::JAL;
             inst.operands.swap(0, 1);
             inst.operand_count = 1;
         }
@@ -1241,8 +1345,8 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
 
     MAPPING[Opcode::C_JALR as usize] = |inst| {
         if inst.operands[0] == Operand::Register(Register::Zero)
-            && inst.operands[1] == Operand::Immediate(0)
-            && inst.operands[2] == Operand::Register(Register::Ra)
+            && inst.operands[1] == Operand::Register(Register::Ra)
+            && inst.operands[2] == Operand::Immediate(0)
         {
             inst.opcode = Opcode::RET;
             inst.operand_count = 0;
@@ -1250,24 +1354,33 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
         }
 
         if inst.operands[0] == Operand::Register(Register::Zero)
-            && inst.operands[1] == Operand::Immediate(0)
+            && inst.operands[2] == Operand::Immediate(0)
         {
-            inst.opcode = Opcode::JR;
+            inst.opcode = Opcode::C_JR;
             inst.operands.swap(0, 2);
             inst.operand_count = 1;
             return;
         }
 
         if inst.operands[0] == Operand::Register(Register::Ra)
-            && inst.operands[1] == Operand::Immediate(0)
+            && inst.operands[1] == Operand::Register(Register::Ra)
+            && inst.operands[2] == Operand::Immediate(0)
         {
-            inst.operands.swap(0, 2);
+            inst.opcode = Opcode::RET;
+            inst.operand_count = 0;
+            return;
+        }
+
+        if inst.operands[0] == Operand::Register(Register::Ra)
+            && inst.operands[2] == Operand::Immediate(0)
+        {
+            inst.operands.swap(0, 1);
             inst.operand_count = 1;
             return;
         }
 
         if inst.operands[0] == Operand::Register(Register::Ra)
-            && inst.operands[2] == Operand::Register(Register::Ra)
+            && inst.operands[1] == Operand::Register(Register::Ra)
         {
             inst.opcode = Opcode::CALL;
             inst.operands.swap(0, 1);
@@ -1276,19 +1389,18 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
         }
 
         if inst.operands[0] == Operand::Register(Register::Zero)
-            && inst.operands[2] == Operand::Register(Register::T1)
+            && inst.operands[1] == Operand::Register(Register::T1)
         {
             inst.opcode = Opcode::TAIL;
             inst.operands.swap(0, 1);
             inst.operand_count = 1;
-            return;
         }
     };
 
     MAPPING[Opcode::JALR as usize] = |inst| {
         if inst.operands[0] == Operand::Register(Register::Zero)
-            && inst.operands[1] == Operand::Immediate(0)
-            && inst.operands[2] == Operand::Register(Register::Ra)
+            && inst.operands[1] == Operand::Register(Register::Ra)
+            && inst.operands[2] == Operand::Immediate(0)
         {
             inst.opcode = Opcode::RET;
             inst.operand_count = 0;
@@ -1296,7 +1408,7 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
         }
 
         if inst.operands[0] == Operand::Register(Register::Zero)
-            && inst.operands[1] == Operand::Immediate(0)
+            && inst.operands[2] == Operand::Immediate(0)
         {
             inst.opcode = Opcode::JR;
             inst.operands.swap(0, 2);
@@ -1305,15 +1417,24 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
         }
 
         if inst.operands[0] == Operand::Register(Register::Ra)
-            && inst.operands[1] == Operand::Immediate(0)
+            && inst.operands[1] == Operand::Register(Register::Ra)
+            && inst.operands[2] == Operand::Immediate(0)
         {
-            inst.operands.swap(0, 2);
+            inst.opcode = Opcode::RET;
+            inst.operand_count = 0;
+            return;
+        }
+
+        if inst.operands[0] == Operand::Register(Register::Ra)
+            && inst.operands[2] == Operand::Immediate(0)
+        {
+            inst.operands.swap(0, 1);
             inst.operand_count = 1;
             return;
         }
 
         if inst.operands[0] == Operand::Register(Register::Ra)
-            && inst.operands[2] == Operand::Register(Register::Ra)
+            && inst.operands[1] == Operand::Register(Register::Ra)
         {
             inst.opcode = Opcode::CALL;
             inst.operands.swap(0, 1);
@@ -1322,12 +1443,11 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
         }
 
         if inst.operands[0] == Operand::Register(Register::Zero)
-            && inst.operands[2] == Operand::Register(Register::T1)
+            && inst.operands[1] == Operand::Register(Register::T1)
         {
             inst.opcode = Opcode::TAIL;
             inst.operands.swap(0, 1);
             inst.operand_count = 1;
-            return;
         }
     };
 
@@ -1339,7 +1459,7 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
                 (Operand::Register(reg), Operand::Immediate(mut imm)) => {
                     // offset[31 : 12] + offset[11] where register is bit's [11:6]
                     imm <<= 1;
-                    imm |= ((reg as u16 & 0b10000) >> 4) as i64;
+                    imm |= ((reg as u16 & 0b10000) >> 4) as i32;
                     inst.operands[0] = Operand::Immediate(imm);
                     inst.operand_count = 1;
                 }
@@ -1356,14 +1476,82 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
                 (Operand::Register(reg), Operand::Immediate(mut imm)) => {
                     // offset[31 : 12] + offset[11] where register is bit's [11:6]
                     imm <<= 1;
-                    imm |= ((reg as u16 & 0b10000) >> 4) as i64;
+                    imm |= ((reg as u16 & 0b10000) >> 4) as i32;
                     inst.operands[0] = Operand::Immediate(imm);
                     inst.operand_count = 1;
                 }
                 _ => unreachable!(),
             }
+        }
+    };
 
-            return;
+    MAPPING[Opcode::C_SRAI as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::SRAI as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_SRAI64 as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_SRLI as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::SRLI as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_SRLI64 as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_SLLI as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::SLLI as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_SLLI64 as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
+        }
+    };
+
+    MAPPING[Opcode::C_SLLI64 as usize] = |inst| {
+        if inst.operands[0] == inst.operands[1] {
+            inst.operands.swap(1, 2);
+            inst.operand_count = 2;
         }
     };
 
@@ -1388,10 +1576,10 @@ fn decode_comp_branch(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     imm |= word >> 2 & 0b000000110;
 
     // cast to i32 to prevent rust overflowing literal complaints
-    let mut imm = imm as i64;
+    let mut imm = imm as i32;
 
     if imm & 0b100000000 != 0 {
-        imm |= (imm | 0b1111111000000000) as i16 as i64;
+        imm |= (imm | 0b1111111000000000) as i16 as i32;
     }
 
     let (operands, operand_count) = operands![
@@ -1422,10 +1610,10 @@ fn decode_comp_jump(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     imm |= word >> 2 & 0b000000001110;
 
     // cast to i64 to prevent rust overflowing literal complaints
-    let mut imm = imm as i64;
+    let mut imm = imm as i32;
 
     if imm & 0b100000000000 != 0 {
-        imm |= (imm | 0b1111000000000000) as i16 as i64;
+        imm |= (imm | 0b1111000000000000) as i16 as i32;
     }
 
     let (operands, operand_count) = operands![Operand::Immediate(imm)];
@@ -1449,7 +1637,7 @@ fn decode_comp_jumpr(word: u16) -> Result<Instruction, Error> {
     ];
 
     Ok(Instruction {
-        opcode: Opcode::JALR,
+        opcode: Opcode::C_JALR,
         operands,
         operand_count,
         len: 2,
@@ -1483,7 +1671,7 @@ fn decode_comp_shift(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rd),
         Operand::Register(rd),
-        Operand::Immediate(shamt as i64)
+        Operand::Immediate(shamt as i32)
     ];
 
     Ok(Instruction {
@@ -1506,7 +1694,7 @@ fn decode_comp_addi(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rd),
         Operand::Register(rd),
-        Operand::Immediate(imm as i64),
+        Operand::Immediate(imm as i32),
     ];
 
     Ok(Instruction {
@@ -1527,10 +1715,10 @@ fn decode_addi16sp(word: u16) -> Result<Instruction, Error> {
     imm |= word << 4 & 0b0110000000;
     imm |= word << 3 & 0b0000100000;
 
-    let mut imm = imm as i64;
+    let mut imm = imm as i32;
 
     if imm & 0b1000000000 != 0 {
-        imm = (imm | 0b1111110000000000) as i16 as i64;
+        imm = (imm | 0b1111110000000000) as i16 as i32;
     }
 
     let (operands, operand_count) = operands![Operand::Immediate(imm)];
@@ -1554,7 +1742,7 @@ fn decode_addi4spn(word: u16) -> Result<Instruction, Error> {
     imm |= word >> 4 & 0b0000000100;
 
     let (operands, operand_count) =
-        operands![Operand::Register(rd), Operand::Immediate(imm as i64)];
+        operands![Operand::Register(rd), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode: Opcode::C_ADDI4SPN,
@@ -1576,7 +1764,7 @@ fn decode_comp_add(word: u16) -> Result<Instruction, Error> {
     ];
 
     Ok(Instruction {
-        opcode: Opcode::ADD,
+        opcode: Opcode::C_ADD,
         operands,
         operand_count,
         len: 2,
@@ -1593,7 +1781,7 @@ fn decode_comp_li(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     }
 
     let (operands, operand_count) =
-        operands![Operand::Register(rs), Operand::Immediate(imm as i64),];
+        operands![Operand::Register(rs), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode,
@@ -1609,7 +1797,7 @@ fn decode_comp_swsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let imm = (word >> 1 & 0b11000000) | (word >> 7 & 0b111100);
 
     let (operands, operand_count) =
-        operands![Operand::Register(rd), Operand::Immediate(imm as i64)];
+        operands![Operand::Register(rd), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode,
@@ -1625,7 +1813,7 @@ fn decode_comp_sdsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let imm = (word >> 1 & 0b111000000) | (word >> 7 & 0b111000);
 
     let (operands, operand_count) =
-        operands![Operand::Register(rd), Operand::Immediate(imm as i64)];
+        operands![Operand::Register(rd), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode,
@@ -1641,7 +1829,7 @@ fn decode_comp_lwsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let imm = (word << 4 & 0b11000000) | (word >> 7 & 0b100000) | (word >> 2 & 0b11100);
 
     let (operands, operand_count) =
-        operands![Operand::Register(rd), Operand::Immediate(imm as i64)];
+        operands![Operand::Register(rd), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode,
@@ -1657,7 +1845,7 @@ fn decode_comp_ldsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let imm = (word << 4 & 0b111000000) | (word >> 7 & 0b100000) | (word >> 2 & 0b11000);
 
     let (operands, operand_count) =
-        operands![Operand::Register(rd), Operand::Immediate(imm as i64)];
+        operands![Operand::Register(rd), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode,
@@ -1676,7 +1864,7 @@ fn decode_comp_slw(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rs1),
         Operand::Register(rs2),
-        Operand::Immediate(imm as i64)
+        Operand::Immediate(imm as i32)
     ];
 
     Ok(Instruction {
@@ -1696,7 +1884,7 @@ fn decode_comp_sld(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rs1),
         Operand::Register(rs2),
-        Operand::Immediate(imm as i64)
+        Operand::Immediate(imm as i32)
     ];
 
     Ok(Instruction {
@@ -1716,7 +1904,7 @@ fn decode_comp_fslw(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rs1),
         Operand::Register(rs2),
-        Operand::Immediate(imm as i64)
+        Operand::Immediate(imm as i32)
     ];
 
     Ok(Instruction {
@@ -1736,7 +1924,7 @@ fn decode_comp_fsld(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rs1),
         Operand::Register(rs2),
-        Operand::Immediate(imm as i64)
+        Operand::Immediate(imm as i32)
     ];
 
     Ok(Instruction {
@@ -1793,14 +1981,14 @@ fn decode_store(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
     imm |= ((dword & 0b11111110000000000000000000000000) as i32 >> 20) as u32;
     imm |= dword >> 7 & 0b11111;
 
-    let imm = imm as i64;
+    let imm = imm as i32;
     let rs1 = Register::get(dword >> 15 & 0b11111)?;
     let rs2 = Register::get(dword >> 20 & 0b11111)?;
 
     let (operands, operand_count) = operands![
         Operand::Register(rs2),
         Operand::Register(rs1),
-        Operand::Immediate(imm as i64),
+        Operand::Immediate(imm),
     ];
 
     Ok(Instruction {
@@ -1819,7 +2007,7 @@ fn decode_branch(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
     let mut imm = 0;
 
     // sign extend the 32nd bit and shift it into the 13th bit
-    imm |= ((dword & (1 << 31)) as i32 >> 19) as u32;
+    imm |= ((dword & 0b10000000000000000000000000000000) as i32 >> 19) as u32;
     imm |= dword << 4 & 0b100000000000;
     imm |= dword >> 20 & 0b011111100000;
     imm |= dword >> 7 & 0b000000011110;
@@ -1827,7 +2015,7 @@ fn decode_branch(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rs1),
         Operand::Register(rs2),
-        Operand::Immediate(imm as i64),
+        Operand::Immediate(imm as i32),
     ];
 
     Ok(Instruction {
@@ -1850,7 +2038,7 @@ fn decode_jump(dword: u32) -> Result<Instruction, Error> {
     imm |= dword >> 20 & 0b00000000011111111110;
 
     let (operands, operand_count) =
-        operands![Operand::Register(rd), Operand::Immediate(imm as i64)];
+        operands![Operand::Register(rd), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode: Opcode::JAL,
@@ -1862,7 +2050,7 @@ fn decode_jump(dword: u32) -> Result<Instruction, Error> {
 
 /// Decode's ret instruction.
 fn decode_jumpr(bytes: u32) -> Result<Instruction, Error> {
-    let imm = (bytes as i32 >> 20) as i64;
+    let imm = (bytes as i32 >> 20) as i32;
     let rd = Register::get(bytes >> 7 & 0b11111)?;
     let (operands, operand_count) = operands![Operand::Register(rd), Operand::Immediate(imm)];
 
@@ -1883,7 +2071,7 @@ fn decode_immediate(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
     let (operands, operand_count) = operands![
         Operand::Register(rd),
         Operand::Register(rs),
-        Operand::Immediate(imm as i64),
+        Operand::Immediate(imm),
     ];
 
     Ok(Instruction {
@@ -1908,7 +2096,7 @@ fn decode_arith(opcode: Opcode, dword: u32, opts: &Decoder) -> Result<Instructio
     let (operands, operand_count) = operands![
         Operand::Register(rd),
         Operand::Register(rs),
-        Operand::Immediate(shamt as i64),
+        Operand::Immediate(shamt as i32),
     ];
 
     Ok(Instruction {
@@ -1945,7 +2133,7 @@ fn decode_double(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
     let rd = Register::get(dword >> 7 & 0b11111)?;
 
     let (operands, operand_count) =
-        operands![Operand::Register(rd), Operand::Immediate(imm as i64)];
+        operands![Operand::Register(rd), Operand::Immediate(imm as i32)];
 
     Ok(Instruction {
         opcode,
