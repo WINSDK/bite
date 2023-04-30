@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 mod display;
 mod evex_generated;
 mod opcode;
@@ -7,15 +9,14 @@ mod regspec;
 use std::fmt::Write;
 
 use crate::protected_mode::Decoder;
-use decoder::ToTokens;
-use yaxpeax_arch::{AddressBase, Decoder, LengthedInstruction};
+use decoder::{Decodable, Decoded, Reader, ToTokens};
 
 fn test_invalid(data: &[u8]) {
     test_invalid_under(&Decoder::default(), data);
 }
 
 fn test_invalid_under(decoder: &Decoder, data: &[u8]) {
-    let mut reader = yaxpeax_arch::U8Reader::new(data);
+    let mut reader = Reader::new(data);
     if let Ok(inst) = decoder.decode(&mut reader) {
         // realistically, the chances an error only shows up under non-fmt builds seems unlikely,
         // but try to report *something* in such cases.
@@ -25,8 +26,6 @@ fn test_invalid_under(decoder: &Decoder, data: &[u8]) {
             data,
             decoder
         );
-    } else {
-        // this is fine
     }
 }
 
@@ -41,7 +40,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
         write!(hex, "{:02x}", b).unwrap();
     }
 
-    let mut reader = yaxpeax_arch::U8Reader::new(data);
+    let mut reader = Reader::new(data);
     match dekoder.decode(&mut reader) {
         Ok(instr) => {
             instr.tokenize(&mut stream);
@@ -59,7 +58,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
             assert_eq!(
-                (0u32.wrapping_offset(instr.len()).to_linear()) as usize,
+                (0u32.wrapping_add(instr.len() as u32)) as usize,
                 data.len(),
                 "instruction length is incorrect, wanted instruction {}",
                 expected
@@ -68,7 +67,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
         Err(e) => {
             assert!(
                 false,
-                "decode error ({}) for {} under decoder {}:\n  expected: {}\n",
+                "decode error ({:?}) for {} under decoder {}:\n  expected: {}\n",
                 e, hex, dekoder, expected
             );
         }
@@ -76,7 +75,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
 }
 
 #[test]
-fn test_modrm_decode() {
+fn modrm_decode() {
     // just modrm
     test_display(&[0x33, 0x08], "xor ecx, dword [eax]");
     test_display(&[0x33, 0x20], "xor esp, dword [eax]");
@@ -131,7 +130,7 @@ fn test_modrm_decode() {
 }
 
 #[test]
-fn test_mmx() {
+fn mmx() {
     test_display(&[0x0f, 0xf7, 0xc1], "maskmovq mm0, mm1");
     test_invalid(&[0x0f, 0xf7, 0x01]);
 
@@ -222,7 +221,7 @@ fn test_mmx() {
 }
 
 #[test]
-fn test_cvt() {
+fn cvt() {
     test_display(&[0x0f, 0x2c, 0xcf], "cvttps2pi mm1, xmm7");
     test_display(&[0x0f, 0x2a, 0xcf], "cvtpi2ps xmm1, mm7");
     test_display(&[0x0f, 0x2a, 0x00], "cvtpi2ps xmm0, qword [eax]");
@@ -235,7 +234,7 @@ fn test_cvt() {
 }
 
 #[test]
-fn test_aesni() {
+fn aesni() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         test_display_under(&Decoder::minimal().with_aesni(), bytes, text);
         test_display_under(&Decoder::default(), bytes, text);
@@ -294,7 +293,7 @@ fn test_aesni() {
 }
 
 #[test]
-fn test_sse2() {
+fn sse2() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         // sse and sse2 are part of amd64, so x86_64, meaning even the minimal decoder must support
         // them.
@@ -611,7 +610,7 @@ fn test_sse2() {
 }
 
 #[test]
-fn test_sse3() {
+fn sse3() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         test_display_under(&Decoder::minimal().with_sse3(), bytes, text);
         test_invalid_under(&Decoder::minimal(), bytes);
@@ -664,7 +663,7 @@ fn test_sse3() {
 }
 
 #[test]
-fn test_sse4_2() {
+fn sse4_2() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         test_display_under(&Decoder::minimal().with_sse4_2(), bytes, text);
         test_invalid_under(&Decoder::minimal(), bytes);
@@ -725,7 +724,7 @@ fn test_sse4_2() {
 }
 
 #[test]
-fn test_sse4_1() {
+fn sse4_1() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         test_display_under(&Decoder::minimal().with_sse4_1(), bytes, text);
         test_invalid_under(&Decoder::minimal(), bytes);
@@ -990,7 +989,7 @@ fn test_sse4_1() {
 }
 
 #[test]
-fn test_ssse3() {
+fn ssse3() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         test_display_under(&Decoder::minimal().with_ssse3(), bytes, text);
         test_invalid_under(&Decoder::minimal(), bytes);
@@ -1086,7 +1085,7 @@ fn test_ssse3() {
 }
 
 #[test]
-fn test_0f01() {
+fn zerof01() {
     // drawn heavily from "Table A-6.  Opcode Extensions for One- and Two-byte Opcodes by Group
     // Number"
     test_display(&[0x0f, 0x01, 0x38], "invlpg byte [eax]");
@@ -1172,7 +1171,7 @@ fn test_0f01() {
 }
 
 #[test]
-fn test_0fae() {
+fn zerofae() {
     let intel = Decoder::minimal().with_intel_quirks();
     let amd = Decoder::minimal().with_amd_quirks();
     let default = Decoder::default();
@@ -1225,14 +1224,14 @@ fn test_0fae() {
 }
 
 #[test]
-fn test_system() {
+fn system() {
     test_display(&[0x63, 0xc1], "arpl cx, ax");
     test_display(&[0x63, 0x04, 0xba], "arpl word [edx + edi * 4], ax");
     test_display(&[0x0f, 0x06], "clts");
 }
 
 #[test]
-fn test_arithmetic() {
+fn arithmetic() {
     test_display(&[0x81, 0xec, 0x10, 0x03, 0x00, 0x00], "sub esp, 0x310");
     test_display(&[0x0f, 0xaf, 0xc2], "imul eax, edx");
     test_display(
@@ -1257,7 +1256,7 @@ fn test_E_decode() {
 }
 
 #[test]
-fn test_sse() {
+fn sse() {
     test_display(
         &[0xf3, 0x0f, 0x10, 0x0c, 0xc7],
         "movss xmm1, dword [edi + eax * 8]",
@@ -1355,7 +1354,7 @@ fn test_sse() {
 // SETLE, SETNG, ...
 
 #[test]
-fn test_mov() {
+fn mov() {
     test_display(&[0xa0, 0x93, 0x62, 0xc4, 0x00], "mov al, byte [0xc46293]");
     test_display(&[0x67, 0xa0, 0x93, 0x62], "mov al, byte [0x6293]");
     test_display(&[0xa1, 0x93, 0x62, 0xc4, 0x00], "mov eax, dword [0xc46293]");
@@ -1417,19 +1416,19 @@ fn test_mov() {
 }
 
 #[test]
-fn test_xchg() {
+fn xchg() {
     test_display(&[0x90], "nop");
     test_display(&[0x91], "xchg eax, ecx");
     test_display(&[0x66, 0x91], "xchg ax, cx");
 }
 
 #[test]
-fn test_stack() {
+fn stack() {
     test_display(&[0x66, 0x50], "push ax");
 }
 
 #[test]
-fn test_prefixes() {
+fn prefixes() {
     test_display(&[0x66, 0x31, 0xc0], "xor ax, ax");
     test_display(&[0x66, 0x32, 0xc0], "xor al, al");
     test_display(&[0x66, 0x32, 0xc5], "xor al, ch");
@@ -1453,7 +1452,7 @@ fn test_prefixes() {
 }
 
 #[test]
-fn test_control_flow() {
+fn control_flow() {
     test_display(&[0x73, 0x31], "jnb $+0x31");
     test_display(&[0x72, 0x5a], "jb $+0x5a");
     test_display(&[0x72, 0xf0], "jb $-0x10");
@@ -1490,7 +1489,7 @@ fn bad_instructions() {
 }
 
 #[test]
-fn test_test_cmp() {
+fn test_cmp() {
     test_display(
         &[0xf6, 0x05, 0x2c, 0x9b, 0xff, 0xff, 0x01],
         "test byte [0xffff9b2c], 0x1",
@@ -1501,7 +1500,7 @@ fn test_test_cmp() {
 }
 
 #[test]
-fn test_push_pop() {
+fn push_pop() {
     test_display(&[0x5b], "pop ebx");
     test_display(&[0x5e], "pop esi");
     test_display(&[0x68, 0x7f, 0x63, 0xc4, 0x00], "push 0xc4637f");
@@ -1510,7 +1509,7 @@ fn test_push_pop() {
 }
 
 #[test]
-fn test_bmi1() {
+fn bmi1() {
     let bmi1 = Decoder::minimal().with_bmi1();
     let no_bmi1 = Decoder::minimal();
     test_display_under(&bmi1, &[0xf3, 0x0f, 0xbc, 0xd3], "tzcnt edx, ebx");
@@ -1577,7 +1576,7 @@ fn test_bmi1() {
 }
 
 #[test]
-fn test_bmi2() {
+fn bmi2() {
     let bmi2 = Decoder::minimal().with_bmi2();
 
     // from the intel manual [`PDEP`, though this is true for `BMI2` generally]:
@@ -1677,7 +1676,7 @@ fn test_bmi2() {
 }
 
 #[test]
-fn test_popcnt() {
+fn popcnt() {
     let popcnt = Decoder::minimal().with_popcnt();
     let intel_popcnt = Decoder::minimal().with_intel_quirks().with_sse4_2();
     let no_popcnt = Decoder::minimal();
@@ -1687,7 +1686,7 @@ fn test_popcnt() {
 }
 
 #[test]
-fn test_bitwise() {
+fn bitwise() {
     test_display_under(&Decoder::minimal(), &[0x0f, 0xbc, 0xd3], "bsf edx, ebx");
     test_display_under(
         &Decoder::minimal(),
@@ -1707,7 +1706,7 @@ fn test_bitwise() {
 }
 
 #[test]
-fn test_misc() {
+fn misc() {
     test_display(&[0xf1], "int 0x1");
     test_display(&[0xf5], "cmc");
     test_display(&[0xc8, 0x01, 0x02, 0x03], "enter 0x201, 0x3");
@@ -1809,7 +1808,7 @@ fn evex() {
 }
 
 #[test]
-fn test_vex() {
+fn vex() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         test_display_under(&Decoder::minimal().with_avx(), bytes, text);
         test_display_under(&Decoder::default(), bytes, text);
@@ -4757,7 +4756,7 @@ fn only_32bit() {
 }
 
 #[test]
-fn test_adx() {
+fn adx() {
     test_display(&[0x66, 0x0f, 0x38, 0xf6, 0xc1], "adcx eax, ecx");
     test_display(&[0x66, 0x0f, 0x38, 0xf6, 0x01], "adcx eax, dword [ecx]");
     test_display(&[0xf3, 0x0f, 0x38, 0xf6, 0xc1], "adox eax, ecx");
@@ -4765,18 +4764,18 @@ fn test_adx() {
 }
 
 #[test]
-fn test_prefetchw() {
+fn prefetchw() {
     test_display(&[0x0f, 0x0d, 0x08], "prefetchw zmmword [eax]");
 }
 
 #[test]
-fn test_lzcnt() {
+fn lzcnt() {
     test_display(&[0x66, 0xf3, 0x0f, 0xbd, 0xc1], "lzcnt ax, cx");
     test_display(&[0xf3, 0x0f, 0xbd, 0xc1], "lzcnt eax, ecx");
 }
 
 #[test]
-fn test_svm() {
+fn svm() {
     test_display(&[0x0f, 0x01, 0xdf], "invlpga eax, ecx");
     test_display(&[0x0f, 0x01, 0xde], "skinit eax");
     test_display(&[0x0f, 0x01, 0xdd], "clgi");
@@ -4794,7 +4793,7 @@ fn test_svm() {
 }
 
 #[test]
-fn test_movbe() {
+fn movbe() {
     test_display(&[0x0f, 0x38, 0xf0, 0x06], "movbe eax, dword [esi]");
     test_invalid(&[0x0f, 0x38, 0xf0, 0xc6]);
     test_display(&[0x0f, 0x38, 0xf1, 0x06], "movbe dword [esi], eax");
@@ -4803,7 +4802,7 @@ fn test_movbe() {
 }
 
 #[test]
-fn test_tsx() {
+fn tsx() {
     test_display(&[0xc6, 0xf8, 0x10], "xabort 0x10");
     test_display(&[0xc7, 0xf8, 0x10, 0x12, 0x34, 0x56], "xbegin $+0x56341210");
     test_display(&[0x66, 0xc7, 0xf8, 0x10, 0x12], "xbegin $+0x1210");
@@ -4812,7 +4811,7 @@ fn test_tsx() {
 }
 
 #[test]
-fn test_rand() {
+fn rand() {
     test_display(&[0x0f, 0xc7, 0xfd], "rdseed ebp");
     test_display(&[0x66, 0x0f, 0xc7, 0xfd], "rdseed bp");
     test_display(&[0x0f, 0xc7, 0xf5], "rdrand ebp");
@@ -4820,7 +4819,7 @@ fn test_rand() {
 }
 
 #[test]
-fn test_sha() {
+fn sha() {
     test_display(
         &[0x0f, 0x3a, 0xcc, 0x12, 0x40],
         "sha1rnds4 xmm2, xmmword [edx], 0x40",
@@ -4838,7 +4837,7 @@ fn test_sha() {
 }
 
 #[test]
-fn test_vmx() {
+fn vmx() {
     test_display(&[0x0f, 0xc7, 0x3f], "vmptrst qword [edi]");
     test_display(&[0x0f, 0xc7, 0x37], "vmptrld qword [edi]");
     test_display(&[0xf3, 0x0f, 0xc7, 0x37], "vmxon qword [edi]");
@@ -4852,12 +4851,12 @@ fn test_vmx() {
 }
 
 #[test]
-fn test_rdpid() {
+fn rdpid() {
     test_display(&[0xf3, 0x0f, 0xc7, 0xfd], "rdpid ebp");
 }
 
 #[test]
-fn test_cmpxchg8b() {
+fn cmpxchg8b() {
     test_display(&[0x0f, 0xc7, 0x0f], "cmpxchg8b qword [edi]");
     test_display(&[0xf2, 0x0f, 0xc7, 0x0f], "cmpxchg8b qword [edi]");
     test_display(&[0xf3, 0x0f, 0xc7, 0x0f], "cmpxchg8b qword [edi]");
@@ -4865,7 +4864,7 @@ fn test_cmpxchg8b() {
 }
 
 #[test]
-fn test_x87() {
+fn x87() {
     //    test_display(&[0xd8, 0x03], "fadd st, dword ptr [ebx]");
     test_display(&[0xd8, 0x03], "fadd st(0), dword [ebx]");
     //    test_display(&[0xd8, 0x0b], "fmul st, dword ptr [ebx]");
@@ -5245,7 +5244,7 @@ fn test_x87() {
 }
 
 #[test]
-fn test_mishegos_finds() {
+fn mishegos_finds() {
     test_invalid(&[0xc5, 0x8c, 0x77]);
     test_display(
         &[0x0f, 0xfc, 0xaf, 0x40, 0x38, 0x25, 0xbf],
@@ -5360,7 +5359,7 @@ fn test_mishegos_finds() {
 }
 
 #[test]
-fn test_cet() {
+fn cet() {
     // see
     // https://software.intel.com/sites/default/files/managed/4d/2a/control-flow-enforcement-technology-preview.pdf
     // includes encodings:
@@ -5395,7 +5394,7 @@ fn test_cet() {
 }
 
 #[test]
-fn test_sse4a() {
+fn sse4a() {
     fn test_instr(bytes: &[u8], text: &'static str) {
         test_display_under(&Decoder::minimal().with_sse4a(), bytes, text);
         test_display_under(&Decoder::default(), bytes, text);
@@ -5424,7 +5423,7 @@ fn test_sse4a() {
 }
 
 #[test]
-fn test_3dnow() {
+fn threednow() {
     test_display(&[0x0f, 0x0f, 0xe0, 0x8a], "pfnacc mm4, mm0");
     test_display(&[0x0f, 0x0f, 0x38, 0x8e], "pfpnacc mm7, qword [eax]");
     test_display(&[0x65, 0x67, 0x65, 0x65, 0x0f, 0x0e], "femms");
@@ -5442,7 +5441,7 @@ fn test_3dnow() {
 
 // first appeared in tremont
 #[test]
-fn test_direct_stores() {
+fn direct_stores() {
     test_display(
         &[0x36, 0x36, 0x2e, 0x0f, 0x38, 0xf9, 0x55, 0x3e],
         "movdiri dword cs:[ebp + 0x3e], edx",
@@ -5453,7 +5452,7 @@ fn test_direct_stores() {
 }
 
 #[test]
-fn test_key_locker() {
+fn key_locker() {
     test_display(
         &[0xf3, 0x64, 0x2e, 0x65, 0x0f, 0x38, 0xdc, 0xe8],
         "loadiwkey xmm5, xmm0",
@@ -5465,7 +5464,7 @@ fn test_key_locker() {
 // these uinter test cases come from llvm:
 // https://reviews.llvm.org/differential/changeset/?ref=2226860
 #[test]
-fn test_uintr() {
+fn uintr() {
     test_display(&[0xf3, 0x0f, 0x01, 0xec], "uiret");
     test_display(&[0xf3, 0x0f, 0x01, 0xed], "testui");
     test_display(&[0xf3, 0x0f, 0x01, 0xee], "clui");
@@ -5476,7 +5475,7 @@ fn test_uintr() {
 
 // started shipping in sapphire rapids
 #[test]
-fn test_enqcmd() {
+fn enqcmd() {
     test_display(
         &[
             0xf2, 0xf2, 0x2e, 0x36, 0x0f, 0x38, 0xf8, 0x83, 0x09, 0x1c, 0x9d, 0x3f,
@@ -5490,7 +5489,7 @@ fn test_enqcmd() {
 }
 
 #[test]
-fn test_gfni() {
+fn gfni() {
     test_display(
         &[
             0x3e, 0x64, 0x64, 0x66, 0x0f, 0x3a, 0xcf, 0xba, 0x13, 0x23, 0x04, 0xba, 0x6b,
@@ -5510,7 +5509,7 @@ fn test_gfni() {
 }
 
 #[test]
-fn test_tdx() {
+fn tdx() {
     test_display(&[0x66, 0x0f, 0x01, 0xcc], "tdcall");
     test_display(&[0x66, 0x0f, 0x01, 0xcd], "seamret");
     test_display(&[0x66, 0x0f, 0x01, 0xce], "seamops");
@@ -5518,13 +5517,13 @@ fn test_tdx() {
 }
 
 #[test]
-fn test_tsxldtrk() {
+fn tsxldtrk() {
     test_display(&[0xf2, 0x0f, 0x01, 0xe8], "xsusldtrk");
     test_display(&[0xf2, 0x0f, 0x01, 0xe9], "xresldtrk");
 }
 
 #[test]
-fn test_sevsnp() {
+fn sevsnp() {
     test_display(&[0xf3, 0x0f, 0x01, 0xff], "psmash");
     test_display(&[0xf2, 0x0f, 0x01, 0xff], "pvalidate");
     test_display(&[0xf3, 0x0f, 0x01, 0xfe], "rmpadjust");

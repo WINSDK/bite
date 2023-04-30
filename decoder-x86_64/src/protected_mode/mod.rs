@@ -2,6 +2,7 @@ mod display;
 mod evex;
 pub mod uarch;
 mod vex;
+mod tests;
 
 use crate::Error;
 pub use crate::MemoryAccessSize;
@@ -807,12 +808,12 @@ const REGISTER_CLASS_NAMES: &[&'static str] = &[
 /// ```
 /// use x86_64::protected_mode::{self as amd64};
 /// use x86_64::protected_mode::{Opcode, Operand, RegisterClass};
-/// use yaxpeax_arch::{Decoder, U8Reader};
+/// use decoder::Reader;
 ///
 /// let movsx_eax_cl = &[0x0f, 0xbe, 0xc1];
 /// let decoder = amd64::InstDecoder::default();
 /// let instruction = decoder
-///     .decode(&mut U8Reader::new(movsx_eax_cl))
+///     .decode(&mut Reader::new(movsx_eax_cl))
 ///     .expect("can decode");
 ///
 /// assert_eq!(instruction.opcode(), Opcode::MOVSX);
@@ -2787,7 +2788,7 @@ impl Decoder {
 
     /// helper to decode an instruction directly from a byte slice.
     ///
-    /// this lets callers avoid the work of setting up a [`yaxpeax_arch::U8Reader`] for the slice
+    /// this lets callers avoid the work of setting up a [`decoder::Reader`] for the slice
     /// to decode.
     pub fn decode_slice(&self, data: &[u8]) -> Result<Instruction, Error> {
         let mut reader = Reader::new(data);

@@ -1,8 +1,7 @@
 use std::fmt::Write;
 
 use crate::protected_mode::Decoder;
-use decoder::ToTokens;
-use yaxpeax_arch::{AddressBase, Decoder, LengthedInstruction};
+use decoder::{ToTokens, Reader, Decoded, Decodable};
 
 fn test_display(data: &[u8], expected: &'static str) {
     let dekoder = Decoder::default();
@@ -12,7 +11,7 @@ fn test_display(data: &[u8], expected: &'static str) {
         write!(hex, "{:02x}", b).unwrap();
     }
 
-    let mut reader = yaxpeax_arch::U8Reader::new(data);
+    let mut reader = Reader::new(data);
     match dekoder.decode(&mut reader) {
         Ok(instr) => {
             instr.tokenize(&mut stream);
@@ -30,7 +29,7 @@ fn test_display(data: &[u8], expected: &'static str) {
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
             assert_eq!(
-                (0u32.wrapping_offset(instr.len()).to_linear()) as usize,
+                (0u32.wrapping_add(instr.len() as u32)) as usize,
                 data.len(),
                 "instruction length is incorrect, wanted instruction {}",
                 expected
@@ -39,7 +38,7 @@ fn test_display(data: &[u8], expected: &'static str) {
         Err(e) => {
             assert!(
                 false,
-                "decode error ({}) for {} under decoder {}:\n  expected: {}\n",
+                "decode error ({:?}) for {} under decoder {}:\n  expected: {}\n",
                 e, hex, dekoder, expected
             );
         }

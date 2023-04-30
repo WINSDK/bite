@@ -9,9 +9,7 @@
 
 pub mod long_mode;
 pub mod protected_mode;
-
 mod safer_unchecked;
-mod tests;
 
 use decoder::{Decoded, ToTokens};
 use tokenizing::{ColorScheme, Colors};

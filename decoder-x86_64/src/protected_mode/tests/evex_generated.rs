@@ -1,8 +1,7 @@
 use std::fmt::Write;
 
 use crate::protected_mode::Decoder;
-use decoder::ToTokens;
-use yaxpeax_arch::{AddressBase, Decoder, LengthedInstruction, U8Reader};
+use decoder::{ToTokens, Reader, Decodable, Decoded};
 
 #[allow(dead_code)]
 fn test_invalid(data: &[u8]) {
@@ -10,7 +9,7 @@ fn test_invalid(data: &[u8]) {
 }
 
 fn test_invalid_under(decoder: &Decoder, data: &[u8]) {
-    let mut reader = U8Reader::new(data);
+    let mut reader = Reader::new(data);
     if let Ok(inst) = decoder.decode(&mut reader) {
         // realistically, the chances an error only shows up under non-fmt builds seems unlikely,
         // but try to report *something* in such cases.
@@ -20,8 +19,6 @@ fn test_invalid_under(decoder: &Decoder, data: &[u8]) {
             data,
             decoder
         );
-    } else {
-        // this is fine
     }
 }
 
@@ -36,7 +33,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
     for b in data {
         write!(hex, "{:02x}", b).unwrap();
     }
-    let mut reader = yaxpeax_arch::U8Reader::new(data);
+    let mut reader = Reader::new(data);
     match dekoder.decode(&mut reader) {
         Ok(instr) => {
             instr.tokenize(&mut stream);
@@ -55,7 +52,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
             assert_eq!(
-                (0u32.wrapping_offset(instr.len()).to_linear()) as usize,
+                (0u32.wrapping_add(instr.len() as u32)) as usize,
                 data.len(),
                 "instruction length is incorrect, wanted instruction {}",
                 expected
@@ -64,7 +61,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
         Err(e) => {
             assert!(
                 false,
-                "decode error ({}) for {} under decoder {}:\n  expected: {}\n",
+                "decode error ({:?}) for {} under decoder {}:\n  expected: {}\n",
                 e, hex, dekoder, expected
             );
         }
