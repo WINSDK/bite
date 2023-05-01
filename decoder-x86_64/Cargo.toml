@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 decoder = { path = "../decoder" }
 tokenizing = { path = "../tokenizing" }
-yaxpeax-arch = { version = "0.2.7", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 rand = "0.8.4"
