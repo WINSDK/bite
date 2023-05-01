@@ -806,10 +806,10 @@ const REGISTER_CLASS_NAMES: &[&'static str] = &[
 /// ```
 /// use x86_64::protected_mode::{self as amd64};
 /// use x86_64::protected_mode::{Opcode, Operand, RegisterClass};
-/// use decoder::Reader;
+/// use decoder::{Reader, Decodable};
 ///
 /// let movsx_eax_cl = &[0x0f, 0xbe, 0xc1];
-/// let decoder = amd64::InstDecoder::default();
+/// let decoder = amd64::Decoder::default();
 /// let instruction = decoder
 ///     .decode(&mut Reader::new(movsx_eax_cl))
 ///     .expect("can decode");

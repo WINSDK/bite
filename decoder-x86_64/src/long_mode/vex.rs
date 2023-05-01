@@ -1547,9 +1547,6 @@ fn read_vex_instruction(
     #[allow(non_snake_case)]
     let L = instruction.prefixes.vex_unchecked().l();
 
-    //    println!("reading vex instruction from opcode prefix {:?}, L: {}, opc: {:#x}, map:{:?}", p, L, opc, opcode_map);
-    //    println!("w? {}", instruction.prefixes.vex_unchecked().w());
-
     // several combinations simply have no instructions. check for those first.
     let (opcode, operand_code) = match opcode_map {
         VEXOpcodeMap::Map0F => {
