@@ -1,6 +1,5 @@
 #![cfg(test)]
 
-mod display;
 mod evex_generated;
 mod opcode;
 mod operand;
