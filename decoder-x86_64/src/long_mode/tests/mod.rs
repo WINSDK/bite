@@ -58,7 +58,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
             assert_eq!(
-                (0u64.wrapping_add(instr.len() as u64)) as usize,
+                (0u64.wrapping_add(instr.width() as u64)) as usize,
                 data.len(),
                 "instruction length is incorrect, wanted instruction {}",
                 expected

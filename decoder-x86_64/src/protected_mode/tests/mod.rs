@@ -58,7 +58,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
             assert_eq!(
-                (0u32.wrapping_add(instr.len() as u32)) as usize,
+                (0u32.wrapping_add(instr.width() as u32)) as usize,
                 data.len(),
                 "instruction length is incorrect, wanted instruction {}",
                 expected
@@ -5555,49 +5555,49 @@ mod reg_masks {
 
     #[test]
     #[should_panic]
-    fn invalid_mask_reg_panics() {
+    fn invalid_mask_reg() {
         RegSpec::mask(8);
     }
 
     #[test]
     #[should_panic]
-    fn invalid_dword_reg_panics() {
+    fn invalid_dword_reg() {
         RegSpec::d(8);
     }
 
     #[test]
     #[should_panic]
-    fn invalid_word_reg_panics() {
+    fn invalid_word_reg() {
         RegSpec::w(8);
     }
 
     #[test]
     #[should_panic]
-    fn invalid_byte_reg_panics() {
+    fn invalid_byte_reg() {
         RegSpec::b(8);
     }
 
     #[test]
     #[should_panic]
-    fn invalid_x87_reg_panics() {
+    fn invalid_x87_reg() {
         RegSpec::st(8);
     }
 
     #[test]
     #[should_panic]
-    fn invalid_xmm_reg_panics() {
+    fn invalid_xmm_reg() {
         RegSpec::xmm(32);
     }
 
     #[test]
     #[should_panic]
-    fn invalid_ymm_reg_panics() {
+    fn invalid_ymm_reg() {
         RegSpec::ymm(32);
     }
 
     #[test]
     #[should_panic]
-    fn invalid_zmm_reg_panics() {
+    fn invalid_zmm_reg() {
         RegSpec::zmm(32);
     }
 }

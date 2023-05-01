@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use crate::protected_mode::Decoder;
-use decoder::{ToTokens, Reader, Decoded, Decodable};
+use decoder::{Decodable, Decoded, Reader, ToTokens};
 
 fn test_display(data: &[u8], expected: &'static str) {
     let dekoder = Decoder::default();
@@ -29,7 +29,7 @@ fn test_display(data: &[u8], expected: &'static str) {
             // while we're at it, test that the instruction is as long, and no longer, than its
             // input
             assert_eq!(
-                (0u32.wrapping_add(instr.len() as u32)) as usize,
+                (0u32.wrapping_add(instr.width() as u32)) as usize,
                 data.len(),
                 "instruction length is incorrect, wanted instruction {}",
                 expected

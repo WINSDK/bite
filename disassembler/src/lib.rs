@@ -76,7 +76,7 @@ impl<'data, D: Decodable> Processor<'data, D> {
             let width = match &instruction {
                 Ok(inst) => {
                     if inst.is_jump() {}
-                    inst.len()
+                    inst.width()
                 }
                 Err(err) if !err.is_complete() => continue,
                 Err(err) => err.incomplete_size(),

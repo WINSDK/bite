@@ -101,7 +101,7 @@ impl decoder::Decoded for Instruction {
     type Operand = std::borrow::Cow<'static, str>;
 
     #[inline]
-    fn len(&self) -> usize {
+    fn width(&self) -> usize {
         4
     }
 

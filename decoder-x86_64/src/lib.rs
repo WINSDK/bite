@@ -11,10 +11,9 @@ pub mod long_mode;
 pub mod protected_mode;
 mod safer_unchecked;
 
-use decoder::{Decoded, ToTokens};
 use tokenizing::{ColorScheme, Colors};
 
-const MEM_SIZE_STRINGS: [&'static str; 64] = [
+const MEM_SIZE_STRINGS: [&str; 64] = [
     "byte ", "word ", "BUG ", "dword ", "ptr ", "far ", "BUG ", "qword ", "BUG ", "mword ", "BUG ",
     "BUG ", "BUG ", "BUG ", "BUG ", "xmmword ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ",
     "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "BUG ", "ymmword ", "BUG ",
@@ -25,7 +24,7 @@ const MEM_SIZE_STRINGS: [&'static str; 64] = [
 
 struct Number(i32);
 
-impl ToTokens for Number {
+impl decoder::ToTokens for Number {
     fn tokenize(self, stream: &mut decoder::TokenStream) {
         if self.0 == i32::MIN {
             stream.push(" - ", Colors::expr());
@@ -85,30 +84,6 @@ impl MemoryAccessSize {
     /// operating mode. this is particularly relevant for `xsave`/`xrstor`-style instructions.
     pub fn size_name(&self) -> &'static str {
         MEM_SIZE_STRINGS[self.size as usize - 1]
-    }
-}
-
-#[derive(Debug)]
-pub enum Instruction {
-    X86(protected_mode::Instruction),
-    X64(long_mode::Instruction),
-}
-
-impl Instruction {
-    pub fn len(&self) -> usize {
-        match self {
-            Instruction::X86(inst) => inst.len(),
-            Instruction::X64(inst) => inst.len(),
-        }
-    }
-}
-
-impl ToTokens for Instruction {
-    fn tokenize(self, stream: &mut decoder::TokenStream) {
-        match self {
-            Self::X86(inst) => inst.tokenize(stream),
-            Self::X64(inst) => inst.tokenize(stream),
-        };
     }
 }
 

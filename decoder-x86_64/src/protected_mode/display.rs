@@ -220,7 +220,7 @@ impl fmt::Display for Segment {
 
 // register names are grouped by indices scaled by 16.
 // xmm, ymm, zmm all get two indices.
-const REG_NAMES: &[&'static str] = &[
+const REG_NAMES: &[&str] = &[
     "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "ax", "cx", "dx", "bx", "sp", "bp",
     "si", "di", "al", "cl", "dl", "bl", "ah", "ch", "dh", "bh", "cr0", "cr1", "cr2", "cr3", "cr4",
     "cr5", "cr6", "cr7", "dr0", "dr1", "dr2", "dr3", "dr4", "dr5", "dr6", "dr7", "es", "cs", "ss",
@@ -511,7 +511,7 @@ impl fmt::Display for Opcode {
     }
 }
 
-const MNEMONICS: &[&'static str] = &[
+const MNEMONICS: &[&str] = &[
     "invalid",
     "add",
     "or",
@@ -1979,16 +1979,15 @@ impl ToTokens for Instruction {
         }
 
         if self.prefixes.rep_any() {
-            if [
+            let ops = [
                 Opcode::MOVS,
                 Opcode::CMPS,
                 Opcode::LODS,
                 Opcode::STOS,
                 Opcode::INS,
                 Opcode::OUTS,
-            ]
-            .contains(&self.opcode)
-            {
+            ];
+            if ops.contains(&self.opcode) && self.prefixes.rep() {
                 if self.prefixes.rep() {
                     op.push_str("rep ");
                 } else if self.prefixes.repnz() {
@@ -2041,36 +2040,36 @@ impl ToTokens for Instruction {
                 Opcode::JG,
             ];
 
-            if self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32 {
-                if RELATIVE_BRANCHES.contains(&self.opcode) {
-                    return match op {
-                        Operand::ImmediateI8(rel) => {
-                            if rel >= 0 {
-                                stream.push("$+", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            } else {
-                                stream.push("$", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            }
+            if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
+                && RELATIVE_BRANCHES.contains(&self.opcode)
+            {
+                return match op {
+                    Operand::ImmediateI8(rel) => {
+                        if rel >= 0 {
+                            stream.push("$+", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
+                        } else {
+                            stream.push("$", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
                         }
-                        Operand::ImmediateI32(rel) => {
-                            if rel >= 0 {
-                                stream.push("$+", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            } else {
-                                stream.push("$", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            }
+                    }
+                    Operand::ImmediateI32(rel) => {
+                        if rel >= 0 {
+                            stream.push("$+", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
+                        } else {
+                            stream.push("$", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
                         }
-                        _ => {
-                            unreachable!()
-                        }
-                    };
-                }
+                    }
+                    _ => {
+                        unreachable!()
+                    }
+                };
             }
 
             if op.is_memory() {
@@ -2136,14 +2135,6 @@ impl ToTokens for Instruction {
                                     16
                                 } else {
                                     4
-                                }
-                            } else if self.opcode == Opcode::VFPCLASSPD {
-                                if evex.vex().l() {
-                                    4
-                                } else if evex.lp() {
-                                    8
-                                } else {
-                                    2
                                 }
                             } else {
                                 // vcvtpd2ps is "cool": in broadcast mode, it can read a

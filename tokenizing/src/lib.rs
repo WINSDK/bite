@@ -14,15 +14,15 @@ pub trait ColorScheme {
     }
 
     fn known() -> &'static Color {
-        &Self::item()
+        Self::item()
     }
 
     fn root() -> &'static Color {
-        &Self::item()
+        Self::item()
     }
 
     fn annotation() -> &'static Color {
-        &Self::item()
+        Self::item()
     }
 
     fn special() -> &'static Color {

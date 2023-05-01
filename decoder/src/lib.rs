@@ -11,7 +11,7 @@ pub trait Decoded {
     type Instruction: Debug + Default;
     type Operand;
 
-    fn len(&self) -> usize;
+    fn width(&self) -> usize;
     fn is_call(&self) -> bool;
     fn is_ret(&self) -> bool;
     fn is_jump(&self) -> bool;

@@ -220,7 +220,7 @@ impl fmt::Display for Segment {
 
 // register names are grouped by indices scaled by 16.
 // xmm, ymm, zmm all get two indices.
-const REG_NAMES: &[&'static str] = &[
+const REG_NAMES: &[&str] = &[
     "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13",
     "r14", "r15", "eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "r8d", "r9d", "r10d",
     "r11d", "r12d", "r13d", "r14d", "r15d", "ax", "cx", "dx", "bx", "sp", "bp", "si", "di", "r8w",
@@ -288,7 +288,7 @@ impl ToTokens for Operand {
                 stream.push_owned(text, Colors::immediate());
             }
             Operand::ImmediateI64(imm) => {
-                let text = decoder::encode_hex(imm as i64);
+                let text = decoder::encode_hex(imm);
                 stream.push_owned(text, Colors::immediate());
             }
             Operand::Register(ref spec) => {
@@ -523,7 +523,7 @@ impl fmt::Display for Opcode {
     }
 }
 
-const MNEMONICS: &[&'static str] = &[
+const MNEMONICS: &[&str] = &[
     "invalid",
     "add",
     "or",
@@ -1978,22 +1978,19 @@ impl ToTokens for Instruction {
             op.push_str("lock ");
         }
 
-        if self.prefixes.rep_any() {
-            if [
-                Opcode::MOVS,
-                Opcode::CMPS,
-                Opcode::LODS,
-                Opcode::STOS,
-                Opcode::INS,
-                Opcode::OUTS,
-            ]
-            .contains(&self.opcode)
-            {
-                if self.prefixes.rep() {
-                    op.push_str("rep ");
-                } else if self.prefixes.repnz() {
-                    op.push_str("repnz ");
-                }
+        let ops = [
+            Opcode::MOVS,
+            Opcode::CMPS,
+            Opcode::LODS,
+            Opcode::STOS,
+            Opcode::INS,
+            Opcode::OUTS,
+        ];
+        if self.prefixes.rep_any() && ops.contains(&self.opcode) {
+            if self.prefixes.rep() {
+                op.push_str("rep ");
+            } else if self.prefixes.repnz() {
+                op.push_str("repnz ");
             }
         }
 
@@ -2041,36 +2038,36 @@ impl ToTokens for Instruction {
                 Opcode::JG,
             ];
 
-            if self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32 {
-                if RELATIVE_BRANCHES.contains(&self.opcode) {
-                    return match op {
-                        Operand::ImmediateI8(rel) => {
-                            if rel >= 0 {
-                                stream.push("$+", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            } else {
-                                stream.push("$", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            }
+            if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
+                && RELATIVE_BRANCHES.contains(&self.opcode)
+            {
+                return match op {
+                    Operand::ImmediateI8(rel) => {
+                        if rel >= 0 {
+                            stream.push("$+", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
+                        } else {
+                            stream.push("$", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
                         }
-                        Operand::ImmediateI32(rel) => {
-                            if rel >= 0 {
-                                stream.push("$+", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            } else {
-                                stream.push("$", Colors::expr());
-                                let rel = decoder::encode_hex(rel as i64);
-                                stream.push_owned(rel, Colors::immediate());
-                            }
+                    }
+                    Operand::ImmediateI32(rel) => {
+                        if rel >= 0 {
+                            stream.push("$+", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
+                        } else {
+                            stream.push("$", Colors::expr());
+                            let rel = decoder::encode_hex(rel as i64);
+                            stream.push_owned(rel, Colors::immediate());
                         }
-                        _ => {
-                            unreachable!()
-                        }
-                    };
-                }
+                    }
+                    _ => {
+                        unreachable!()
+                    }
+                };
             }
 
             if op.is_memory() {
@@ -2137,14 +2134,6 @@ impl ToTokens for Instruction {
                                     16
                                 } else {
                                     4
-                                }
-                            } else if self.opcode == Opcode::VFPCLASSPD {
-                                if evex.vex().l() {
-                                    4
-                                } else if evex.lp() {
-                                    8
-                                } else {
-                                    2
                                 }
                             } else {
                                 // vcvtpd2ps is "cool": in broadcast mode, it can read a

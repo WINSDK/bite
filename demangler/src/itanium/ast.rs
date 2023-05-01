@@ -2343,7 +2343,7 @@ impl<'subs> Demangle<'subs> for Identifier {
 
         #[inline]
         fn is_rust_hash(s: &str) -> bool {
-            s.starts_with('h') && s[1..].chars().all(|c| c.is_digit(16))
+            s.starts_with('h') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
         }
 
         if is_rust_hash(&source_name) {

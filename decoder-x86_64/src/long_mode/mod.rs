@@ -248,7 +248,7 @@ impl RegSpec {
     fn from_parts(num: u8, extended: bool, bank: RegisterBank) -> RegSpec {
         RegSpec {
             num: num + if extended { 0b1000 } else { 0 },
-            bank: bank,
+            bank,
         }
     }
 
@@ -660,7 +660,7 @@ impl Operand {
             OperandSpec::ImmI64 => Operand::ImmediateI64(inst.imm as i64),
             OperandSpec::ImmInDispField => Operand::ImmediateU16(inst.disp as u16),
             OperandSpec::DispU32 => Operand::DisplacementU32(inst.disp as u32),
-            OperandSpec::DispU64 => Operand::DisplacementU64(inst.disp as u64),
+            OperandSpec::DispU64 => Operand::DisplacementU64(inst.disp),
             OperandSpec::Deref => Operand::RegDeref(inst.regs[1]),
             OperandSpec::Deref_esi => Operand::RegDeref(RegSpec::esi()),
             OperandSpec::Deref_edi => Operand::RegDeref(RegSpec::edi()),
@@ -831,7 +831,7 @@ pub struct RegisterClass {
     kind: RegisterBank,
 }
 
-const REGISTER_CLASS_NAMES: &[&'static str] = &[
+const REGISTER_CLASS_NAMES: &[&str] = &[
     "qword",
     "BUG. PLEASE REPORT.",
     "dword",
@@ -2626,15 +2626,12 @@ impl decoder::Decoded for Instruction {
     type Operand = Operand;
 
     #[inline]
-    fn len(&self) -> usize {
+    fn width(&self) -> usize {
         self.length as usize
     }
 
     fn is_call(&self) -> bool {
-        match self.opcode() {
-            Opcode::CALL | Opcode::CALLF => true,
-            _ => false,
-        }
+        matches!(self.opcode(), Opcode::CALL | Opcode::CALLF)
     }
 
     fn is_ret(&self) -> bool {
@@ -2649,7 +2646,8 @@ impl decoder::Decoded for Instruction {
     }
 
     fn is_jump(&self) -> bool {
-        match self.opcode() {
+        matches!(
+            self.opcode(),
             // unconditional jumps
             Opcode::JMP |
             Opcode::JMPE |
@@ -2671,9 +2669,7 @@ impl decoder::Decoded for Instruction {
             Opcode::JLE |
             Opcode::JG |
             Opcode::JRCXZ
-            => true,
-            _ => false,
-        }
+        )
     }
 }
 
@@ -2684,7 +2680,7 @@ impl decoder::Decodable for Decoder {
 
     fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Self::Error> {
         let mut instr = Instruction::invalid();
-        read(&self, reader, &mut instr)?;
+        read(self, reader, &mut instr)?;
 
         instr.length = reader.offset() as u8;
         if reader.offset() > 15 {
@@ -4069,11 +4065,7 @@ impl Decoder {
                  *
                  * so that's considered the less-quirky (default) case here.
                  * */
-                if self.amd_quirks() && !self.abm() {
-                    return Err(Error::InvalidOpcode);
-                } else if !self.lzcnt() {
-                    return Err(Error::InvalidOpcode);
-                }
+                return Err(Error::InvalidOpcode);
             }
             Opcode::ADCX |
             Opcode::ADOX => {
@@ -4141,15 +4133,11 @@ impl Decoder {
                 }
             }
             other => {
-                if !self.bmi1() {
-                    if BMI1.contains(&other) {
-                        return Err(Error::InvalidOpcode);
-                    }
+                if !self.bmi1() && BMI1.contains(&other) {
+                    return Err(Error::InvalidOpcode);
                 }
-                if !self.bmi2() {
-                    if BMI2.contains(&other) {
-                        return Err(Error::InvalidOpcode);
-                    }
+                if !self.bmi2() && BMI2.contains(&other) {
+                    return Err(Error::InvalidOpcode);
                 }
             }
         }
@@ -4173,71 +4161,71 @@ impl Opcode {
     /// check if the instruction is one of x86's sixteen conditional jump instructions. use this
     /// rather than `opcode.to_string().starts_with("j") && opcode != Opcode::JMP`, thank you.
     pub fn is_jcc(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Opcode::JO
-            | Opcode::JNO
-            | Opcode::JB
-            | Opcode::JNB
-            | Opcode::JZ
-            | Opcode::JNZ
-            | Opcode::JA
-            | Opcode::JNA
-            | Opcode::JS
-            | Opcode::JNS
-            | Opcode::JP
-            | Opcode::JNP
-            | Opcode::JL
-            | Opcode::JGE
-            | Opcode::JG
-            | Opcode::JLE => true,
-            _ => false,
-        }
+                | Opcode::JNO
+                | Opcode::JB
+                | Opcode::JNB
+                | Opcode::JZ
+                | Opcode::JNZ
+                | Opcode::JA
+                | Opcode::JNA
+                | Opcode::JS
+                | Opcode::JNS
+                | Opcode::JP
+                | Opcode::JNP
+                | Opcode::JL
+                | Opcode::JGE
+                | Opcode::JG
+                | Opcode::JLE
+        )
     }
 
     /// check if the instruction is one of x86's sixteen conditional move instructions.
     pub fn is_cmovcc(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Opcode::CMOVO
-            | Opcode::CMOVNO
-            | Opcode::CMOVB
-            | Opcode::CMOVNB
-            | Opcode::CMOVZ
-            | Opcode::CMOVNZ
-            | Opcode::CMOVA
-            | Opcode::CMOVNA
-            | Opcode::CMOVS
-            | Opcode::CMOVNS
-            | Opcode::CMOVP
-            | Opcode::CMOVNP
-            | Opcode::CMOVL
-            | Opcode::CMOVGE
-            | Opcode::CMOVG
-            | Opcode::CMOVLE => true,
-            _ => false,
-        }
+                | Opcode::CMOVNO
+                | Opcode::CMOVB
+                | Opcode::CMOVNB
+                | Opcode::CMOVZ
+                | Opcode::CMOVNZ
+                | Opcode::CMOVA
+                | Opcode::CMOVNA
+                | Opcode::CMOVS
+                | Opcode::CMOVNS
+                | Opcode::CMOVP
+                | Opcode::CMOVNP
+                | Opcode::CMOVL
+                | Opcode::CMOVGE
+                | Opcode::CMOVG
+                | Opcode::CMOVLE
+        )
     }
 
     /// check if the instruction is one of x86's sixteen conditional set instructions.
     pub fn is_setcc(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Opcode::SETO
-            | Opcode::SETNO
-            | Opcode::SETB
-            | Opcode::SETAE
-            | Opcode::SETZ
-            | Opcode::SETNZ
-            | Opcode::SETA
-            | Opcode::SETBE
-            | Opcode::SETS
-            | Opcode::SETNS
-            | Opcode::SETP
-            | Opcode::SETNP
-            | Opcode::SETL
-            | Opcode::SETGE
-            | Opcode::SETG
-            | Opcode::SETLE => true,
-            _ => false,
-        }
+                | Opcode::SETNO
+                | Opcode::SETB
+                | Opcode::SETAE
+                | Opcode::SETZ
+                | Opcode::SETNZ
+                | Opcode::SETA
+                | Opcode::SETBE
+                | Opcode::SETS
+                | Opcode::SETNS
+                | Opcode::SETP
+                | Opcode::SETNP
+                | Opcode::SETL
+                | Opcode::SETGE
+                | Opcode::SETG
+                | Opcode::SETLE
+        )
     }
 
     /// get the [`ConditionCode`] for this instruction, if it is in fact conditional. x86's
@@ -4299,11 +4287,7 @@ impl Instruction {
             return false;
         }
 
-        if let OperandSpec::Nothing = self.operands[i as usize] {
-            false
-        } else {
-            true
-        }
+        OperandSpec::Nothing != self.operands[i as usize]
     }
 
     /// get the memory access information for this instruction, if it accesses memory.
@@ -4531,102 +4515,118 @@ pub struct PrefixRex {
 impl Prefixes {
     fn new(bits: u8) -> Prefixes {
         Prefixes {
-            bits: bits,
+            bits,
             rex: PrefixRex { bits: 0 },
             segment: Segment::DS,
             evex_data: EvexData { bits: 0 },
         }
     }
+
     #[inline]
     pub fn rep(&self) -> bool {
         self.bits & 0x30 == 0x10
     }
+
     #[inline]
     fn set_rep(&mut self) {
         self.bits = (self.bits & 0xcf) | 0x10
     }
+
     #[inline]
     pub fn repnz(&self) -> bool {
         self.bits & 0x30 == 0x30
     }
+
     #[inline]
     fn set_repnz(&mut self) {
-        self.bits = (self.bits & 0xcf) | 0x30
+        self.bits = (self.bits & 0xcf) | 0x30;
     }
+
     #[inline]
     pub fn rep_any(&self) -> bool {
         self.bits & 0x30 != 0x00
     }
+
     #[inline]
     fn operand_size(&self) -> bool {
         self.bits & 0x1 == 1
     }
+
     #[inline]
     fn set_operand_size(&mut self) {
-        self.bits = self.bits | 0x1
+        self.bits |= 0x1;
     }
+
     #[inline]
     fn unset_operand_size(&mut self) {
-        self.bits = self.bits & !0x1
+        self.bits &= !0x1;
     }
+
     #[inline]
     fn address_size(&self) -> bool {
         self.bits & 0x2 == 2
     }
+
     #[inline]
     fn set_address_size(&mut self) {
-        self.bits = self.bits | 0x2
+        self.bits |= 0x2;
     }
+
     #[inline]
     fn set_lock(&mut self) {
-        self.bits |= 0x4
+        self.bits |= 0x4;
     }
+
     #[inline]
     pub fn lock(&self) -> bool {
         self.bits & 0x4 == 4
     }
-    #[deprecated(
-        since = "0.0.1",
-        note = "pub fn cs has never returned `bool` indicating the current selector is `cs`. use `selects_cs` for this purpose, until 2.x that will correct `pub fn cs`."
-    )]
-    #[inline]
-    pub fn cs(&mut self) {}
+
     #[inline]
     pub fn selects_cs(&self) -> bool {
         self.segment == Segment::CS
     }
+
     #[inline]
     pub fn ds(&self) -> bool {
         self.segment == Segment::DS
     }
+
     #[inline]
     pub fn es(&self) -> bool {
         self.segment == Segment::ES
     }
+
     #[inline]
     pub fn fs(&self) -> bool {
         self.segment == Segment::FS
     }
+
     #[inline]
     fn set_fs(&mut self) {
         self.segment = Segment::FS
     }
+
     #[inline]
     pub fn gs(&self) -> bool {
         self.segment == Segment::GS
     }
+
     #[inline]
     fn set_gs(&mut self) {
         self.segment = Segment::GS
     }
+
     #[inline]
     pub fn ss(&self) -> bool {
         self.segment == Segment::SS
     }
+
     #[inline]
     fn rex_unchecked(&self) -> PrefixRex {
         self.rex
     }
+
     #[inline]
     pub fn rex(&self) -> Option<PrefixRex> {
         let rex = self.rex_unchecked();
@@ -4636,12 +4636,14 @@ impl Prefixes {
             None
         }
     }
+
     #[inline]
     fn vex_unchecked(&self) -> PrefixVex {
         PrefixVex {
             bits: self.rex.bits,
         }
     }
+
     #[inline]
     pub fn vex(&self) -> Option<PrefixVex> {
         let vex = self.vex_unchecked();
@@ -4651,6 +4653,7 @@ impl Prefixes {
             None
         }
     }
+
     #[inline]
     fn evex_unchecked(&self) -> PrefixEvex {
         PrefixEvex {
@@ -4660,6 +4663,7 @@ impl Prefixes {
             evex_data: self.evex_data,
         }
     }
+
     #[inline]
     pub fn evex(&self) -> Option<PrefixEvex> {
         let evex = self.evex_unchecked();
@@ -4767,22 +4771,27 @@ impl PrefixRex {
     fn present(&self) -> bool {
         (self.bits & 0xc0) == 0x40
     }
+
     #[inline]
     pub fn b(&self) -> bool {
         (self.bits & 0x01) == 0x01
     }
+
     #[inline]
     pub fn x(&self) -> bool {
         (self.bits & 0x02) == 0x02
     }
+
     #[inline]
     pub fn r(&self) -> bool {
         (self.bits & 0x04) == 0x04
     }
+
     #[inline]
     pub fn w(&self) -> bool {
         (self.bits & 0x08) == 0x08
     }
+
     #[inline]
     fn from(&mut self, prefix: u8) {
         self.bits = prefix;
@@ -4810,6 +4819,7 @@ impl ZOperandInstructions {
     fn category(&self) -> u8 {
         (self.bits >> 4) as u8 & 0b11
     }
+
     fn reg(&self) -> u8 {
         (self.bits & 0b111) as u8
     }
@@ -6177,11 +6187,7 @@ fn read_modrm_reg(
 }
 
 #[inline(always)]
-fn read_sib_disp(
-    words: &mut Reader,
-    modbits: u8,
-    sibbyte: u8,
-) -> Result<i32, Error> {
+fn read_sib_disp(words: &mut Reader, modbits: u8, sibbyte: u8) -> Result<i32, Error> {
     let disp = if modbits == 0b00 {
         if (sibbyte & 7) == 0b101 {
             read_num(words, 4)? as i32
@@ -6219,42 +6225,32 @@ fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<Op
                 } else {
                     OperandSpec::Deref
                 }
-            } else {
-                if modbits == 0 {
-                    OperandSpec::RegScale
-                } else {
-                    OperandSpec::RegIndexBaseScale
-                }
-            }
-        } else {
-            if instr.regs[2].num == 0b0100 {
-                OperandSpec::Deref
+            } else if modbits == 0 {
+                OperandSpec::RegScale
             } else {
                 OperandSpec::RegIndexBaseScale
             }
-        }
-    } else {
-        if (sibbyte & 7) == 0b101 {
-            if instr.regs[2].num == 0b0100 {
-                if modbits == 0b00 {
-                    OperandSpec::DispU32
-                } else {
-                    OperandSpec::RegDisp
-                }
-            } else {
-                if modbits == 0 {
-                    OperandSpec::RegScaleDisp
-                } else {
-                    OperandSpec::RegIndexBaseScaleDisp
-                }
-            }
+        } else if instr.regs[2].num == 0b0100 {
+            OperandSpec::Deref
         } else {
-            if instr.regs[2].num == 0b0100 {
-                OperandSpec::RegDisp
-            } else {
-                OperandSpec::RegIndexBaseScaleDisp
-            }
+            OperandSpec::RegIndexBaseScale
         }
+    } else if (sibbyte & 7) == 0b101 {
+        if instr.regs[2].num == 0b0100 {
+            if modbits == 0b00 {
+                OperandSpec::DispU32
+            } else {
+                OperandSpec::RegDisp
+            }
+        } else if modbits == 0 {
+            OperandSpec::RegScaleDisp
+        } else {
+            OperandSpec::RegIndexBaseScaleDisp
+        }
+    } else if instr.regs[2].num == 0b0100 {
+        OperandSpec::RegDisp
+    } else {
+        OperandSpec::RegIndexBaseScaleDisp
     };
 
     // b = 101?
@@ -6440,7 +6436,7 @@ fn read_0f38_opcode(opcode: u8, prefixes: &mut Prefixes) -> OpcodeRecord {
             prefixes.unset_operand_size();
         }
 
-        return match opcode {
+        match opcode {
             0x00 => OpcodeRecord(
                 Interpretation::Instruction(Opcode::PSHUFB),
                 OperandCode::G_E_xmm,
@@ -6685,9 +6681,9 @@ fn read_0f38_opcode(opcode: u8, prefixes: &mut Prefixes) -> OpcodeRecord {
                 Interpretation::Instruction(Opcode::Invalid),
                 OperandCode::Nothing,
             ),
-        };
+        }
     } else {
-        return match opcode {
+        match opcode {
             0x00 => OpcodeRecord(
                 Interpretation::Instruction(Opcode::PSHUFB),
                 OperandCode::G_E_mm,
@@ -6792,7 +6788,7 @@ fn read_0f38_opcode(opcode: u8, prefixes: &mut Prefixes) -> OpcodeRecord {
                 Interpretation::Instruction(Opcode::Invalid),
                 OperandCode::Nothing,
             ),
-        };
+        }
     }
 }
 
@@ -6949,7 +6945,7 @@ fn read_0f3a_opcode(opcode: u8, prefixes: &mut Prefixes) -> OpcodeRecord {
         };
     }
 
-    return match opcode {
+    match opcode {
         0xcc => OpcodeRecord(
             Interpretation::Instruction(Opcode::SHA1RNDS4),
             OperandCode::G_E_xmm_Ub,
@@ -6962,7 +6958,7 @@ fn read_0f3a_opcode(opcode: u8, prefixes: &mut Prefixes) -> OpcodeRecord {
             Interpretation::Instruction(Opcode::Invalid),
             OperandCode::Nothing,
         ),
-    };
+    }
 }
 
 fn read_opc_hotpath(
@@ -6973,7 +6969,7 @@ fn read_opc_hotpath(
     words: &mut Reader,
     instruction: &mut Instruction,
 ) -> Result<Option<OperandCode>, Error> {
-    if b >= 0x40 && b < 0x50 {
+    if (0x40..0x50).contains(&b) {
         instruction.prefixes.rex_from(b);
         b = words.next().ok_or(Error::ExhaustedInput)?;
         record = unsafe { std::ptr::read_volatile(&OPCODES[b as usize]) };
@@ -6987,7 +6983,7 @@ fn read_opc_hotpath(
         instruction.mem_size = 0;
         instruction.operand_count = 2;
         instruction.opcode = opc;
-        return Ok(Some(record.1));
+        Ok(Some(record.1))
     } else if b == 0x0f {
         let b = words.next().ok_or(Error::ExhaustedInput)?;
         instruction.mem_size = 0;
@@ -7008,20 +7004,16 @@ fn read_opc_hotpath(
                 unreachable_unchecked();
             }
         }
-        return Ok(Some(record.1));
+        Ok(Some(record.1))
     } else {
         *nextb = b;
         *next_rec = record;
-        return Ok(None);
+        Ok(None)
     }
 }
 
 #[inline(always)]
-fn read(
-    decoder: &Decoder,
-    words: &mut Reader,
-    instruction: &mut Instruction,
-) -> Result<(), Error> {
+fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) -> Result<(), Error> {
     words.mark();
     let mut nextb = words.next().ok_or(Error::ExhaustedInput)?;
     let mut next_rec = OPCODES[nextb as usize];
@@ -7045,7 +7037,7 @@ fn read(
         let prefixes = &mut instruction.prefixes;
         let record = loop {
             let record = next_rec;
-            if nextb >= 0x40 && nextb < 0x50 {
+            if (0x40..0x50).contains(&nextb) {
                 let b = nextb;
                 nextb = words.next().ok_or(Error::ExhaustedInput)?;
                 next_rec = unsafe { std::ptr::read_volatile(&OPCODES[nextb as usize]) };
@@ -7110,12 +7102,11 @@ fn read(
     };
     read_operands(decoder, words, instruction, record)?;
 
-    if instruction.prefixes.lock() {
-        if !LOCKABLE_INSTRUCTIONS.contains(&instruction.opcode)
-            || !instruction.operands[0].is_memory()
-        {
-            return Err(Error::InvalidPrefixes);
-        }
+    if instruction.prefixes.lock()
+        && (!LOCKABLE_INSTRUCTIONS.contains(&instruction.opcode)
+            || !instruction.operands[0].is_memory())
+    {
+        return Err(Error::InvalidPrefixes);
     }
 
     Ok(())
@@ -7161,7 +7152,7 @@ fn read_avx_prefixed(
     } else if b == 0x62 {
         evex::read_evex(words, instruction, None)?;
     }
-    return Ok(());
+    Ok(())
 }
 
 /* likely cases
@@ -7209,9 +7200,7 @@ fn read_operands(
     let operand_code = OperandCodeBuilder::from_bits(operand_code as u16);
 
     if operand_code.is_only_modrm_operands() {
-        let modrm;
         let opwidth;
-        let mem_oper;
         let mut bank = RegisterBank::Q;
         // cool! we can precompute opwidth and know we need to read_E.
         if !operand_code.has_byte_operands() {
@@ -7232,14 +7221,14 @@ fn read_operands(
                 bank = RegisterBank::B;
             }
         };
-        modrm = read_modrm(words)?;
+        let modrm = read_modrm(words)?;
         instruction.regs[0].bank = bank;
         instruction.regs[0].num = (modrm >> 3) & 7;
         if instruction.prefixes.rex_unchecked().r() {
             instruction.regs[0].num += 0b1000;
         }
 
-        mem_oper = if modrm >= 0b11000000 {
+        let mem_oper = if modrm >= 0b11000000 {
             // special-case here to handle `lea`. there *is* an `M_Gv` but it's only for a
             // reversed-operands `movbe` and fairly unlikely. that case is handled in
             // `unlikely_operands`. TODO: maybe this could just be a bit in `operand_code` for
@@ -7315,102 +7304,87 @@ fn read_operands(
     }
 
     if operand_code.has_embedded_instructions() {
-        match operand_code.get_embedded_instructions() {
-            Ok(z_operand_code) => {
-                let reg = z_operand_code.reg();
-                match z_operand_code.category() {
-                    0 => {
-                        // these are Zv_R
-                        let opwidth =
-                            imm_width_from_prefixes_64(SizeCode::vq, instruction.prefixes);
-                        let bank = if opwidth == 4 {
-                            RegisterBank::D
-                        } else if opwidth == 2 {
-                            RegisterBank::W
-                        } else {
-                            RegisterBank::Q
-                        };
-                        instruction.regs[0] = RegSpec::from_parts(
-                            reg,
-                            instruction.prefixes.rex_unchecked().b(),
-                            bank,
-                        );
-                        instruction.mem_size = 8;
-                        instruction.operand_count = 1;
-                    }
-                    1 => {
-                        // Zv_AX
-                        // in 64-bit mode, rex.b is able to make "nop" into an `xchg`, as in `4190`
-                        // aka `xchg eax, r8d.
-                        if reg == 0 && !instruction.prefixes.rex_unchecked().b() {
-                            instruction.opcode = Opcode::NOP;
-                            instruction.operand_count = 0;
-                            return Ok(());
-                        }
-                        let opwidth =
-                            imm_width_from_prefixes_64(SizeCode::vqp, instruction.prefixes);
-                        let bank = if opwidth == 4 {
-                            RegisterBank::D
-                        } else if opwidth == 2 {
-                            RegisterBank::W
-                        } else {
-                            RegisterBank::Q
-                        };
-                        // always *ax, but size is determined by prefixes (or lack thereof)
-                        instruction.regs[0] = RegSpec::from_parts(0, false, bank);
-                        instruction.operands[1] = OperandSpec::RegMMM;
-                        instruction.regs[1] = RegSpec::from_parts(
-                            reg,
-                            instruction.prefixes.rex_unchecked().b(),
-                            bank,
-                        );
-                    }
-                    2 => {
-                        // these are Zb_Ib_R
-                        instruction.regs[0] = RegSpec::gp_from_parts(
-                            reg,
-                            instruction.prefixes.rex_unchecked().b(),
-                            1,
-                            instruction.prefixes.rex_unchecked().present(),
-                        );
-                        instruction.imm = read_imm_unsigned(words, 1)?;
-                        instruction.operands[1] = OperandSpec::ImmU8;
-                    }
-                    3 => {
-                        // category == 3, Zv_Ivq_R
-                        let opwidth =
-                            imm_width_from_prefixes_64(SizeCode::vqp, instruction.prefixes);
-                        let bank = if opwidth == 4 {
-                            RegisterBank::D
-                        } else if opwidth == 2 {
-                            RegisterBank::W
-                        } else {
-                            RegisterBank::Q
-                        };
-                        instruction.regs[0] = RegSpec::from_parts(
-                            reg,
-                            instruction.prefixes.rex_unchecked().b(),
-                            bank,
-                        );
-                        instruction.imm = read_imm_ivq(words, opwidth)?;
-                        instruction.operands[1] = match opwidth {
-                            2 => OperandSpec::ImmI16,
-                            4 => OperandSpec::ImmI32,
-                            8 => OperandSpec::ImmI64,
-                            _ => unsafe { unreachable_unchecked() },
-                        };
-                    }
-                    _ => {
-                        unreachable!("bad category");
-                    }
+        if let Ok(z_operand_code) = operand_code.get_embedded_instructions() {
+            let reg = z_operand_code.reg();
+            match z_operand_code.category() {
+                0 => {
+                    // these are Zv_R
+                    let opwidth = imm_width_from_prefixes_64(SizeCode::vq, instruction.prefixes);
+                    let bank = if opwidth == 4 {
+                        RegisterBank::D
+                    } else if opwidth == 2 {
+                        RegisterBank::W
+                    } else {
+                        RegisterBank::Q
+                    };
+                    instruction.regs[0] =
+                        RegSpec::from_parts(reg, instruction.prefixes.rex_unchecked().b(), bank);
+                    instruction.mem_size = 8;
+                    instruction.operand_count = 1;
                 }
-                return Ok(());
+                1 => {
+                    // Zv_AX
+                    // in 64-bit mode, rex.b is able to make "nop" into an `xchg`, as in `4190`
+                    // aka `xchg eax, r8d.
+                    if reg == 0 && !instruction.prefixes.rex_unchecked().b() {
+                        instruction.opcode = Opcode::NOP;
+                        instruction.operand_count = 0;
+                        return Ok(());
+                    }
+                    let opwidth = imm_width_from_prefixes_64(SizeCode::vqp, instruction.prefixes);
+                    let bank = if opwidth == 4 {
+                        RegisterBank::D
+                    } else if opwidth == 2 {
+                        RegisterBank::W
+                    } else {
+                        RegisterBank::Q
+                    };
+                    // always *ax, but size is determined by prefixes (or lack thereof)
+                    instruction.regs[0] = RegSpec::from_parts(0, false, bank);
+                    instruction.operands[1] = OperandSpec::RegMMM;
+                    instruction.regs[1] =
+                        RegSpec::from_parts(reg, instruction.prefixes.rex_unchecked().b(), bank);
+                }
+                2 => {
+                    // these are Zb_Ib_R
+                    instruction.regs[0] = RegSpec::gp_from_parts(
+                        reg,
+                        instruction.prefixes.rex_unchecked().b(),
+                        1,
+                        instruction.prefixes.rex_unchecked().present(),
+                    );
+                    instruction.imm = read_imm_unsigned(words, 1)?;
+                    instruction.operands[1] = OperandSpec::ImmU8;
+                }
+                3 => {
+                    // category == 3, Zv_Ivq_R
+                    let opwidth = imm_width_from_prefixes_64(SizeCode::vqp, instruction.prefixes);
+                    let bank = if opwidth == 4 {
+                        RegisterBank::D
+                    } else if opwidth == 2 {
+                        RegisterBank::W
+                    } else {
+                        RegisterBank::Q
+                    };
+                    instruction.regs[0] =
+                        RegSpec::from_parts(reg, instruction.prefixes.rex_unchecked().b(), bank);
+                    instruction.imm = read_imm_ivq(words, opwidth)?;
+                    instruction.operands[1] = match opwidth {
+                        2 => OperandSpec::ImmI16,
+                        4 => OperandSpec::ImmI32,
+                        8 => OperandSpec::ImmI64,
+                        _ => unsafe { unreachable_unchecked() },
+                    };
+                }
+                _ => {
+                    unreachable!("bad category");
+                }
             }
-            // EmbeddedOperandInstructions but those are entirely handled in the fall-through
-            // below. one day this may grow to be an `Err(the_operand_instructions)` though, so for
-            // a simpler diff the above is pre-`match`/`Ok`'d.
-            _ => {}
+            return Ok(());
         }
+        // EmbeddedOperandInstructions but those are entirely handled in the fall-through
+        // below. one day this may grow to be an `Err(the_operand_instructions)` though, so for
+        // a simpler diff the above is pre-`match`/`Ok`'d.
     }
 
     match operand_code.special_case_handler_index() {
@@ -7477,7 +7451,7 @@ fn read_operands(
         }
         op @ 5 | op @ 7 | op @ 9 => {
             instruction.operands[0] = mem_oper;
-            instruction.opcode = BITWISE_OPCODE_MAP[((modrm >> 3) & 7) as usize].clone();
+            instruction.opcode = BITWISE_OPCODE_MAP[((modrm >> 3) & 7) as usize];
             if op == 9 {
                 instruction.regs[0] = RegSpec::cl();
                 instruction.operands[1] = OperandSpec::RegRRR;
@@ -7556,18 +7530,16 @@ fn read_operands(
                 } else if opcode == Opcode::CALLF || opcode == Opcode::JMPF {
                     return Err(Error::InvalidOperand);
                 }
-            } else {
-                if opcode == Opcode::CALL || opcode == Opcode::JMP {
+            } else if opcode == Opcode::CALL || opcode == Opcode::JMP {
+                instruction.mem_size = 8;
+            } else if opcode == Opcode::PUSH || opcode == Opcode::POP {
+                if instruction.prefixes.operand_size() {
+                    instruction.mem_size = 2;
+                } else {
                     instruction.mem_size = 8;
-                } else if opcode == Opcode::PUSH || opcode == Opcode::POP {
-                    if instruction.prefixes.operand_size() {
-                        instruction.mem_size = 2;
-                    } else {
-                        instruction.mem_size = 8;
-                    }
-                } else if opcode == Opcode::CALLF || opcode == Opcode::JMPF {
-                    instruction.mem_size = 10;
                 }
+            } else if opcode == Opcode::CALLF || opcode == Opcode::JMPF {
+                instruction.mem_size = 10;
             }
             instruction.opcode = opcode;
             instruction.operand_count = 1;
@@ -7593,8 +7565,7 @@ fn read_operands(
             let opwidth = 8;
             let modrm = read_modrm(words)?;
 
-            instruction.operands[1] =
-                read_E(words, instruction, modrm, 4 /* opwidth */)?;
+            instruction.operands[1] = read_E(words, instruction, modrm, 4 /* opwidth */)?;
             instruction.mem_size = 4;
             instruction.regs[0] = RegSpec::gp_from_parts(
                 (modrm >> 3) & 7,
@@ -7623,12 +7594,10 @@ fn read_operands(
                     // fix the register to XMM
                     instruction.regs[1].bank = RegisterBank::X;
                 }
+            } else if instruction.opcode == Opcode::MOVDDUP {
+                instruction.mem_size = 8;
             } else {
-                if instruction.opcode == Opcode::MOVDDUP {
-                    instruction.mem_size = 8;
-                } else {
-                    instruction.mem_size = 16;
-                }
+                instruction.mem_size = 16;
             }
         }
         22 => {
@@ -7816,13 +7785,11 @@ fn unlikely_operands(
                 } else {
                     instruction.mem_size = 8;
                 }
-            } else {
-                if instruction.opcode == Opcode::MOVLPD
-                    || instruction.opcode == Opcode::MOVHPD
-                    || instruction.opcode == Opcode::MOVHPS
-                {
-                    return Err(Error::InvalidOperand);
-                }
+            } else if instruction.opcode == Opcode::MOVLPD
+                || instruction.opcode == Opcode::MOVHPD
+                || instruction.opcode == Opcode::MOVHPS
+            {
+                return Err(Error::InvalidOperand);
             }
         }
         OperandCode::PMOVX_G_E_xmm => {
@@ -7845,10 +7812,8 @@ fn unlikely_operands(
                 } else {
                     instruction.mem_size = 8;
                 }
-            } else {
-                if instruction.opcode == Opcode::MOVLPD || instruction.opcode == Opcode::MOVHPD {
-                    return Err(Error::InvalidOperand);
-                }
+            } else if instruction.opcode == Opcode::MOVLPD || instruction.opcode == Opcode::MOVHPD {
+                return Err(Error::InvalidOperand);
             }
         }
         OperandCode::INV_Gv_M => {
@@ -8082,14 +8047,12 @@ fn unlikely_operands(
             if mem_oper == OperandSpec::RegMMM {
                 instruction.regs[1].bank = RegisterBank::MM;
                 instruction.regs[1].num &= 0b111;
+            } else if [Opcode::PUNPCKLBW, Opcode::PUNPCKLWD, Opcode::PUNPCKLDQ]
+                .contains(&instruction.opcode)
+            {
+                instruction.mem_size = 4;
             } else {
-                if [Opcode::PUNPCKLBW, Opcode::PUNPCKLWD, Opcode::PUNPCKLDQ]
-                    .contains(&instruction.opcode)
-                {
-                    instruction.mem_size = 4;
-                } else {
-                    instruction.mem_size = 8;
-                }
+                instruction.mem_size = 8;
             }
         }
         OperandCode::G_U_mm => {
@@ -8208,8 +8171,8 @@ fn unlikely_operands(
         }
         */
         OperandCode::Iw_Ib => {
-            instruction.disp = read_num(words, 2)? as u64;
-            instruction.imm = read_num(words, 1)? as u64;
+            instruction.disp = read_num(words, 2)?;
+            instruction.imm = read_num(words, 1)?;
             instruction.operands[0] = OperandSpec::ImmInDispField;
             instruction.operands[1] = OperandSpec::ImmU8;
             instruction.operand_count = 2;
@@ -8324,9 +8287,7 @@ fn unlikely_operands(
             );
             instruction.operands[1] = read_E_xmm(words, instruction, modrm)?;
             if instruction.prefixes.rex_unchecked().w() {
-                let op = instruction.operands[0];
-                instruction.operands[0] = instruction.operands[1];
-                instruction.operands[1] = op;
+                instruction.operands.swap(0, 1);
                 instruction.regs[1].bank = RegisterBank::Q;
                 instruction.regs[0].bank = RegisterBank::MM;
                 instruction.regs[0].num &= 0b111;
@@ -8475,8 +8436,7 @@ fn unlikely_operands(
                             instruction.operand_count = 1;
                             let opwidth =
                                 imm_width_from_prefixes_64(SizeCode::vqp, instruction.prefixes);
-                            instruction.operands[0] =
-                                read_E(words, instruction, modrm, opwidth)?;
+                            instruction.operands[0] = read_E(words, instruction, modrm, opwidth)?;
                         }
                         return Ok(());
                     }
@@ -8506,8 +8466,7 @@ fn unlikely_operands(
                             instruction.operand_count = 1;
                             let opwidth =
                                 imm_width_from_prefixes_64(SizeCode::vqp, instruction.prefixes);
-                            instruction.operands[0] =
-                                read_E(words, instruction, modrm, opwidth)?;
+                            instruction.operands[0] = read_E(words, instruction, modrm, opwidth)?;
                         }
                         return Ok(());
                     }
@@ -8573,8 +8532,7 @@ fn unlikely_operands(
                             instruction.operand_count = 1;
                             let opwidth =
                                 imm_width_from_prefixes_64(SizeCode::vqp, instruction.prefixes);
-                            instruction.operands[0] =
-                                read_E(words, instruction, modrm, opwidth)?;
+                            instruction.operands[0] = read_E(words, instruction, modrm, opwidth)?;
                         }
                     }
                     6 => {
@@ -8614,14 +8572,12 @@ fn unlikely_operands(
                 0b001 => {
                     if is_reg {
                         return Err(Error::InvalidOperand);
+                    } else if instruction.prefixes.rex_unchecked().w() {
+                        instruction.mem_size = 16;
+                        Opcode::CMPXCHG16B
                     } else {
-                        if instruction.prefixes.rex_unchecked().w() {
-                            instruction.mem_size = 16;
-                            Opcode::CMPXCHG16B
-                        } else {
-                            instruction.mem_size = 8;
-                            Opcode::CMPXCHG8B
-                        }
+                        instruction.mem_size = 8;
+                        Opcode::CMPXCHG8B
                     }
                 }
                 0b011 => {
@@ -8959,12 +8915,10 @@ fn unlikely_operands(
                 } else {
                     instruction.regs[1].bank = RegisterBank::D;
                 }
+            } else if instruction.prefixes.rex_unchecked().w() {
+                instruction.mem_size = 8;
             } else {
-                if instruction.prefixes.rex_unchecked().w() {
-                    instruction.mem_size = 8;
-                } else {
-                    instruction.mem_size = 4;
-                }
+                instruction.mem_size = 4;
             }
         }
         OperandCode::Edq_G_xmm => {
@@ -8979,13 +8933,11 @@ fn unlikely_operands(
                 } else {
                     instruction.regs[1].bank = RegisterBank::D;
                 }
+            } else if instruction.prefixes.rex_unchecked().w() {
+                instruction.opcode = Opcode::MOVQ;
+                instruction.mem_size = 8;
             } else {
-                if instruction.prefixes.rex_unchecked().w() {
-                    instruction.opcode = Opcode::MOVQ;
-                    instruction.mem_size = 8;
-                } else {
-                    instruction.mem_size = 4;
-                }
+                instruction.mem_size = 4;
             }
         }
         OperandCode::E_G_mm => {
@@ -9000,15 +8952,6 @@ fn unlikely_operands(
                 instruction.mem_size = 8;
             }
         }
-        /*
-        OperandCode::G_xmm_Ed => {
-            instruction.operands[1] = mem_oper;
-            instruction.regs[0].bank = RegisterBank::X;
-            if mem_oper == OperandSpec::RegMMM {
-                instruction.regs[1].bank = RegisterBank::D;
-            }
-        },
-        */
         OperandCode::G_xmm_Edq => {
             instruction.regs[0].bank = RegisterBank::X;
             if mem_oper == OperandSpec::RegMMM {
@@ -9022,7 +8965,7 @@ fn unlikely_operands(
         OperandCode::G_xmm_Ew_Ib => {
             instruction.operands[2] = OperandSpec::ImmU8;
             instruction.operand_count = 3;
-            instruction.imm = read_num(words, 1)? as u64;
+            instruction.imm = read_num(words, 1)?;
             instruction.regs[0].bank = RegisterBank::X;
             if mem_oper == OperandSpec::RegMMM {
                 instruction.regs[1].bank = RegisterBank::D;
@@ -9052,22 +8995,18 @@ fn unlikely_operands(
             if mem_oper == OperandSpec::RegMMM {
                 instruction.regs[1].bank = RegisterBank::MM;
                 instruction.regs[1].num &= 0b111;
+            } else if op == OperandCode::G_xmm_U_mm {
+                return Err(Error::InvalidOperand);
+            } else if instruction.prefixes.rex_unchecked().w() {
+                instruction.mem_size = 8;
             } else {
-                if op == OperandCode::G_xmm_U_mm {
-                    return Err(Error::InvalidOperand);
-                } else {
-                    if instruction.prefixes.rex_unchecked().w() {
-                        instruction.mem_size = 8;
-                    } else {
-                        instruction.mem_size = 4;
-                    }
-                }
+                instruction.mem_size = 4;
             }
         }
         OperandCode::Rv_Gmm_Ib => {
             instruction.operands[2] = OperandSpec::ImmU8;
             instruction.operand_count = 3;
-            instruction.imm = read_num(words, 1)? as u64;
+            instruction.imm = read_num(words, 1)?;
             instruction.regs[0].bank = RegisterBank::D;
             if mem_oper == OperandSpec::RegMMM {
                 instruction.regs[1].bank = RegisterBank::MM;
@@ -9244,17 +9183,15 @@ fn unlikely_operands(
             instruction.operands[0] = mem_oper;
             if instruction.operands[0] == OperandSpec::RegMMM {
                 return Err(Error::InvalidOperand);
+            } else if instruction.opcode == Opcode::MOVNTSS {
+                instruction.mem_size = 4;
+            } else if instruction.opcode == Opcode::MOVNTPD
+                || instruction.opcode == Opcode::MOVNTDQ
+                || instruction.opcode == Opcode::MOVNTPS
+            {
+                instruction.mem_size = 16;
             } else {
-                if instruction.opcode == Opcode::MOVNTSS {
-                    instruction.mem_size = 4;
-                } else if instruction.opcode == Opcode::MOVNTPD
-                    || instruction.opcode == Opcode::MOVNTDQ
-                    || instruction.opcode == Opcode::MOVNTPS
-                {
-                    instruction.mem_size = 16;
-                } else {
-                    instruction.mem_size = 8;
-                }
+                instruction.mem_size = 8;
             }
             instruction.regs[0].bank = RegisterBank::X;
         }
@@ -9381,12 +9318,7 @@ fn unlikely_operands(
                 instruction.opcode = Opcode::VERR;
             } else if r == 5 {
                 instruction.opcode = Opcode::VERW;
-            } else if r == 6 {
-                // TODO: this would be jmpe for x86-on-itanium systems.
-                instruction.operands[0] = OperandSpec::Nothing;
-                instruction.operand_count = 0;
-                return Err(Error::InvalidOperand);
-            } else if r == 7 {
+            } else if r == 6 || r == 7 {
                 instruction.operands[0] = OperandSpec::Nothing;
                 instruction.operand_count = 0;
                 return Err(Error::InvalidOperand);
@@ -9854,32 +9786,30 @@ fn unlikely_operands(
                 return Ok(());
             }
 
-            if instruction.prefixes.repnz() {
-                if (modrm & 0xc0) == 0xc0 {
-                    match r {
-                        6 => {
-                            instruction.opcode = Opcode::UMWAIT;
-                            instruction.regs[0] = RegSpec {
-                                bank: if instruction.prefixes.rex_unchecked().w() {
-                                    RegisterBank::Q
-                                } else {
-                                    RegisterBank::D
-                                },
-                                num: m + if instruction.prefixes.rex_unchecked().x() {
-                                    0b1000
-                                } else {
-                                    0
-                                },
-                            };
-                            instruction.operands[0] = OperandSpec::RegRRR;
-                            instruction.operand_count = 1;
-                        }
-                        _ => {
-                            return Err(Error::InvalidOpcode);
-                        }
+            if instruction.prefixes.repnz() && (modrm & 0xc0) == 0xc0 {
+                match r {
+                    6 => {
+                        instruction.opcode = Opcode::UMWAIT;
+                        instruction.regs[0] = RegSpec {
+                            bank: if instruction.prefixes.rex_unchecked().w() {
+                                RegisterBank::Q
+                            } else {
+                                RegisterBank::D
+                            },
+                            num: m + if instruction.prefixes.rex_unchecked().x() {
+                                0b1000
+                            } else {
+                                0
+                            },
+                        };
+                        instruction.operands[0] = OperandSpec::RegRRR;
+                        instruction.operand_count = 1;
                     }
-                    return Ok(());
+                    _ => {
+                        return Err(Error::InvalidOpcode);
+                    }
                 }
+                return Ok(());
             }
 
             if instruction.prefixes.rep() {
@@ -10025,30 +9955,24 @@ fn unlikely_operands(
                         instruction.opcode = Opcode::LFENCE;
                         // Intel's manual accepts m != 0, AMD supports m != 0 though the manual
                         // doesn't say (tested on threadripper)
-                        if !decoder.amd_quirks() && !decoder.intel_quirks() {
-                            if m != 0 {
-                                return Err(Error::InvalidOperand);
-                            }
+                        if !decoder.amd_quirks() && !decoder.intel_quirks() && m != 0 {
+                            return Err(Error::InvalidOperand);
                         }
                     }
                     6 => {
                         instruction.opcode = Opcode::MFENCE;
                         // Intel's manual accepts m != 0, AMD supports m != 0 though the manual
                         // doesn't say (tested on threadripper)
-                        if !decoder.amd_quirks() && !decoder.intel_quirks() {
-                            if m != 0 {
-                                return Err(Error::InvalidOperand);
-                            }
+                        if !decoder.amd_quirks() && !decoder.intel_quirks() && m != 0 {
+                            return Err(Error::InvalidOperand);
                         }
                     }
                     7 => {
                         instruction.opcode = Opcode::SFENCE;
                         // Intel's manual accepts m != 0, AMD supports m != 0 though the manual
                         // doesn't say (tested on threadripper)
-                        if !decoder.amd_quirks() && !decoder.intel_quirks() {
-                            if m != 0 {
-                                return Err(Error::InvalidOperand);
-                            }
+                        if !decoder.amd_quirks() && !decoder.intel_quirks() && m != 0 {
+                            return Err(Error::InvalidOperand);
                         }
                     }
                     _ => {
@@ -10148,7 +10072,7 @@ fn unlikely_operands(
                 _ => unsafe { unreachable_unchecked() },
             };
 
-            instruction.regs[0] = RegSpec { bank: bank, num: r };
+            instruction.regs[0] = RegSpec { bank, num: r };
             instruction.regs[1] = RegSpec {
                 bank: RegisterBank::Q,
                 num: m,
@@ -10315,9 +10239,7 @@ fn unlikely_operands(
             if let OperandSpec::RegMMM = instruction.operands[1] {
                 return Err(Error::InvalidOperand);
             }
-            let temp = instruction.operands[1];
-            instruction.operands[1] = instruction.operands[0];
-            instruction.operands[0] = temp;
+            instruction.operands.swap(0, 1);
         }
         _ => {
             // TODO: this should be unreachable - safe to panic now?
@@ -10920,7 +10842,7 @@ fn read_imm_ivq(bytes: &mut Reader, width: u8) -> Result<u64, Error> {
     match width {
         2 => Ok(read_num(bytes, 2)? as u16 as u64),
         4 => Ok(read_num(bytes, 4)? as u32 as u64),
-        8 => Ok(read_num(bytes, 8)? as u64),
+        8 => Ok(read_num(bytes, 8)?),
         _ => unsafe {
             unreachable_unchecked();
         },

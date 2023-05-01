@@ -749,7 +749,7 @@ impl decoder::Decoded for Instruction {
     type Instruction = Instruction;
     type Operand = std::borrow::Cow<'static, str>;
 
-    fn len(&self) -> usize {
+    fn width(&self) -> usize {
         self.len
     }
 
@@ -903,17 +903,17 @@ impl decoder::Decodable for Decoder {
                 0b100 => decode_immediate(XORI, dword),
                 0b110 => decode_immediate(ORI, dword),
                 0b111 => decode_immediate(ANDI, dword),
-                0b001 => decode_arith(SLLI, dword, &self),
-                0b101 if dword >> 26 == 0b0000001 => decode_arith(SRAI, dword, &self),
-                0b101 if dword >> 26 == 0b0000000 => decode_arith(SRLI, dword, &self),
+                0b001 => decode_arith(SLLI, dword, self),
+                0b101 if dword >> 26 == 0b0000001 => decode_arith(SRAI, dword, self),
+                0b101 if dword >> 26 == 0b0000000 => decode_arith(SRLI, dword, self),
                 _ => Err(Error::UnknownOpcode),
             },
             0b0011011 => match dword >> 12 & 0b111 {
                 _ if !self.is_64 => Err(Error::UnknownOpcode),
                 0b000 => decode_immediate(ADDIW, dword),
-                0b001 => decode_arith(SLLIW, dword, &self),
-                0b101 if dword >> 25 == 0b0000000 => decode_arith(SRLIW, dword, &self),
-                0b101 if dword >> 25 == 0b0100000 => decode_arith(SRAIW, dword, &self),
+                0b001 => decode_arith(SLLIW, dword, self),
+                0b101 if dword >> 25 == 0b0000000 => decode_arith(SRLIW, dword, self),
+                0b101 if dword >> 25 == 0b0100000 => decode_arith(SRAIW, dword, self),
                 _ => Err(Error::UnknownOpcode),
             },
             0b0110011 => match dword >> 25 {
@@ -2050,7 +2050,7 @@ fn decode_jump(dword: u32) -> Result<Instruction, Error> {
 
 /// Decode's ret instruction.
 fn decode_jumpr(bytes: u32) -> Result<Instruction, Error> {
-    let imm = (bytes as i32 >> 20) as i32;
+    let imm = bytes as i32 >> 20;
     let rd = Register::get(bytes >> 7 & 0b11111)?;
     let (operands, operand_count) = operands![Operand::Register(rd), Operand::Immediate(imm)];
 
@@ -2066,7 +2066,7 @@ fn decode_jumpr(bytes: u32) -> Result<Instruction, Error> {
 fn decode_immediate(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
     let rd = Register::get(dword >> 7 & 0b11111)?;
     let rs = Register::get(dword >> 15 & 0b11111)?;
-    let imm = (dword as i32) >> 20;
+    let imm = dword as i32 >> 20;
 
     let (operands, operand_count) = operands![
         Operand::Register(rd),
