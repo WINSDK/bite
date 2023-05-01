@@ -31,9 +31,9 @@ fn tokenize_lines<D: disassembler::Decodable>(
     let mut lines = Vec::with_capacity(1024);
 
     for (&addr, inst) in proc.instructions.iter() {
-        let rva = addr.checked_sub(proc.base_addr).unwrap_or(addr);
+        let rva = addr - proc.base_addr;
 
-        if let Some(label) = symbols.get_by_addr(rva) {
+        if let Some(label) = symbols.get_by_addr(addr) {
             lines.push(LineKind::Newline);
             lines.push(LineKind::Label(label));
         }

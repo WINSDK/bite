@@ -277,7 +277,6 @@ impl decoder::Decodable for Decoder {
 impl decoder::ToTokens for Instruction {
     fn tokenize(&self, stream: &mut decoder::TokenStream) {
         stream.push(self.mnemomic, Colors::opcode());
-        dbg!(&self);
 
         // there are operands
         if self.operand_count > 0 {

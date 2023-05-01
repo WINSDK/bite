@@ -11,9 +11,9 @@
 
 <h4 align="center">Ever wanted to inspect every <i>bite</i> of your binary.</h4>
 
-A disassembler with a WIP gui written in rust. \
-It demangles rust symbols for both the current and v0 mangling scheme. \
-There is a roadmap for this project but currently I'm very busy with university.
+## Showcase
+
+![Assembly listing](./assets/screenshot.png)
 
 ## Features yet to be implemented
 

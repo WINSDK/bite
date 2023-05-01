@@ -200,14 +200,14 @@ pub async fn main() -> Result<(), Error> {
             Event::MainEventsCleared => {
                 if keyboard.pressed(VirtualKeyCode::O, ModifiersState::CTRL) {
                     // create dialog popup and get references to the donut and dissasembly
-                    let dialog = rfd::AsyncFileDialog::new().set_parent(&*window).pick_file();
+                    let dialog = rfd::FileDialog::new().set_parent(&*window).pick_file();
                     let show_donut = Arc::clone(&ctx.show_donut);
                     let dissasembly = Arc::clone(&ctx.dissasembly);
 
                     tokio::spawn(async move {
-                        if let Some(file) = dialog.await {
+                        if let Some(file) = dialog {
                             dissasembly.clear();
-                            dissasembly.load(file.path().to_owned(), show_donut).await;
+                            dissasembly.load(file, show_donut).await;
                         }
                     });
                 }
