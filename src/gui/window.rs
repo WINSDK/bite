@@ -351,33 +351,7 @@ impl Backend {
                         );
                     }
                     LineKind::Instruction(line) => {
-                        // memory address
-                        // texts.push(
-                        //     wgpu_glyph::Text::new(&line.address)
-                        //         .with_scale(font_size)
-                        //         .with_color(colors::GRAY40),
-                        // );
-
-                        // instruction's bytes
-                        // texts.push(
-                        //     wgpu_glyph::Text::new(&line.bytes)
-                        //         .with_scale(font_size)
-                        //         .with_color(colors::GREEN),
-                        // );
-
-                        let mut tokens = line.iter();
-
-                        // opcode
-                        if let Some(token) = tokens.next() {
-                            // assuming 8 is the max length of an opcode
-                            let pad = &"        "[..8usize.saturating_sub(token.text.len())];
-
-                            texts.push(token.text(font_size));
-                            texts.push(wgpu_glyph::Text::new(pad).with_scale(font_size));
-                        }
-
-                        // instruction
-                        for token in tokens {
+                        for token in line.iter() {
                             texts.push(token.text(font_size));
                         }
 

@@ -250,8 +250,8 @@ impl fmt::Display for RegSpec {
 }
 
 impl ToTokens for Operand {
-    fn tokenize(self, stream: &mut decoder::TokenStream) {
-        match self {
+    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+        match *self {
             Operand::ImmediateU8(imm) => {
                 let text = decoder::encode_hex(imm as i64);
                 stream.push_owned(text, Colors::immediate());
@@ -1964,7 +1964,7 @@ impl Opcode {
 }
 
 impl ToTokens for Instruction {
-    fn tokenize(self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream) {
         let opcode_name = self.opcode().name();
         let mut op = String::with_capacity(opcode_name.len());
 

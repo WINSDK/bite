@@ -1,6 +1,7 @@
 use crate::symbols::Index;
 use disassembler::ToTokens;
 use object::{Object, ObjectSection, SectionKind};
+use tokenizing::colors;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,14 +30,31 @@ fn tokenize_lines<D: disassembler::Decodable>(
 ) -> Vec<LineKind> {
     let mut lines = Vec::with_capacity(1024);
 
-    for (addr, inst) in proc.instructions {
-        if let Some(label) = symbols.get_by_addr(addr) {
+    for (&addr, inst) in proc.instructions.iter() {
+        let rva = addr.checked_sub(proc.base_addr).unwrap_or(addr);
+
+        if let Some(label) = symbols.get_by_addr(rva) {
             lines.push(LineKind::Newline);
             lines.push(LineKind::Label(label));
         }
 
         let mut line = disassembler::TokenStream::new();
 
+        // memory address
+        line.push_owned(
+            format!("0x{addr:0>10X}  "),
+            &colors::GRAY40,
+        );
+
+        // instruction's bytes
+        let bytes = disassembler::encode_hex_bytes_truncated(
+            proc.get_instruction_bytes(rva, &inst),
+            proc.decoder.max_width() * 3 + 1
+        );
+
+        line.push_owned(bytes, &colors::GREEN);
+
+        // instruction or decoding error
         match inst {
             Ok(inst) => inst.tokenize(&mut line),
             Err(err) => line.push_owned(format!("{err:?}"), &tokenizing::colors::RED),

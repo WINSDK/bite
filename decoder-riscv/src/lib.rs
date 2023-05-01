@@ -25,7 +25,7 @@ impl decoder::Complete for Error {
     }
 
     #[inline]
-    fn incomplete_size(&self) -> usize {
+    fn incomplete_width(&self) -> usize {
         2
     }
 }
@@ -955,10 +955,14 @@ impl decoder::Decodable for Decoder {
 
         decoded_inst.map(map_to_psuedo)
     }
+
+    fn max_width(&self) -> usize {
+        4
+    }
 }
 
 impl decoder::ToTokens for Instruction {
-    fn tokenize(mut self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream) {
         stream.push(self.opcode.as_str(), Colors::opcode());
 
         // there are operands
@@ -967,7 +971,7 @@ impl decoder::ToTokens for Instruction {
 
             // iterate through operands
             for idx in 0..self.operand_count {
-                let operand = std::mem::take(&mut self.operands[idx]);
+                let operand = self.operands[idx];
 
                 match operand.to_str() {
                     Cow::Owned(s) => stream.push_owned(s, Colors::immediate()),

@@ -25,7 +25,7 @@ const MEM_SIZE_STRINGS: [&str; 64] = [
 struct Number(i32);
 
 impl decoder::ToTokens for Number {
-    fn tokenize(self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream) {
         if self.0 == i32::MIN {
             stream.push(" - ", Colors::expr());
             stream.push("0x7fffffff", Colors::immediate());
@@ -104,7 +104,7 @@ impl decoder::Complete for Error {
     }
 
     #[inline]
-    fn incomplete_size(&self) -> usize {
+    fn incomplete_width(&self) -> usize {
         1
     }
 }

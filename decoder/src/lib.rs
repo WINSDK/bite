@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use tokenizing::{Color, Token};
 
 pub trait ToTokens {
-    fn tokenize(self, stream: &mut TokenStream);
+    fn tokenize(&self, stream: &mut TokenStream);
 }
 
 pub trait Decoded {
@@ -19,7 +19,7 @@ pub trait Decoded {
 
 pub trait Complete {
     fn is_complete(&self) -> bool;
-    fn incomplete_size(&self) -> usize;
+    fn incomplete_width(&self) -> usize;
 }
 
 pub trait Decodable {
@@ -28,6 +28,7 @@ pub trait Decodable {
     type Operand;
 
     fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Self::Error>;
+    fn max_width(&self) -> usize;
 }
 
 pub struct TokenStream {
@@ -257,7 +258,7 @@ pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize) -> String {
 
         // truncation has to occur
         if bytes.len() * 3 > max_width {
-            let bytes = &bytes[..max_width / 3];
+            let bytes = &bytes[..max_width / 3 - 1];
 
             for byte in bytes {
                 *slice.get_unchecked_mut(idx) = HEX_NUGGET[(byte >> 4) as usize];
@@ -269,7 +270,8 @@ pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize) -> String {
             *slice.get_unchecked_mut(idx) = b'.';
             *slice.get_unchecked_mut(idx + 1) = b'.';
             *slice.get_unchecked_mut(idx + 2) = b' ';
-            idx += 3;
+            *slice.get_unchecked_mut(idx + 3) = b' ';
+            idx += 4;
 
             buffer.set_len(idx);
             return String::from_utf8_unchecked(buffer);
@@ -315,18 +317,8 @@ mod tests {
     #[test]
     fn encode_hex_bytes_truncted() {
         assert_eq!(
-            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 5),
-            "10 .. "
-        );
-
-        assert_eq!(
-            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 7),
-            "10 12 .. "
-        );
-
-        assert_eq!(
-            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 8),
-            "10 12 .. "
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 6),
+            "10 ..  "
         );
 
         assert_eq!(
@@ -337,6 +329,11 @@ mod tests {
         assert_eq!(
             super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 10),
             "10 12 03  "
+        );
+
+        assert_eq!(
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 11),
+            "10 12 03   "
         );
     }
 }

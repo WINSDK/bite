@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 
 use decoder::Decoded;
 
-pub use decoder::{Complete, Decodable, ToTokens, TokenStream};
+pub use decoder::{Complete, Decodable, ToTokens, TokenStream, encode_hex_bytes_truncated};
 
 pub mod x86 {
     pub use x86_64::protected_mode::Decoder;
@@ -32,7 +32,7 @@ pub struct Processor<'data, D: Decodable> {
     pub base_addr: usize,
     entrypoint: usize,
     addresses: VecDeque<usize>,
-    decoder: D,
+    pub decoder: D,
     pub instructions: BTreeMap<usize, Result<D::Instruction, D::Error>>,
 }
 
@@ -79,7 +79,7 @@ impl<'data, D: Decodable> Processor<'data, D> {
                     inst.width()
                 }
                 Err(err) if !err.is_complete() => continue,
-                Err(err) => err.incomplete_size(),
+                Err(err) => err.incomplete_width(),
             };
 
             self.instructions.insert(addr, instruction);
@@ -91,80 +91,15 @@ impl<'data, D: Decodable> Processor<'data, D> {
         addr.checked_sub(self.base_addr)
             .and_then(|addr| self.section.get(addr..))
     }
-}
 
-// TODO: remove
-// impl Iterator for InstructionStream<'_> {
-//     type Item = Line;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         let mut tokens = decoder::TokenStream::new();
-//
-//         match self.inner {
-//             InternalInstructionStream::Riscv(ref mut stream) => {
-//                 let inst = stream.next()?;
-//                 let width = stream.width;
-//                 let offset = stream.offset - width;
-//
-//                 match inst {
-//                     Ok(inst) => inst.tokenize(&mut tokens),
-//                     Err(err) => tokens.push_owned(format!("{err:?}"), &tokenizing::colors::RED),
-//                 }
-//
-//                 return Some(Line {
-//                     section_base: stream.section_base,
-//                     offset,
-//                     tokens,
-//                     address: format!("0x{:0>10X}  ", stream.section_base + offset),
-//                     bytes: decoder::encode_hex_bytes_truncated(
-//                         &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-//                         13, // 4 bytes shown (4 bytes * (2 hex + 1 space) + 1 pad)
-//                     ),
-//                 })
-//             }
-//             InternalInstructionStream::Mips(ref mut stream) => {
-//                 let inst = stream.next()?;
-//                 let width = stream.width;
-//                 let offset = stream.offset - width;
-//
-//                 match inst {
-//                     Ok(inst) => inst.tokenize(&mut tokens),
-//                     Err(err) => tokens.push_owned(format!("{err:?}"), &tokenizing::colors::RED),
-//                 }
-//
-//                 Some(Line {
-//                     section_base: stream.section_base,
-//                     offset,
-//                     tokens,
-//                     address: format!("0x{:0>10X}  ", stream.section_base + offset),
-//                     bytes: decoder::encode_hex_bytes_truncated(
-//                         &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-//                         13, // 4 bytes shown (4 bytes * (2 hex + 1 space) + 1 pad)
-//                     ),
-//                 })
-//             }
-//             InternalInstructionStream::X86_64(ref mut stream) => {
-//                 let inst = stream.next()?;
-//                 let width = stream.width;
-//                 let offset = stream.offset - width;
-//
-//                 match inst {
-//                     Ok(inst) => inst.tokenize(&mut tokens),
-//                     Err(err) => tokens.push_owned(format!("{err:?}"), &tokenizing::colors::RED),
-//                 }
-//
-//                 // TODO: if byte array overflows, put it on a newline
-//                 Some(Line {
-//                     section_base: stream.section_base,
-//                     offset,
-//                     tokens,
-//                     address: format!("0x{:0>10X}  ", stream.section_base + offset),
-//                     bytes: decoder::encode_hex_bytes_truncated(
-//                         &stream.bytes[offset..std::cmp::min(offset + width, stream.bytes.len())],
-//                         25, // 8 bytes shown (8 bytes * (2 hex + 1 space) + 1 pad)
-//                     ),
-//                 })
-//             }
-//         }
-//     }
-// }
+    pub fn get_instruction_bytes(
+        &self,
+        rva: usize,
+        instruction: &Result<D::Instruction, D::Error>,
+    ) -> &'data [u8] {
+        match instruction {
+            Ok(instruction) => &self.section[rva..][..instruction.width()],
+            Err(err) => &self.section[rva..][..err.incomplete_width()],
+        }
+    }
+}

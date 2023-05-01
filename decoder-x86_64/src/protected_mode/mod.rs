@@ -503,7 +503,7 @@ impl SaeMode {
 }
 
 impl ToTokens for SaeMode {
-    fn tokenize(self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream) {
         stream.push("{", Colors::brackets());
         stream.push(
             match self {
@@ -2621,6 +2621,10 @@ impl decoder::Decodable for Decoder {
         }
 
         Ok(instr)
+    }
+
+    fn max_width(&self) -> usize {
+        6
     }
 }
 
