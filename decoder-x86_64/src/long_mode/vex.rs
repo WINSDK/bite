@@ -103,7 +103,6 @@ pub(crate) fn three_byte_vex(
     words: &mut Reader,
     instruction: &mut Instruction,
 ) -> Result<(), Error> {
-    let vex_start = words.offset() as u32 * 8;
     let vex_byte_one = words.next().ok_or(Error::ExhaustedInput)?;
     let vex_byte_two = words.next().ok_or(Error::ExhaustedInput)?;
     let p = vex_byte_two & 0x03;
@@ -137,7 +136,6 @@ pub(crate) fn two_byte_vex(
     words: &mut Reader,
     instruction: &mut Instruction,
 ) -> Result<(), Error> {
-    let vex_start = words.offset() as u32 * 8;
     let vex_byte = words.next().ok_or(Error::ExhaustedInput)?;
     let p = vex_byte & 0x03;
     let p = match p {
@@ -1543,7 +1541,6 @@ fn read_vex_instruction(
     instruction: &mut Instruction,
     p: VEXOpcodePrefix,
 ) -> Result<(), Error> {
-    let opcode_start = words.offset() as u32 * 8;
     let opc = words.next().ok_or(Error::ExhaustedInput)?;
 
     // the name of this bit is `L` in the documentation, so use the same name here.

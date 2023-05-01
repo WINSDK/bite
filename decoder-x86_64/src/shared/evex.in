@@ -16,7 +16,6 @@ pub(crate) fn read_evex(
     } else {
       words.next().ok_or(Error::ExhaustedInput)?
     };
-    let evex_start = words.offset() as u32 * 8 - 8;
     let evex_byte_two = words.next().ok_or(Error::ExhaustedInput)?;
     let evex_byte_three = words.next().ok_or(Error::ExhaustedInput)?;
     let p = evex_byte_two & 0x03;
@@ -60,7 +59,6 @@ pub(crate) fn read_evex(
 
     instruction.prefixes.evex_from(evex_byte_one, evex_byte_two, evex_byte_three);
 
-    let evex_rex = ((evex_byte_two & 0x80) >> 4) | (((evex_byte_one >> 5) & 0b111) ^ 0b111);
     let opc = words.next().ok_or(Error::ExhaustedInput)?;
     let table_idx = ((m << 2) | p) as usize;
     let table = generated::TABLES[table_idx];

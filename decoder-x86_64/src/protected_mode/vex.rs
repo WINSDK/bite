@@ -101,7 +101,6 @@ pub(crate) fn three_byte_vex(
     vex_byte_one: u8,
     instruction: &mut Instruction,
 ) -> Result<(), Error> {
-    let vex_start = words.offset() as u32 * 8 - 8;
     let vex_byte_two = words.next().ok_or(Error::ExhaustedInput)?;
     let p = vex_byte_two & 0x03;
     let p = match p {
@@ -141,7 +140,6 @@ pub(crate) fn two_byte_vex(
     vex_byte: u8,
     instruction: &mut Instruction
 ) -> Result<(), Error> {
-    let vex_start = words.offset() as u32 * 8 - 8;
     let p = vex_byte & 0x03;
     let p = match p {
         0x00 => VEXOpcodePrefix::None,
@@ -1308,15 +1306,11 @@ fn read_vex_instruction(
     instruction: &mut Instruction,
     p: VEXOpcodePrefix
 ) -> Result<(), Error> {
-    let opcode_start = words.offset() as u32 * 8;
     let opc = words.next().ok_or(Error::ExhaustedInput)?;
 
     // the name of this bit is `L` in the documentation, so use the same name here.
     #[allow(non_snake_case)]
     let L = instruction.prefixes.vex_unchecked().l();
-
-    //    println!("reading vex instruction from opcode prefix {:?}, L: {}, opc: {:#x}, map:{:?}", p, L, opc, opcode_map);
-    //    println!("w? {}", instruction.prefixes.vex_unchecked().w());
 
     // several combinations simply have no instructions. check for those first.
     let (opcode, operand_code) = match opcode_map {

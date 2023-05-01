@@ -6081,7 +6081,7 @@ pub(self) fn read_E(
 ) -> Result<OperandSpec, Error> {
     if modrm >= 0b11000000 {
         let bank = width_to_gp_reg_bank(width, instr.prefixes.rex_unchecked().present());
-        read_modrm_reg(instr, words, modrm, bank)
+        read_modrm_reg(instr, modrm, bank)
     } else {
         read_M(words, instr, modrm)
     }
@@ -6128,7 +6128,7 @@ pub(self) fn read_E_xmm(
     modrm: u8,
 ) -> Result<OperandSpec, Error> {
     if modrm >= 0b11000000 {
-        read_modrm_reg(instr, words, modrm, RegisterBank::X)
+        read_modrm_reg(instr, modrm, RegisterBank::X)
     } else {
         read_M(words, instr, modrm)
     }
@@ -6141,7 +6141,7 @@ pub(self) fn read_E_ymm(
     modrm: u8,
 ) -> Result<OperandSpec, Error> {
     if modrm >= 0b11000000 {
-        read_modrm_reg(instr, words, modrm, RegisterBank::Y)
+        read_modrm_reg(instr, modrm, RegisterBank::Y)
     } else {
         read_M(words, instr, modrm)
     }
@@ -6155,7 +6155,7 @@ pub(self) fn read_E_vex(
     bank: RegisterBank,
 ) -> Result<OperandSpec, Error> {
     if modrm >= 0b11000000 {
-        read_modrm_reg(instr, words, modrm, bank)
+        read_modrm_reg(instr, modrm, bank)
     } else {
         let res = read_M(words, instr, modrm)?;
         if (modrm & 0b01_000_000) == 0b01_000_000 {
@@ -6169,7 +6169,6 @@ pub(self) fn read_E_vex(
 #[inline(always)]
 fn read_modrm_reg(
     instr: &mut Instruction,
-    words: &mut Reader,
     modrm: u8,
     reg_bank: RegisterBank,
 ) -> Result<OperandSpec, Error> {
@@ -6179,15 +6178,10 @@ fn read_modrm_reg(
 
 #[inline(always)]
 fn read_sib_disp(
-    instr: &Instruction,
     words: &mut Reader,
     modbits: u8,
     sibbyte: u8,
 ) -> Result<i32, Error> {
-    let sib_start = words.offset() as u32 * 8 - 8;
-    let modbit_addr = words.offset() as u32 * 8 - 10;
-    let disp_start = words.offset() as u32 * 8;
-
     let disp = if modbits == 0b00 {
         if (sibbyte & 7) == 0b101 {
             read_num(words, 4)? as i32
@@ -6206,15 +6200,12 @@ fn read_sib_disp(
 #[allow(non_snake_case)]
 #[inline(always)]
 fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, Error> {
-    let modrm_start = words.offset() as u32 * 8 - 8;
-    let sib_start = words.offset() as u32 * 8;
-
     let modbits = modrm >> 6;
     let sibbyte = words.next().ok_or(Error::ExhaustedInput)?;
     instr.regs[1].num |= sibbyte & 7;
     instr.regs[2].num |= (sibbyte >> 3) & 7;
 
-    let disp = read_sib_disp(instr, words, modbits, sibbyte)?;
+    let disp = read_sib_disp(words, modbits, sibbyte)?;
     instr.disp = disp as u32 as u64;
 
     let scale = 1u8 << (sibbyte >> 6);
@@ -6277,8 +6268,6 @@ fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<Op
 #[allow(non_snake_case)]
 #[inline(always)]
 fn read_M(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, Error> {
-    let modrm_start = words.offset() as u32 * 8 - 8;
-
     let modbits = modrm >> 6;
     let mmm = modrm & 7;
     let op_spec = if mmm == 4 {
@@ -6318,13 +6307,11 @@ fn read_M(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<Oper
         if modbits == 0b00 {
             OperandSpec::Deref
         } else {
-            let disp_start = words.offset();
             let disp = if modbits == 0b01 {
                 read_num(words, 1)? as i8 as i32
             } else {
                 read_num(words, 4)? as i32
             };
-            let disp_end = words.offset();
             if disp == 0 {
                 OperandSpec::Deref
             } else {
@@ -7063,7 +7050,7 @@ fn read(
                 nextb = words.next().ok_or(Error::ExhaustedInput)?;
                 next_rec = unsafe { std::ptr::read_volatile(&OPCODES[nextb as usize]) };
                 prefixes.rex_from(b);
-            } else if let Interpretation::Instruction(opc) = record.0 {
+            } else if let Interpretation::Instruction(..) = record.0 {
                 instruction.mem_size = 0;
                 instruction.operand_count = 2;
                 break record;
@@ -7220,8 +7207,6 @@ fn read_operands(
     operand_code: OperandCode,
 ) -> Result<(), Error> {
     let operand_code = OperandCodeBuilder::from_bits(operand_code as u16);
-    let modrm_start = words.offset() as u32 * 8;
-    let opcode_start = modrm_start - 8;
 
     if operand_code.is_only_modrm_operands() {
         let modrm;
@@ -7262,7 +7247,7 @@ fn read_operands(
             if operand_code.bits() == (OperandCode::Gv_M as u16) {
                 return Err(Error::InvalidOperand);
             }
-            read_modrm_reg(instruction, words, modrm, bank)?
+            read_modrm_reg(instruction, modrm, bank)?
         } else {
             read_M(words, instruction, modrm)?
         };
@@ -7306,7 +7291,7 @@ fn read_operands(
             instruction.regs[0].num += 0b1000;
         }
         mem_oper = if modrm >= 0b11000000 {
-            read_modrm_reg(instruction, words, modrm, bank)?
+            read_modrm_reg(instruction, modrm, bank)?
         } else {
             read_M(words, instruction, modrm)?
         };

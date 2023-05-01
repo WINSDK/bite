@@ -6077,15 +6077,10 @@ fn read_modrm_reg(
 
 #[inline(always)]
 fn read_sib_disp(
-    instr: &Instruction,
     words: &mut Reader,
     modbits: u8,
     sibbyte: u8
 ) -> Result<i32, Error> {
-    let sib_start = words.offset() as u32 * 8 - 8;
-    let modbit_addr = words.offset() as u32 * 8 - 10;
-    let disp_start = words.offset() as u32 * 8;
-
     let disp = if modbits == 0b00 {
         if (sibbyte & 7) == 0b101 {
             read_num(words, 4)? as i32
@@ -6108,15 +6103,12 @@ fn read_sib(
     instr: &mut Instruction,
     modrm: u8
 ) -> Result<OperandSpec, Error> {
-    let modrm_start = words.offset() as u32 * 8 - 8;
-    let sib_start = words.offset() as u32 * 8;
-
     let modbits = modrm >> 6;
     let sibbyte = words.next().ok_or(Error::ExhaustedInput)?;
     instr.regs[1].num |= sibbyte & 7;
     instr.regs[2].num |= (sibbyte >> 3) & 7;
 
-    let disp = read_sib_disp(instr, words, modbits, sibbyte)?;
+    let disp = read_sib_disp(words, modbits, sibbyte)?;
     instr.disp = disp as u32;
 
     let scale = 1u8 << (sibbyte >> 6);
