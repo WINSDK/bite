@@ -1,0 +1,5 @@
+[target.'cfg(all())']
+rustflags = [
+    "-Aclippy::unusual_byte_groupings",
+    "-Aclippy::upper_case_acronyms",
+]
