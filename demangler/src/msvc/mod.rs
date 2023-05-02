@@ -66,8 +66,6 @@ mod context;
 mod tests;
 
 use std::borrow::Cow;
-use std::mem::MaybeUninit;
-use std::ptr;
 
 use bitflags::bitflags;
 use context::{Backrefs, Context};
@@ -131,6 +129,9 @@ trait Parse: Sized {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
+struct TypeRef(u32);
+
+#[derive(Default, Debug, Clone, PartialEq)]
 enum Type {
     #[default]
     Unit,
@@ -188,7 +189,7 @@ enum Type {
     /// ```text
     /// int[20][10][5][..]
     /// ```
-    Array(Array),
+    Array(Arrays),
 
     /// ```text
     /// template-parameter-<idx>
@@ -283,7 +284,7 @@ impl Parse for Type {
                 }
 
                 if ctx.eat_slice(b"BY") {
-                    return Array::parse(ctx, backrefs).map(Type::Array);
+                    return Arrays::parse(ctx, backrefs).map(Type::Array);
                 }
 
                 if ctx.eat_slice(b"A6") {
@@ -369,7 +370,7 @@ impl Parse for Type {
                 Modifiers::CONST | Modifiers::VOLATILE,
                 Box::new(Pointee::parse(ctx, backrefs)?.0),
             ),
-            b'Y' => Type::Array(Array::parse(ctx, backrefs)?),
+            b'Y' => Type::Array(Arrays::parse(ctx, backrefs)?),
             b'X' => Type::Void(modi),
             b'D' => Type::Char(modi),
             b'C' => Type::IChar(modi),
@@ -652,7 +653,7 @@ impl<'a> PositionalDemangle<'a> for Type {
             }
             Type::Encoded(_) => {}
             Type::Array(array) => {
-                array.tipe().demangle_pre(ctx, backrefs);
+                array.tipe.demangle_pre(ctx, backrefs);
             }
             Type::VFTable(quali, _) => {
                 quali.demangle(ctx, backrefs);
@@ -711,11 +712,13 @@ impl<'a> PositionalDemangle<'a> for Type {
             }
             Type::Variable(Variable { tipe, .. }) => tipe.demangle_post(ctx, backrefs),
             Type::Array(array) => {
-                let len = Cow::Owned(array.len.to_string());
-                ctx.stream.push("[", Colors::brackets());
-                ctx.stream.push_cow(len, Colors::annotation());
-                ctx.stream.push("]", Colors::brackets());
-                array.tipe().demangle_post(ctx, backrefs);
+                for len in array.lens.iter() {
+                    let len = Cow::Owned(len.to_string());
+
+                    ctx.stream.push("[", Colors::brackets());
+                    ctx.stream.push_cow(len, Colors::annotation());
+                    ctx.stream.push("]", Colors::brackets());
+                }
             }
             Type::VBTable(_, scope) | Type::VFTable(_, scope) => match scope {
                 Some(scope) if !scope.0.is_empty() => {
@@ -998,83 +1001,33 @@ impl Parse for MemberFunctionPtr {
 /// <array> = <pointee-cvr-qualifier> <number>{dimensions} <type>
 /// <dimensions> = <number>
 /// ```
-#[derive(Debug)]
-struct Array {
+#[derive(Debug, Clone, PartialEq)]
+struct Arrays {
     modifiers: Modifiers,
-    tipe: MaybeUninit<Box<Type>>,
-    len: isize,
+    tipe: Box<Type>,
+    lens: Vec<usize>,
 }
 
-impl Parse for Array {
+impl Parse for Arrays {
     fn parse(ctx: &mut Context, backrefs: &mut Backrefs) -> Option<Self> {
         let dimensions = ctx.number()?;
-        let mut root = Array {
-            modifiers: ctx.pop_modifiers(),
-            tipe: MaybeUninit::uninit(),
-            len: 0,
-        };
-
-        let mut node = &mut root;
-
         if dimensions < 0 {
             return None;
         }
 
-        for _ in 0..dimensions - 1 {
-            // construct array
-            node.tipe = MaybeUninit::new(Box::new(Type::Array(Array {
-                modifiers: PointeeQualifiers::parse(ctx, backrefs)?.0,
-                tipe: MaybeUninit::uninit(),
-                len: ctx.number()?,
-            })));
-
-            // get reference to array within the boxed type
-            match **unsafe { node.tipe.assume_init_mut() } {
-                Type::Array(ref mut arr) => node = arr,
-                // SAFETY: this can only be an array as we just declared `current` to be an array
-                _ => unsafe { std::hint::unreachable_unchecked() },
-            };
+        let modifiers = ctx.pop_modifiers();
+        let mut lens = Vec::with_capacity(1);
+        for _ in 0..dimensions {
+            let len = ctx.number()?;
+            lens.push(len as usize);
         }
 
-        if ctx.eat_slice(b"$$C") {
-            root.modifiers = match ctx.take()? {
-                b'A' => Modifiers::empty(),
-                b'B' => Modifiers::CONST,
-                b'C' | b'D' => Modifiers::CONST | Modifiers::VOLATILE,
-                _ => return None,
-            };
-        }
-
-        root.len = ctx.number()?;
-        root.tipe = Type::parse(ctx, backrefs)
-            .map(Box::new)
-            .map(MaybeUninit::new)?;
-
-        Some(root)
-    }
-}
-
-impl Array {
-    fn tipe(&self) -> &Type {
-        unsafe { self.tipe.assume_init_ref() }
-    }
-}
-
-impl PartialEq for Array {
-    fn eq(&self, other: &Self) -> bool {
-        self.modifiers == other.modifiers
-            && unsafe { ptr::eq(self.tipe.assume_init_ref(), other.tipe.assume_init_ref()) }
-            && self.len == other.len
-    }
-}
-
-impl Clone for Array {
-    fn clone(&self) -> Self {
-        Self {
-            modifiers: self.modifiers,
-            tipe: MaybeUninit::new(unsafe { self.tipe.assume_init_ref() }.clone()),
-            len: self.len,
-        }
+        let tipe = Type::parse(ctx, backrefs)?;
+        Some(Arrays {
+            modifiers,
+            tipe: Box::new(tipe),
+            lens
+        })
     }
 }
 
@@ -2265,9 +2218,7 @@ impl Parse for NestedPath {
 impl<'a> Demangle<'a> for NestedPath {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
-            NestedPath::Literal(ident) => {
-                ctx.push_literal(ident, Colors::item());
-            }
+            NestedPath::Literal(ident) => ctx.push_literal(ident, Colors::item()),
             NestedPath::Interface(ident) => {
                 ctx.stream.push("[", Colors::brackets());
                 ident.demangle(ctx, backrefs);

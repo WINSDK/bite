@@ -3875,15 +3875,16 @@ fn special_template_parameters_questionnumber() {
 //     eq!("??_7name0@@6B@" => "const name0::`vftable'");
 // }
 //
-// #[test]
-// fn orig_test_an() {
-//     eq!("?name0@@3PAY0IA@EA" => "unsigned char (* name0)[128]");
-// }
-//
-// #[test]
-// fn orig_test_ao() {
-//     eq!("?name0@@3PAY11BAA@Uname1@@A" => "struct name1 (* name0)[2][256]");
-// }
+
+#[test]
+fn orig_test_an() {
+    eq!("?name0@@3PAY0IA@EA" => "unsigned char ( * name0)[128]");
+}
+
+#[test]
+fn orig_test_ao() {
+    eq!("?name0@@3PAY11BAA@Uname1@@A" => "struct name1 ( * name0)[2][256]");
+}
 //
 // #[test]
 // fn orig_test_ap() {
