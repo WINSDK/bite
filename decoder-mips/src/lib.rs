@@ -5,7 +5,7 @@ mod tests;
 use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Error {
     /// Register in instruction is impossible/unknown.
     UnknownRegister,
@@ -89,7 +89,7 @@ struct TableInstruction {
     format: &'static [usize],
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Instruction {
     mnemomic: &'static str,
     operands: [std::borrow::Cow<'static, str>; 3],

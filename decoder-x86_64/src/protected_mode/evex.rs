@@ -8747,9 +8747,9 @@ pub(crate) fn read_evex_operands(
                 }
             } else if instruction.prefixes.evex_unchecked().broadcast() {
                 apply_broadcast(instruction, 4, sz);
-                } else {
-                    instruction.mem_size = sz;
-                }
+            } else {
+                instruction.mem_size = sz;
+            }
 
             let modrm = read_modrm(words)?;
             set_rrr(instruction, modrm);
@@ -8797,9 +8797,9 @@ pub(crate) fn read_evex_operands(
                 };
             } else if instruction.prefixes.evex_unchecked().broadcast() {
                 apply_broadcast(instruction, 4, sz);
-                } else {
-                    instruction.mem_size = sz;
-                }
+            } else {
+                instruction.mem_size = sz;
+            }
 
             let modrm = read_modrm(words)?;
             set_rrr(instruction, modrm);
@@ -9449,7 +9449,9 @@ pub(crate) fn read_evex_operands(
                 }
             }
 
-            if instruction.prefixes.evex_unchecked().vex().w() && instruction.opcode == Opcode::VCVTDQ2PS {
+            if instruction.prefixes.evex_unchecked().vex().w()
+                && instruction.opcode == Opcode::VCVTDQ2PS
+            {
                 instruction.opcode = Opcode::VCVTQQ2PS;
             }
         }
@@ -9465,7 +9467,9 @@ pub(crate) fn read_evex_operands(
             instruction.operand_count = 2;
             instruction.mem_size = 0;
 
-            if instruction.prefixes.evex_unchecked().vex().w() && instruction.opcode == Opcode::VCVTTPS2UDQ {
+            if instruction.prefixes.evex_unchecked().vex().w()
+                && instruction.opcode == Opcode::VCVTTPS2UDQ
+            {
                 instruction.opcode = Opcode::VCVTTPD2UDQ;
             }
 
@@ -9517,7 +9521,9 @@ pub(crate) fn read_evex_operands(
                 apply_broadcast(instruction, 8, m_sz);
             }
 
-            if instruction.prefixes.evex_unchecked().vex().w() && instruction.opcode == Opcode::VCVTDQ2PS {
+            if instruction.prefixes.evex_unchecked().vex().w()
+                && instruction.opcode == Opcode::VCVTDQ2PS
+            {
                 instruction.opcode = Opcode::VCVTQQ2PS;
             }
         }

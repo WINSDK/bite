@@ -32,7 +32,7 @@ pub trait Decodable {
 }
 
 pub struct TokenStream {
-    inner: [Token; 25],
+    inner: [Token<'static>; 25],
     token_count: usize,
 }
 
@@ -74,7 +74,7 @@ impl TokenStream {
 }
 
 impl std::ops::Deref for TokenStream {
-    type Target = [Token];
+    type Target = [Token<'static>];
 
     fn deref(&self) -> &Self::Target {
         &self.inner[..self.token_count]
@@ -311,7 +311,10 @@ mod tests {
     fn encode_hex_bytes() {
         assert_eq!(super::encode_hex_bytes(&[0x10, 0x12, 0x3]), "10 12 03 ");
         assert_eq!(super::encode_hex_bytes(&[0x10]), "10 ");
-        assert_eq!(super::encode_hex_bytes(&[0xff, 0x1, 0x1, 0x1]), "ff 01 01 01 ");
+        assert_eq!(
+            super::encode_hex_bytes(&[0xff, 0x1, 0x1, 0x1]),
+            "ff 01 01 01 "
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ fn test_display(bytes: &[u8], str: &str) {
             inst.tokenize(&mut line);
             line.to_string()
         }
-        Err(err) => format!("{err:?}")
+        Err(err) => format!("{err:?}"),
     };
 
     assert_eq!(decoded, str);

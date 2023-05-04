@@ -123,8 +123,8 @@ impl Index {
         self.tree.clear();
     }
 
-    pub fn get_by_addr(&self, addr: usize) -> Option<Arc<TokenStream>> {
-        self.tree.get(&addr).cloned()
+    pub fn get_by_addr(&self, addr: usize) -> Option<&TokenStream> {
+        self.tree.get(&addr).map(Arc::as_ref)
     }
 }
 

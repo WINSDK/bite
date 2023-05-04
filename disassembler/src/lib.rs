@@ -5,7 +5,8 @@ use std::collections::VecDeque;
 
 use decoder::Decoded;
 
-pub use decoder::{Complete, Decodable, ToTokens, TokenStream, encode_hex_bytes_truncated};
+use decoder::{encode_hex_bytes_truncated, Complete, Decodable};
+pub use decoder::{ToTokens, TokenStream};
 
 pub mod x86 {
     pub use x86_64::protected_mode::Decoder;
@@ -27,39 +28,88 @@ pub mod mips {
 /// It currently has the limitation of only being able to inspect the section
 /// where a given binaries entrypoint is.
 #[derive(Debug)]
-pub struct Processor<'data, D: Decodable> {
-    section: &'data [u8],
+pub struct Processor<D: Decodable> {
+    pub section: Vec<u8>,
+    pub entrypoint: usize,
     pub base_addr: usize,
-    entrypoint: usize,
-    addresses: VecDeque<usize>,
     pub decoder: D,
     pub instructions: BTreeMap<usize, Result<D::Instruction, D::Error>>,
 }
 
-impl<'data, D: Decodable> Processor<'data, D> {
-    pub fn new(section: &'data [u8], base_addr: usize, entrypoint: usize, decoder: D) -> Self {
+pub trait InspectProcessor {
+    fn iter(&self) -> Box<dyn Iterator<Item = (usize, &dyn InspectInstruction)> + '_>;
+    fn base_addr(&self) -> usize;
+    fn section(&self) -> &[u8];
+    fn max_width(&self) -> usize;
+}
+
+pub trait InspectInstruction {
+    fn tokens(&self) -> TokenStream;
+    fn bytes(&self, proc: &dyn InspectProcessor, addr: usize) -> String;
+}
+
+impl<D: Decoded + ToTokens> InspectInstruction for D {
+    fn tokens(&self) -> TokenStream {
+        let mut stream = TokenStream::new();
+        self.tokenize(&mut stream);
+        stream
+    }
+
+    fn bytes(&self, proc: &dyn InspectProcessor, addr: usize) -> String {
+        let rva = addr - proc.base_addr();
+        encode_hex_bytes_truncated(
+            &proc.section()[rva..][..self.width()],
+            proc.max_width() * 3 + 1,
+        )
+    }
+}
+
+impl<D: Decodable> InspectProcessor for Processor<D> {
+    fn iter(&self) -> Box<dyn Iterator<Item = (usize, &dyn InspectInstruction)> + '_> {
+        Box::new(
+            self.instructions
+                .iter()
+                .map(|(addr, inst)| (*addr, inst.as_ref().unwrap() as &dyn InspectInstruction)),
+        )
+    }
+
+    fn base_addr(&self) -> usize {
+        self.base_addr
+    }
+
+    fn section(&self) -> &[u8] {
+        &self.section[..]
+    }
+
+    fn max_width(&self) -> usize {
+        self.decoder.max_width()
+    }
+}
+
+impl<D: Decodable> Processor<D> {
+    pub fn new(section: Vec<u8>, base_addr: usize, entrypoint: usize, decoder: D) -> Self {
         Self {
             section,
-            base_addr,
             entrypoint,
-            addresses: VecDeque::with_capacity(1024),
+            base_addr,
             decoder,
             instructions: BTreeMap::new(),
         }
     }
 
     pub fn recurse(&mut self) {
-        self.addresses.push_back(self.entrypoint);
+        let mut addresses = VecDeque::with_capacity(1024);
+        addresses.push_back(self.entrypoint);
 
         match self.entrypoint.checked_sub(self.base_addr) {
-            Some(entrypoint) => self.addresses.push_back(entrypoint),
+            Some(entrypoint) => addresses.push_back(entrypoint),
             None => {
                 eprintln!("failed to calculate entrypoint, defaulting to 0x1000");
-                self.addresses.push_back(self.base_addr + 0x1000);
+                addresses.push_back(self.base_addr + 0x1000);
             }
         }
 
-        while let Some(addr) = self.addresses.pop_front() {
+        while let Some(addr) = addresses.pop_front() {
             // don't visit addresses that are already decoded
             if self.instructions.contains_key(&addr) {
                 continue;
@@ -83,23 +133,12 @@ impl<'data, D: Decodable> Processor<'data, D> {
             };
 
             self.instructions.insert(addr, instruction);
-            self.addresses.push_back(addr + width);
+            addresses.push_back(addr + width);
         }
     }
 
-    fn bytes_by_addr(&self, addr: usize) -> Option<&'data [u8]> {
+    fn bytes_by_addr<'a>(&'a self, addr: usize) -> Option<&'a [u8]> {
         addr.checked_sub(self.base_addr)
             .and_then(|addr| self.section.get(addr..))
-    }
-
-    pub fn get_instruction_bytes(
-        &self,
-        rva: usize,
-        instruction: &Result<D::Instruction, D::Error>,
-    ) -> &'data [u8] {
-        match instruction {
-            Ok(instruction) => &self.section[rva..][..instruction.width()],
-            Err(err) => &self.section[rva..][..err.incomplete_width()],
-        }
     }
 }

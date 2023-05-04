@@ -179,11 +179,6 @@ pub async fn main() -> Result<(), Error> {
                     };
 
                     ctx.listing_offset = f32::max(0.0, ctx.listing_offset + delta);
-                    if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
-                        ctx.listing_offset = ctx
-                            .listing_offset
-                            .min(dissasembly.len() as f32 * ctx.font_size);
-                    }
                 }
                 WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                     ctx.scale_factor = scale_factor as f32;

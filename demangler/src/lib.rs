@@ -13,7 +13,7 @@ pub struct TokenStream {
     inner: std::pin::Pin<String>,
 
     /// Internal token representation which is unsafe to access outside of calling [Self::tokens].
-    tokens: Vec<Token>,
+    tokens: Vec<Token<'static>>,
 }
 
 impl TokenStream {
@@ -63,7 +63,7 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn tokens<'src>(&'src self) -> &'src [Token] {
+    pub fn tokens(&self) -> &[Token] {
         self.tokens.as_slice()
     }
 }

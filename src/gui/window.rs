@@ -1,13 +1,14 @@
-use crate::disassembly::LineKind;
 use crate::gui::quad;
 use crate::gui::texture::Texture;
 use crate::gui::uniforms;
 use crate::gui::Error;
+use crate::gui::RenderContext;
 use tokenizing::colors;
 
 use std::mem::size_of;
 use std::sync::atomic::Ordering;
 
+use tokenizing::Token;
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
@@ -234,7 +235,7 @@ impl Backend {
         })
     }
 
-    pub fn redraw(&mut self, ctx: &mut super::RenderContext) -> Result<(), Error> {
+    pub fn redraw(&mut self, ctx: &mut RenderContext) -> Result<(), Error> {
         let frame = self
             .surface
             .get_current_texture()
@@ -317,54 +318,53 @@ impl Backend {
             )
             .map_err(Error::DrawText)?;
 
-        if let Some(ref mut dissasembly) = ctx.dissasembly.lines() {
-            ctx.show_donut.store(false, Ordering::Relaxed);
+        let lines_scrolled = (ctx.listing_offset / ctx.font_size) as usize;
 
-            let line_count = (self.size.height as f32 / font_size).ceil() as usize;
-            let mut texts = Vec::with_capacity(line_count * 10);
+        if let Some(proc) = &*ctx.dissasembly.proc.lock().unwrap() {
+            let mut text: Vec<Token> = Vec::new();
+            let symbols = ctx.dissasembly.symbols.lock().unwrap();
+            let lines = proc
+                .iter()
+                .skip(lines_scrolled)
+                .take((self.size.height as f32 / font_size).ceil() as usize);
 
-            let line_offset_start = std::cmp::min(
-                (ctx.listing_offset / ctx.font_size) as usize,
-                dissasembly.len(),
-            );
+            // for each instruction
+            for (addr, inst) in lines {
+                ctx.show_donut.store(false, Ordering::Relaxed);
 
-            let line_offset_end = std::cmp::min(line_offset_start + line_count, dissasembly.len());
-
-            for line in &mut dissasembly[line_offset_start..line_offset_end] {
-                match line {
-                    LineKind::Newline => {
-                        texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size))
+                // if the address matches a symbol, print it
+                if let Some(label) = symbols.get_by_addr(addr) {
+                    text.push(Token::from_str("\n<", &colors::BLUE));
+                    for token in label.tokens() {
+                        text.push(token.as_ref());
                     }
-                    LineKind::Label(label) => {
-                        texts.push(
-                            wgpu_glyph::Text::new("<")
-                                .with_scale(font_size)
-                                .with_color(colors::BLUE),
-                        );
-                        for token in label.tokens() {
-                            texts.push(token.text(font_size));
-                        }
-                        texts.push(
-                            wgpu_glyph::Text::new(">:\n")
-                                .with_scale(font_size)
-                                .with_color(colors::BLUE),
-                        );
-                    }
-                    LineKind::Instruction(line) => {
-                        for token in line.iter() {
-                            texts.push(token.text(font_size));
-                        }
 
-                        // next instruction
-                        texts.push(wgpu_glyph::Text::new("\n").with_scale(font_size));
-                    }
+                    text.push(Token::from_str(">:\n", &colors::BLUE));
                 }
+
+                // memory address
+                text.push(Token::from_string(
+                    format!("0x{addr:0>10X}  "),
+                    &colors::GRAY40,
+                ));
+
+                // instruction's bytes
+                text.push(Token::from_string(
+                    inst.bytes(proc.as_ref(), addr),
+                    &colors::GREEN,
+                ));
+
+                for token in inst.tokens().iter() {
+                    text.push(token.clone());
+                }
+
+                text.push(Token::from_str("\n", &colors::WHITE));
             }
 
             // queue assembly listing text
             self.glyph_brush.queue(wgpu_glyph::Section {
                 screen_position: (ctx.scale_factor * 5.0, font_size * 1.5),
-                text: texts,
+                text: text.iter().map(|t| t.text(font_size)).collect(),
                 ..wgpu_glyph::Section::default()
             });
 
@@ -376,18 +376,22 @@ impl Backend {
                 glam::vec4(-1.0, 1.0, 0.0, 1.0),
             );
 
-            // TODO: translation of subpixels between lines
-            // proj *= glam::mat4(
-            //     glam::Vec4::X,
-            //     glam::Vec4::Y,
-            //     glam::Vec4::Z,
-            //     glam::Vec4::new(0.0, -ctx.listing_offset as f32 % font_size, 0.0, 1.0),
-            // );
+            // draw assembly listing
+            self.glyph_brush
+                .draw_queued_with_transform(
+                    &self.device,
+                    &mut self.staging_belt,
+                    &mut encoder,
+                    &view,
+                    proj.to_cols_array(),
+                )
+                .map_err(Error::DrawText)?;
 
-            let bar_height = (self.size.height * self.size.height) as f32
-                / (dissasembly.len() as f32 * font_size);
+            let len = proc.iter().size_hint().0;
+            let bar_height =
+                (self.size.height * self.size.height) as f32 / (len as f32 * font_size);
             let bar_height = bar_height.max(font_size);
-            let offset = ctx.listing_offset / (dissasembly.len() as f32 * font_size);
+            let offset = ctx.listing_offset / (len as f32 * font_size);
             let screen_offset = offset * (self.size.height as f32 - bar_height);
 
             let instances = [
@@ -411,17 +415,6 @@ impl Backend {
                 &mut self.staging_belt,
                 self.size,
             );
-
-            // draw assembly listing
-            self.glyph_brush
-                .draw_queued_with_transform(
-                    &self.device,
-                    &mut self.staging_belt,
-                    &mut encoder,
-                    &view,
-                    proj.to_cols_array(),
-                )
-                .map_err(Error::DrawText)?;
         }
 
         // submit work

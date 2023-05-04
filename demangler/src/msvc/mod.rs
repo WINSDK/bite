@@ -1026,7 +1026,7 @@ impl Parse for Arrays {
         Some(Arrays {
             modifiers,
             tipe: Box::new(tipe),
-            lens
+            lens,
         })
     }
 }

@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Error {
     /// Register in instruction is impossible/unknown.
     UnknownRegister,
@@ -737,7 +737,7 @@ impl Operand {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Instruction {
     opcode: Opcode,
     operands: [Operand; 3],
@@ -1539,13 +1539,6 @@ static MAPPING: Lazy<[fn(&mut Instruction); 284]> = Lazy::new(|| unsafe {
     };
 
     MAPPING[Opcode::SLLI as usize] = |inst| {
-        if inst.operands[0] == inst.operands[1] {
-            inst.operands.swap(1, 2);
-            inst.operand_count = 2;
-        }
-    };
-
-    MAPPING[Opcode::C_SLLI64 as usize] = |inst| {
         if inst.operands[0] == inst.operands[1] {
             inst.operands.swap(1, 2);
             inst.operand_count = 2;

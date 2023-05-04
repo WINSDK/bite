@@ -1,4 +1,5 @@
 //! Colors used for rendering text in the GUI.
+use std::borrow::Cow;
 
 /// Currently used global colorscheme
 pub type Colors = IBM;
@@ -142,12 +143,33 @@ impl From<Color> for [f32; 4] {
 }
 
 #[derive(Debug, Clone)]
-pub struct Token {
-    pub text: std::borrow::Cow<'static, str>,
+pub struct Token<'txt> {
+    pub text: Cow<'txt, str>,
     pub color: &'static Color,
 }
 
-impl Token {
+impl<'txt> Token<'txt> {
+    pub fn from_string(text: String, color: &'static Color) -> Self {
+        Self {
+            text: Cow::Owned(text),
+            color,
+        }
+    }
+
+    pub fn from_str(text: &'static str, color: &'static Color) -> Self {
+        Self {
+            text: Cow::Borrowed(text),
+            color,
+        }
+    }
+
+    pub fn as_ref(&'txt self) -> Token<'txt> {
+        Self {
+            text: Cow::Borrowed(self.text.as_ref()),
+            color: self.color,
+        }
+    }
+
     pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
         wgpu_glyph::Text::new(&self.text)
             .with_color(*self.color)
