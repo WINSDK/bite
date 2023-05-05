@@ -11,12 +11,6 @@ pub struct Index {
 }
 
 impl Index {
-    pub fn new() -> Self {
-        Self {
-            tree: BTreeMap::new(),
-        }
-    }
-
     fn pdb_file(obj: &object::File<'_>) -> Option<std::fs::File> {
         let pdb = obj.pdb_info().ok()??;
         let path = std::str::from_utf8(pdb.path()).ok()?;
@@ -117,10 +111,6 @@ impl Index {
 
     pub fn is_empty(&self) -> bool {
         self.tree.is_empty()
-    }
-
-    pub fn clear(&mut self) {
-        self.tree.clear();
     }
 
     pub fn get_by_addr(&self, addr: usize) -> Option<&TokenStream> {

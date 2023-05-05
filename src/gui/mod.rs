@@ -11,13 +11,14 @@ use winit::event::{
     ElementState, Event, KeyboardInput, ModifiersState, MouseScrollDelta, VirtualKeyCode,
     WindowEvent,
 };
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
 use once_cell::sync::OnceCell;
 
 use crate::disassembly::Disassembly;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub enum Error {
@@ -58,13 +59,10 @@ pub enum Error {
     CompilationFailed,
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{self:#?}"))
-    }
+#[derive(Debug)]
+enum CustomEvent {
+    ScaleFactorChanged(f64),
 }
-
-impl std::error::Error for Error {}
 
 pub struct RenderContext {
     fps: usize,
@@ -72,11 +70,22 @@ pub struct RenderContext {
     show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
     timer10: utils::Timer,
-    dissasembly: Arc<Disassembly>,
+    dissasembly: Option<Disassembly>,
+    disassembling_thread: Option<DisassemblingThrd>,
     listing_offset: f32,
     scale_factor: f32,
     font_size: f32,
+    window: Arc<winit::window::Window>,
 }
+
+struct EventContext {
+    frame_time: Instant,
+    keyboard: controls::KeyMap,
+    backend: window::Backend,
+}
+
+type DisassemblingThrd =
+    tokio::task::JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
 
 pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
 pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
@@ -84,7 +93,7 @@ pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
 
 pub async fn main() -> Result<(), Error> {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<CustomEvent>::with_user_event().build();
 
     let window = {
         #[cfg(target_os = "linux")]
@@ -102,188 +111,239 @@ pub async fn main() -> Result<(), Error> {
 
     WINDOW.set(Arc::clone(&window)).unwrap();
 
-    let mut backend = window::Backend::new(&window).await?;
-    let mut ctx = RenderContext {
+    let mut rctx = RenderContext {
         fps: 0,
         donut: donut::Donut::new(true),
         show_donut: Arc::new(AtomicBool::new(false)),
         timer60: utils::Timer::new(60),
         timer10: utils::Timer::new(10),
-        dissasembly: Arc::new(crate::disassembly::Disassembly::new()),
+        dissasembly: None,
+        disassembling_thread: None,
         listing_offset: 0.0,
         scale_factor: window.scale_factor() as f32,
         font_size: 20.0,
+        window: Arc::clone(&window),
+    };
+
+    let mut ectx = EventContext {
+        frame_time: Instant::now(),
+        keyboard: controls::KeyMap::new(),
+        backend: window::Backend::new(&window).await?,
     };
 
     if let Some(ref path) = crate::ARGS.path {
-        let dissasembly = Arc::clone(&ctx.dissasembly);
-        let show_donut = Arc::clone(&ctx.show_donut);
+        let show_donut = Arc::clone(&rctx.show_donut);
 
-        tokio::spawn(async move {
-            dissasembly.load(path, show_donut).await;
-        });
+        rctx.disassembling_thread = Some(tokio::spawn(Disassembly::new(path, show_donut)));
     }
 
-    let mut frame_time = std::time::Instant::now();
-    let mut keyboard = controls::KeyMap::new();
+    // async thread handling events
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            let event = rx.recv().await.unwrap();
+            handle_event(&mut rctx, &mut ectx, event).await;
+        }
+    });
 
+    event_loop.run(move |event, _, control| match event {
+        Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } => *control = ControlFlow::Exit,
+        Event::WindowEvent {
+            event: WindowEvent::ScaleFactorChanged { scale_factor, .. },
+            ..
+        } => tx
+            .send(winit::event::Event::UserEvent(
+                CustomEvent::ScaleFactorChanged(scale_factor),
+            ))
+            .unwrap(),
+        _ => {
+            // the only non-static event is a `ScaleFactorChanged`, therefore `CustomEvent` exists
+            // For that reason it's also ok to unwrap this
+            tx.send(event.to_static().unwrap()).unwrap();
+        }
+    })
+}
+
+async fn handle_event(
+    rctx: &mut RenderContext,
+    ectx: &mut EventContext,
+    event: winit::event::Event<'_, CustomEvent>,
+) {
     #[cfg(target_family = "windows")]
     let mut unwindowed_size = window.outer_size();
     #[cfg(target_family = "windows")]
     let mut unwindowed_pos = window.outer_position().unwrap_or_default();
 
-    event_loop.run(move |event, _, control| {
-        if ctx.timer10.reached() {
-            ctx.fps = (1_000_000_000 / frame_time.elapsed().as_nanos()) as usize;
-            ctx.timer10.reset();
+    match event {
+        Event::UserEvent(CustomEvent::ScaleFactorChanged(scale_factor)) => {
+            rctx.scale_factor = scale_factor as f32;
         }
-
-        if ctx.show_donut.load(Ordering::Relaxed) && ctx.timer60.reached() {
-            ctx.donut.update_frame();
-            ctx.timer60.reset();
-        }
-
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control = ControlFlow::Exit,
-                WindowEvent::ModifiersChanged(modi) => keyboard.press_modifiers(modi),
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            virtual_keycode: Some(keycode),
-                            state,
-                            ..
-                        },
-                    ..
-                } => match state {
-                    ElementState::Pressed => keyboard.press(keycode),
-                    ElementState::Released => keyboard.release(keycode),
-                },
-                WindowEvent::Resized(size) => backend.resize(size),
-                WindowEvent::DroppedFile(path) => {
-                    let dissasembly = Arc::clone(&ctx.dissasembly);
-                    let show_donut = Arc::clone(&ctx.show_donut);
-
-                    tokio::spawn(async move {
-                        dissasembly.clear();
-                        dissasembly.load(path, show_donut).await;
-                    });
-                }
-                WindowEvent::MouseWheel { delta, .. } => {
-                    let delta = -match delta {
-                        // I'm assuming a line is about 100 pixels
-                        MouseScrollDelta::LineDelta(_, scroll) => scroll * 100.0,
-                        MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => {
-                            scroll as f32
-                        }
-                    };
-
-                    ctx.listing_offset = f32::max(0.0, ctx.listing_offset + delta);
-                }
-                WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                    ctx.scale_factor = scale_factor as f32;
-                }
-                _ => {}
+        Event::WindowEvent { event, .. } => match event {
+            WindowEvent::ModifiersChanged(modi) => ectx.keyboard.press_modifiers(modi),
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        virtual_keycode: Some(keycode),
+                        state,
+                        ..
+                    },
+                ..
+            } => match state {
+                ElementState::Pressed => ectx.keyboard.press(keycode),
+                ElementState::Released => ectx.keyboard.release(keycode),
             },
-            Event::RedrawRequested(_) => {
-                frame_time = std::time::Instant::now();
+            WindowEvent::Resized(size) => ectx.backend.resize(size),
+            WindowEvent::DroppedFile(path) => {
+                let show_donut = Arc::clone(&rctx.show_donut);
 
-                if let Err(e) = backend.redraw(&mut ctx) {
-                    eprintln!("Failed to redraw frame, due to {e:?}");
+                rctx.disassembling_thread = Some(tokio::spawn(Disassembly::new(path, show_donut)));
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let delta = -match delta {
+                    // I'm assuming a line is about 100 pixels
+                    MouseScrollDelta::LineDelta(_, scroll) => scroll * 100.0,
+                    MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => {
+                        scroll as f32
+                    }
+                };
+
+                rctx.listing_offset = f32::max(0.0, rctx.listing_offset + delta);
+            }
+            _ => {}
+        },
+        Event::RedrawRequested(_) => {
+            ectx.frame_time = std::time::Instant::now();
+
+            if let Err(e) = ectx.backend.redraw(rctx) {
+                eprintln!("Failed to redraw frame, due to {e:?}");
+            }
+        }
+        Event::MainEventsCleared => {
+            if rctx.timer10.reached() {
+                rctx.fps = (1_000_000_000 / ectx.frame_time.elapsed().as_nanos()) as usize;
+                rctx.timer10.reset();
+            }
+
+            if rctx.show_donut.load(Ordering::Relaxed) && rctx.timer60.reached() {
+                rctx.donut.update_frame();
+                rctx.timer60.reset();
+            }
+
+            if let Some(ref thread) = rctx.disassembling_thread {
+                if thread.is_finished() {
+                    let thread = rctx.disassembling_thread.take().unwrap();
+                    rctx.dissasembly = Some(thread.await.unwrap().unwrap());
                 }
             }
-            Event::MainEventsCleared => {
-                if keyboard.pressed(VirtualKeyCode::O, ModifiersState::CTRL) {
-                    // create dialog popup and get references to the donut and dissasembly
-                    let dialog = rfd::FileDialog::new().set_parent(&*window).pick_file();
-                    let show_donut = Arc::clone(&ctx.show_donut);
-                    let dissasembly = Arc::clone(&ctx.dissasembly);
 
-                    tokio::spawn(async move {
-                        if let Some(file) = dialog {
-                            dissasembly.clear();
-                            dissasembly.load(file, show_donut).await;
-                        }
-                    });
+            if ectx
+                .keyboard
+                .pressed(VirtualKeyCode::O, ModifiersState::CTRL)
+            {
+                // create dialog popup and get references to the donut and dissasembly
+                let dialog = rfd::FileDialog::new().set_parent(&*rctx.window).pick_file();
+                let show_donut = Arc::clone(&rctx.show_donut);
+
+                // cancel disassembling if a file is already loaded.
+                if let Some(thread) = &rctx.disassembling_thread {
+                    thread.abort();
+                    rctx.disassembling_thread = None;
                 }
 
-                if keyboard.pressed(VirtualKeyCode::F, ModifiersState::CTRL) {
-                    let Some(monitor) = window.current_monitor() else {
-                        return;
+                if let Some(path) = dialog {
+                    rctx.disassembling_thread =
+                        Some(tokio::spawn(Disassembly::new(path, show_donut)));
+                }
+            }
+
+            if ectx
+                .keyboard
+                .pressed(VirtualKeyCode::F, ModifiersState::CTRL)
+            {
+                let Some(monitor) = rctx.window.current_monitor() else {
+                    return;
+                };
+
+                #[cfg(target_family = "windows")]
+                unsafe {
+                    use utils::windows::*;
+                    use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
+
+                    let mut info = MonitorInfo {
+                        size: std::mem::size_of::<MonitorInfo>() as u32,
+                        monitor_area: Rect::default(),
+                        work_area: Rect::default(),
+                        flags: 0,
                     };
 
-                    #[cfg(target_family = "windows")]
-                    unsafe {
-                        use utils::windows::*;
-                        use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
-
-                        let mut info = MonitorInfo {
-                            size: std::mem::size_of::<MonitorInfo>() as u32,
-                            monitor_area: Rect::default(),
-                            work_area: Rect::default(),
-                            flags: 0,
-                        };
-
-                        if GetMonitorInfoW(monitor.hmonitor(), &mut info) == 0 {
-                            return;
-                        }
-
-                        let PhysicalSize { width, height } = window.outer_size();
-                        let work_area_width = info.work_area.right - info.work_area.left;
-                        let work_area_height = info.work_area.bottom - info.work_area.top;
-
-                        // check if the window is fullscreen borderless
-                        if width == work_area_width && height == work_area_height {
-                            let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
-
-                            SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
-                            SetWindowPos(
-                                window.hwnd(),
-                                HWND_TOP,
-                                unwindowed_pos.x as u32,
-                                unwindowed_pos.y as u32,
-                                unwindowed_size.width,
-                                unwindowed_size.height,
-                                SWP_NOZORDER,
-                            );
-                        } else {
-                            let attr = WS_VISIBLE | WS_OVERLAPPED;
-
-                            unwindowed_size = window.outer_size();
-                            unwindowed_pos = window.outer_position().unwrap_or_default();
-
-                            SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
-                            SetWindowPos(
-                                window.hwnd(),
-                                HWND_TOP,
-                                info.work_area.left,
-                                info.work_area.top,
-                                work_area_width,
-                                work_area_height,
-                                SWP_NOZORDER,
-                            );
-                        }
+                    if GetMonitorInfoW(monitor.hmonitor(), &mut info) == 0 {
+                        return;
                     }
 
-                    #[cfg(target_family = "unix")]
-                    window.set_fullscreen(match window.fullscreen() {
-                        Some(..) => None,
-                        None => Some(winit::window::Fullscreen::Borderless(Some(monitor))),
-                    });
+                    let PhysicalSize { width, height } = window.outer_size();
+                    let work_area_width = info.work_area.right - info.work_area.left;
+                    let work_area_height = info.work_area.bottom - info.work_area.top;
+
+                    // check if the window is fullscreen borderless
+                    if width == work_area_width && height == work_area_height {
+                        let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
+
+                        SetWindowLongPtrW(rctx.window.hwnd(), GWL_STYLE, attr);
+                        SetWindowPos(
+                            rctx.window.hwnd(),
+                            HWND_TOP,
+                            unwindowed_pos.x as u32,
+                            unwindowed_pos.y as u32,
+                            unwindowed_size.width,
+                            unwindowed_size.height,
+                            SWP_NOZORDER,
+                        );
+                    } else {
+                        let attr = WS_VISIBLE | WS_OVERLAPPED;
+
+                        unwindowed_size = rctx.window.outer_size();
+                        unwindowed_pos = rctx.window.outer_position().unwrap_or_default();
+
+                        SetWindowLongPtrW(rctx.window.hwnd(), GWL_STYLE, attr);
+                        SetWindowPos(
+                            rctx.window.hwnd(),
+                            HWND_TOP,
+                            info.work_area.left,
+                            info.work_area.top,
+                            work_area_width,
+                            work_area_height,
+                            SWP_NOZORDER,
+                        );
+                    }
                 }
 
-                if keyboard.pressed(VirtualKeyCode::Minus, ModifiersState::CTRL) {
-                    ctx.scale_factor = f32::clamp(ctx.scale_factor / 1.025, 0.5, 10.0);
-                }
-
-                if keyboard.pressed(VirtualKeyCode::Equals, ModifiersState::CTRL) {
-                    ctx.scale_factor = f32::clamp(ctx.scale_factor * 1.025, 0.5, 10.0);
-                }
-
-                window.request_redraw();
-                keyboard.release_pressed();
+                #[cfg(target_family = "unix")]
+                rctx.window.set_fullscreen(match rctx.window.fullscreen() {
+                    Some(..) => None,
+                    None => Some(winit::window::Fullscreen::Borderless(Some(monitor))),
+                });
             }
-            _ => (),
+
+            if ectx
+                .keyboard
+                .pressed(VirtualKeyCode::Minus, ModifiersState::CTRL)
+            {
+                rctx.scale_factor = f32::clamp(rctx.scale_factor / 1.025, 0.5, 10.0);
+            }
+
+            if ectx
+                .keyboard
+                .pressed(VirtualKeyCode::Equals, ModifiersState::CTRL)
+            {
+                rctx.scale_factor = f32::clamp(rctx.scale_factor * 1.025, 0.5, 10.0);
+            }
+
+            rctx.window.request_redraw();
+            ectx.keyboard.release_pressed();
         }
-    })
+        _ => (),
+    }
 }

@@ -7,7 +7,7 @@ pub trait ToTokens {
     fn tokenize(&self, stream: &mut TokenStream);
 }
 
-pub trait Decoded {
+pub trait Decoded: ToTokens {
     type Instruction: Debug + Default;
     type Operand;
 
@@ -23,7 +23,7 @@ pub trait Complete {
 }
 
 pub trait Decodable {
-    type Instruction: Debug + Decoded + ToTokens;
+    type Instruction: Debug + Decoded;
     type Error: Debug + Complete;
     type Operand;
 

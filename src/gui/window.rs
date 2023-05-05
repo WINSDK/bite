@@ -320,10 +320,11 @@ impl Backend {
 
         let lines_scrolled = (ctx.listing_offset / ctx.font_size) as usize;
 
-        if let Some(proc) = &*ctx.dissasembly.proc.lock().unwrap() {
+        if let Some(ref dissasembly) = ctx.dissasembly {
             let mut text: Vec<Token> = Vec::new();
-            let symbols = ctx.dissasembly.symbols.lock().unwrap();
-            let lines = proc
+            let symbols = &dissasembly.symbols;
+            let lines = dissasembly
+                .proc
                 .iter()
                 .skip(lines_scrolled)
                 .take((self.size.height as f32 / font_size).ceil() as usize);
@@ -350,7 +351,7 @@ impl Backend {
 
                 // instruction's bytes
                 text.push(Token::from_string(
-                    inst.bytes(proc.as_ref(), addr),
+                    inst.bytes(dissasembly.proc.as_ref(), addr),
                     &colors::GREEN,
                 ));
 
@@ -387,7 +388,7 @@ impl Backend {
                 )
                 .map_err(Error::DrawText)?;
 
-            let len = proc.iter().size_hint().0;
+            let len = dissasembly.proc.iter().size_hint().0;
             let bar_height =
                 (self.size.height * self.size.height) as f32 / (len as f32 * font_size);
             let bar_height = bar_height.max(font_size);

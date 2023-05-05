@@ -48,7 +48,7 @@ pub trait InspectInstruction {
     fn bytes(&self, proc: &dyn InspectProcessor, addr: usize) -> String;
 }
 
-impl<D: Decoded + ToTokens> InspectInstruction for D {
+impl<D: Decoded> InspectInstruction for D {
     fn tokens(&self) -> TokenStream {
         let mut stream = TokenStream::new();
         self.tokenize(&mut stream);

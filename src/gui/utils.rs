@@ -258,10 +258,10 @@ pub mod windows {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn generate_window(
+pub fn generate_window<T>(
     title: &str,
     icon: Option<winit::window::Icon>,
-    event_loop: &winit::event_loop::EventLoop<()>,
+    event_loop: &winit::event_loop::EventLoop<T>,
 ) -> Result<winit::window::Window, Error> {
     winit::window::WindowBuilder::new()
         .with_title(title)
@@ -273,10 +273,10 @@ pub fn generate_window(
 }
 
 #[cfg(target_os = "windows")]
-pub fn generate_window(
+pub fn generate_window<T>(
     title: &str,
     icon: Option<winit::window::Icon>,
-    event_loop: &winit::event_loop::EventLoop<()>,
+    event_loop: &winit::event_loop::EventLoop<T>,
 ) -> Result<winit::window::Window, Error> {
     use windows::*;
     use winit::dpi::PhysicalSize;
