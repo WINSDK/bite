@@ -633,8 +633,7 @@ impl<'a> PositionalDemangle<'a> for Type {
                 ctx.stream.push("`", Colors::brackets());
                 ctx.stream.push("template-parameter", Colors::known());
                 ctx.stream.push("-", Colors::delimiter());
-                ctx.stream
-                    .push_cow(Cow::Owned(idx.to_string()), Colors::item());
+                ctx.stream.push_cow(Cow::Owned(idx.to_string()), Colors::item());
                 ctx.stream.push("'", Colors::brackets());
             }
             Type::Typedef(modi, name) => {
@@ -733,8 +732,7 @@ impl<'a> PositionalDemangle<'a> for Type {
             },
             Type::VCallThunk(offset, _) => {
                 ctx.stream.push("{{", Colors::brackets());
-                ctx.stream
-                    .push_cow(Cow::Owned(offset.to_string()), Colors::item());
+                ctx.stream.push_cow(Cow::Owned(offset.to_string()), Colors::item());
                 ctx.stream.push(", {{flat}}}}", Colors::brackets());
             }
             Type::Extern(tipe) => tipe.demangle_post(ctx, backrefs),
@@ -1368,8 +1366,7 @@ impl<'a> Demangle<'a> for Intrinsics {
             }
             Intrinsics::DynamicAtExitDtor(ref tipe) => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream
-                    .push("dynamic atexit destructor for ", Colors::known());
+                ctx.stream.push("dynamic atexit destructor for ", Colors::known());
                 ctx.stream.push("'", Colors::brackets());
 
                 tipe.demangle(ctx, backrefs);
@@ -1394,24 +1391,19 @@ impl<'a> Demangle<'a> for Intrinsics {
                 flags,
             } => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream
-                    .push("RTTI Base Class Descriptor at ", Colors::known());
+                ctx.stream.push("RTTI Base Class Descriptor at ", Colors::known());
                 ctx.stream.push("(", Colors::brackets());
 
-                ctx.stream
-                    .push_cow(Cow::Owned(nv_off.to_string()), Colors::annotation());
+                ctx.stream.push_cow(Cow::Owned(nv_off.to_string()), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream
-                    .push_cow(Cow::Owned(ptr_off.to_string()), Colors::annotation());
+                ctx.stream.push_cow(Cow::Owned(ptr_off.to_string()), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream
-                    .push_cow(Cow::Owned(vbtable_off.to_string()), Colors::annotation());
+                ctx.stream.push_cow(Cow::Owned(vbtable_off.to_string()), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream
-                    .push_cow(Cow::Owned(flags.to_string()), Colors::annotation());
+                ctx.stream.push_cow(Cow::Owned(flags.to_string()), Colors::annotation());
                 ctx.stream.push(")'", Colors::brackets());
                 return;
             }
@@ -1423,15 +1415,13 @@ impl<'a> Demangle<'a> for Intrinsics {
             }
             Intrinsics::RTTIClassHierarchyDescriptor => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream
-                    .push("RTTI Class Hierarchy Descriptor", Colors::known());
+                ctx.stream.push("RTTI Class Hierarchy Descriptor", Colors::known());
                 ctx.stream.push("'", Colors::brackets());
                 return;
             }
             Intrinsics::RTTIClassCompleteObjectLocator => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream
-                    .push("RTTI Complete Object Locator", Colors::known());
+                ctx.stream.push("RTTI Complete Object Locator", Colors::known());
                 ctx.stream.push("'", Colors::brackets());
                 return;
             }
@@ -2163,9 +2153,7 @@ impl Parse for NestedPath {
         if ctx.eat(b'?') {
             ctx.ascent();
             return match ctx.peek()? {
-                b'?' => Symbol::parse(ctx, backrefs)
-                    .map(Box::new)
-                    .map(NestedPath::Symbol),
+                b'?' => Symbol::parse(ctx, backrefs).map(Box::new).map(NestedPath::Symbol),
                 b'$' => {
                     ctx.offset += 1;
 
@@ -2229,8 +2217,7 @@ impl<'a> Demangle<'a> for NestedPath {
             NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
             NestedPath::Disambiguator(val) => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream
-                    .push_cow(Cow::Owned(val.to_string()), Colors::item());
+                ctx.stream.push_cow(Cow::Owned(val.to_string()), Colors::item());
                 ctx.stream.push("'", Colors::brackets());
             }
             NestedPath::MD5(md5) => md5.demangle(ctx, backrefs),

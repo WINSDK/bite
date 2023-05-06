@@ -5174,10 +5174,7 @@ pub(crate) fn read_evex(
         num: vvvvv ^ 0b11111, // `vvvvv` is provided in inverted form
     };
 
-    instruction
-        .prefixes
-        .evex_from(evex_byte_one, evex_byte_two, evex_byte_three);
-
+    instruction.prefixes.evex_from(evex_byte_one, evex_byte_two, evex_byte_three);
     let opc = words.next().ok_or(Error::ExhaustedInput)?;
     let table_idx = ((m << 2) | p) as usize;
     let table = generated::TABLES[table_idx];
@@ -5211,12 +5208,7 @@ pub(crate) fn read_evex(
                 return Err(Error::InvalidOperand);
             }
         }
-        if instruction
-            .prefixes
-            .evex_unchecked()
-            .vex()
-            .compressed_disp()
-        {
+        if instruction.prefixes.evex_unchecked().vex().compressed_disp() {
             let overridden_size = match instruction.opcode {
                 Opcode::VPEXPANDB => Some(1),
                 Opcode::VPEXPANDW => Some(2),

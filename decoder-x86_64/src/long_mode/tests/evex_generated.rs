@@ -12458,7 +12458,8 @@ fn tests_66_0f() {
     test_avx_full(
         &[0x62, 0xf1, 0x7d, 0x0d, 0xfe, 0x0a],
         "vpaddd xmm1{k5}, xmm0, xmmword [rdx]",
-    ); // VPADDD_XMMu32_MASKmskw_XMMu32_MEMu32_AVX512, extension: AVX512EVEX
+    );
+    // VPADDD_XMMu32_MASKmskw_XMMu32_MEMu32_AVX512, extension: AVX512EVEX
 }
 #[test]
 fn tests_f2_0f() {
@@ -14364,7 +14365,8 @@ fn tests_f2_0f() {
     test_avx_full(
         &[0x62, 0xf1, 0x7e, 0x0d, 0xe6, 0x0a],
         "vcvtdq2pd xmm1{k5}, qword [rdx]",
-    ); // VCVTDQ2PD_XMMf64_MASKmskw_MEMi32_AVX512, extension: AVX512EVEX
+    );
+    // VCVTDQ2PD_XMMf64_MASKmskw_MEMi32_AVX512, extension: AVX512EVEX
 }
 #[test]
 fn tests_f3_0f() {
@@ -15990,7 +15992,8 @@ fn tests_f3_0f() {
     test_avx_full(
         &[0x62, 0xf1, 0xff, 0x0d, 0xe6, 0x0a],
         "vcvtpd2dq xmm1{k5}, xmmword [rdx]",
-    ); // VCVTPD2DQ_XMMi32_MASKmskw_MEMf64_AVX512_VL128, extension: AVX512EVEX
+    );
+    // VCVTPD2DQ_XMMi32_MASKmskw_MEMf64_AVX512_VL128, extension: AVX512EVEX
 }
 #[test]
 fn tests_66_0f38() {
@@ -36069,7 +36072,8 @@ fn tests_66_0f38() {
     test_avx_full(
         &[0x62, 0xf2, 0xfd, 0x08, 0xdf, 0x0a],
         "vaesdeclast xmm1, xmm0, xmmword [rdx]",
-    ); // VAESDECLAST_XMMu128_XMMu128_MEMu128_AVX512, extension: AVX512EVEX
+    );
+    // VAESDECLAST_XMMu128_XMMu128_MEMu128_AVX512, extension: AVX512EVEX
 }
 #[test]
 fn tests_f2_0f38() {
@@ -37548,7 +37552,8 @@ fn tests_f2_0f38() {
     test_avx_full(
         &[0x62, 0xf2, 0x7e, 0x0d, 0x72, 0x0a],
         "vcvtneps2bf16 xmm1{k5}, xmmword [rdx]",
-    ); // VCVTNEPS2BF16_XMMbf16_MASKmskw_MEMf32_AVX512_VL128, extension: AVX512EVEX
+    );
+    // VCVTNEPS2BF16_XMMbf16_MASKmskw_MEMf32_AVX512_VL128, extension: AVX512EVEX
 }
 #[test]
 fn tests_f3_0f38() {

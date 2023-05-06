@@ -4929,18 +4929,9 @@ enum OperandCode {
     Ivs = OperandCodeBuilder::new().special_case(25).bits(),
     I_3 = OperandCodeBuilder::new().special_case(27).bits(),
     Nothing = OperandCodeBuilder::new().special_case(28).bits(),
-    Ib = OperandCodeBuilder::new()
-        .with_imm(false, 0)
-        .special_case(32)
-        .bits(),
-    Ibs = OperandCodeBuilder::new()
-        .with_imm(true, 0)
-        .special_case(33)
-        .bits(),
-    Jvds = OperandCodeBuilder::new()
-        .with_imm(true, 1)
-        .special_case(32)
-        .bits(),
+    Ib = OperandCodeBuilder::new().with_imm(false, 0).special_case(32).bits(),
+    Ibs = OperandCodeBuilder::new().with_imm(true, 0).special_case(33).bits(),
+    Jvds = OperandCodeBuilder::new().with_imm(true, 1).special_case(32).bits(),
     Yv_Xv = OperandCodeBuilder::new().special_case(50).bits(),
 
     x87_d8 = OperandCodeBuilder::new().special_case(32).bits(),
@@ -4959,22 +4950,10 @@ enum OperandCode {
         .byte_operands()
         .operand_case(0)
         .bits(),
-    AL_Ib = OperandCodeBuilder::new()
-        .special_case(33)
-        .with_imm(false, 0)
-        .bits(),
-    AX_Ib = OperandCodeBuilder::new()
-        .special_case(34)
-        .with_imm(false, 0)
-        .bits(),
-    Ib_AL = OperandCodeBuilder::new()
-        .special_case(35)
-        .with_imm(false, 0)
-        .bits(),
-    Ib_AX = OperandCodeBuilder::new()
-        .special_case(36)
-        .with_imm(false, 0)
-        .bits(),
+    AL_Ib = OperandCodeBuilder::new().special_case(33).with_imm(false, 0).bits(),
+    AX_Ib = OperandCodeBuilder::new().special_case(34).with_imm(false, 0).bits(),
+    Ib_AL = OperandCodeBuilder::new().special_case(35).with_imm(false, 0).bits(),
+    Ib_AX = OperandCodeBuilder::new().special_case(36).with_imm(false, 0).bits(),
     AX_DX = OperandCodeBuilder::new().special_case(44).bits(),
     AL_DX = OperandCodeBuilder::new().special_case(45).bits(),
     DX_AX = OperandCodeBuilder::new().special_case(46).bits(),
@@ -4982,107 +4961,41 @@ enum OperandCode {
     MOVQ_f30f = OperandCodeBuilder::new().special_case(48).bits(),
 
     //    Unsupported = OperandCodeBuilder::new().special_case(49).bits(),
-    ModRM_0x0f00 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(40)
-        .bits(),
-    ModRM_0x0f01 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(41)
-        .bits(),
-    ModRM_0x0f0d = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(42)
-        .bits(),
-    ModRM_0x0f0f = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(65)
-        .bits(), // 3dnow
-    ModRM_0x0fae = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(43)
-        .bits(),
-    ModRM_0x0fba = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(44)
-        .bits(),
+    ModRM_0x0f00 = OperandCodeBuilder::new().read_modrm().special_case(40).bits(),
+    ModRM_0x0f01 = OperandCodeBuilder::new().read_modrm().special_case(41).bits(),
+    ModRM_0x0f0d = OperandCodeBuilder::new().read_modrm().special_case(42).bits(),
+    ModRM_0x0f0f = OperandCodeBuilder::new().read_modrm().special_case(65).bits(), // 3dnow
+    ModRM_0x0fae = OperandCodeBuilder::new().read_modrm().special_case(43).bits(),
+    ModRM_0x0fba = OperandCodeBuilder::new().read_modrm().special_case(44).bits(),
     //    ModRM_0xf30fae = OperandCodeBuilder::new().read_modrm().special_case(46).bits(),
     //    ModRM_0x660fae = OperandCodeBuilder::new().read_modrm().special_case(47).bits(),
     //    ModRM_0xf30fc7 = OperandCodeBuilder::new().read_modrm().special_case(48).bits(),
     //    ModRM_0x660f38 = OperandCodeBuilder::new().read_modrm().special_case(49).bits(),
     //    ModRM_0xf20f38 = OperandCodeBuilder::new().read_modrm().special_case(50).bits(),
     //    ModRM_0xf30f38 = OperandCodeBuilder::new().read_modrm().special_case(51).bits(),
-    ModRM_0xf30f38d8 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(45)
-        .bits(),
-    ModRM_0xf30f38dc = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(46)
-        .bits(),
-    ModRM_0xf30f38dd = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(47)
-        .bits(),
-    ModRM_0xf30f38de = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(48)
-        .bits(),
-    ModRM_0xf30f38df = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(49)
-        .bits(),
-    ModRM_0xf30f38fa = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(50)
-        .bits(),
-    ModRM_0xf30f38fb = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(51)
-        .bits(),
-    ModRM_0xf30f3af0 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(52)
-        .bits(),
+    ModRM_0xf30f38d8 = OperandCodeBuilder::new().read_modrm().special_case(45).bits(),
+    ModRM_0xf30f38dc = OperandCodeBuilder::new().read_modrm().special_case(46).bits(),
+    ModRM_0xf30f38dd = OperandCodeBuilder::new().read_modrm().special_case(47).bits(),
+    ModRM_0xf30f38de = OperandCodeBuilder::new().read_modrm().special_case(48).bits(),
+    ModRM_0xf30f38df = OperandCodeBuilder::new().read_modrm().special_case(49).bits(),
+    ModRM_0xf30f38fa = OperandCodeBuilder::new().read_modrm().special_case(50).bits(),
+    ModRM_0xf30f38fb = OperandCodeBuilder::new().read_modrm().special_case(51).bits(),
+    ModRM_0xf30f3af0 = OperandCodeBuilder::new().read_modrm().special_case(52).bits(),
     //    ModRM_0x660f3a = OperandCodeBuilder::new().read_modrm().special_case(52).bits(),
     //    ModRM_0x0f38 = OperandCodeBuilder::new().read_modrm().special_case(53).bits(),
     //    ModRM_0x0f3a = OperandCodeBuilder::new().read_modrm().special_case(54).bits(),
-    ModRM_0x0f71 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(55)
-        .bits(),
-    ModRM_0x0f72 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(56)
-        .bits(),
-    ModRM_0x0f73 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(57)
-        .bits(),
-    ModRM_0xf20f78 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(58)
-        .bits(),
-    ModRM_0x660f78 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(59)
-        .bits(),
+    ModRM_0x0f71 = OperandCodeBuilder::new().read_modrm().special_case(55).bits(),
+    ModRM_0x0f72 = OperandCodeBuilder::new().read_modrm().special_case(56).bits(),
+    ModRM_0x0f73 = OperandCodeBuilder::new().read_modrm().special_case(57).bits(),
+    ModRM_0xf20f78 = OperandCodeBuilder::new().read_modrm().special_case(58).bits(),
+    ModRM_0x660f78 = OperandCodeBuilder::new().read_modrm().special_case(59).bits(),
     ModRM_0xf30f1e = OperandCodeBuilder::new().special_case(60).bits(),
     //    ModRM_0x660f72 = OperandCodeBuilder::new().read_modrm().special_case(61).bits(),
     //    ModRM_0x660f73 = OperandCodeBuilder::new().read_modrm().special_case(62).bits(),
     //    ModRM_0x660fc7 = OperandCodeBuilder::new().read_modrm().special_case(63).bits(),
-    ModRM_0x0fc7 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(64)
-        .bits(),
-    ModRM_0xc4 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(66)
-        .bits(),
-    ModRM_0xc5 = OperandCodeBuilder::new()
-        .read_modrm()
-        .special_case(67)
-        .bits(),
+    ModRM_0x0fc7 = OperandCodeBuilder::new().read_modrm().special_case(64).bits(),
+    ModRM_0xc4 = OperandCodeBuilder::new().read_modrm().special_case(66).bits(),
+    ModRM_0xc5 = OperandCodeBuilder::new().read_modrm().special_case(67).bits(),
     // xmmword?
     ModRM_0x0f12 = OperandCodeBuilder::new()
         .read_modrm()

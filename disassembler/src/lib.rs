@@ -138,7 +138,6 @@ impl<D: Decodable> Processor<D> {
     }
 
     fn bytes_by_addr<'a>(&'a self, addr: usize) -> Option<&'a [u8]> {
-        addr.checked_sub(self.base_addr)
-            .and_then(|addr| self.section.get(addr..))
+        addr.checked_sub(self.base_addr).and_then(|addr| self.section.get(addr..))
     }
 }

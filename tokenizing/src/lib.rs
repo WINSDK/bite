@@ -171,9 +171,7 @@ impl<'txt> Token<'txt> {
     }
 
     pub fn text(&self, scale: f32) -> wgpu_glyph::Text {
-        wgpu_glyph::Text::new(&self.text)
-            .with_color(*self.color)
-            .with_scale(scale)
+        wgpu_glyph::Text::new(&self.text).with_color(*self.color).with_scale(scale)
     }
 }
 

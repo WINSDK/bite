@@ -4,10 +4,7 @@ use once_cell::sync::Lazy;
 
 static THREAD_COUNT: Lazy<usize> = Lazy::new(|| {
     let fallback = std::num::NonZeroUsize::new(1).unwrap();
-
-    std::thread::available_parallelism()
-        .unwrap_or(fallback)
-        .get()
+    std::thread::available_parallelism().unwrap_or(fallback).get()
 });
 
 // FIXME: somehow return a non-static type
@@ -58,10 +55,7 @@ where
 
     let mut results = Vec::with_capacity(tasks.len());
     for handle in handles {
-        let result_chunk = handle
-            .await
-            .expect("Some thread failed in 'spawn_threaded'");
-
+        let result_chunk = handle.await.expect("Some thread failed in 'spawn_threaded'");
         results.extend(result_chunk);
     }
 

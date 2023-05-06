@@ -39,10 +39,7 @@ fn assert_parse_ok<P, S1, S2, I1, I2>(
     let expected_tail = expected_tail.as_ref();
 
     let expected_subs = SubstitutionTable::from_iter(
-        subs.as_ref()
-            .iter()
-            .cloned()
-            .chain(expected_new_subs.as_ref().iter().cloned()),
+        subs.as_ref().iter().cloned().chain(expected_new_subs.as_ref().iter().cloned()),
     );
     let mut subs = SubstitutionTable::from_iter(subs.as_ref().iter().cloned());
 

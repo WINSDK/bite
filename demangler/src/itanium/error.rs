@@ -53,19 +53,23 @@ impl fmt::Display for Error {
         match *self {
             Error::UnexpectedEnd => write!(f, "mangled symbol ends abruptly"),
             Error::UnexpectedText => write!(f, "mangled symbol is not well-formed"),
-            Error::BadBackReference => write!(
-                f,
-                "back reference that is out-of-bounds of the substitution table"
-            ),
+            Error::BadBackReference => {
+                write!(
+                    f,
+                    "back reference that is out-of-bounds of the substitution table"
+                )
+            }
             Error::BadTemplateArgReference => write!(
                 f,
                 "reference to a template arg that is either out-of-bounds, or in a context \
                  without template args"
             ),
-            Error::ForwardTemplateArgReference => write!(
-                f,
-                "reference to a template arg from itself or a later template arg"
-            ),
+            Error::ForwardTemplateArgReference => {
+                write!(
+                    f,
+                    "reference to a template arg from itself or a later template arg"
+                )
+            }
             Error::BadFunctionArgReference => write!(
                 f,
                 "reference to a function arg that is either out-of-bounds, or in a context \

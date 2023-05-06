@@ -96,10 +96,7 @@ impl Index {
             Arc::new(demangler::TokenStream::simple("entry")),
         ));
 
-        let symbols = symbols
-            .iter()
-            .map(|(addr, symbol)| (*addr, Arc::new(parser(symbol))));
-
+        let symbols = symbols.iter().map(|(addr, symbol)| (*addr, Arc::new(parser(symbol))));
         Ok(Self {
             tree: entrypoint.chain(symbols).collect(),
         })

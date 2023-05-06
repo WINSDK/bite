@@ -114,6 +114,8 @@ fn complex() {
 #[test]
 #[should_panic]
 fn too_many_arguements() {
-    parse("IC3stdbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbE")
-        .unwrap();
+    parse(
+        "IC3stdbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbE",
+    )
+    .unwrap();
 }

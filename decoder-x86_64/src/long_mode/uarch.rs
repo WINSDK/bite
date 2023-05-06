@@ -156,12 +156,7 @@ pub mod intel {
     /// `Haswell` was the successor to `Ivy Bridge`, launched in 2013. it added several instruction
     /// set extensions: AVX2, BMI1, BMI2, ABM, and FMA3.
     pub fn haswell() -> Decoder {
-        ivybridge()
-            .with_bmi1()
-            .with_bmi2()
-            .with_abm()
-            .with_fma3()
-            .with_avx2()
+        ivybridge().with_bmi1().with_bmi2().with_abm().with_fma3().with_avx2()
     }
 
     /// `Haswell-EX` was a variant of `Haswell` launched in 2015 with functional TSX. these cores

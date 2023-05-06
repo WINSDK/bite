@@ -424,10 +424,7 @@ impl<'a> DemangleContext<'a> {
     fn demangle_inner_prefixes<'prev>(&mut self, scope: Option<ArgScopeStack<'prev, 'a>>) {
         let mut new_inner = vec![];
         while let Some(inner) = self.pop_inner() {
-            if inner
-                .downcast_to_function_type()
-                .map_or(false, |f| !f.cv_qualifiers.is_empty())
-            {
+            if inner.downcast_to_function_type().map_or(false, |f| !f.cv_qualifiers.is_empty()) {
                 new_inner.push(inner);
             } else {
                 inner.demangle_as_inner(self, scope);
@@ -827,8 +824,7 @@ impl<'subs> Demangle<'subs> for NonSubstitution {
 
 impl<'a> GetLeafName<'a> for NonSubstitution {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
-        subs.get_non_substitution(self.0)
-            .and_then(|ns| ns.get_leaf_name(subs))
+        subs.get_non_substitution(self.0).and_then(|ns| ns.get_leaf_name(subs))
     }
 }
 
@@ -1653,9 +1649,9 @@ impl GetTemplateArgs for NestedName {
 impl<'a> GetLeafName<'a> for NestedName {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         match *self {
-            NestedName::Unqualified(_, _, ref prefix, ref name) => name
-                .get_leaf_name(subs)
-                .or_else(|| prefix.get_leaf_name(subs)),
+            NestedName::Unqualified(_, _, ref prefix, ref name) => {
+                name.get_leaf_name(subs).or_else(|| prefix.get_leaf_name(subs))
+            }
             NestedName::Template(_, _, ref prefix) => prefix.get_leaf_name(subs),
         }
     }
@@ -1871,9 +1867,9 @@ impl Parse for PrefixHandle {
 impl<'a> GetLeafName<'a> for Prefix {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         match *self {
-            Prefix::Nested(ref prefix, ref name) => name
-                .get_leaf_name(subs)
-                .or_else(|| prefix.get_leaf_name(subs)),
+            Prefix::Nested(ref prefix, ref name) => {
+                name.get_leaf_name(subs).or_else(|| prefix.get_leaf_name(subs))
+            }
             Prefix::Unqualified(ref name) => name.get_leaf_name(subs),
             Prefix::Template(ref prefix, _) => prefix.get_leaf_name(subs),
             Prefix::DataMember(_, ref name) => name.get_leaf_name(subs),
@@ -2601,9 +2597,7 @@ impl<'subs> Demangle<'subs> for OperatorName {
                 // Cast operators can refer to template arguments before they
                 // actually appear in the AST, so we go traverse down the tree
                 // and fetch them if they exist.
-                let scope = ty
-                    .get_template_args(ctx.subs)
-                    .map_or(scope, |args| scope.push(args));
+                let scope = ty.get_template_args(ctx.subs).map_or(scope, |args| scope.push(args));
 
                 ty.demangle(ctx, scope);
             }
@@ -2863,30 +2857,27 @@ impl Parse for CtorDtorName {
                     _ => false,
                 };
 
-                let mut ctor_type: CtorDtorName = match tail
-                    .try_split_at(1)
-                    .as_ref()
-                    .map(|&(ref h, t)| (h.as_ref(), t))
-                {
-                    None => Err(error::Error::UnexpectedEnd),
-                    Some((b"1", t)) => {
-                        tail = t;
-                        Ok(CtorDtorName::CompleteConstructor(None))
-                    }
-                    Some((b"2", t)) => {
-                        tail = t;
-                        Ok(CtorDtorName::BaseConstructor(None))
-                    }
-                    Some((b"3", t)) => {
-                        tail = t;
-                        Ok(CtorDtorName::CompleteAllocatingConstructor(None))
-                    }
-                    Some((b"4", t)) => {
-                        tail = t;
-                        Ok(CtorDtorName::MaybeInChargeConstructor(None))
-                    }
-                    _ => Err(error::Error::UnexpectedText),
-                }?;
+                let mut ctor_type: CtorDtorName =
+                    match tail.try_split_at(1).as_ref().map(|&(ref h, t)| (h.as_ref(), t)) {
+                        None => Err(error::Error::UnexpectedEnd),
+                        Some((b"1", t)) => {
+                            tail = t;
+                            Ok(CtorDtorName::CompleteConstructor(None))
+                        }
+                        Some((b"2", t)) => {
+                            tail = t;
+                            Ok(CtorDtorName::BaseConstructor(None))
+                        }
+                        Some((b"3", t)) => {
+                            tail = t;
+                            Ok(CtorDtorName::CompleteAllocatingConstructor(None))
+                        }
+                        Some((b"4", t)) => {
+                            tail = t;
+                            Ok(CtorDtorName::MaybeInChargeConstructor(None))
+                        }
+                        _ => Err(error::Error::UnexpectedText),
+                    }?;
 
                 if inheriting {
                     let (ty, tail) = Name::parse(ctx, subs, tail)?;
@@ -2896,19 +2887,13 @@ impl Parse for CtorDtorName {
                     Ok((ctor_type, tail))
                 }
             }
-            Some(b'D') => {
-                match input
-                    .try_split_at(2)
-                    .as_ref()
-                    .map(|&(ref h, t)| (h.as_ref(), t))
-                {
-                    Some((b"D0", tail)) => Ok((CtorDtorName::DeletingDestructor, tail)),
-                    Some((b"D1", tail)) => Ok((CtorDtorName::CompleteDestructor, tail)),
-                    Some((b"D2", tail)) => Ok((CtorDtorName::BaseDestructor, tail)),
-                    Some((b"D4", tail)) => Ok((CtorDtorName::MaybeInChargeDestructor, tail)),
-                    _ => Err(error::Error::UnexpectedText),
-                }
-            }
+            Some(b'D') => match input.try_split_at(2).as_ref().map(|&(ref h, t)| (h.as_ref(), t)) {
+                Some((b"D0", tail)) => Ok((CtorDtorName::DeletingDestructor, tail)),
+                Some((b"D1", tail)) => Ok((CtorDtorName::CompleteDestructor, tail)),
+                Some((b"D2", tail)) => Ok((CtorDtorName::BaseDestructor, tail)),
+                Some((b"D4", tail)) => Ok((CtorDtorName::MaybeInChargeDestructor, tail)),
+                _ => Err(error::Error::UnexpectedText),
+            },
             None => Err(error::Error::UnexpectedEnd),
             _ => Err(error::Error::UnexpectedText),
         }
@@ -2928,10 +2913,7 @@ impl<'subs> Demangle<'subs> for CtorDtorName {
             | CtorDtorName::BaseConstructor(ref inheriting)
             | CtorDtorName::CompleteAllocatingConstructor(ref inheriting)
             | CtorDtorName::MaybeInChargeConstructor(ref inheriting) => match inheriting {
-                Some(ty) => ty
-                    .get_leaf_name(ctx.subs)
-                    .unwrap_or_default()
-                    .demangle_as_leaf(ctx),
+                Some(ty) => ty.get_leaf_name(ctx.subs).unwrap_or_default().demangle_as_leaf(ctx),
                 None => leaf.demangle_as_leaf(ctx),
             },
             CtorDtorName::DeletingDestructor
@@ -3236,8 +3218,7 @@ impl Parse for TypeHandle {
 
 impl GetTemplateArgs for TypeHandle {
     fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
-        subs.get_type(self)
-            .and_then(|ty| ty.get_template_args(subs))
+        subs.get_type(self).and_then(|ty| ty.get_template_args(subs))
     }
 }
 
@@ -4650,10 +4631,7 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
         &'subs self,
         idx: usize,
     ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
-        self.0
-            .get(idx)
-            .ok_or(error::Error::BadTemplateArgReference)
-            .map(|v| (v, self))
+        self.0.get(idx).ok_or(error::Error::BadTemplateArgReference).map(|v| (v, self))
     }
 
     fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {

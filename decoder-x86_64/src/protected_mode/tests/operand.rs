@@ -31,12 +31,7 @@ fn memory_widths() {
 fn test_implied_memory_width() {
     fn mem_size_of(data: &[u8]) -> Option<u8> {
         let decoder = Decoder::default();
-        decoder
-            .decode_slice(data)
-            .unwrap()
-            .mem_size()
-            .unwrap()
-            .bytes_size()
+        decoder.decode_slice(data).unwrap().mem_size().unwrap().bytes_size()
     }
 
     // test push, pop, call, and ret
