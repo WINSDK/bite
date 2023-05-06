@@ -49,11 +49,7 @@ impl Backend {
         });
 
         let size = window.inner_size();
-        let surface = unsafe {
-            instance
-                .create_surface(&window)
-                .map_err(Error::SurfaceCreation)?
-        };
+        let surface = unsafe { instance.create_surface(&window).map_err(Error::SurfaceCreation)? };
 
         let adapter = instance
             .enumerate_adapters(backends)
@@ -66,10 +62,8 @@ impl Backend {
             limits: wgpu::Limits::downlevel_defaults(),
         };
 
-        let (device, queue) = adapter
-            .request_device(&device_desc, None)
-            .await
-            .map_err(Error::DeviceRequest)?;
+        let (device, queue) =
+            adapter.request_device(&device_desc, None).await.map_err(Error::DeviceRequest)?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);
 
@@ -236,20 +230,11 @@ impl Backend {
     }
 
     pub fn redraw(&mut self, ctx: &mut RenderContext) -> Result<(), Error> {
-        let frame = self
-            .surface
-            .get_current_texture()
-            .map_err(Error::DrawTexture)?;
-
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("bite::ui encoder"),
-            });
+        let frame = self.surface.get_current_texture().map_err(Error::DrawTexture)?;
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("bite::ui encoder"),
+        });
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,

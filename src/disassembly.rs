@@ -37,20 +37,15 @@ pub struct Disassembly {
 }
 
 impl Disassembly {
-    pub async fn new<P>(path: P, show_donut: Arc<AtomicBool>) -> Result<Self, DecodeError>
-    where
-        P: AsRef<std::path::Path> + Sync + Send + 'static,
-    {
+    pub fn new<P: AsRef<std::path::Path>>(
+        path: P,
+        show_donut: Arc<AtomicBool>,
+    ) -> Result<Self, DecodeError> {
         let now = tokio::time::Instant::now();
         show_donut.store(true, Ordering::Relaxed);
 
-        let binary = tokio::fs::read(&path)
-            .await
-            .map_err(DecodeError::ReadFailed)?;
-
-        // SAFETY: tokio::spawn's in this scope require a &'static
-        let binary: &'static [u8] = unsafe { std::mem::transmute(&binary[..]) };
-        let obj = object::File::parse(binary).map_err(DecodeError::IncompleteObject)?;
+        let binary = std::fs::read(&path).map_err(DecodeError::ReadFailed)?;
+        let obj = object::File::parse(&binary[..]).map_err(DecodeError::IncompleteObject)?;
 
         let entrypoint = obj.entry();
         let section = obj
@@ -58,9 +53,6 @@ impl Disassembly {
             .filter(|s| s.kind() == SectionKind::Text)
             .find(|t| (t.address()..t.address() + t.size()).contains(&entrypoint))
             .ok_or(DecodeError::NoEntrypoint)?;
-
-        // SAFETY: tokio::spawn's in this scope require a &'static
-        let section: object::Section<'static, '_> = unsafe { std::mem::transmute(section) };
 
         let raw = section
             .uncompressed_data()

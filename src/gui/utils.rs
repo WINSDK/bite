@@ -141,9 +141,8 @@ async fn compile_shader<P: AsRef<Path>>(
     stage: wgpu::ShaderStages,
     device: &wgpu::Device,
 ) -> Result<wgpu::ShaderModule, Error> {
-    let mut src_file = File::open(&path)
-        .await
-        .map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
+    let mut src_file =
+        File::open(&path).await.map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
 
     let cache_path = cached_path(&path);
     let mut cache_file = OpenOptions::new()
@@ -175,9 +174,7 @@ async fn compile_shader<P: AsRef<Path>>(
         Validator::new(ValidationFlags::empty(), Capabilities::empty())
     };
 
-    let module_info = validator
-        .validate(&module)
-        .map_err(|_| Error::CompilationFailed)?;
+    let module_info = validator.validate(&module).map_err(|_| Error::CompilationFailed)?;
 
     let binary = spv::write_vec(&module, &module_info, &spv::Options::default(), None).unwrap();
 
@@ -194,10 +191,7 @@ async fn compile_shader<P: AsRef<Path>>(
         .unwrap()
         .as_millis();
 
-    cache_file
-        .write_u128(date_modified)
-        .await
-        .map_err(Error::IO)?;
+    cache_file.write_u128(date_modified).await.map_err(Error::IO)?;
 
     cache_file
         .write_all(bytemuck::cast_slice(binary.as_slice()))
@@ -292,10 +286,8 @@ pub fn generate_window<T>(
         .build(event_loop)
         .map_err(|_| Error::WindowCreation)?;
 
-    let PhysicalSize { width, height } = window
-        .current_monitor()
-        .ok_or(Error::WindowCreation)?
-        .size();
+    let PhysicalSize { width, height } =
+        window.current_monitor().ok_or(Error::WindowCreation)?.size();
 
     unsafe {
         let width = width * 2 / 5;

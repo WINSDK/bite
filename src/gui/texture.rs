@@ -26,9 +26,7 @@ impl Texture {
     }
 
     pub fn set_layout(device: &wgpu::Device, desc: &wgpu::BindGroupLayoutDescriptor) {
-        BIND_GROUP_LAYOUT
-            .set(device.create_bind_group_layout(desc))
-            .unwrap();
+        BIND_GROUP_LAYOUT.set(device.create_bind_group_layout(desc)).unwrap();
     }
 
     pub fn layout() -> &'static wgpu::BindGroupLayout {

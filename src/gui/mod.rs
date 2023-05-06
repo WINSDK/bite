@@ -11,13 +11,14 @@ use winit::event::{
     ElementState, Event, KeyboardInput, ModifiersState, MouseScrollDelta, VirtualKeyCode,
     WindowEvent,
 };
-use winit::event_loop::{ControlFlow, EventLoopBuilder};
+use winit::event_loop::{ControlFlow, EventLoop};
 
 use once_cell::sync::OnceCell;
 
 use crate::disassembly::Disassembly;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -59,10 +60,7 @@ pub enum Error {
     CompilationFailed,
 }
 
-#[derive(Debug)]
-enum CustomEvent {
-    ScaleFactorChanged(f64),
-}
+type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
 
 pub struct RenderContext {
     fps: usize,
@@ -71,29 +69,30 @@ pub struct RenderContext {
     timer60: utils::Timer,
     timer10: utils::Timer,
     dissasembly: Option<Disassembly>,
-    disassembling_thread: Option<DisassemblingThrd>,
+    disassembling_thread: Option<DisassThread>,
     listing_offset: f32,
     scale_factor: f32,
     font_size: f32,
-    window: Arc<winit::window::Window>,
 }
 
 struct EventContext {
     frame_time: Instant,
     keyboard: controls::KeyMap,
     backend: window::Backend,
+    window: Arc<winit::window::Window>,
+    #[cfg(target_family = "windows")]
+    unwindowed_size: PhysicalSize<u32>,
+    #[cfg(target_family = "windows")]
+    unwindowed_pos: PhysicalSize<u32>,
 }
-
-type DisassemblingThrd =
-    tokio::task::JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
 
 pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
 pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
 
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
 
-pub async fn main() -> Result<(), Error> {
-    let event_loop = EventLoopBuilder::<CustomEvent>::with_user_event().build();
+pub async fn init() -> Result<(), Error> {
+    let event_loop = EventLoop::new();
 
     let window = {
         #[cfg(target_os = "linux")]
@@ -122,65 +121,45 @@ pub async fn main() -> Result<(), Error> {
         listing_offset: 0.0,
         scale_factor: window.scale_factor() as f32,
         font_size: 20.0,
-        window: Arc::clone(&window),
     };
 
     let mut ectx = EventContext {
         frame_time: Instant::now(),
         keyboard: controls::KeyMap::new(),
         backend: window::Backend::new(&window).await?,
+        window: Arc::clone(&window),
+        #[cfg(target_family = "windows")]
+        unwindowed_size: rctx.window.outer_size(),
+        #[cfg(target_family = "windows")]
+        unwindowed_pos: rctx.window.outer_position().unwrap_or_default(),
     };
 
     if let Some(ref path) = crate::ARGS.path {
         let show_donut = Arc::clone(&rctx.show_donut);
-
-        rctx.disassembling_thread = Some(tokio::spawn(Disassembly::new(path, show_donut)));
+        rctx.disassembling_thread = Some(std::thread::spawn(move || {
+            Disassembly::new(path, show_donut)
+        }));
     }
 
-    // async thread handling events
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        loop {
-            let event = rx.recv().await.unwrap();
-            handle_event(&mut rctx, &mut ectx, event).await;
+    event_loop.run(move |event, _, control| {
+        // exit window on closing it
+        if let Event::WindowEvent { ref event, .. } = event {
+            if event == &WindowEvent::CloseRequested {
+                *control = ControlFlow::Exit;
+            }
         }
-    });
 
-    event_loop.run(move |event, _, control| match event {
-        Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } => *control = ControlFlow::Exit,
-        Event::WindowEvent {
-            event: WindowEvent::ScaleFactorChanged { scale_factor, .. },
-            ..
-        } => tx
-            .send(winit::event::Event::UserEvent(
-                CustomEvent::ScaleFactorChanged(scale_factor),
-            ))
-            .unwrap(),
-        _ => {
-            // the only non-static event is a `ScaleFactorChanged`, therefore `CustomEvent` exists
-            // For that reason it's also ok to unwrap this
-            tx.send(event.to_static().unwrap()).unwrap();
-        }
+        // handle events that don't rqeuire references
+        handle_event(&mut rctx, &mut ectx, event);
     })
 }
 
-async fn handle_event(
+fn handle_event(
     rctx: &mut RenderContext,
     ectx: &mut EventContext,
-    event: winit::event::Event<'_, CustomEvent>,
+    event: winit::event::Event<'_, ()>,
 ) {
-    #[cfg(target_family = "windows")]
-    let mut unwindowed_size = window.outer_size();
-    #[cfg(target_family = "windows")]
-    let mut unwindowed_pos = window.outer_position().unwrap_or_default();
-
     match event {
-        Event::UserEvent(CustomEvent::ScaleFactorChanged(scale_factor)) => {
-            rctx.scale_factor = scale_factor as f32;
-        }
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::ModifiersChanged(modi) => ectx.keyboard.press_modifiers(modi),
             WindowEvent::KeyboardInput {
@@ -198,8 +177,8 @@ async fn handle_event(
             WindowEvent::Resized(size) => ectx.backend.resize(size),
             WindowEvent::DroppedFile(path) => {
                 let show_donut = Arc::clone(&rctx.show_donut);
-
-                rctx.disassembling_thread = Some(tokio::spawn(Disassembly::new(path, show_donut)));
+                rctx.disassembling_thread =
+                    Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let delta = -match delta {
@@ -212,6 +191,9 @@ async fn handle_event(
 
                 rctx.listing_offset = f32::max(0.0, rctx.listing_offset + delta);
             }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                rctx.scale_factor = scale_factor as f32;
+            }
             _ => {}
         },
         Event::RedrawRequested(_) => {
@@ -222,128 +204,128 @@ async fn handle_event(
             }
         }
         Event::MainEventsCleared => {
-            if rctx.timer10.reached() {
-                rctx.fps = (1_000_000_000 / ectx.frame_time.elapsed().as_nanos()) as usize;
-                rctx.timer10.reset();
-            }
-
-            if rctx.show_donut.load(Ordering::Relaxed) && rctx.timer60.reached() {
-                rctx.donut.update_frame();
-                rctx.timer60.reset();
-            }
-
-            if let Some(ref thread) = rctx.disassembling_thread {
-                if thread.is_finished() {
-                    let thread = rctx.disassembling_thread.take().unwrap();
-                    rctx.dissasembly = Some(thread.await.unwrap().unwrap());
-                }
-            }
-
-            if ectx
-                .keyboard
-                .pressed(VirtualKeyCode::O, ModifiersState::CTRL)
-            {
-                // create dialog popup and get references to the donut and dissasembly
-                let dialog = rfd::FileDialog::new().set_parent(&*rctx.window).pick_file();
-                let show_donut = Arc::clone(&rctx.show_donut);
-
-                // cancel disassembling if a file is already loaded.
-                if let Some(thread) = &rctx.disassembling_thread {
-                    thread.abort();
-                    rctx.disassembling_thread = None;
-                }
-
-                if let Some(path) = dialog {
-                    rctx.disassembling_thread =
-                        Some(tokio::spawn(Disassembly::new(path, show_donut)));
-                }
-            }
-
-            if ectx
-                .keyboard
-                .pressed(VirtualKeyCode::F, ModifiersState::CTRL)
-            {
-                let Some(monitor) = rctx.window.current_monitor() else {
-                    return;
-                };
-
-                #[cfg(target_family = "windows")]
-                unsafe {
-                    use utils::windows::*;
-                    use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
-
-                    let mut info = MonitorInfo {
-                        size: std::mem::size_of::<MonitorInfo>() as u32,
-                        monitor_area: Rect::default(),
-                        work_area: Rect::default(),
-                        flags: 0,
-                    };
-
-                    if GetMonitorInfoW(monitor.hmonitor(), &mut info) == 0 {
-                        return;
-                    }
-
-                    let PhysicalSize { width, height } = window.outer_size();
-                    let work_area_width = info.work_area.right - info.work_area.left;
-                    let work_area_height = info.work_area.bottom - info.work_area.top;
-
-                    // check if the window is fullscreen borderless
-                    if width == work_area_width && height == work_area_height {
-                        let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
-
-                        SetWindowLongPtrW(rctx.window.hwnd(), GWL_STYLE, attr);
-                        SetWindowPos(
-                            rctx.window.hwnd(),
-                            HWND_TOP,
-                            unwindowed_pos.x as u32,
-                            unwindowed_pos.y as u32,
-                            unwindowed_size.width,
-                            unwindowed_size.height,
-                            SWP_NOZORDER,
-                        );
-                    } else {
-                        let attr = WS_VISIBLE | WS_OVERLAPPED;
-
-                        unwindowed_size = rctx.window.outer_size();
-                        unwindowed_pos = rctx.window.outer_position().unwrap_or_default();
-
-                        SetWindowLongPtrW(rctx.window.hwnd(), GWL_STYLE, attr);
-                        SetWindowPos(
-                            rctx.window.hwnd(),
-                            HWND_TOP,
-                            info.work_area.left,
-                            info.work_area.top,
-                            work_area_width,
-                            work_area_height,
-                            SWP_NOZORDER,
-                        );
-                    }
-                }
-
-                #[cfg(target_family = "unix")]
-                rctx.window.set_fullscreen(match rctx.window.fullscreen() {
-                    Some(..) => None,
-                    None => Some(winit::window::Fullscreen::Borderless(Some(monitor))),
-                });
-            }
-
-            if ectx
-                .keyboard
-                .pressed(VirtualKeyCode::Minus, ModifiersState::CTRL)
-            {
-                rctx.scale_factor = f32::clamp(rctx.scale_factor / 1.025, 0.5, 10.0);
-            }
-
-            if ectx
-                .keyboard
-                .pressed(VirtualKeyCode::Equals, ModifiersState::CTRL)
-            {
-                rctx.scale_factor = f32::clamp(rctx.scale_factor * 1.025, 0.5, 10.0);
-            }
-
-            rctx.window.request_redraw();
-            ectx.keyboard.release_pressed();
+            handle_post_render(rctx, ectx);
         }
-        _ => (),
+        _ => {}
     }
+}
+
+fn handle_post_render(rctx: &mut RenderContext, ectx: &mut EventContext) {
+    if rctx.timer10.reached() {
+        rctx.fps = (1_000_000_000 / ectx.frame_time.elapsed().as_nanos()) as usize;
+        rctx.timer10.reset();
+    }
+
+    if rctx.show_donut.load(Ordering::Relaxed) && rctx.timer60.reached() {
+        rctx.donut.update_frame();
+        rctx.timer60.reset();
+    }
+
+    // if there is a binary being loaded
+    if let Some(true) = rctx.disassembling_thread.as_ref().map(JoinHandle::is_finished) {
+        let thread = rctx.disassembling_thread.take().unwrap();
+
+        // check if it's finished loading
+        if thread.is_finished() {
+            // store the loaded binary
+            rctx.dissasembly = Some(thread.join().unwrap().unwrap());
+
+            // mark the disassembling thread as not loading anything
+            rctx.disassembling_thread = None;
+        }
+    }
+
+    if ectx.keyboard.pressed(VirtualKeyCode::O, ModifiersState::CTRL) {
+        // create dialog popup and get references to the donut and dissasembly
+        let dialog = rfd::FileDialog::new().set_parent(&*ectx.window).pick_file();
+        let show_donut = Arc::clone(&rctx.show_donut);
+
+        // ghost disassembling thread if a binary is already loaded.
+        if rctx.disassembling_thread.is_some() {
+            rctx.disassembling_thread = None;
+        }
+
+        // load binary
+        if let Some(path) = dialog {
+            rctx.disassembling_thread =
+                Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
+        }
+    }
+
+    if ectx.keyboard.pressed(VirtualKeyCode::F, ModifiersState::CTRL) {
+        let monitor = match ectx.window.current_monitor() {
+            Some(monitor) => monitor,
+            None => return,
+        };
+
+        #[cfg(target_family = "windows")]
+        unsafe {
+            use utils::windows::*;
+            use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
+
+            let mut info = MonitorInfo {
+                size: std::mem::size_of::<MonitorInfo>() as u32,
+                monitor_area: Rect::default(),
+                work_area: Rect::default(),
+                flags: 0,
+            };
+
+            if GetMonitorInfoW(monitor.hmonitor(), &mut info) == 0 {
+                return;
+            }
+
+            let PhysicalSize { width, height } = ectx.window.outer_size();
+            let work_area_width = info.work_area.right - info.work_area.left;
+            let work_area_height = info.work_area.bottom - info.work_area.top;
+
+            // check if the window is fullscreen borderless
+            if width == work_area_width && height == work_area_height {
+                let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
+
+                SetWindowLongPtrW(ectx.window.hwnd(), GWL_STYLE, attr);
+                SetWindowPos(
+                    ectx.window.hwnd(),
+                    HWND_TOP,
+                    ectx.unwindowed_pos.x as u32,
+                    ectx.unwindowed_pos.y as u32,
+                    ectx.unwindowed_size.width,
+                    ectx.unwindowed_size.height,
+                    SWP_NOZORDER,
+                );
+            } else {
+                let attr = WS_VISIBLE | WS_OVERLAPPED;
+
+                ectx.unwindowed_size = ectx.window.outer_size();
+                ectx.unwindowed_pos = ectx.window.outer_position().unwrap_or_default();
+
+                SetWindowLongPtrW(ectx.window.hwnd(), GWL_STYLE, attr);
+                SetWindowPos(
+                    ectx.window.hwnd(),
+                    HWND_TOP,
+                    info.work_area.left,
+                    info.work_area.top,
+                    work_area_width,
+                    work_area_height,
+                    SWP_NOZORDER,
+                );
+            }
+        }
+
+        #[cfg(target_family = "unix")]
+        ectx.window.set_fullscreen(match ectx.window.fullscreen() {
+            Some(..) => None,
+            None => Some(winit::window::Fullscreen::Borderless(Some(monitor))),
+        });
+    }
+
+    if ectx.keyboard.pressed(VirtualKeyCode::Minus, ModifiersState::CTRL) {
+        rctx.scale_factor = f32::clamp(rctx.scale_factor / 1.025, 0.5, 10.0);
+    }
+
+    if ectx.keyboard.pressed(VirtualKeyCode::Equals, ModifiersState::CTRL) {
+        rctx.scale_factor = f32::clamp(rctx.scale_factor * 1.025, 0.5, 10.0);
+    }
+
+    ectx.window.request_redraw();
+    ectx.keyboard.release_pressed();
 }

@@ -1,4 +1,3 @@
-#![allow(clippy::unusual_byte_groupings)]
 #![allow(clippy::needless_range_loop)]
 #![cfg_attr(
     all(not(debug_assertions), target_family = "windows"),
@@ -36,12 +35,16 @@ fn set_panic_handler() {
     }));
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     set_panic_handler();
 
     if ARGS.disassemble {
-        gui::main().await.unwrap();
+        return tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(gui::init())
+            .unwrap();
     }
 
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
