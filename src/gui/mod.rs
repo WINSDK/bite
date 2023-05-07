@@ -83,7 +83,7 @@ struct EventContext {
     #[cfg(target_family = "windows")]
     unwindowed_size: PhysicalSize<u32>,
     #[cfg(target_family = "windows")]
-    unwindowed_pos: PhysicalSize<u32>,
+    unwindowed_pos: PhysicalPosition<i32>,
 }
 
 pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
@@ -129,13 +129,14 @@ pub async fn init() -> Result<(), Error> {
         backend: window::Backend::new(&window).await?,
         window: Arc::clone(&window),
         #[cfg(target_family = "windows")]
-        unwindowed_size: rctx.window.outer_size(),
+        unwindowed_size: window.outer_size(),
         #[cfg(target_family = "windows")]
-        unwindowed_pos: rctx.window.outer_position().unwrap_or_default(),
+        unwindowed_pos: window.outer_position().unwrap_or_default(),
     };
 
     if let Some(ref path) = crate::ARGS.path {
         let show_donut = Arc::clone(&rctx.show_donut);
+        rctx.dissasembly = None;
         rctx.disassembling_thread = Some(std::thread::spawn(move || {
             Disassembly::new(path, show_donut)
         }));
@@ -177,6 +178,7 @@ fn handle_event(
             WindowEvent::Resized(size) => ectx.backend.resize(size),
             WindowEvent::DroppedFile(path) => {
                 let show_donut = Arc::clone(&rctx.show_donut);
+                rctx.dissasembly = None;
                 rctx.disassembling_thread =
                     Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
             }
@@ -228,7 +230,17 @@ fn handle_post_render(rctx: &mut RenderContext, ectx: &mut EventContext) {
         // check if it's finished loading
         if thread.is_finished() {
             // store the loaded binary
-            rctx.dissasembly = Some(thread.join().unwrap().unwrap());
+            match thread.join() {
+                Err(err) => {
+                    rctx.show_donut.store(false, Ordering::Relaxed);
+                    crate::warning!("{err:?}");
+                }
+                Ok(Err(err)) => {
+                    rctx.show_donut.store(false, Ordering::Relaxed);
+                    crate::warning!("{err:?}");
+                }
+                Ok(Ok(val)) => rctx.dissasembly = Some(val),
+            }
 
             // mark the disassembling thread as not loading anything
             rctx.disassembling_thread = None;
@@ -247,6 +259,7 @@ fn handle_post_render(rctx: &mut RenderContext, ectx: &mut EventContext) {
 
         // load binary
         if let Some(path) = dialog {
+            rctx.dissasembly = None;
             rctx.disassembling_thread =
                 Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
         }

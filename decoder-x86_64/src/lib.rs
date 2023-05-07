@@ -97,7 +97,7 @@ pub enum Error {
     IncompleteDecoder,
 }
 
-impl decoder::Complete for Error {
+impl decoder::Failed for Error {
     #[inline]
     fn is_complete(&self) -> bool {
         !matches!(self, Error::ExhaustedInput | Error::IncompleteDecoder)

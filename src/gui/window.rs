@@ -336,12 +336,21 @@ impl Backend {
 
                 // instruction's bytes
                 text.push(Token::from_string(
-                    inst.bytes(dissasembly.proc.as_ref(), addr),
+                    dissasembly.proc.bytes(inst, addr),
                     &colors::GREEN,
                 ));
 
-                for token in inst.tokens().iter() {
-                    text.push(token.clone());
+                match inst {
+                    Ok(inst) => {
+                        for token in inst.tokens().iter() {
+                            text.push(token.clone());
+                        }
+                    }
+                    Err(err) => {
+                        text.push(Token::from_str("<", &colors::GRAY40));
+                        text.push(Token::from_string(format!("{err:?}"), &colors::RED));
+                        text.push(Token::from_str(">", &colors::GRAY40));
+                    }
                 }
 
                 text.push(Token::from_str("\n", &colors::WHITE));

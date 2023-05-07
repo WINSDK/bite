@@ -2012,7 +2012,7 @@ impl ToTokens for Instruction {
         if self.operand_count > 0 {
             stream.push(" ", Colors::spacing());
 
-            let op = Operand::from_spec(&self, self.operands[0]);
+            let op = Operand::from_spec(self, self.operands[0]);
 
             const RELATIVE_BRANCHES: [Opcode; 21] = [
                 Opcode::JMP,
@@ -2090,7 +2090,7 @@ impl ToTokens for Instruction {
                 }
 
                 stream.push(", ", Colors::expr());
-                let op = Operand::from_spec(&self, self.operands[idx as usize]);
+                let op = Operand::from_spec(self, self.operands[idx as usize]);
                 if op.is_memory() {
                     stream.push(
                         MEM_SIZE_STRINGS[self.mem_size as usize - 1],
@@ -2156,7 +2156,7 @@ impl ToTokens for Instruction {
                             // this should never be `None` - that would imply two
                             // memory operands for a broadcasted operation.
                             if let Some(width) =
-                                Operand::from_spec(&self, self.operands[idx as usize - 1]).width()
+                                Operand::from_spec(self, self.operands[idx as usize - 1]).width()
                             {
                                 width / self.mem_size
                             } else {

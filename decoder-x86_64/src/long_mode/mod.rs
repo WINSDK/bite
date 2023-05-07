@@ -2622,9 +2622,6 @@ pub struct Instruction {
 }
 
 impl decoder::Decoded for Instruction {
-    type Instruction = Instruction;
-    type Operand = Operand;
-
     #[inline]
     fn width(&self) -> usize {
         self.length as usize

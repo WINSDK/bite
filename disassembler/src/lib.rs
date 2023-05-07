@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 
 use decoder::Decoded;
 
-use decoder::{encode_hex_bytes_truncated, Complete, Decodable};
+use decoder::{encode_hex_bytes_truncated, Decodable, Failed};
 pub use decoder::{ToTokens, TokenStream};
 
 pub mod x86 {
@@ -36,41 +36,27 @@ pub struct Processor<D: Decodable> {
     pub instructions: BTreeMap<usize, Result<D::Instruction, D::Error>>,
 }
 
+pub type MaybeInstruction<'a> = Result<&'a dyn Decoded, &'a dyn Failed>;
+
 pub trait InspectProcessor {
-    fn iter(&self) -> Box<dyn Iterator<Item = (usize, &dyn InspectInstruction)> + '_>;
+    fn iter(&self) -> Box<dyn Iterator<Item = (usize, MaybeInstruction)> + '_>;
     fn base_addr(&self) -> usize;
     fn section(&self) -> &[u8];
     fn max_width(&self) -> usize;
-}
-
-pub trait InspectInstruction {
-    fn tokens(&self) -> TokenStream;
-    fn bytes(&self, proc: &dyn InspectProcessor, addr: usize) -> String;
-}
-
-impl<D: Decoded> InspectInstruction for D {
-    fn tokens(&self) -> TokenStream {
-        let mut stream = TokenStream::new();
-        self.tokenize(&mut stream);
-        stream
-    }
-
-    fn bytes(&self, proc: &dyn InspectProcessor, addr: usize) -> String {
-        let rva = addr - proc.base_addr();
-        encode_hex_bytes_truncated(
-            &proc.section()[rva..][..self.width()],
-            proc.max_width() * 3 + 1,
-        )
-    }
+    fn bytes(&self, instruction: MaybeInstruction, addr: usize) -> String;
 }
 
 impl<D: Decodable> InspectProcessor for Processor<D> {
-    fn iter(&self) -> Box<dyn Iterator<Item = (usize, &dyn InspectInstruction)> + '_> {
-        Box::new(
-            self.instructions
-                .iter()
-                .map(|(addr, inst)| (*addr, inst.as_ref().unwrap() as &dyn InspectInstruction)),
-        )
+    fn iter(&self) -> Box<dyn Iterator<Item = (usize, MaybeInstruction)> + '_> {
+        Box::new(self.instructions.iter().map(|(addr, inst)| {
+            (
+                *addr,
+                match inst {
+                    Ok(ref val) => Ok(val as &dyn Decoded),
+                    Err(ref err) => Err(err as &dyn Failed),
+                },
+            )
+        }))
     }
 
     fn base_addr(&self) -> usize {
@@ -83,6 +69,16 @@ impl<D: Decodable> InspectProcessor for Processor<D> {
 
     fn max_width(&self) -> usize {
         self.decoder.max_width()
+    }
+
+    fn bytes(&self, instruction: MaybeInstruction, addr: usize) -> String {
+        let rva = addr - self.base_addr;
+        let bytes = match instruction {
+            Ok(instruction) => &self.section[rva..][..instruction.width()],
+            Err(err) => &self.section[rva..][..err.incomplete_width()],
+        };
+
+        encode_hex_bytes_truncated(bytes, self.decoder.max_width() * 3 + 1)
     }
 }
 

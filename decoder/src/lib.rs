@@ -7,24 +7,26 @@ pub trait ToTokens {
     fn tokenize(&self, stream: &mut TokenStream);
 }
 
-pub trait Decoded: ToTokens {
-    type Instruction: Debug + Default;
-    type Operand;
-
+pub trait Decoded: ToTokens + Debug {
     fn width(&self) -> usize;
     fn is_call(&self) -> bool;
     fn is_ret(&self) -> bool;
     fn is_jump(&self) -> bool;
+    fn tokens(&self) -> TokenStream {
+        let mut stream = TokenStream::new();
+        self.tokenize(&mut stream);
+        stream
+    }
 }
 
-pub trait Complete {
+pub trait Failed: Debug {
     fn is_complete(&self) -> bool;
     fn incomplete_width(&self) -> usize;
 }
 
 pub trait Decodable {
-    type Instruction: Debug + Decoded;
-    type Error: Debug + Complete;
+    type Instruction: Decoded;
+    type Error: Failed;
     type Operand;
 
     fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Self::Error>;

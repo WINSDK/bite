@@ -18,7 +18,7 @@ pub enum Error {
     Exhausted,
 }
 
-impl decoder::Complete for Error {
+impl decoder::Failed for Error {
     #[inline]
     fn is_complete(&self) -> bool {
         !matches!(self, Error::Exhausted)
@@ -746,9 +746,6 @@ pub struct Instruction {
 }
 
 impl decoder::Decoded for Instruction {
-    type Instruction = Instruction;
-    type Operand = std::borrow::Cow<'static, str>;
-
     fn width(&self) -> usize {
         self.len
     }
