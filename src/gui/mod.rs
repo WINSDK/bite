@@ -250,15 +250,15 @@ fn handle_post_render(rctx: &mut RenderContext, ectx: &mut EventContext) {
     if ectx.keyboard.pressed(VirtualKeyCode::O, ModifiersState::CTRL) {
         // create dialog popup and get references to the donut and dissasembly
         let dialog = rfd::FileDialog::new().set_parent(&*ectx.window).pick_file();
-        let show_donut = Arc::clone(&rctx.show_donut);
-
-        // ghost disassembling thread if a binary is already loaded.
-        if rctx.disassembling_thread.is_some() {
-            rctx.disassembling_thread = None;
-        }
 
         // load binary
         if let Some(path) = dialog {
+            // ghost disassembling thread if a binary is already loaded.
+            if rctx.disassembling_thread.is_some() {
+                rctx.disassembling_thread = None;
+            }
+
+            let show_donut = Arc::clone(&rctx.show_donut);
             rctx.dissasembly = None;
             rctx.disassembling_thread =
                 Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));

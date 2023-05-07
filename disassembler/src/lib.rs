@@ -3,9 +3,7 @@
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-use decoder::Decoded;
-
-use decoder::{encode_hex_bytes_truncated, Decodable, Failed};
+use decoder::{encode_hex_bytes_truncated, Decodable, Failed, Decoded};
 pub use decoder::{ToTokens, TokenStream};
 
 pub mod x86 {
@@ -42,7 +40,6 @@ pub trait InspectProcessor {
     fn iter(&self) -> Box<dyn Iterator<Item = (usize, MaybeInstruction)> + '_>;
     fn base_addr(&self) -> usize;
     fn section(&self) -> &[u8];
-    fn max_width(&self) -> usize;
     fn bytes(&self, instruction: MaybeInstruction, addr: usize) -> String;
 }
 
@@ -65,10 +62,6 @@ impl<D: Decodable> InspectProcessor for Processor<D> {
 
     fn section(&self) -> &[u8] {
         &self.section[..]
-    }
-
-    fn max_width(&self) -> usize {
-        self.decoder.max_width()
     }
 
     fn bytes(&self, instruction: MaybeInstruction, addr: usize) -> String {
