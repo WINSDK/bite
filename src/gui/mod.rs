@@ -2,7 +2,6 @@ mod controls;
 mod donut;
 mod quad;
 mod texture;
-mod uniforms;
 mod utils;
 mod window;
 
@@ -23,9 +22,6 @@ use std::time::Instant;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Generic IO operation failed.
-    IO(std::io::Error),
-
     /// Failure to retrieve the current texture from our surface.
     DrawTexture(wgpu::SurfaceError),
 
@@ -52,12 +48,6 @@ pub enum Error {
 
     /// File is not found.
     NotFound(std::path::PathBuf),
-
-    /// A shader given to the compiler wasn't of type `COMPUTE`, `VERTEX` or `FRAGMENT`.
-    UnknownShaderStage,
-
-    /// Shader failed to compile for any number of reasons.
-    CompilationFailed,
 }
 
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;

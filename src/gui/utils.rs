@@ -1,15 +1,4 @@
 use super::Error;
-use std::borrow::Cow;
-use std::path::{Path, PathBuf};
-
-use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-use naga::{
-    back::spv,
-    front::glsl,
-    valid::{Capabilities, ValidationFlags, Validator},
-};
 
 pub struct Timer {
     start: std::time::Instant,
@@ -47,7 +36,7 @@ pub struct Png {
     pub height: u32,
 }
 
-pub async fn decode_png<P: AsRef<Path>>(path: P) -> Result<Png, Error> {
+pub async fn decode_png<P: AsRef<std::path::Path>>(path: P) -> Result<Png, Error> {
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
@@ -78,131 +67,6 @@ pub fn decode_png_bytes(bytes: &[u8]) -> Result<Png, Error> {
     })
 }
 
-pub async fn generate_vulkan_shader_module<P: AsRef<Path>>(
-    path: P,
-    stage: wgpu::ShaderStages,
-    device: &wgpu::Device,
-) -> Result<wgpu::ShaderModule, Error> {
-    let cache_path = cached_path(&path);
-
-    match retrieve_cached_module(&path, cache_path, device).await {
-        None => compile_shader(&path, stage, device).await,
-        Some(module) => Ok(module),
-    }
-}
-
-fn cached_path<P: AsRef<Path>>(path: P) -> PathBuf {
-    let cache_path = path.as_ref().with_extension("spv");
-    let cache_path = cache_path.file_name().unwrap();
-    if cfg!(target_os = "windows") {
-        Path::new("C:\\Windows\\Temp").join(cache_path)
-    } else {
-        Path::new("/tmp").join(cache_path)
-    }
-}
-
-/// checks if shader is already cached, if so returns a ShaderModule
-async fn retrieve_cached_module<P1: AsRef<Path>, P2: AsRef<Path>>(
-    path: P1,
-    cache_path: P2,
-    device: &wgpu::Device,
-) -> Option<wgpu::ShaderModule> {
-    let src_file = File::open(&path).await.ok()?;
-    let mut cache_file = File::open(cache_path).await.ok()?;
-
-    let cache_modified = cache_file.read_u128().await.ok()?;
-    let date_modified = src_file
-        .metadata()
-        .await
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-
-    // Check if the src_file's modified date equals the modified date stored in the cache file,
-    // this ensures that if the source file get's modified, the cache file must be outdated.
-    if date_modified == cache_modified {
-        let mut shader: Vec<u8> = Vec::new();
-        cache_file.read_to_end(&mut shader).await.ok()?;
-
-        return Some(device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::util::make_spirv(&shader[..]),
-        }));
-    }
-
-    None
-}
-
-async fn compile_shader<P: AsRef<Path>>(
-    path: P,
-    stage: wgpu::ShaderStages,
-    device: &wgpu::Device,
-) -> Result<wgpu::ShaderModule, Error> {
-    let mut src_file =
-        File::open(&path).await.map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
-
-    let cache_path = cached_path(&path);
-    let mut cache_file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open(&cache_path)
-        .await
-        .map_err(|_| Error::NotFound(cache_path))?;
-
-    let stage = match stage {
-        wgpu::ShaderStages::COMPUTE => naga::ShaderStage::Compute,
-        wgpu::ShaderStages::VERTEX => naga::ShaderStage::Vertex,
-        wgpu::ShaderStages::FRAGMENT => naga::ShaderStage::Fragment,
-        _ => return Err(Error::UnknownShaderStage),
-    };
-
-    let module = {
-        let mut src = String::new();
-        src_file.read_to_string(&mut src).await.map_err(Error::IO)?;
-
-        glsl::Parser::default()
-            .parse(&glsl::Options::from(stage), &src[..])
-            .map_err(|_| Error::CompilationFailed)?
-    };
-
-    let mut validator = if cfg!(debug_assertions) {
-        Validator::new(ValidationFlags::all(), Capabilities::empty())
-    } else {
-        Validator::new(ValidationFlags::empty(), Capabilities::empty())
-    };
-
-    let module_info = validator.validate(&module).map_err(|_| Error::CompilationFailed)?;
-
-    let binary = spv::write_vec(&module, &module_info, &spv::Options::default(), None).unwrap();
-
-    // As different OS's use different underlying measurements for time, we can't just cast this to
-    // a byte array and compare time differences. For this reason we converts the date modified to
-    // a UNIX timestamp.
-    let date_modified = src_file
-        .metadata()
-        .await
-        .map_err(Error::IO)?
-        .modified()
-        .map_err(Error::IO)?
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-
-    cache_file.write_u128(date_modified).await.map_err(Error::IO)?;
-
-    cache_file
-        .write_all(bytemuck::cast_slice(binary.as_slice()))
-        .await
-        .map_err(Error::IO)?;
-
-    Ok(device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(&binary[..])),
-    }))
-}
 
 #[cfg(target_os = "windows")]
 pub mod windows {

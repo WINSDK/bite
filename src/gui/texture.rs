@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::gui::utils::{decode_png, decode_png_bytes, Png};
 use crate::gui::Error;
 

@@ -34,6 +34,12 @@ pub struct Processor<D: Decodable> {
     pub instructions: BTreeMap<usize, Result<D::Instruction, D::Error>>,
 }
 
+// #[derive(Debug)]
+// enum Xref<D: Decodable> {
+//     Raw(Result<D::Instruction, D::Error>),
+//     Extern(usize, TokenStream),
+// }
+
 pub type MaybeInstruction<'a> = Result<&'a dyn Decoded, &'a dyn Failed>;
 
 pub trait InspectProcessor {
@@ -87,18 +93,20 @@ impl<D: Decodable> Processor<D> {
     }
 
     pub fn recurse(&mut self) {
-        let mut addresses = VecDeque::with_capacity(1024);
-        addresses.push_back(self.entrypoint);
+        let mut unexplored_data = VecDeque::with_capacity(1024);
+        let mut raw_instructions = VecDeque::with_capacity(1024);
+
+        unexplored_data.push_back(self.entrypoint);
 
         match self.entrypoint.checked_sub(self.base_addr) {
-            Some(entrypoint) => addresses.push_back(entrypoint),
+            Some(entrypoint) => unexplored_data.push_back(entrypoint),
             None => {
                 eprintln!("failed to calculate entrypoint, defaulting to 0x1000");
-                addresses.push_back(self.base_addr + 0x1000);
+                unexplored_data.push_back(self.base_addr + 0x1000);
             }
         }
 
-        while let Some(addr) = addresses.pop_front() {
+        while let Some(addr) = unexplored_data.pop_front() {
             // don't visit addresses that are already decoded
             if self.instructions.contains_key(&addr) {
                 continue;
@@ -112,17 +120,27 @@ impl<D: Decodable> Processor<D> {
 
             let mut reader = decoder::Reader::new(bytes);
             let instruction = self.decoder.decode(&mut reader);
-            let width = match &instruction {
+            let width = match instruction {
                 Ok(inst) => {
-                    if inst.is_jump() {}
-                    inst.width()
+                    let width = inst.width();
+                    raw_instructions.push_back((addr, inst));
+                    width
                 }
                 Err(err) if !err.is_complete() => continue,
-                Err(err) => err.incomplete_width(),
+                Err(err) => {
+                    let width = err.incomplete_width();
+                    self.instructions.insert(addr, Err(err));
+                    width
+                }
             };
 
-            self.instructions.insert(addr, instruction);
-            addresses.push_back(addr + width);
+            unexplored_data.push_back(addr + width);
+        }
+
+        while let Some((addr, instruction)) = raw_instructions.pop_front() {
+            let instruction: D::Instruction = instruction;
+
+            self.instructions.insert(addr, Ok(instruction));
         }
     }
 

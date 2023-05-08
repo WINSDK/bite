@@ -75,6 +75,12 @@ impl TokenStream {
     }
 }
 
+impl Debug for TokenStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner[..self.token_count].fmt(f)
+    }
+}
+
 impl std::ops::Deref for TokenStream {
     type Target = [Token<'static>];
 
