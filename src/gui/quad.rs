@@ -47,7 +47,7 @@ pub struct Pipeline {
 impl Pipeline {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let constant_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("quad uniforms layout"),
+            label: Some("bite::gui::quad uniform layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
@@ -63,14 +63,14 @@ impl Pipeline {
         });
 
         let constant_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("quad uniforms buffer"),
+            label: Some("bite::gui::quad uniforms buffer"),
             size: mem::size_of::<Uniforms>() as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let constants = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("quad uniforms bind group"),
+            label: Some("bite::gui::quad uniforms bind group"),
             layout: &constant_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -79,18 +79,18 @@ impl Pipeline {
         });
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("quad pipeline layout"),
+            label: Some("bite::gui::quad pipeline layout"),
             push_constant_ranges: &[],
             bind_group_layouts: &[&constant_layout],
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
+            label: Some("bite::gui::quad shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/quad.wgsl").into()),
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("quad pipeline"),
+            label: Some("bite::gui::quad pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -142,19 +142,19 @@ impl Pipeline {
         });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("quad vertex buffer"),
+            label: Some("bite::gui::quad vertex buffer"),
             contents: bytemuck::cast_slice(VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("quad index buffer"),
+            label: Some("bite::gui::quad index buffer"),
             contents: bytemuck::cast_slice(INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("quad instance buffer"),
+            label: Some("bite::gui::quad instance buffer"),
             size: mem::size_of::<Instance>() as u64 * MAX_INSTANCES,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -203,11 +203,10 @@ impl Pipeline {
             )
             .copy_from_slice(instance_bytes);
 
-        // drop(instance_buffer);
-        // staging_belt.finish();
+        staging_belt.finish();
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("quad render pass"),
+            label: Some("bite::gui::quad render pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
                 resolve_target: None,
@@ -225,7 +224,5 @@ impl Pipeline {
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..instances.len() as u32);
-
-        // drop(render_pass);
     }
 }
