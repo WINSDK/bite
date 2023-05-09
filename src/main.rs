@@ -74,7 +74,9 @@ fn main() {
     }
 
     if ARGS.names {
-        let index = symbols::Index::parse(&obj).expect("Failed to parse symbols table.");
+        let mut index = symbols::Index::new();
+
+        index.parse_debug(&obj).expect("Failed to parse symbols table.");
 
         if index.is_empty() {
             exit!("Object \"{path}\" doesn't seem to export any symbols.");

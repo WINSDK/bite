@@ -18,6 +18,9 @@ pub enum DecodeError {
     /// Failed to parse object.
     IncompleteObject(object::Error),
 
+    /// Failed to parse import table.
+    IncompleteImportTable(object::Error),
+
     /// Failed to parse symbols table.
     IncompleteSymbolTable(pdb::Error),
 
@@ -59,8 +62,22 @@ impl Disassembly {
             .map_err(DecodeError::DecompressionFailed)?
             .into_owned();
 
-        let symbols = Index::parse(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
         let section_base = section.address() as usize;
+        let mut symbols = Index::new();
+
+        symbols.parse_debug(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
+
+        if obj.format() == object::BinaryFormat::Pe {
+            if obj.is_64() {
+                symbols
+                    .parse_imports::<object::pe::ImageNtHeaders64>(&binary[..])
+                    .map_err(DecodeError::IncompleteImportTable)?;
+            } else {
+                symbols
+                    .parse_imports::<object::pe::ImageNtHeaders32>(&binary[..])
+                    .map_err(DecodeError::IncompleteImportTable)?;
+            }
+        }
 
         let proc: Box<dyn disassembler::InspectProcessor + Send> = match obj.architecture() {
             object::Architecture::Riscv32 => {

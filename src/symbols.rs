@@ -1,9 +1,33 @@
 use object::{Object, ObjectSymbol};
+use object::read::pe::ImageNtHeaders;
 use pdb::FallibleIterator;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use demangler::TokenStream;
+
+fn parser(s: &str) -> TokenStream {
+    // symbols without leading underscores are accepted as
+    // dbghelp in windows strips them away
+
+    // parse gnu/llvm Rust/C/C++ symbols
+    if let Some(s) = demangler::itanium::parse(s) {
+        return s;
+    }
+
+    // parse rust symbols that match the v0 mangling scheme
+    if let Some(s) = demangler::rust::parse(s) {
+        return s;
+    }
+
+    // parse windows msvc C/C++ symbols
+    if let Some(s) = demangler::msvc::parse(s) {
+        return s;
+    }
+
+    // return the original mangled symbol on failure
+    TokenStream::simple(s)
+}
 
 #[derive(Debug)]
 pub struct Index {
@@ -11,6 +35,12 @@ pub struct Index {
 }
 
 impl Index {
+    pub fn new() -> Self {
+        Self {
+            tree: BTreeMap::new(),
+        }
+    }
+
     fn pdb_file(obj: &object::File<'_>) -> Option<std::fs::File> {
         let pdb = obj.pdb_info().ok()??;
         let path = std::str::from_utf8(pdb.path()).ok()?;
@@ -18,7 +48,7 @@ impl Index {
         std::fs::File::open(path).ok()
     }
 
-    pub fn parse(obj: &object::File<'_>) -> pdb::Result<Index> {
+    pub fn parse_debug(&mut self, obj: &object::File<'_>) -> pdb::Result<()> {
         let mut symbols: Vec<(usize, &str)> = obj
             .symbols()
             .filter_map(symbol_addr_name)
@@ -62,44 +92,83 @@ impl Index {
             todo!("simplify symbols");
         }
 
-        let parser = |s: &str| -> TokenStream {
-            // symbols without leading underscores are accepted as
-            // dbghelp in windows strips them away
-
-            // parse gnu/llvm Rust/C/C++ symbols
-            if let Some(s) = demangler::itanium::parse(s) {
-                return s;
-            }
-
-            // parse rust symbols that match the v0 mangling scheme
-            if let Some(s) = demangler::rust::parse(s) {
-                return s;
-            }
-
-            // parse windows msvc C/C++ symbols
-            if let Some(s) = demangler::msvc::parse(s) {
-                return s;
-            }
-
-            // return the original mangled symbol on failure
-            TokenStream::simple(s)
-        };
-
         // insert entrypoint into known symbols
         let entrypoint = obj.entry() as usize;
         println!("entrypoint {entrypoint:#x}");
 
-        // iterator of just the entrypoint.
-        // (first as it may be replaced by a symbol with the same address)
-        let entrypoint = std::iter::once((
+        // insert entrypoint and override it if it's got a defined name
+        self.tree.insert(
             entrypoint,
             Arc::new(demangler::TokenStream::simple("entry")),
-        ));
+        );
 
-        let symbols = symbols.iter().map(|(addr, symbol)| (*addr, Arc::new(parser(symbol))));
-        Ok(Self {
-            tree: entrypoint.chain(symbols).collect(),
-        })
+        // insert defined symbols
+        let map_symbol = |(addr, symbol): &(usize, &str)| (*addr, Arc::new(parser(symbol)));
+        self.tree.extend(symbols.iter().map(map_symbol));
+
+        Ok(())
+    }
+
+    // NOTE: import table get's filled in at runtime.
+    // TODO: the export table should be explored using binary search if the hint flag isn't yet
+    pub fn parse_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> object::Result<()> {
+        use object::read::pe::ImageThunkData;
+        use object::LittleEndian as LE;
+
+        let obj = object::read::pe::PeFile::<H>::parse(&binary[..])?;
+
+        if let Some(import_table) = obj.import_table()? {
+            let mut import_descs = import_table.descriptors()?;
+            while let Some(import_desc) = import_descs.next()? {
+                // let library = import_table.name(import_desc.name.get(LE))?;
+                // println!("library: {}", String::from_utf8_lossy(library));
+
+                let first_thunk = import_desc.first_thunk.get(LE);
+                let original_first_thunk = import_desc.original_first_thunk.get(LE);
+
+                let thunk = if first_thunk == 0 {
+                    original_first_thunk
+                } else  {
+                    first_thunk
+                };
+
+                let mut import_addr_table = import_table.thunks(thunk)?;
+                let mut func_rva = first_thunk;
+                while let Some(func) = import_addr_table.next::<H>()? {
+                    if !func.is_ordinal() {
+                        let (hint, name) = match import_table.hint_name(func.address()) {
+                            Ok(val) => val,
+                            Err(..) => {
+                                // skip over an entry
+                                func_rva += std::mem::size_of::<H::ImageThunkData>() as u32;
+                                continue;
+                            }
+                        };
+
+                        let name = match std::str::from_utf8(name) {
+                            Ok(name) => name,
+                            Err(..) => continue,
+                        };
+
+                        // `original_first_thunk` uses a `hint` into the export
+                        // table whilst iterating thourhg regular `thunk`'s is
+                        // a simple offset into the symbol export table
+                        let addr = if thunk == original_first_thunk {
+                            hint as usize
+                        } else {
+                            func_rva as usize
+                        };
+
+                        self.tree.insert(addr, Arc::new(parser(name)));
+                    }
+
+                    // skip over an entry
+                    func_rva += std::mem::size_of::<H::ImageThunkData>() as u32;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Arc<TokenStream>> {
