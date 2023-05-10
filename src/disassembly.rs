@@ -130,7 +130,7 @@ impl Disassembly {
 
         println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
         Ok(Self {
-            current_addr: entrypoint as usize,
+            current_addr: 0,
             proc,
             symbols,
         })

@@ -181,7 +181,7 @@ fn handle_event(
                     }
                 };
 
-                rctx.listing_offset = f32::max(0.0, rctx.listing_offset + delta);
+                rctx.listing_offset += delta;
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 rctx.scale_factor = scale_factor as f32;

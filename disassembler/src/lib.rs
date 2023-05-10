@@ -1,9 +1,11 @@
+#![allow(dead_code)]
 //! Consumes decoder crates and provides an interface to interact with the decoders.
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-use decoder::{encode_hex_bytes_truncated, Decodable, Failed, Decoded};
+use tokenizing::Token;
+use decoder::{encode_hex_bytes_truncated, Decodable, Decoded, Failed};
 pub use decoder::{ToTokens, TokenStream};
 
 pub mod x86 {
@@ -22,6 +24,42 @@ pub mod mips {
     pub use mips::Decoder;
 }
 
+const MAX_OPERANDS: usize = 4;
+
+#[derive(Debug)]
+enum Xref {
+    Data(Vec<Token<'static>>),
+    Label(Vec<Token<'static>>),
+}
+
+#[derive(Debug, Default)]
+struct XrefOperand {
+    addr: usize,
+    xref: Vec<Token<'static>>,
+}
+
+#[derive(Debug)]
+pub struct Metadata<D: Decoded> {
+    instruction: D,
+    shadowing: [Option<XrefOperand>; MAX_OPERANDS]
+}
+
+impl<D: Decoded> Metadata<D> {
+    fn new(instruction: D) -> Self {
+        Self {
+            instruction,
+            shadowing: Default::default(),
+        }
+    }
+
+    pub fn tokens(&self) -> TokenStream {
+        let mut stream = TokenStream::new();
+        self.instruction.tokenize(&mut stream);
+
+        stream
+    }
+}
+
 /// Recursive decent disassembler that inspect one given section.
 /// It currently has the limitation of only being able to inspect the section
 /// where a given binaries entrypoint is.
@@ -31,35 +69,34 @@ pub struct Processor<D: Decodable> {
     pub entrypoint: usize,
     pub base_addr: usize,
     pub decoder: D,
-    pub instructions: BTreeMap<usize, Result<D::Instruction, D::Error>>,
+    pub parsed: BTreeMap<usize, Result<Metadata<D::Instruction>, D::Error>>,
 }
-
-// #[derive(Debug)]
-// enum Xref<D: Decodable> {
-//     Raw(Result<D::Instruction, D::Error>),
-//     Extern(usize, TokenStream),
-// }
 
 pub type MaybeInstruction<'a> = Result<&'a dyn Decoded, &'a dyn Failed>;
 
 pub trait InspectProcessor {
-    fn iter(&self) -> Box<dyn Iterator<Item = (usize, MaybeInstruction)> + '_>;
+    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_>;
+    fn instruction_count(&self) -> usize;
     fn base_addr(&self) -> usize;
     fn section(&self) -> &[u8];
     fn bytes(&self, instruction: MaybeInstruction, addr: usize) -> String;
 }
 
 impl<D: Decodable> InspectProcessor for Processor<D> {
-    fn iter(&self) -> Box<dyn Iterator<Item = (usize, MaybeInstruction)> + '_> {
-        Box::new(self.instructions.iter().map(|(addr, inst)| {
+    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_> {
+        Box::new(self.parsed.iter().map(|(addr, inst)| {
             (
                 *addr,
                 match inst {
-                    Ok(ref val) => Ok(val as &dyn Decoded),
+                    Ok(ref val) => Ok(&val.instruction as &dyn Decoded),
                     Err(ref err) => Err(err as &dyn Failed),
                 },
             )
         }))
+    }
+
+    fn instruction_count(&self) -> usize {
+        self.parsed.len()
     }
 
     fn base_addr(&self) -> usize {
@@ -88,7 +125,7 @@ impl<D: Decodable> Processor<D> {
             entrypoint,
             base_addr,
             decoder,
-            instructions: BTreeMap::new(),
+            parsed: BTreeMap::new(),
         }
     }
 
@@ -96,7 +133,9 @@ impl<D: Decodable> Processor<D> {
         let mut unexplored_data = VecDeque::with_capacity(1024);
         let mut raw_instructions = VecDeque::with_capacity(1024);
 
-        unexplored_data.push_back(self.entrypoint);
+        // TODO: recurse starting from entrypoint, following jumps
+        // unexplored_data.push_back(self.entrypoint);
+        unexplored_data.push_back(self.base_addr);
 
         match self.entrypoint.checked_sub(self.base_addr) {
             Some(entrypoint) => unexplored_data.push_back(entrypoint),
@@ -108,7 +147,7 @@ impl<D: Decodable> Processor<D> {
 
         while let Some(addr) = unexplored_data.pop_front() {
             // don't visit addresses that are already decoded
-            if self.instructions.contains_key(&addr) {
+            if self.parsed.contains_key(&addr) {
                 continue;
             }
 
@@ -129,7 +168,7 @@ impl<D: Decodable> Processor<D> {
                 Err(err) if !err.is_complete() => continue,
                 Err(err) => {
                     let width = err.incomplete_width();
-                    self.instructions.insert(addr, Err(err));
+                    self.parsed.insert(addr, Err(err));
                     width
                 }
             };
@@ -140,7 +179,7 @@ impl<D: Decodable> Processor<D> {
         while let Some((addr, instruction)) = raw_instructions.pop_front() {
             let instruction: D::Instruction = instruction;
 
-            self.instructions.insert(addr, Ok(instruction));
+            self.parsed.insert(addr, Ok(Metadata::new(instruction)));
         }
     }
 

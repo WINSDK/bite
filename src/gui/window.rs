@@ -149,15 +149,58 @@ impl Backend {
             )
             .map_err(Error::DrawText)?;
 
-        let lines_scrolled = (ctx.listing_offset / ctx.font_size) as usize;
+        if let Some(ref mut dissasembly) = ctx.dissasembly {
+            let mut lines_scrolled = (ctx.listing_offset / ctx.font_size) as isize;
 
-        if let Some(ref dissasembly) = ctx.dissasembly {
+            #[allow(unused_must_use)]
+            if lines_scrolled != 0 {
+                // don't count any lines scrolled before the dissasembly is loaded
+                if dissasembly.current_addr == 0 {
+                    lines_scrolled = 0;
+                }
+
+                // find the instructions equal to or high than the current address
+                // then skipping the number of lines we've scrolled past and if there
+                // isn't any instructions left, show just the last instruction
+                let inst = if lines_scrolled < 0 {
+                    dissasembly
+                        .proc
+                        .iter()
+                        .rev()
+                        .skip_while(|(addr, _)| {
+                            if *addr >= dissasembly.current_addr {
+                                return true;
+                            }
+
+                            lines_scrolled += 1;
+                            lines_scrolled < 0
+                        })
+                        .next()
+                        .unwrap_or(dissasembly.proc.iter().next().unwrap())
+                } else {
+                    dissasembly
+                        .proc
+                        .iter()
+                        .skip_while(|(addr, _)| *addr < dissasembly.current_addr)
+                        .skip(lines_scrolled as usize)
+                        .next()
+                        .unwrap_or(dissasembly.proc.iter().last().unwrap())
+                };
+
+                dissasembly.current_addr = inst.0;
+                ctx.listing_offset = 0.0;
+            }
+
             let mut text: Vec<Token> = Vec::new();
             let symbols = &dissasembly.symbols;
+            let mut lines_scrolled = 0;
             let lines = dissasembly
                 .proc
                 .iter()
-                .skip(lines_scrolled)
+                .skip_while(|(addr, _)| {
+                    lines_scrolled += 1;
+                    *addr < dissasembly.current_addr
+                })
                 .take((self.size.height as f32 / font_size).ceil() as usize);
 
             // for each instruction
@@ -228,11 +271,10 @@ impl Backend {
                 )
                 .map_err(Error::DrawText)?;
 
-            let len = dissasembly.proc.iter().size_hint().0;
-            let bar_height =
-                (self.size.height * self.size.height) as f32 / (len as f32 * font_size);
+            let len = dissasembly.proc.instruction_count() as f32;
+            let bar_height = (self.size.height * self.size.height) as f32 / (len * font_size);
             let bar_height = bar_height.max(font_size);
-            let offset = ctx.listing_offset / (len as f32 * font_size);
+            let offset = lines_scrolled as f32 / len;
             let screen_offset = offset * (self.size.height as f32 - bar_height);
 
             let instances = [
