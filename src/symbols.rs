@@ -147,7 +147,11 @@ impl Index {
 
                         let name = match std::str::from_utf8(name) {
                             Ok(name) => name,
-                            Err(..) => continue,
+                            Err(..) => {
+                                // skip over an entry
+                                func_rva += std::mem::size_of::<H::ImageThunkData>() as u32;
+                                continue;
+                            }
                         };
 
                         // `original_first_thunk` uses a `hint` into the export

@@ -2605,19 +2605,19 @@ impl decoder::Decodable for Decoder {
     type Operand = Operand;
 
     fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Self::Error> {
-        let mut instr = Instruction::invalid();
-        read(self, reader, &mut instr)?;
+        let mut inst = Instruction::invalid();
+        read(self, reader, &mut inst)?;
 
-        instr.length = reader.offset() as u8;
+        inst.length = reader.offset() as u8;
         if reader.offset() > 15 {
             return Err(Error::TooLong);
         }
 
         if *self != Decoder::default() {
-            self.revise_instruction(&mut instr)?;
+            self.revise_instruction(&mut inst)?;
         }
 
-        Ok(instr)
+        Ok(inst)
     }
 
     fn max_width(&self) -> usize {
