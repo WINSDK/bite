@@ -3,6 +3,7 @@ use crate::gui::Error;
 use crate::gui::RenderContext;
 use tokenizing::colors;
 
+use std::ops::Bound;
 use std::sync::atomic::Ordering;
 
 use tokenizing::Token;
@@ -165,23 +166,15 @@ impl Backend {
                 let inst = if lines_scrolled < 0 {
                     dissasembly
                         .proc
-                        .iter()
+                        .in_range(Bound::Unbounded, Bound::Included(dissasembly.current_addr))
                         .rev()
-                        .skip_while(|(addr, _)| {
-                            if *addr >= dissasembly.current_addr {
-                                return true;
-                            }
-
-                            lines_scrolled += 1;
-                            lines_scrolled < 0
-                        })
+                        .skip(-lines_scrolled as usize)
                         .next()
                         .unwrap_or(dissasembly.proc.iter().next().unwrap())
                 } else {
                     dissasembly
                         .proc
-                        .iter()
-                        .skip_while(|(addr, _)| *addr < dissasembly.current_addr)
+                        .in_range(Bound::Included(dissasembly.current_addr), Bound::Unbounded)
                         .skip(lines_scrolled as usize)
                         .next()
                         .unwrap_or(dissasembly.proc.iter().last().unwrap())

@@ -3,10 +3,11 @@
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::ops::Bound;
 
-use tokenizing::Token;
 use decoder::{encode_hex_bytes_truncated, Decodable, Decoded, Failed};
 pub use decoder::{ToTokens, TokenStream};
+use tokenizing::Token;
 
 pub mod x86 {
     pub use x86_64::protected_mode::Decoder;
@@ -41,7 +42,7 @@ struct XrefOperand {
 #[derive(Debug)]
 pub struct Metadata<D: Decoded> {
     instruction: D,
-    shadowing: [Option<XrefOperand>; MAX_OPERANDS]
+    shadowing: [Option<XrefOperand>; MAX_OPERANDS],
 }
 
 impl<D: Decoded> Metadata<D> {
@@ -76,6 +77,12 @@ pub type MaybeInstruction<'a> = Result<&'a dyn Decoded, &'a dyn Failed>;
 
 pub trait InspectProcessor {
     fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_>;
+    fn in_range(
+        &self,
+        start: Bound<usize>,
+        end: Bound<usize>,
+    ) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_>;
+
     fn instruction_count(&self) -> usize;
     fn base_addr(&self) -> usize;
     fn section(&self) -> &[u8];
@@ -85,6 +92,22 @@ pub trait InspectProcessor {
 impl<D: Decodable> InspectProcessor for Processor<D> {
     fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_> {
         Box::new(self.parsed.iter().map(|(addr, inst)| {
+            (
+                *addr,
+                match inst {
+                    Ok(ref val) => Ok(&val.instruction as &dyn Decoded),
+                    Err(ref err) => Err(err as &dyn Failed),
+                },
+            )
+        }))
+    }
+
+    fn in_range(
+        &self,
+        start: Bound<usize>,
+        end: Bound<usize>,
+    ) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_> {
+        Box::new(self.parsed.range((start, end)).map(|(addr, inst)| {
             (
                 *addr,
                 match inst {
