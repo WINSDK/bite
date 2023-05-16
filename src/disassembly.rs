@@ -143,24 +143,6 @@ impl Disassembly {
     }
 }
 
-#[derive(Debug)]
-pub struct Metadata<D: Decoded> {
-    instruction: D,
-}
-
-impl<D: Decoded> Metadata<D> {
-    fn new(
-        addr: usize,
-        symbols: &Index,
-        mut instruction: D,
-    ) -> Self {
-        instruction.find_xrefs(addr, &symbols.tree);
-        Self {
-            instruction,
-        }
-    }
-}
-
 /// Recursive decent disassembler that inspect one given section.
 /// It currently has the limitation of only being able to inspect the section
 /// where a given binaries entrypoint is.
@@ -170,7 +152,7 @@ pub struct Processor<D: decoder::Decodable> {
     pub entrypoint: usize,
     pub base_addr: usize,
     pub decoder: D,
-    pub parsed: BTreeMap<usize, Result<Metadata<D::Instruction>, D::Error>>,
+    pub parsed: BTreeMap<usize, Result<D::Instruction, D::Error>>,
 }
 
 impl<D: Decodable> Processor<D> {
@@ -231,10 +213,9 @@ impl<D: Decodable> Processor<D> {
             unexplored_data.push_back(addr + width);
         }
 
-        while let Some((addr, instruction)) = raw_instructions.pop_front() {
-            let meta = Metadata::new(addr, symbols, instruction);
-
-            self.parsed.insert(addr, Ok(meta));
+        while let Some((addr, mut instruction)) = raw_instructions.pop_front() {
+            instruction.find_xrefs(addr, &symbols.tree);
+            self.parsed.insert(addr, Ok(instruction));
         }
     }
 
@@ -252,7 +233,6 @@ pub trait InspectProcessor {
         start: Bound<usize>,
         end: Bound<usize>,
     ) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_>;
-
     fn instruction_count(&self) -> usize;
     fn base_addr(&self) -> usize;
     fn section(&self) -> &[u8];
@@ -265,7 +245,7 @@ impl<D: Decodable> InspectProcessor for Processor<D> {
             (
                 *addr,
                 match inst {
-                    Ok(ref val) => Ok(&val.instruction as &dyn Decoded),
+                    Ok(ref val) => Ok(val as &dyn Decoded),
                     Err(ref err) => Err(err as &dyn Failed),
                 },
             )
@@ -281,7 +261,7 @@ impl<D: Decodable> InspectProcessor for Processor<D> {
             (
                 *addr,
                 match inst {
-                    Ok(ref val) => Ok(&val.instruction as &dyn Decoded),
+                    Ok(ref val) => Ok(val as &dyn Decoded),
                     Err(ref err) => Err(err as &dyn Failed),
                 },
             )

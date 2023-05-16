@@ -153,7 +153,6 @@ impl Backend {
         if let Some(ref mut dissasembly) = ctx.dissasembly {
             let mut lines_scrolled = (ctx.listing_offset / ctx.font_size) as isize;
 
-            #[allow(unused_must_use)]
             if lines_scrolled != 0 {
                 // don't count any lines scrolled before the dissasembly is loaded
                 if dissasembly.current_addr == 0 {
@@ -170,14 +169,14 @@ impl Backend {
                         .rev()
                         .skip(-lines_scrolled as usize)
                         .next()
-                        .unwrap_or(dissasembly.proc.iter().next().unwrap())
+                        .unwrap_or_else(|| dissasembly.proc.iter().next().unwrap())
                 } else {
                     dissasembly
                         .proc
                         .in_range(Bound::Included(dissasembly.current_addr), Bound::Unbounded)
                         .skip(lines_scrolled as usize)
                         .next()
-                        .unwrap_or(dissasembly.proc.iter().last().unwrap())
+                        .unwrap_or_else(|| dissasembly.proc.iter().last().unwrap())
                 };
 
                 dissasembly.current_addr = inst.0;
