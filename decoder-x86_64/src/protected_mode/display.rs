@@ -2080,15 +2080,6 @@ impl ToTokens for Instruction {
                 };
             }
 
-            // TODO: remove having to clone the string
-            if let Some(ref xref) = self.shadowing[0] {
-                stream.push("[", Colors::brackets());
-                for token in xref.text.tokens() {
-                    stream.push_owned(token.text.to_string(), token.color);
-                }
-                stream.push("]", Colors::brackets());
-            }
-
             if op.is_memory() {
                 stream.push(
                     MEM_SIZE_STRINGS[self.mem_size as usize - 1],
@@ -2101,6 +2092,15 @@ impl ToTokens for Instruction {
                 stream.push(":", Colors::expr());
             }
 
+            // TODO: remove having to clone the string
+            if let Some(ref xref) = self.shadowing[0] {
+                stream.push("[", Colors::brackets());
+                for token in xref.text.tokens() {
+                    stream.push_owned(token.text.to_string(), token.color);
+                }
+                stream.push("]", Colors::brackets());
+            }
+
             op.tokenize(stream);
 
             for idx in 1..self.operand_count {
@@ -2109,16 +2109,6 @@ impl ToTokens for Instruction {
                 }
 
                 stream.push(", ", Colors::expr());
-
-                // TODO: remove having to clone the string
-                if let Some(ref xref) = self.shadowing[idx as usize] {
-                    stream.push("[", Colors::brackets());
-                    for token in xref.text.tokens() {
-                        stream.push_owned(token.text.to_string(), token.color);
-                    }
-                    stream.push("]", Colors::brackets());
-                    continue;
-                }
 
                 let op = Operand::from_spec(self, self.operands[idx as usize]);
                 if op.is_memory() {
@@ -2130,6 +2120,16 @@ impl ToTokens for Instruction {
                 if let Some(prefix) = self.segment_override_for_op(idx) {
                     stream.push_owned(prefix.to_string(), Colors::segment());
                     stream.push(":", Colors::expr());
+                }
+
+                // TODO: remove having to clone the string
+                if let Some(ref xref) = self.shadowing[idx as usize] {
+                    stream.push("[", Colors::brackets());
+                    for token in xref.text.tokens() {
+                        stream.push_owned(token.text.to_string(), token.color);
+                    }
+                    stream.push("]", Colors::brackets());
+                    return;
                 }
 
                 op.tokenize(stream);

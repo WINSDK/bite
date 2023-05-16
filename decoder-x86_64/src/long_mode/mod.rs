@@ -2630,73 +2630,42 @@ impl decoder::Decoded for Instruction {
         self.length as usize
     }
 
-    fn is_call(&self) -> bool {
-        matches!(self.opcode(), Opcode::CALL | Opcode::CALLF)
-    }
-
-    fn is_ret(&self) -> bool {
-        match self.opcode() {
-            Opcode::RETURN | Opcode::RETF => true,
-            Opcode::IRET | Opcode::IRETD | Opcode::IRETQ => {
-                eprintln!("iret instruction isn't decodable");
-                false
-            }
-            _ => false,
-        }
-    }
-
-    fn is_jump(&self) -> bool {
-        matches!(
-            self.opcode(),
-            // unconditional jumps
-            Opcode::JMP |
-            Opcode::JMPE |
-            // conditional jumps
-            Opcode::JO |
-            Opcode::JNO |
-            Opcode::JB |
-            Opcode::JNB |
-            Opcode::JZ |
-            Opcode::JNZ |
-            Opcode::JA |
-            Opcode::JNA |
-            Opcode::JS |
-            Opcode::JNS |
-            Opcode::JP |
-            Opcode::JNP |
-            Opcode::JL |
-            Opcode::JGE |
-            Opcode::JLE |
-            Opcode::JG |
-            Opcode::JRCXZ
-        )
-    }
-
     fn find_xrefs(
         &mut self,
         addr: usize,
         symbols: &BTreeMap<usize, Arc<decoder::demangler::TokenStream>>,
     ) {
         for idx in 0..self.operand_count as usize {
-            use OperandSpec::*;
-
+            let operand = Operand::from_spec(&self, self.operands[idx]);
             let shadow = &mut self.shadowing[idx];
-            let operand = self.operands[idx];
-            let reg = self.regs[idx];
-
-            let xref = match operand {
-                ImmI8 | ImmI16 | ImmI32 | ImmI64 | ImmU8 | ImmU16 => {
-                    symbols.get(&(self.imm as usize))
-                },
-                RegDisp if reg == RegSpec::RIP => {
-                    let addr = self.length as usize + addr + self.disp as usize;
-                    symbols.get(&addr)
+            let addr = match operand {
+                Operand::ImmediateI8(imm) => self.length as usize + addr + imm as usize,
+                Operand::ImmediateI16(imm) => self.length as usize + addr + imm as usize,
+                Operand::ImmediateI32(imm) => self.length as usize + addr + imm as usize,
+                Operand::ImmediateI64(imm) => self.length as usize + addr + imm as usize,
+                Operand::ImmediateU8(imm) => self.length as usize + addr + imm as usize,
+                Operand::ImmediateU16(imm) => self.length as usize + addr + imm as usize,
+                Operand::ImmediateU32(imm) => self.length as usize + addr + imm as usize,
+                Operand::ImmediateU64(imm) => self.length as usize + addr + imm as usize,
+                Operand::DisplacementU32(imm) => addr + imm as usize,
+                Operand::DisplacementU64(imm) => addr + imm as usize,
+                Operand::RegDisp(RegSpec::RIP, disp) => self.length as usize + addr + disp as usize,
+                Operand::RegScaleDisp(RegSpec::RIP, scale, disp) => {
+                    let ip = self.length as usize + addr;
+                    ip * scale as usize + disp as usize
                 }
-                // DispU32 | DispU64 => { ??? some mov instruction },
+                Operand::RegIndexBaseScale(RegSpec::RIP, RegSpec::RIP, scale) => {
+                    let ip = self.length as usize + addr;
+                    (ip + ip) * scale as usize
+                }
+                Operand::RegIndexBaseScaleDisp(RegSpec::RIP, RegSpec::RIP, scale, disp) => {
+                    let ip = self.length as usize + addr;
+                    (ip + ip) * scale as usize + disp as usize
+                }
                 _ => continue,
             };
 
-            if let Some(xref) = xref {
+            if let Some(xref) = symbols.get(&addr) {
                 *shadow = Some(decoder::Xref {
                     addr,
                     text: Arc::clone(&xref),

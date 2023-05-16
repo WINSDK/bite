@@ -101,21 +101,6 @@ impl decoder::Decoded for Instruction {
     fn width(&self) -> usize {
         4
     }
-
-    fn is_call(&self) -> bool {
-        // crazy but return isn't implement as "jal" isn't implemented
-        // FIXME: implement return's in MIPS
-        eprintln!("returns aren't implemented in mips");
-        self.mnemomic == "jal"
-    }
-
-    fn is_ret(&self) -> bool {
-        self.mnemomic == "jr"
-    }
-
-    fn is_jump(&self) -> bool {
-        self.mnemomic == "j"
-    }
 }
 
 #[derive(Default)]

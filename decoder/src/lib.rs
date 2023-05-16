@@ -15,9 +15,6 @@ pub trait ToTokens {
 
 pub trait Decoded: ToTokens + Debug {
     fn width(&self) -> usize;
-    fn is_call(&self) -> bool;
-    fn is_ret(&self) -> bool;
-    fn is_jump(&self) -> bool;
     fn tokens(&self) -> TokenStream {
         let mut stream = TokenStream::new();
         self.tokenize(&mut stream);

@@ -749,24 +749,6 @@ impl decoder::Decoded for Instruction {
     fn width(&self) -> usize {
         self.len
     }
-
-    fn is_call(&self) -> bool {
-        matches!(
-            self.opcode,
-            Opcode::JAL | Opcode::C_JAL | Opcode::CALL | Opcode::TAIL
-        )
-    }
-
-    fn is_ret(&self) -> bool {
-        matches!(self.opcode, Opcode::RET)
-    }
-
-    fn is_jump(&self) -> bool {
-        matches!(
-            self.opcode,
-            Opcode::J | Opcode::C_J | Opcode::JR | Opcode::C_JR | Opcode::JALR | Opcode::C_JALR
-        )
-    }
 }
 
 pub struct Decoder {
