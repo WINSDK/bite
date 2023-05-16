@@ -1,5 +1,3 @@
-use crate::symbols::Index;
-
 use decoder::encode_hex_bytes_truncated;
 use decoder::{Decodable, Decoded, Failed};
 use object::{Object, ObjectSection, SectionKind};
@@ -42,7 +40,7 @@ pub struct Disassembly {
     pub proc: Box<dyn InspectProcessor + Send>,
 
     /// Symbol lookup by absolute address.
-    pub symbols: Index,
+    pub symbols: demangler::Index,
 }
 
 impl Disassembly {
@@ -69,7 +67,7 @@ impl Disassembly {
             .into_owned();
 
         let section_base = section.address() as usize;
-        let mut symbols = Index::new();
+        let mut symbols = demangler::Index::new();
 
         symbols.parse_debug(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
 
@@ -166,7 +164,7 @@ impl<D: Decodable> Processor<D> {
         }
     }
 
-    pub fn recurse(&mut self, symbols: &Index) {
+    pub fn recurse(&mut self, symbols: &demangler::Index) {
         let mut unexplored_data = VecDeque::with_capacity(1024);
         let mut raw_instructions = VecDeque::with_capacity(1024);
 
@@ -214,7 +212,7 @@ impl<D: Decodable> Processor<D> {
         }
 
         while let Some((addr, mut instruction)) = raw_instructions.pop_front() {
-            instruction.find_xrefs(addr, &symbols.tree);
+            instruction.find_xrefs(addr, &symbols);
             self.parsed.insert(addr, Ok(instruction));
         }
     }

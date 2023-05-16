@@ -1,13 +1,8 @@
 //! Shared behaviour required between decoder crates.
 
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokenizing::{Color, Token};
-
-pub mod demangler {
-    pub use demangler::TokenStream;
-}
 
 pub trait ToTokens {
     fn tokenize(&self, stream: &mut TokenStream);
@@ -23,7 +18,7 @@ pub trait Decoded: ToTokens + Debug {
     fn find_xrefs(
         &mut self,
         _addr: usize,
-        _symbols: &BTreeMap<usize, Arc<demangler::TokenStream>>,
+        _symbols: &demangler::Index,
     ) {
     }
 }

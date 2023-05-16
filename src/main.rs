@@ -11,7 +11,6 @@ mod args;
 mod disassembly;
 mod gui;
 mod macros;
-mod symbols;
 mod threading;
 
 use object::Object;
@@ -74,7 +73,7 @@ fn main() {
     }
 
     if ARGS.names {
-        let mut index = symbols::Index::new();
+        let mut index = demangler::Index::new();
 
         index.parse_debug(&obj).expect("Failed to parse symbols table.");
 

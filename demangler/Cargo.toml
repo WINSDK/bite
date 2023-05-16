@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 tokenizing = { path = "../tokenizing" }
 bitflags = "2"
+object = "0.30"
+pdb = "0.8"

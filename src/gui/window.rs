@@ -200,7 +200,7 @@ impl Backend {
                 ctx.show_donut.store(false, Ordering::Relaxed);
 
                 // if the address matches a symbol, print it
-                if let Some(label) = symbols.get_by_addr(addr) {
+                if let Some(label) = symbols.get_by_addr_ref(addr) {
                     text.push(Token::from_str("\n<", &colors::BLUE));
                     for token in label.tokens() {
                         text.push(token.as_ref());

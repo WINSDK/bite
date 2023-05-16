@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 decoder = { path = "../decoder" }
 tokenizing = { path = "../tokenizing" }
+demangler = { path = "../demangler" }
 
 [dev-dependencies]
 rand = "0.8.4"

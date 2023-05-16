@@ -7,9 +7,7 @@ mod vex;
 pub use crate::MemoryAccessSize;
 
 use std::cmp::PartialEq;
-use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 use crate::Error;
@@ -2633,7 +2631,7 @@ impl decoder::Decoded for Instruction {
     fn find_xrefs(
         &mut self,
         addr: usize,
-        symbols: &BTreeMap<usize, Arc<decoder::demangler::TokenStream>>,
+        symbols: &demangler::Index,
     ) {
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
@@ -2665,10 +2663,10 @@ impl decoder::Decoded for Instruction {
                 _ => continue,
             };
 
-            if let Some(xref) = symbols.get(&addr) {
+            if let Some(text) = symbols.get_by_addr(addr) {
                 *shadow = Some(decoder::Xref {
                     addr,
-                    text: Arc::clone(&xref),
+                    text,
                 });
             }
         }
