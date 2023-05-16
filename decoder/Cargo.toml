@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 tokenizing = { path = "../tokenizing" }
+demangler = { path = "../demangler" }

@@ -2041,6 +2041,16 @@ impl ToTokens for Instruction {
             if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
                 && RELATIVE_BRANCHES.contains(&self.opcode)
             {
+                // TODO: remove having to clone the string
+                if let Some(ref xref) = self.shadowing[0] {
+                    stream.push("[", Colors::brackets());
+                    for token in xref.text.tokens() {
+                        stream.push_owned(token.text.to_string(), token.color);
+                    }
+                    stream.push("]", Colors::brackets());
+                    return;
+                }
+
                 return match op {
                     Operand::ImmediateI8(rel) => {
                         if rel >= 0 {
@@ -2064,10 +2074,17 @@ impl ToTokens for Instruction {
                             stream.push_owned(rel, Colors::immediate());
                         }
                     }
-                    _ => {
-                        unreachable!()
-                    }
+                    _ => unreachable!(),
                 };
+            }
+
+            // TODO: remove having to clone the string
+            if let Some(ref xref) = self.shadowing[0] {
+                stream.push("[", Colors::brackets());
+                for token in xref.text.tokens() {
+                    stream.push_owned(token.text.to_string(), token.color);
+                }
+                stream.push("]", Colors::brackets());
             }
 
             if op.is_memory() {
@@ -2090,6 +2107,17 @@ impl ToTokens for Instruction {
                 }
 
                 stream.push(", ", Colors::expr());
+
+                // TODO: remove having to clone the string
+                if let Some(ref xref) = self.shadowing[idx as usize] {
+                    stream.push("[", Colors::brackets());
+                    for token in xref.text.tokens() {
+                        stream.push_owned(token.text.to_string(), token.color);
+                    }
+                    stream.push("]", Colors::brackets());
+                    continue;
+                }
+
                 let op = Operand::from_spec(self, self.operands[idx as usize]);
                 if op.is_memory() {
                     stream.push(
@@ -2102,8 +2130,7 @@ impl ToTokens for Instruction {
                     stream.push(":", Colors::expr());
                 }
 
-                // TODO: remove clone
-                op.clone().tokenize(stream);
+                op.tokenize(stream);
 
                 if let Some(evex) = self.prefixes.evex() {
                     if evex.broadcast() && op.is_memory() {

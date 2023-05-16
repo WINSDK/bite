@@ -63,7 +63,7 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn tokens(&self) -> &[Token] {
+    pub fn tokens(&self) -> &[Token<'static>] {
         self.tokens.as_slice()
     }
 }

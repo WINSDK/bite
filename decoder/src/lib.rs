@@ -1,7 +1,13 @@
 //! Shared behaviour required between decoder crates.
 
+use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 use tokenizing::{Color, Token};
+
+pub mod demangler {
+    pub use demangler::TokenStream;
+}
 
 pub trait ToTokens {
     fn tokenize(&self, stream: &mut TokenStream);
@@ -17,6 +23,12 @@ pub trait Decoded: ToTokens + Debug {
         self.tokenize(&mut stream);
         stream
     }
+    fn find_xrefs(
+        &mut self,
+        _addr: usize,
+        _symbols: &BTreeMap<usize, Arc<demangler::TokenStream>>,
+    ) {
+    }
 }
 
 pub trait Failed: Debug {
@@ -31,6 +43,12 @@ pub trait Decodable {
 
     fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Self::Error>;
     fn max_width(&self) -> usize;
+}
+
+#[derive(Debug, Clone)]
+pub struct Xref {
+    pub addr: usize,
+    pub text: Arc<demangler::TokenStream>,
 }
 
 pub struct TokenStream {
@@ -72,6 +90,10 @@ impl TokenStream {
         };
 
         self.token_count += 1;
+    }
+
+    pub fn tokens(&self) -> &[Token<'static>] {
+        &self.inner[..self.token_count]
     }
 }
 

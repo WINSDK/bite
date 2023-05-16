@@ -31,7 +31,7 @@ fn parser(s: &str) -> TokenStream {
 
 #[derive(Debug)]
 pub struct Index {
-    tree: BTreeMap<usize, Arc<TokenStream>>,
+    pub tree: BTreeMap<usize, Arc<TokenStream>>,
 }
 
 impl Index {

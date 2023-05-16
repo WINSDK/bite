@@ -191,6 +191,7 @@ version = "0.5.0"
 dependencies = [
  "ab_glyph",
  "bytemuck",
+ "decoder",
  "demangler",
  "disassembler",
  "glam",
@@ -484,6 +485,7 @@ dependencies = [
 name = "decoder"
 version = "0.1.0"
 dependencies = [
+ "demangler",
  "tokenizing",
 ]
 

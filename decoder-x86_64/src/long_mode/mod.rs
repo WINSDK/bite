@@ -7,12 +7,14 @@ mod vex;
 pub use crate::MemoryAccessSize;
 
 use std::cmp::PartialEq;
-use std::hash::Hash;
-use std::hash::Hasher;
+use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 use crate::Error;
 
+use decoder::Xref;
 use decoder::{Decodable, Reader, ToTokens};
 use tokenizing::{ColorScheme, Colors};
 
@@ -2601,7 +2603,7 @@ impl PartialEq for Instruction {
 /// typically an opcode will be inspected by [`Instruction::opcode()`], and an instruction has
 /// [`Instruction::operand_count()`] many operands. operands are provided by
 /// [`Instruction::operand()`].
-#[derive(Debug, Clone, Copy, Eq)]
+#[derive(Debug, Clone)]
 pub struct Instruction {
     pub prefixes: Prefixes,
     /*
@@ -2619,6 +2621,7 @@ pub struct Instruction {
     disp: u64,
     opcode: Opcode,
     mem_size: u8,
+    shadowing: [Option<Xref>; 4],
 }
 
 impl decoder::Decoded for Instruction {
@@ -2667,6 +2670,39 @@ impl decoder::Decoded for Instruction {
             Opcode::JG |
             Opcode::JRCXZ
         )
+    }
+
+    fn find_xrefs(
+        &mut self,
+        addr: usize,
+        symbols: &BTreeMap<usize, Arc<decoder::demangler::TokenStream>>,
+    ) {
+        for idx in 0..self.operand_count as usize {
+            use OperandSpec::*;
+
+            let shadow = &mut self.shadowing[idx];
+            let operand = self.operands[idx];
+            let reg = self.regs[idx];
+
+            let xref = match operand {
+                ImmI8 | ImmI16 | ImmI32 | ImmI64 | ImmU8 | ImmU16 => {
+                    symbols.get(&(self.imm as usize))
+                },
+                RegDisp if reg == RegSpec::RIP => {
+                    let addr = self.length as usize + addr + self.disp as usize;
+                    symbols.get(&addr)
+                }
+                // DispU32 | DispU64 => { ??? some mov instruction },
+                _ => continue,
+            };
+
+            if let Some(xref) = xref {
+                *shadow = Some(decoder::Xref {
+                    addr,
+                    text: Arc::clone(&xref),
+                });
+            }
+        }
     }
 }
 
@@ -4320,6 +4356,7 @@ impl Instruction {
             imm: 0,
             operand_count: 0,
             operands: [OperandSpec::Nothing; 4],
+            shadowing: Default::default(),
         }
     }
 
