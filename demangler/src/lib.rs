@@ -4,9 +4,13 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use object::read::elf::FileHeader;
+use object::read::pe::{ImageNtHeaders, ImageThunkData};
+use object::BigEndian as BE;
+use object::LittleEndian as LE;
+use object::{BinaryFormat, Object, ObjectSymbol, ObjectSymbolTable};
+
 use pdb::FallibleIterator;
-use object::{Object, ObjectSymbol};
-use object::read::pe::ImageNtHeaders;
 use tokenizing::{Color, ColorScheme, Colors, Token};
 
 pub mod itanium;
@@ -56,10 +60,7 @@ impl Index {
     }
 
     pub fn parse_debug(&mut self, obj: &object::File<'_>) -> pdb::Result<()> {
-        let mut symbols: Vec<(usize, &str)> = obj
-            .symbols()
-            .filter_map(symbol_addr_name)
-            .collect();
+        let mut symbols: Vec<(usize, &str)> = obj.symbols().filter_map(symbol_addr_name).collect();
 
         let base_addr = obj.relative_address_base() as usize;
         let pdb_table;
@@ -97,10 +98,7 @@ impl Index {
         println!("entrypoint {entrypoint:#x}");
 
         // insert entrypoint and override it if it's got a defined name
-        self.tree.insert(
-            entrypoint,
-            Arc::new(TokenStream::simple("entry")),
-        );
+        self.tree.insert(entrypoint, Arc::new(TokenStream::simple("entry")));
 
         // insert defined symbols
         let map_symbol = |(addr, symbol): &(usize, &str)| (*addr, Arc::new(parser(symbol)));
@@ -111,10 +109,35 @@ impl Index {
 
     // NOTE: import table get's filled in at runtime.
     // TODO: the export table should be explored using binary search if the hint flag isn't yet
-    pub fn parse_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> object::Result<()> {
-        use object::read::pe::ImageThunkData;
-        use object::LittleEndian as LE;
+    pub fn parse_imports(&mut self, binary: &[u8], obj: &object::File<'_>) -> object::Result<()> {
+        match obj.format() {
+            BinaryFormat::Pe => {
+                if obj.is_64() {
+                    self.parse_pe_imports::<object::pe::ImageNtHeaders64>(binary)
+                } else {
+                    self.parse_pe_imports::<object::pe::ImageNtHeaders32>(binary)
+                }
+            }
+            BinaryFormat::Elf => {
+                if obj.is_64() {
+                    if obj.is_little_endian() {
+                        self.parse_elf_imports::<object::elf::FileHeader64<LE>>(binary)
+                    } else {
+                        self.parse_elf_imports::<object::elf::FileHeader64<BE>>(binary)
+                    }
+                } else {
+                    if obj.is_little_endian() {
+                        self.parse_elf_imports::<object::elf::FileHeader32<LE>>(binary)
+                    } else {
+                        self.parse_elf_imports::<object::elf::FileHeader32<BE>>(binary)
+                    }
+                }
+            }
+            _ => Ok(()),
+        }
+    }
 
+    fn parse_pe_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> object::Result<()> {
         let obj = object::read::pe::PeFile::<H>::parse(&binary[..])?;
 
         if let Some(import_table) = obj.import_table()? {
@@ -128,7 +151,7 @@ impl Index {
 
                 let thunk = if first_thunk == 0 {
                     original_first_thunk
-                } else  {
+                } else {
                     first_thunk
                 };
 
@@ -169,6 +192,27 @@ impl Index {
                     // skip over an entry
                     func_rva += std::mem::size_of::<H::ImageThunkData>() as u32;
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_elf_imports<H: FileHeader>(&mut self, binary: &[u8]) -> object::Result<()> {
+        let obj = object::read::elf::ElfFile::<H>::parse(&binary[..])?;
+        let relocations = obj.dynamic_relocations().unwrap();
+        let symbols = obj.dynamic_symbol_table().unwrap();
+
+        for (addr, reloc) in relocations {
+            if reloc.kind() != object::RelocationKind::Elf(object::elf::R_X86_64_GLOB_DAT) {
+                continue;
+            }
+
+            if let object::read::RelocationTarget::Symbol(idx) = reloc.target() {
+                let symbol = symbols.symbol_by_index(idx)?;
+                let name = symbol.name().unwrap();
+
+                self.tree.insert(addr as usize, Arc::new(parser(name)));
             }
         }
 

@@ -70,18 +70,7 @@ impl Disassembly {
         let mut symbols = demangler::Index::new();
 
         symbols.parse_debug(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
-
-        if obj.format() == object::BinaryFormat::Pe {
-            if obj.is_64() {
-                symbols
-                    .parse_imports::<object::pe::ImageNtHeaders64>(&binary[..])
-                    .map_err(DecodeError::IncompleteImportTable)?;
-            } else {
-                symbols
-                    .parse_imports::<object::pe::ImageNtHeaders32>(&binary[..])
-                    .map_err(DecodeError::IncompleteImportTable)?;
-            }
-        }
+        symbols.parse_imports(&binary[..], &obj).map_err(DecodeError::IncompleteImportTable)?;
 
         let proc: Box<dyn InspectProcessor + Send> = match obj.architecture() {
             object::Architecture::Riscv32 => {
