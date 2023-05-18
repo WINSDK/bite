@@ -4,8 +4,9 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use object::read::elf::FileHeader;
-use object::read::pe::{ImageNtHeaders, ImageThunkData};
+use object::read::elf::{FileHeader, ElfFile};
+use object::read::macho::{MachHeader, MachOFile};
+use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::BigEndian as BE;
 use object::LittleEndian as LE;
 use object::{BinaryFormat, Object, ObjectSymbol, ObjectSymbolTable};
@@ -107,8 +108,6 @@ impl Index {
         Ok(())
     }
 
-    // NOTE: import table get's filled in at runtime.
-    // TODO: the export table should be explored using binary search if the hint flag isn't yet
     pub fn parse_imports(&mut self, binary: &[u8], obj: &object::File<'_>) -> object::Result<()> {
         match obj.format() {
             BinaryFormat::Pe => {
@@ -133,12 +132,27 @@ impl Index {
                     }
                 }
             }
+            BinaryFormat::MachO => {
+                if obj.is_64() {
+                    if obj.is_little_endian() {
+                        self.parse_macho_imports::<object::macho::MachHeader64<LE>>(binary)
+                    } else {
+                        self.parse_macho_imports::<object::macho::MachHeader64<BE>>(binary)
+                    }
+                } else {
+                    if obj.is_little_endian() {
+                        self.parse_macho_imports::<object::macho::MachHeader32<LE>>(binary)
+                    } else {
+                        self.parse_macho_imports::<object::macho::MachHeader32<BE>>(binary)
+                    }
+                }
+            }
             _ => Ok(()),
         }
     }
 
     fn parse_pe_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> object::Result<()> {
-        let obj = object::read::pe::PeFile::<H>::parse(&binary[..])?;
+        let obj = PeFile::<H>::parse(&binary[..])?;
 
         if let Some(import_table) = obj.import_table()? {
             let mut import_descs = import_table.descriptors()?;
@@ -199,19 +213,30 @@ impl Index {
     }
 
     fn parse_elf_imports<H: FileHeader>(&mut self, binary: &[u8]) -> object::Result<()> {
-        let obj = object::read::elf::ElfFile::<H>::parse(&binary[..])?;
-        let relocations = obj.dynamic_relocations().unwrap();
-        let symbols = obj.dynamic_symbol_table().unwrap();
+        let obj = ElfFile::<H>::parse(&binary[..])?;
+
+        let relocations = match obj.dynamic_relocations() {
+            Some(relocations) => relocations,
+            None => return Ok(())
+        };
+
+        let dyn_syms = match obj.dynamic_symbol_table() {
+            Some(dyn_syms) => dyn_syms,
+            None => return Ok(())
+        };
 
         for (addr, reloc) in relocations {
             if let object::read::RelocationTarget::Symbol(idx) = reloc.target() {
-                let symbol = symbols.symbol_by_index(idx)?;
-                let name = symbol.name().unwrap();
-
-                self.tree.insert(addr as usize, Arc::new(parser(name)));
+                if let Ok(name) = dyn_syms.symbol_by_index(idx).and_then(|sym| sym.name()) {
+                    self.tree.insert(addr as usize, Arc::new(parser(name)));
+                }
             }
         }
 
+        Ok(())
+    }
+
+    fn parse_macho_imports<H: MachHeader>(&mut self, _binary: &[u8]) -> object::Result<()> {
         Ok(())
     }
 
