@@ -204,10 +204,6 @@ impl Index {
         let symbols = obj.dynamic_symbol_table().unwrap();
 
         for (addr, reloc) in relocations {
-            if reloc.kind() != object::RelocationKind::Elf(object::elf::R_X86_64_GLOB_DAT) {
-                continue;
-            }
-
             if let object::read::RelocationTarget::Symbol(idx) = reloc.target() {
                 let symbol = symbols.symbol_by_index(idx)?;
                 let name = symbol.name().unwrap();
