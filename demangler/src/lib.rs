@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use object::read::elf::{FileHeader, ElfFile};
-use object::read::macho::{MachHeader, MachOFile};
+use object::read::macho::MachHeader;
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::BigEndian as BE;
 use object::LittleEndian as LE;
@@ -228,6 +228,7 @@ impl Index {
         for (addr, reloc) in relocations {
             if let object::read::RelocationTarget::Symbol(idx) = reloc.target() {
                 if let Ok(name) = dyn_syms.symbol_by_index(idx).and_then(|sym| sym.name()) {
+                    println!("{name} => {addr:#x}");
                     self.tree.insert(addr as usize, Arc::new(parser(name)));
                 }
             }

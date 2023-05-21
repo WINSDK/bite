@@ -1,3 +1,4 @@
+use crate::disassembly::Disassembly;
 use crate::gui::quad;
 use crate::gui::Error;
 use crate::gui::RenderContext;
@@ -103,6 +104,62 @@ impl Backend {
         })
     }
 
+    fn refresh_listing(&mut self, disassembly: &mut Disassembly, font_size: f32) {
+        disassembly.lines_scrolled = 0;
+        let mut text: Vec<Token> = Vec::new();
+        let symbols = &disassembly.symbols;
+        let lines = disassembly
+            .proc
+            .iter()
+            .skip_while(|(addr, _)| {
+                disassembly.lines_scrolled += 1;
+                *addr < disassembly.current_addr
+            })
+            .take((self.size.height as f32 / font_size).ceil() as usize);
+
+        // for each instruction
+        for (addr, inst) in lines {
+            // if the address matches a symbol, print it
+            if let Some(label) = symbols.get_by_addr_ref(addr) {
+                text.push(Token::from_str("\n<", &colors::BLUE));
+                for token in label.tokens() {
+                    text.push(token.to_owned());
+                }
+
+                text.push(Token::from_str(">:\n", &colors::BLUE));
+            }
+
+            // memory address
+            text.push(Token::from_string(
+                format!("0x{addr:0>10X}  "),
+                &colors::GRAY40,
+            ));
+
+            // instruction's bytes
+            text.push(Token::from_string(
+                disassembly.proc.bytes(inst, addr),
+                &colors::GREEN,
+            ));
+
+            match inst {
+                Ok(inst) => {
+                    for token in inst.tokens().iter() {
+                        text.push(token.clone());
+                    }
+                }
+                Err(err) => {
+                    text.push(Token::from_str("<", &colors::GRAY40));
+                    text.push(Token::from_string(format!("{err:?}"), &colors::RED));
+                    text.push(Token::from_str(">", &colors::GRAY40));
+                }
+            }
+
+            text.push(Token::from_str("\n", &colors::WHITE));
+        }
+
+        disassembly.lines = text;
+    }
+
     pub fn redraw(&mut self, ctx: &mut RenderContext) -> Result<(), Error> {
         let frame = self.surface.get_current_texture().map_err(Error::DrawTexture)?;
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -150,12 +207,18 @@ impl Backend {
             )
             .map_err(Error::DrawText)?;
 
-        if let Some(ref mut dissasembly) = ctx.dissasembly {
+        if let Some(ref mut disassembly) = ctx.dissasembly {
             let mut lines_scrolled = (ctx.listing_offset / ctx.font_size) as isize;
+            ctx.show_donut.store(false, Ordering::Relaxed);
+
+            // on first access refresh the listing
+            if disassembly.current_addr == 0 {
+                self.refresh_listing(disassembly, font_size);
+            }
 
             if lines_scrolled != 0 {
                 // don't count any lines scrolled before the dissasembly is loaded
-                if dissasembly.current_addr == 0 {
+                if disassembly.current_addr == 0 {
                     lines_scrolled = 0;
                 }
 
@@ -163,84 +226,31 @@ impl Backend {
                 // then skipping the number of lines we've scrolled past and if there
                 // isn't any instructions left, show just the last instruction
                 let inst = if lines_scrolled < 0 {
-                    dissasembly
+                    disassembly
                         .proc
-                        .in_range(Bound::Unbounded, Bound::Included(dissasembly.current_addr))
+                        .in_range(Bound::Unbounded, Bound::Included(disassembly.current_addr))
                         .rev()
                         .skip(-lines_scrolled as usize)
                         .next()
-                        .unwrap_or_else(|| dissasembly.proc.iter().next().unwrap())
+                        .unwrap_or_else(|| disassembly.proc.iter().next().unwrap())
                 } else {
-                    dissasembly
+                    disassembly
                         .proc
-                        .in_range(Bound::Included(dissasembly.current_addr), Bound::Unbounded)
+                        .in_range(Bound::Included(disassembly.current_addr), Bound::Unbounded)
                         .skip(lines_scrolled as usize)
                         .next()
-                        .unwrap_or_else(|| dissasembly.proc.iter().last().unwrap())
+                        .unwrap_or_else(|| disassembly.proc.iter().last().unwrap())
                 };
 
-                dissasembly.current_addr = inst.0;
+                disassembly.current_addr = inst.0;
                 ctx.listing_offset = 0.0;
-            }
-
-            let mut text: Vec<Token> = Vec::new();
-            let symbols = &dissasembly.symbols;
-            let mut lines_scrolled = 0;
-            let lines = dissasembly
-                .proc
-                .iter()
-                .skip_while(|(addr, _)| {
-                    lines_scrolled += 1;
-                    *addr < dissasembly.current_addr
-                })
-                .take((self.size.height as f32 / font_size).ceil() as usize);
-
-            // for each instruction
-            for (addr, inst) in lines {
-                ctx.show_donut.store(false, Ordering::Relaxed);
-
-                // if the address matches a symbol, print it
-                if let Some(label) = symbols.get_by_addr_ref(addr) {
-                    text.push(Token::from_str("\n<", &colors::BLUE));
-                    for token in label.tokens() {
-                        text.push(token.as_ref());
-                    }
-
-                    text.push(Token::from_str(">:\n", &colors::BLUE));
-                }
-
-                // memory address
-                text.push(Token::from_string(
-                    format!("0x{addr:0>10X}  "),
-                    &colors::GRAY40,
-                ));
-
-                // instruction's bytes
-                text.push(Token::from_string(
-                    dissasembly.proc.bytes(inst, addr),
-                    &colors::GREEN,
-                ));
-
-                match inst {
-                    Ok(inst) => {
-                        for token in inst.tokens().iter() {
-                            text.push(token.clone());
-                        }
-                    }
-                    Err(err) => {
-                        text.push(Token::from_str("<", &colors::GRAY40));
-                        text.push(Token::from_string(format!("{err:?}"), &colors::RED));
-                        text.push(Token::from_str(">", &colors::GRAY40));
-                    }
-                }
-
-                text.push(Token::from_str("\n", &colors::WHITE));
+                self.refresh_listing(disassembly, font_size);
             }
 
             // queue assembly listing text
             self.glyph_brush.queue(wgpu_glyph::Section {
                 screen_position: (ctx.scale_factor * 5.0, font_size * 1.5),
-                text: text.iter().map(|t| t.text(font_size)).collect(),
+                text: disassembly.lines.iter().map(|t| t.text(font_size)).collect(),
                 ..wgpu_glyph::Section::default()
             });
 
@@ -263,10 +273,10 @@ impl Backend {
                 )
                 .map_err(Error::DrawText)?;
 
-            let len = dissasembly.proc.instruction_count() as f32;
+            let len = disassembly.proc.instruction_count() as f32;
             let bar_height = (self.size.height * self.size.height) as f32 / (len * font_size);
             let bar_height = bar_height.max(font_size);
-            let offset = lines_scrolled as f32 / len;
+            let offset = disassembly.lines_scrolled as f32 / len;
             let screen_offset = offset * (self.size.height as f32 - bar_height);
 
             let instances = [

@@ -41,6 +41,12 @@ pub struct Disassembly {
 
     /// Symbol lookup by absolute address.
     pub symbols: demangler::Index,
+
+    /// Number of listing lines scrolled.
+    pub lines_scrolled: usize,
+
+    /// Lines being displayed.
+    pub lines: Vec<tokenizing::Token<'static>>,
 }
 
 impl Disassembly {
@@ -126,6 +132,8 @@ impl Disassembly {
             current_addr: 0,
             proc,
             symbols,
+            lines_scrolled: 0,
+            lines: Vec::new(),
         })
     }
 }
