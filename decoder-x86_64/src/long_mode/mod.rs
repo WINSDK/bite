@@ -2637,28 +2637,64 @@ impl decoder::Decoded for Instruction {
             let operand = Operand::from_spec(&self, self.operands[idx]);
             let shadow = &mut self.shadowing[idx];
             let addr = match operand {
-                Operand::ImmediateI8(imm) => self.length as usize + addr + imm as usize,
-                Operand::ImmediateI16(imm) => self.length as usize + addr + imm as usize,
-                Operand::ImmediateI32(imm) => self.length as usize + addr + imm as usize,
-                Operand::ImmediateI64(imm) => self.length as usize + addr + imm as usize,
-                Operand::ImmediateU8(imm) => self.length as usize + addr + imm as usize,
-                Operand::ImmediateU16(imm) => self.length as usize + addr + imm as usize,
-                Operand::ImmediateU32(imm) => self.length as usize + addr + imm as usize,
-                Operand::ImmediateU64(imm) => self.length as usize + addr + imm as usize,
-                Operand::DisplacementU32(imm) => addr + imm as usize,
-                Operand::DisplacementU64(imm) => addr + imm as usize,
-                Operand::RegDisp(RegSpec::RIP, disp) => self.length as usize + addr + disp as usize,
+                Operand::ImmediateI8(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::ImmediateU8(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::ImmediateI16(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::ImmediateU16(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::ImmediateI32(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::ImmediateU32(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::ImmediateI64(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::ImmediateU64(imm) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(imm as usize)
+                }
+                Operand::DisplacementU32(imm) => addr.saturating_add(imm as usize),
+                Operand::DisplacementU64(imm) => addr.saturating_add(imm as usize),
+                Operand::RegDisp(RegSpec::RIP, disp) => {
+                    addr
+                        .saturating_add(self.length as usize)
+                        .saturating_add(disp as usize)
+                }
                 Operand::RegScaleDisp(RegSpec::RIP, scale, disp) => {
-                    let ip = self.length as usize + addr;
-                    ip * scale as usize + disp as usize
+                    let ip = addr.saturating_add(self.length as usize);
+                    ip.saturating_mul(scale as usize).saturating_add(disp as usize)
                 }
                 Operand::RegIndexBaseScale(RegSpec::RIP, RegSpec::RIP, scale) => {
-                    let ip = self.length as usize + addr;
-                    (ip + ip) * scale as usize
+                    let ip = addr.saturating_add(self.length as usize);
+                    ip.saturating_mul(2 * scale as usize)
                 }
                 Operand::RegIndexBaseScaleDisp(RegSpec::RIP, RegSpec::RIP, scale, disp) => {
-                    let ip = self.length as usize + addr;
-                    (ip + ip) * scale as usize + disp as usize
+                    let ip = addr.saturating_add(self.length as usize);
+                    ip.saturating_mul(2 * scale as usize).saturating_add(disp as usize)
                 }
                 _ => continue,
             };
