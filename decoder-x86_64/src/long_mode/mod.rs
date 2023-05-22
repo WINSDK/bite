@@ -2628,65 +2628,43 @@ impl decoder::Decoded for Instruction {
         self.length as usize
     }
 
-    fn find_xrefs(
-        &mut self,
-        addr: usize,
-        symbols: &demangler::Index,
-    ) {
+    fn find_xrefs(&mut self, addr: usize, symbols: &demangler::Index) {
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
             let shadow = &mut self.shadowing[idx];
             let addr = match operand {
                 Operand::ImmediateI8(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
                 }
                 Operand::ImmediateU8(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
                 }
                 Operand::ImmediateI16(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
                 }
                 Operand::ImmediateU16(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
                 }
                 Operand::ImmediateI32(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
                 }
                 Operand::ImmediateU32(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
                 }
                 Operand::ImmediateI64(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
                 }
                 Operand::ImmediateU64(imm) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(imm as usize)
+                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
                 }
                 Operand::DisplacementU32(imm) => addr.saturating_add(imm as usize),
                 Operand::DisplacementU64(imm) => addr.saturating_add(imm as usize),
                 Operand::RegDisp(RegSpec::RIP, disp) => {
-                    addr
-                        .saturating_add(self.length as usize)
-                        .saturating_add(disp as usize)
+                    addr.saturating_add(self.length as usize).saturating_add_signed(disp as isize)
                 }
                 Operand::RegScaleDisp(RegSpec::RIP, scale, disp) => {
                     let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(scale as usize).saturating_add(disp as usize)
+                    ip.saturating_mul(scale as usize).saturating_add_signed(disp as isize)
                 }
                 Operand::RegIndexBaseScale(RegSpec::RIP, RegSpec::RIP, scale) => {
                     let ip = addr.saturating_add(self.length as usize);
@@ -2694,16 +2672,13 @@ impl decoder::Decoded for Instruction {
                 }
                 Operand::RegIndexBaseScaleDisp(RegSpec::RIP, RegSpec::RIP, scale, disp) => {
                     let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(2 * scale as usize).saturating_add(disp as usize)
+                    ip.saturating_mul(2 * scale as usize).saturating_add_signed(disp as isize)
                 }
                 _ => continue,
             };
 
             if let Some(text) = symbols.get_by_addr(addr) {
-                *shadow = Some(decoder::Xref {
-                    addr,
-                    text,
-                });
+                *shadow = Some(decoder::Xref { addr, text });
             }
         }
     }

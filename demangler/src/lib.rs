@@ -4,12 +4,15 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use object::read::elf::{FileHeader, ElfFile};
+use object::elf::{R_X86_64_JUMP_SLOT, R_X86_64_GLOB_DAT};
+
+use object::endian::Endian;
+use object::read::elf::{ElfFile, FileHeader};
 use object::read::macho::MachHeader;
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::BigEndian as BE;
 use object::LittleEndian as LE;
-use object::{BinaryFormat, Object, ObjectSymbol, ObjectSymbolTable};
+use object::{BinaryFormat, Object, ObjectSymbol, ObjectSymbolTable, ObjectSection};
 
 use pdb::FallibleIterator;
 use tokenizing::{Color, ColorScheme, Colors, Token};
@@ -217,19 +220,57 @@ impl Index {
 
         let relocations = match obj.dynamic_relocations() {
             Some(relocations) => relocations,
-            None => return Ok(())
+            None => return Ok(()),
         };
 
         let dyn_syms = match obj.dynamic_symbol_table() {
             Some(dyn_syms) => dyn_syms,
-            None => return Ok(())
+            None => return Ok(()),
         };
 
-        for (addr, reloc) in relocations {
+        for (r_offset, reloc) in relocations {
             if let object::read::RelocationTarget::Symbol(idx) = reloc.target() {
-                if let Ok(name) = dyn_syms.symbol_by_index(idx).and_then(|sym| sym.name()) {
-                    println!("{name} => {addr:#x}");
-                    self.tree.insert(addr as usize, Arc::new(parser(name)));
+                let opt_section = obj.sections().find(|section| {
+                    (section.address()..section.address() + section.size()).contains(&r_offset)
+                });
+
+                let section = match opt_section {
+                    Some(section) => section,
+                    None => continue,
+                };
+
+                if let Ok(sym) = dyn_syms.symbol_by_index(idx) {
+                    let name = match sym.name() {
+                        Ok(name) => name,
+                        Err(..) => continue
+                    };
+
+                    let phys_addr = match reloc.kind() {
+                        // hard-coded addresses to functions which don't require relocations
+                        object::RelocationKind::Absolute => r_offset as usize,
+                        // hard-coded addresses to functions which don't require relocations
+                        object::RelocationKind::Elf(R_X86_64_GLOB_DAT) => r_offset as usize,
+                        // .got.plt section, which contains addresses to the actual functions in DLL
+                        object::RelocationKind::Elf(R_X86_64_JUMP_SLOT) => {
+                            let bytes = match section.data_range(r_offset, 8) {
+                                Ok(Some(bytes)) => bytes,
+                                _ => continue
+                            };
+
+                            let phys_addr = if obj.is_64() {
+                                obj.endian().read_u64_bytes(bytes.try_into().unwrap()) as usize
+                            } else {
+                                obj.endian().read_u32_bytes(bytes.try_into().unwrap()) as usize
+                            };
+
+                            // idk why we need this
+                            phys_addr.saturating_sub(6)
+                        }
+                        // TODO: there are probably more variants here
+                        _ => continue,
+                    };
+
+                    self.tree.insert(phys_addr as usize, Arc::new(parser(name)));
                 }
             }
         }

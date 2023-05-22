@@ -14,7 +14,7 @@ pub enum DecodeError {
     ReadFailed(std::io::Error),
 
     /// Failed to find a section with the given entrypoint.
-    NoEntrypoint,
+    NoValidSections,
 
     /// Failed to decompress a given section section.
     DecompressionFailed(object::Error),
@@ -64,8 +64,8 @@ impl Disassembly {
         let section = obj
             .sections()
             .filter(|s| s.kind() == SectionKind::Text)
-            .find(|t| (t.address()..t.address() + t.size()).contains(&entrypoint))
-            .ok_or(DecodeError::NoEntrypoint)?;
+            .find(|s| (s.address()..s.address() + s.size()).contains(&entrypoint))
+            .ok_or(DecodeError::NoValidSections)?;
 
         let raw = section
             .uncompressed_data()
