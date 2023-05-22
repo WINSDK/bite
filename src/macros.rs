@@ -4,34 +4,41 @@ macro_rules! exit {
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
-            rfd::MessageDialog::new()
-                .set_title("Error")
-                .set_level(rfd::MessageLevel::Error)
-                .set_parent(&*window)
-                .show();
-        }
+            crate::RUNTIME.spawn(async move {
+                rfd::AsyncMessageDialog::new()
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_parent(&*window)
+                    .show()
+                    .await;
 
-        #[cfg(debug_assertion)]
-        unsafe { std::arch::asm!("int3") }
-        std::process::exit(0);
+                std::process::exit(0);
+            });
+        } else {
+            std::process::exit(0);
+        }
     }};
 
     ($($arg:tt)*) => {{
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
-            rfd::MessageDialog::new()
-                .set_title("Error")
-                .set_description(format!($($arg)*).as_str())
-                .set_level(rfd::MessageLevel::Error)
-                .set_parent(&*window)
-                .show();
-        }
+            let args: String = format!($($arg)*);
+            crate::RUNTIME.spawn(async move {
+                rfd::AsyncMessageDialog::new()
+                    .set_title("Error")
+                    .set_description(&args)
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_parent(&*window)
+                    .show()
+                    .await;
 
-        eprintln!($($arg)*);
-        #[cfg(debug_assertion)]
-        unsafe { std::arch::asm!("int3") }
-        std::process::exit(0);
+                eprintln!("{args}");
+                std::process::exit(0);
+            });
+        } else {
+            eprintln!($($arg)*);
+            std::process::exit(0);
+        }
     }};
 }
 
@@ -41,61 +48,99 @@ macro_rules! error {
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
-            rfd::MessageDialog::new()
-                .set_title("Error")
-                .set_level(rfd::MessageLevel::Error)
-                .set_parent(&*window)
-                .show();
-        }
+            let args: String = format!($($arg)*);
+            crate::RUNTIME.spawn(async move {
+                rfd::AsyncMessageDialog::new()
+                    .set_title("Error")
+                    .set_description(&args)
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_parent(&*window)
+                    .show()
+                    .await;
 
-        eprintln!("Error occurred");
+                eprintln!("Error occurred");
+                #[cfg(debug_assertion)]
+                unsafe { std::arch::asm!("int3") }
+                std::process::exit(1);
+            });
+        } else {
+            eprintln!("Error occurred");
+            #[cfg(debug_assertion)]
+            unsafe { std::arch::asm!("int3") }
+            std::process::exit(j);
+        }
     }};
 
     ($($arg:tt)*) => {{
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
-            rfd::MessageDialog::new()
-                .set_title("Error")
-                .set_description(format!($($arg)*).as_str())
-                .set_level(rfd::MessageLevel::Error)
-                .set_parent(&*window)
-                .show();
-        }
+            let args: String = format!($($arg)*);
+            crate::RUNTIME.spawn(async move {
+                rfd::AsyncMessageDialog::new()
+                    .set_title("Error")
+                    .set_description(&args)
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_parent(&*window)
+                    .show()
+                    .await;
 
-        eprintln!($($arg)*);
+                eprintln!("{args}");
+                #[cfg(debug_assertion)]
+                unsafe { std::arch::asm!("int3") }
+                std::process::exit(1);
+            });
+        } else {
+            eprintln!($($arg)*);
+            #[cfg(debug_assertion)]
+            unsafe { std::arch::asm!("int3") }
+            std::process::exit(1);
+        }
     }};
 }
 
 #[macro_export]
 macro_rules! warning {
-    () => {
+    () => {{
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
-            rfd::MessageDialog::new()
-                .set_title("Warning")
-                .set_level(rfd::MessageLevel::Warning)
-                .set_parent(&*window)
-                .show();
-        }
+            let args: String = format!($($arg)*);
+            crate::RUNTIME.spawn(async move {
+                rfd::AsyncMessageDialog::new()
+                    .set_title("Warning")
+                    .set_description(&args)
+                    .set_level(rfd::MessageLevel::Warning)
+                    .set_parent(&*window)
+                    .show()
+                    .await;
 
-        eprintln!("Warning occurred");
-    };
+                eprintln!("Warning occurred");
+            });
+        } else {
+            eprintln!("Error occurred");
+        }
+    }};
 
     ($($arg:tt)*) => {{
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
-            rfd::MessageDialog::new()
-                .set_title("Warning")
-                .set_description(format!($($arg)*).as_str())
-                .set_level(rfd::MessageLevel::Warning)
-                .set_parent(&*window)
-                .show();
-        }
+            let args: String = format!($($arg)*);
+            crate::RUNTIME.spawn(async move {
+                rfd::AsyncMessageDialog::new()
+                    .set_title("Warning")
+                    .set_description(&args)
+                    .set_level(rfd::MessageLevel::Warning)
+                    .set_parent(&*window)
+                    .show()
+                    .await;
 
-        eprintln!($($arg)*);
+                eprintln!("{args}");
+            });
+        } else {
+            eprintln!($($arg)*);
+        }
     }};
 }
 
