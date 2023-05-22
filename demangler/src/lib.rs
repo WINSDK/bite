@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use object::elf::{R_X86_64_JUMP_SLOT, R_X86_64_GLOB_DAT};
+use object::elf::{R_X86_64_JUMP_SLOT, R_X86_64_GLOB_DAT, R_X86_64_COPY};
 
 use object::endian::Endian;
 use object::read::elf::{ElfFile, FileHeader};
@@ -12,7 +12,7 @@ use object::read::macho::MachHeader;
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::BigEndian as BE;
 use object::LittleEndian as LE;
-use object::{BinaryFormat, Object, ObjectSymbol, ObjectSymbolTable, ObjectSection};
+use object::{RelocationKind, BinaryFormat, Object, ObjectSymbol, ObjectSymbolTable, ObjectSection};
 
 use pdb::FallibleIterator;
 use tokenizing::{Color, ColorScheme, Colors, Token};
@@ -246,12 +246,12 @@ impl Index {
                     };
 
                     let phys_addr = match reloc.kind() {
-                        // hard-coded addresses to functions which don't require relocations
-                        object::RelocationKind::Absolute => r_offset as usize,
-                        // hard-coded addresses to functions which don't require relocations
-                        object::RelocationKind::Elf(R_X86_64_GLOB_DAT) => r_offset as usize,
-                        // .got.plt section, which contains addresses to the actual functions in DLL
-                        object::RelocationKind::Elf(R_X86_64_JUMP_SLOT) => {
+                        // hard-coded address to function which doesn't require a relocation
+                        RelocationKind::Absolute => r_offset as usize,
+                        RelocationKind::Elf(R_X86_64_GLOB_DAT) => r_offset as usize,
+                        RelocationKind::Elf(R_X86_64_COPY) => r_offset as usize,
+                        // address in .got.plt section which contains an address to the function
+                        RelocationKind::Elf(R_X86_64_JUMP_SLOT) => {
                             let bytes = match section.data_range(r_offset, 8) {
                                 Ok(Some(bytes)) => bytes,
                                 _ => continue
