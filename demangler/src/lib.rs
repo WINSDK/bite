@@ -197,13 +197,13 @@ impl Index {
                         // `original_first_thunk` uses a `hint` into the export
                         // table whilst iterating thourhg regular `thunk`'s is
                         // a simple offset into the symbol export table
-                        let addr = if thunk == original_first_thunk {
-                            hint as usize
+                        let phys_addr = if thunk == original_first_thunk {
+                            hint as u64 + obj.relative_address_base()
                         } else {
-                            func_rva as usize
+                            func_rva as u64 + obj.relative_address_base()
                         };
 
-                        self.tree.insert(addr, Arc::new(parser(name)));
+                        self.tree.insert(phys_addr as usize, Arc::new(parser(name)));
                     }
 
                     // skip over an entry
