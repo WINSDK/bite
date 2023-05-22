@@ -75,7 +75,7 @@ fn main() {
     }
 
     if ARGS.names {
-        let mut index = demangler::Index::new();
+        let mut index = symbols::Index::new();
 
         index.parse_debug(&obj).expect("Failed to parse symbols table.");
 

@@ -20,7 +20,7 @@ rfd = "0.11"
 decoder = { path = "./decoder" }
 disassembler = { path = "./disassembler" }
 tokenizing = { path = "./tokenizing" }
-demangler = { path = "./demangler" }
+symbols = { path = "./symbols" }
 
 [profile.release]
 strip = true
@@ -40,5 +40,5 @@ members = [
     "decoder-arm",
     "decoder-riscv",
     "decoder-mips",
-    "demangler",
+    "symbols",
 ]

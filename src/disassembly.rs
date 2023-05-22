@@ -40,7 +40,7 @@ pub struct Disassembly {
     pub proc: Box<dyn InspectProcessor + Send>,
 
     /// Symbol lookup by absolute address.
-    pub symbols: demangler::Index,
+    pub symbols: symbols::Index,
 
     /// Number of listing lines scrolled.
     pub lines_scrolled: usize,
@@ -73,7 +73,7 @@ impl Disassembly {
             .into_owned();
 
         let section_base = section.address() as usize;
-        let mut symbols = demangler::Index::new();
+        let mut symbols = symbols::Index::new();
 
         symbols.parse_debug(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
         symbols.parse_imports(&binary[..], &obj).map_err(DecodeError::IncompleteImportTable)?;
@@ -161,7 +161,7 @@ impl<D: Decodable> Processor<D> {
         }
     }
 
-    pub fn recurse(&mut self, symbols: &demangler::Index) {
+    pub fn recurse(&mut self, symbols: &symbols::Index) {
         let mut unexplored_data = VecDeque::with_capacity(1024);
         let mut raw_instructions = VecDeque::with_capacity(1024);
 

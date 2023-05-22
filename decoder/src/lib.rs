@@ -18,7 +18,7 @@ pub trait Decoded: ToTokens + Debug {
     fn find_xrefs(
         &mut self,
         _addr: usize,
-        _symbols: &demangler::Index,
+        _symbols: &symbols::Index,
     ) {
     }
 }
@@ -40,7 +40,7 @@ pub trait Decodable {
 #[derive(Debug, Clone)]
 pub struct Xref {
     pub addr: usize,
-    pub text: Arc<demangler::TokenStream>,
+    pub text: Arc<symbols::TokenStream>,
 }
 
 pub struct TokenStream {

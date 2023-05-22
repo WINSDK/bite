@@ -266,7 +266,6 @@ impl Index {
                             // idk why we need this
                             phys_addr.saturating_sub(6)
                         }
-                        // TODO: there are probably more variants here
                         _ => continue,
                     };
 

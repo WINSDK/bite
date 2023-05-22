@@ -2628,7 +2628,7 @@ impl decoder::Decoded for Instruction {
         self.length as usize
     }
 
-    fn find_xrefs(&mut self, addr: usize, symbols: &demangler::Index) {
+    fn find_xrefs(&mut self, addr: usize, symbols: &symbols::Index) {
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
             let shadow = &mut self.shadowing[idx];
