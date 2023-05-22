@@ -1,6 +1,6 @@
 [package]
 name = "bite"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 
 [dependencies]
@@ -10,9 +10,9 @@ triple_accel = "0.4"
 once_cell = "1.1"
 glam = { version = "0.23", features = ["bytemuck"] }
 bytemuck = { version = "1.1", default-features = false }
-winit = { version = "0.28.2", features = ["wayland", "x11"], default-features = false }
-wgpu = { version = "0.15", features = ["spirv"], default-features = false }
-wgpu_glyph = "0.19"
+winit = "0.28.6"
+wgpu = { version = "0.16", default-features = false }
+wgpu_glyph = "0.20"
 ab_glyph = { version = "0.2", default-features = false }
 tokio = { version = "1.2", features = ["rt-multi-thread", "fs", "io-util", "macros", "time", "sync"] }
 png = "0.17"

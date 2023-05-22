@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use object::elf::{R_X86_64_JUMP_SLOT, R_X86_64_GLOB_DAT, R_X86_64_COPY};
+use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
 
 use object::endian::Endian;
 use object::read::elf::{ElfFile, FileHeader};
@@ -12,7 +12,9 @@ use object::read::macho::MachHeader;
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::BigEndian as BE;
 use object::LittleEndian as LE;
-use object::{RelocationKind, BinaryFormat, Object, ObjectSymbol, ObjectSymbolTable, ObjectSection};
+use object::{
+    BinaryFormat, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind,
+};
 
 use pdb::FallibleIterator;
 use tokenizing::{Color, ColorScheme, Colors, Token};
@@ -242,7 +244,7 @@ impl Index {
                 if let Ok(sym) = dyn_syms.symbol_by_index(idx) {
                     let name = match sym.name() {
                         Ok(name) => name,
-                        Err(..) => continue
+                        Err(..) => continue,
                     };
 
                     let phys_addr = match reloc.kind() {
@@ -254,7 +256,7 @@ impl Index {
                         RelocationKind::Elf(R_X86_64_JUMP_SLOT) => {
                             let bytes = match section.data_range(r_offset, 8) {
                                 Ok(Some(bytes)) => bytes,
-                                _ => continue
+                                _ => continue,
                             };
 
                             let phys_addr = if obj.is_64() {

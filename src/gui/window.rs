@@ -68,7 +68,7 @@ impl Backend {
             surface_capabilities
                 .formats
                 .into_iter()
-                .find(|format| format.describe().srgb)
+                .find(wgpu::TextureFormat::is_srgb)
                 .unwrap_or(default_format)
         };
 
