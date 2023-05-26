@@ -39,5 +39,5 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
   - [x] Itanium
   - [x] Rust
 - [ ] Assembly listing lifting
-  - [ ] Resolving addresses
+  - [x] Resolving addresses
   - [ ] Creating labels for relative jumps
