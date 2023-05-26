@@ -5,6 +5,7 @@ mod texture;
 mod utils;
 mod window;
 
+use pollster::FutureExt;
 use winit::dpi::{PhysicalPosition, PhysicalSize, Size};
 use winit::event::{
     ElementState, Event, KeyboardInput, ModifiersState, MouseScrollDelta, VirtualKeyCode,
@@ -81,7 +82,7 @@ pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
 
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
 
-pub async fn init() -> Result<(), Error> {
+pub fn init() -> Result<(), Error> {
     let event_loop = EventLoop::new();
 
     let window = {
@@ -116,7 +117,7 @@ pub async fn init() -> Result<(), Error> {
     let mut ectx = EventContext {
         frame_time: Instant::now(),
         keyboard: controls::KeyMap::new(),
-        backend: window::Backend::new(&window).await?,
+        backend: window::Backend::new(&window).block_on()?,
         window: Arc::clone(&window),
         #[cfg(target_family = "windows")]
         unwindowed_size: window.outer_size(),

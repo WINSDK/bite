@@ -4,12 +4,11 @@ macro_rules! exit {
         if let Some(window) = $crate::gui::WINDOW.get() {
             let window = std::sync::Arc::clone(&window);
 
-            crate::RUNTIME.spawn(async move {
-                rfd::AsyncMessageDialog::new()
+            std::thread::spawn(move || {
+                rfd::MessageDialog::new()
                     .set_level(rfd::MessageLevel::Error)
                     .set_parent(&*window)
-                    .show()
-                    .await;
+                    .show();
 
                 std::process::exit(0);
             });
@@ -23,14 +22,13 @@ macro_rules! exit {
             let window = std::sync::Arc::clone(&window);
 
             let args: String = format!($($arg)*);
-            crate::RUNTIME.spawn(async move {
-                rfd::AsyncMessageDialog::new()
+            std::thread::spawn(move || {
+                rfd::MessageDialog::new()
                     .set_title("Error")
                     .set_description(&args)
                     .set_level(rfd::MessageLevel::Error)
                     .set_parent(&*window)
-                    .show()
-                    .await;
+                    .show();
 
                 eprintln!("{args}");
                 std::process::exit(0);
@@ -49,14 +47,13 @@ macro_rules! error {
             let window = std::sync::Arc::clone(&window);
 
             let args: String = format!($($arg)*);
-            crate::RUNTIME.spawn(async move {
-                rfd::AsyncMessageDialog::new()
+            std::thread::spawn(move || {
+                rfd:::MessageDialog::new()
                     .set_title("Error")
                     .set_description(&args)
                     .set_level(rfd::MessageLevel::Error)
                     .set_parent(&*window)
-                    .show()
-                    .await;
+                    .show();
 
                 eprintln!("Error occurred");
                 #[cfg(debug_assertion)]
@@ -76,14 +73,13 @@ macro_rules! error {
             let window = std::sync::Arc::clone(&window);
 
             let args: String = format!($($arg)*);
-            crate::RUNTIME.spawn(async move {
-                rfd::AsyncMessageDialog::new()
+            std::thread::spawn(move || {
+                rfd::MessageDialog::new()
                     .set_title("Error")
                     .set_description(&args)
                     .set_level(rfd::MessageLevel::Error)
                     .set_parent(&*window)
-                    .show()
-                    .await;
+                    .show();
 
                 eprintln!("{args}");
                 #[cfg(debug_assertion)]
@@ -106,14 +102,13 @@ macro_rules! warning {
             let window = std::sync::Arc::clone(&window);
 
             let args: String = format!($($arg)*);
-            crate::RUNTIME.spawn(async move {
-                rfd::AsyncMessageDialog::new()
+            std::thread::spawn(move || {
+                rfd::MessageDialog::new()
                     .set_title("Warning")
                     .set_description(&args)
                     .set_level(rfd::MessageLevel::Warning)
                     .set_parent(&*window)
-                    .show()
-                    .await;
+                    .show();
 
                 eprintln!("Warning occurred");
             });
@@ -127,14 +122,13 @@ macro_rules! warning {
             let window = std::sync::Arc::clone(&window);
 
             let args: String = format!($($arg)*);
-            crate::RUNTIME.spawn(async move {
-                rfd::AsyncMessageDialog::new()
+            std::thread::spawn(move || {
+                rfd::MessageDialog::new()
                     .set_title("Warning")
                     .set_description(&args)
                     .set_level(rfd::MessageLevel::Warning)
                     .set_parent(&*window)
-                    .show()
-                    .await;
+                    .show();
 
                 eprintln!("{args}");
             });

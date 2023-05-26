@@ -36,9 +36,8 @@ pub struct Png {
     pub height: u32,
 }
 
-pub async fn decode_png<P: AsRef<std::path::Path>>(path: P) -> Result<Png, Error> {
-    let bytes = tokio::fs::read(&path)
-        .await
+pub fn decode_png<P: AsRef<std::path::Path>>(path: P) -> Result<Png, Error> {
+    let bytes = std::fs::read(&path)
         .map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
 
     decode_png_bytes(&bytes)

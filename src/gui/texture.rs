@@ -22,7 +22,7 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Texture, Error> {
-        let image = decode_png(path).await?;
+        let image = decode_png(path)?;
 
         Self::from_png(image, device, queue)
     }

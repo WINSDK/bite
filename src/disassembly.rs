@@ -54,7 +54,7 @@ impl Disassembly {
         path: P,
         show_donut: Arc<AtomicBool>,
     ) -> Result<Self, DecodeError> {
-        let now = tokio::time::Instant::now();
+        let now = std::time::Instant::now();
         show_donut.store(true, Ordering::Relaxed);
 
         let binary = std::fs::read(&path).map_err(DecodeError::ReadFailed)?;

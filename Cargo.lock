@@ -204,10 +204,10 @@ dependencies = [
  "once_cell",
  "pdb",
  "png",
+ "pollster",
  "rfd",
  "symbols",
  "tokenizing",
- "tokio",
  "triple_accel",
  "wgpu",
  "wgpu_glyph",
@@ -277,12 +277,6 @@ dependencies = [
  "quote",
  "syn 2.0.15",
 ]
-
-[[package]]
-name = "bytes"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89b2fd2a0dcf38d7971e2194b6b6eebab45ae01067456a7fd93d5547a61b70be"
 
 [[package]]
 name = "cairo-sys-rs"
@@ -1486,6 +1480,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pollster"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22686f4785f02a4fcc856d3b3bb19bf6c8160d103f7a99cc258bddd0251dc7f2"
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1907,31 +1907,6 @@ version = "0.2.0"
 dependencies = [
  "bytemuck",
  "wgpu_glyph",
-]
-
-[[package]]
-name = "tokio"
-version = "1.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0de47a4eecbe11f498978a9b29d792f0d2692d1dd003650c24c76510e3bc001"
-dependencies = [
- "autocfg",
- "bytes",
- "num_cpus",
- "pin-project-lite",
- "tokio-macros",
- "windows-sys 0.45.0",
-]
-
-[[package]]
-name = "tokio-macros"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61a573bdc87985e9d6ddeed1b3d864e8a302c847e40d647746df2f1de209d1ce"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.15",
 ]
 
 [[package]]

@@ -1,4 +1,3 @@
-#![allow(clippy::needless_range_loop)]
 #![cfg_attr(
     all(not(debug_assertions), target_family = "windows"),
     windows_subsystem = "windows"
@@ -11,7 +10,6 @@ mod args;
 mod disassembly;
 mod gui;
 mod macros;
-mod threading;
 
 use object::Object;
 use once_cell::sync::Lazy;
@@ -34,18 +32,11 @@ fn set_panic_handler() {
     }));
 }
 
-static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-});
-
 fn main() {
     set_panic_handler();
 
     if ARGS.disassemble {
-        return RUNTIME.block_on(gui::init()).unwrap();
+        return gui::init().unwrap();
     }
 
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
