@@ -166,7 +166,7 @@ fn handle_event(
                 ElementState::Pressed => ectx.keyboard.press(keycode),
                 ElementState::Released => ectx.keyboard.release(keycode),
             },
-            WindowEvent::Resized(size) => ectx.backend.resize(size),
+            WindowEvent::Resized(size) => ectx.backend.resize(rctx, size),
             WindowEvent::DroppedFile(path) => {
                 let show_donut = Arc::clone(&rctx.show_donut);
                 rctx.dissasembly = None;

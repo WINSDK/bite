@@ -162,6 +162,7 @@ impl Backend {
 
     pub fn redraw(&mut self, ctx: &mut RenderContext) -> Result<(), Error> {
         let frame = self.surface.get_current_texture().map_err(Error::DrawTexture)?;
+
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("bite::gui encoder"),
@@ -315,12 +316,18 @@ impl Backend {
         Ok(())
     }
 
-    pub fn resize(&mut self, size: PhysicalSize<u32>) {
+    pub fn resize(&mut self, ctx: &mut RenderContext, size: PhysicalSize<u32>) {
         if size.width > 0 && size.height > 0 {
             self.size = size;
             self.surface_cfg.width = size.width;
             self.surface_cfg.height = size.height;
             self.surface.configure(&self.device, &self.surface_cfg);
+        }
+
+        if let Some(ref mut disassembly) = ctx.dissasembly {
+            let font_size = ctx.scale_factor * ctx.font_size;
+
+            self.refresh_listing(disassembly, font_size);
         }
     }
 }
