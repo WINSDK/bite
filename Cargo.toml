@@ -16,11 +16,11 @@ wgpu_glyph = "0.20"
 ab_glyph = { version = "0.2", default-features = false }
 png = "0.17"
 rfd = "0.11"
+pollster = "0.3.0"
 decoder = { path = "./decoder" }
 disassembler = { path = "./disassembler" }
 tokenizing = { path = "./tokenizing" }
 symbols = { path = "./symbols" }
-pollster = "0.3.0"
 
 [profile.release]
 strip = true

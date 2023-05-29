@@ -44,54 +44,38 @@ pub struct Xref {
 }
 
 pub struct TokenStream {
-    inner: [Token<'static>; 25],
-    token_count: usize,
+    inner: Vec<Token<'static>>,
 }
 
 impl TokenStream {
     pub fn new() -> Self {
         Self {
-            inner: [tokenizing::EMPTY_TOKEN; 25],
-            token_count: 0,
+            inner: Vec::with_capacity(25),
         }
     }
 
     pub fn push(&mut self, text: &'static str, color: &'static Color) {
-        #[cfg(debug_assertions)]
-        if self.token_count == self.inner.len() {
-            panic!("failed to push token");
-        }
-
-        self.inner[self.token_count] = Token {
+        self.inner.push(Token {
             text: std::borrow::Cow::Borrowed(text),
             color,
-        };
-
-        self.token_count += 1;
+        });
     }
 
     pub fn push_owned(&mut self, text: String, color: &'static Color) {
-        #[cfg(debug_assertions)]
-        if self.token_count == self.inner.len() {
-            panic!("failed to push token");
-        }
-
-        self.inner[self.token_count] = Token {
+        self.inner.push(Token {
             text: std::borrow::Cow::Owned(text),
             color,
-        };
-
-        self.token_count += 1;
+        });
     }
 
     pub fn tokens(&self) -> &[Token<'static>] {
-        &self.inner[..self.token_count]
+        &self.inner
     }
 }
 
 impl Debug for TokenStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.inner[..self.token_count].fmt(f)
+        self.inner.fmt(f)
     }
 }
 
@@ -99,7 +83,7 @@ impl std::ops::Deref for TokenStream {
     type Target = [Token<'static>];
 
     fn deref(&self) -> &Self::Target {
-        &self.inner[..self.token_count]
+        &self.inner
     }
 }
 

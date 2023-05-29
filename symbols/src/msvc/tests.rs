@@ -10,7 +10,7 @@ macro_rules! eq {
         assert_eq!(
             String::from_iter(symbol.tokens().iter().map(|t| &t.text[..])),
             $demangled
-        )
+        );
     };
 }
 

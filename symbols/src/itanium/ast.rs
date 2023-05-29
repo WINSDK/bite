@@ -2336,18 +2336,6 @@ impl<'subs> Demangle<'subs> for Identifier {
         }
 
         let source_name = String::from_utf8_lossy(ident);
-
-        #[inline]
-        fn is_rust_hash(s: &str) -> bool {
-            s.starts_with('h') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
-        }
-
-        if is_rust_hash(&source_name) {
-            // remove '::' from tokenstream
-            ctx.stream.pop();
-            return;
-        }
-
         ctx.set_source_name(self.start, self.end);
         ctx.push_owned(source_name.into_owned(), Colors::item());
     }

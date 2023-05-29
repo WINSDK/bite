@@ -22,12 +22,22 @@ use tokenizing::{Color, ColorScheme, Colors, Token};
 pub mod itanium;
 pub mod msvc;
 pub mod rust;
+pub mod rust_legacy;
 
 fn parser(s: &str) -> TokenStream {
     // symbols without leading underscores are accepted as
     // dbghelp in windows strips them away
 
-    // parse gnu/llvm Rust/C/C++ symbols
+    let s = s.strip_suffix("$got").unwrap_or(s);
+    let s = s.strip_suffix("$plt").unwrap_or(s);
+    let s = s.strip_suffix("$pltgot").unwrap_or(s);
+
+    // parse rust symbols
+    if let Some(s) = rust_legacy::parse(s) {
+        return s;
+    }
+
+    // parse gnu/llvm/C/C++ symbols
     if let Some(s) = itanium::parse(s) {
         return s;
     }
