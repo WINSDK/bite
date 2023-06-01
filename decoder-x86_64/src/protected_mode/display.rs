@@ -1,9 +1,10 @@
-use crate::safer_unchecked::GetSaferUnchecked as _;
 use std::fmt;
+use std::borrow::Cow;
 
 use crate::protected_mode::{
     Decoder, Instruction, MergeMode, Opcode, Operand, OperandSpec, PrefixVex, RegSpec, Segment,
 };
+use crate::safer_unchecked::GetSaferUnchecked as _;
 use crate::{Number, MEM_SIZE_STRINGS};
 
 use decoder::ToTokens;
@@ -2043,11 +2044,13 @@ impl ToTokens for Instruction {
             if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
                 && RELATIVE_BRANCHES.contains(&self.opcode)
             {
-                // TODO: remove having to clone the string
                 if let Some(ref xref) = self.shadowing[0] {
                     stream.push("[", Colors::brackets());
                     for token in xref.text.tokens() {
-                        stream.push_owned(token.text.to_string(), token.color);
+                        match &token.text {
+                            Cow::Borrowed(text) => stream.push(text, token.color),
+                            Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
+                        };
                     }
                     stream.push("]", Colors::brackets());
                     return;
@@ -2092,13 +2095,16 @@ impl ToTokens for Instruction {
                 stream.push(":", Colors::expr());
             }
 
-            // TODO: remove having to clone the string
             if let Some(ref xref) = self.shadowing[0] {
                 stream.push("[", Colors::brackets());
                 for token in xref.text.tokens() {
-                    stream.push_owned(token.text.to_string(), token.color);
+                    match &token.text {
+                        Cow::Borrowed(text) => stream.push(text, token.color),
+                        Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
+                    };
                 }
                 stream.push("]", Colors::brackets());
+                return;
             }
 
             op.tokenize(stream);
@@ -2122,11 +2128,13 @@ impl ToTokens for Instruction {
                     stream.push(":", Colors::expr());
                 }
 
-                // TODO: remove having to clone the string
                 if let Some(ref xref) = self.shadowing[idx as usize] {
                     stream.push("[", Colors::brackets());
                     for token in xref.text.tokens() {
-                        stream.push_owned(token.text.to_string(), token.color);
+                        match &token.text {
+                            Cow::Borrowed(text) => stream.push(text, token.color),
+                            Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
+                        };
                     }
                     stream.push("]", Colors::brackets());
                     return;

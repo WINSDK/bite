@@ -106,7 +106,7 @@ impl Disassembly {
                 proc.recurse(&symbols);
                 Box::new(proc)
             }
-            object::Architecture::X86_64_X32 => {
+            object::Architecture::X86_64_X32 | object::Architecture::I386 => {
                 let decoder = disassembler::x86::Decoder::default();
 
                 let mut proc: Processor<disassembler::x86::Decoder> =

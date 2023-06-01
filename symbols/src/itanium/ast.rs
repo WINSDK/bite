@@ -1417,7 +1417,7 @@ impl<'subs> Demangle<'subs> for UnscopedName {
         match *self {
             UnscopedName::Unqualified(ref unqualified) => unqualified.demangle(ctx, scope),
             UnscopedName::Std(ref std) => {
-                ctx.push("std", Colors::root());
+                ctx.push("std", Colors::item());
                 ctx.push("::", Colors::delimiter());
                 std.demangle(ctx, scope)
             }
