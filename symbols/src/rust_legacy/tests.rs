@@ -5,7 +5,10 @@ use super::*;
 macro_rules! none {
     ($mangled:literal) => {
         if parse($mangled).is_some() {
-            panic!("Formatting '{}' succeeded when it wasn't supposed to.", $mangled);
+            panic!(
+                "Formatting '{}' succeeded when it wasn't supposed to.",
+                $mangled
+            );
         }
     };
 }

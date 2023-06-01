@@ -3,8 +3,8 @@
 mod tests;
 
 use once_cell::sync::Lazy;
-use tokenizing::{ColorScheme, Colors};
 use std::borrow::Cow;
+use tokenizing::{ColorScheme, Colors};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Error {

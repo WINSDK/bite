@@ -1,5 +1,5 @@
-use std::fmt;
 use std::borrow::Cow;
+use std::fmt;
 
 use crate::long_mode::{
     Decoder, Instruction, MergeMode, Opcode, Operand, OperandSpec, PrefixRex, RegSpec, Segment,

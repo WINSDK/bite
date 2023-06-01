@@ -15,12 +15,7 @@ pub trait Decoded: ToTokens + Debug {
         self.tokenize(&mut stream);
         stream
     }
-    fn find_xrefs(
-        &mut self,
-        _addr: usize,
-        _symbols: &symbols::Index,
-    ) {
-    }
+    fn find_xrefs(&mut self, _addr: usize, _symbols: &symbols::Index) {}
 }
 
 pub trait Failed: Debug {

@@ -76,7 +76,9 @@ impl Disassembly {
         let mut symbols = symbols::Index::new();
 
         symbols.parse_debug(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
-        symbols.parse_imports(&binary[..], &obj).map_err(DecodeError::IncompleteImportTable)?;
+        symbols
+            .parse_imports(&binary[..], &obj)
+            .map_err(DecodeError::IncompleteImportTable)?;
 
         let proc: Box<dyn InspectProcessor + Send> = match obj.architecture() {
             object::Architecture::Riscv32 => {

@@ -230,7 +230,7 @@ fn parse_mangled_name() {
                                     SourceName(Identifier {
                                         start: 3,
                                         end: 6,
-                                    }))))), vec![]),
+                                    })))))),
                 b"..."
             }
             b"_GLOBAL__I__Z3foo..." => {
@@ -246,7 +246,7 @@ fn parse_mangled_name() {
                                                     Identifier {
                                                         start: 14,
                                                         end: 17,
-                                                    }))))), vec![])))),
+                                                    }))))))))),
                 b"..."
             }
         }
@@ -330,7 +330,7 @@ fn parse_global_ctor_dtor() {
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                }))))), vec![]))),
+                                                })))))))),
                 b"..."
             }
             b".I__Z3foo..." => {
@@ -345,7 +345,7 @@ fn parse_global_ctor_dtor() {
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                }))))), vec![]))),
+                                                })))))))),
                 b"..."
             }
             b"$I__Z3foo..." => {
@@ -360,7 +360,7 @@ fn parse_global_ctor_dtor() {
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                }))))), vec![]))),
+                                                })))))))),
                 b"..."
             }
             b"_D__Z3foo..." => {
@@ -375,7 +375,7 @@ fn parse_global_ctor_dtor() {
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                }))))), vec![]))),
+                                                })))))))),
                 b"..."
             }
             b".D__Z3foo..." => {
@@ -390,7 +390,7 @@ fn parse_global_ctor_dtor() {
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                }))))), vec![]))),
+                                                })))))))),
                 b"..."
             }
             b"$D__Z3foo..." => {
@@ -405,7 +405,7 @@ fn parse_global_ctor_dtor() {
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                }))))), vec![]))),
+                                                })))))))),
                 b"..."
             }
         }
@@ -2066,7 +2066,7 @@ fn parse_expression() {
                                                 SourceName(Identifier {
                                                     start: 4,
                                                     end: 7,
-                                                }))))), vec![]))),
+                                                })))))))),
                     b"...",
                     []
                 }
@@ -2448,7 +2448,7 @@ fn parse_expr_primary() {
                                             SourceName(Identifier {
                                                 start: 4,
                                                 end: 7,
-                                            }))))), vec![])),
+                                            }))))))),
                     b"...",
                     []
                 }
@@ -3528,7 +3528,6 @@ fn parse_subobject_expr() {
                                             )
                                         )
                                     ),
-                                    vec![]
                                 )
                             )
                         )),

@@ -37,8 +37,7 @@ pub struct Png {
 }
 
 pub fn decode_png<P: AsRef<std::path::Path>>(path: P) -> Result<Png, Error> {
-    let bytes = std::fs::read(&path)
-        .map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
+    let bytes = std::fs::read(&path).map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
 
     decode_png_bytes(&bytes)
 }
@@ -65,7 +64,6 @@ pub fn decode_png_bytes(bytes: &[u8]) -> Result<Png, Error> {
         height: info.height,
     })
 }
-
 
 #[cfg(target_os = "windows")]
 pub mod windows {
