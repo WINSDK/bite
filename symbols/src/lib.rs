@@ -264,7 +264,13 @@ impl Index {
                         RelocationKind::Elf(R_X86_64_COPY) => r_offset as usize,
                         // address in .got.plt section which contains an address to the function
                         RelocationKind::Elf(R_X86_64_JUMP_SLOT) => {
-                            let bytes = match section.data_range(r_offset, 8) {
+                            let width = if obj.is_64() {
+                                8
+                            } else {
+                                4
+                            };
+
+                            let bytes = match section.data_range(r_offset, width) {
                                 Ok(Some(bytes)) => bytes,
                                 _ => continue,
                             };
