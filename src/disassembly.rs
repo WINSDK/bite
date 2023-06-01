@@ -29,7 +29,7 @@ pub enum DecodeError {
     IncompleteSymbolTable(pdb::Error),
 
     /// Decoder support for this platform doesn't yet exist.
-    UnknownArchitecture,
+    UnknownArchitecture(object::Architecture),
 }
 
 pub struct Disassembly {
@@ -124,7 +124,7 @@ impl Disassembly {
                 proc.recurse(&symbols);
                 Box::new(proc)
             }
-            _ => return Err(DecodeError::UnknownArchitecture),
+            arch => return Err(DecodeError::UnknownArchitecture(arch)),
         };
 
         println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
