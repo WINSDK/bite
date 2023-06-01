@@ -953,7 +953,7 @@ macro_rules! define_vocabulary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MangledName {
     /// The encoding of the mangled symbol name.
-    Encoding(Encoding, Vec<CloneSuffix>),
+    Encoding(Encoding),
 
     /// The encoding of the mangled symbol name.
     BlockInvoke(Encoding, Option<isize>),
@@ -978,8 +978,8 @@ impl Parse for MangledName {
 
         if let Ok(tail) = consume(b"_Z", input).or_else(|_| consume(b"__Z", input)) {
             let (encoding, tail) = Encoding::parse(ctx, subs, tail)?;
-            let (clone_suffixes, tail) = zero_or_more(ctx, subs, tail)?;
-            return Ok((MangledName::Encoding(encoding, clone_suffixes), tail));
+            let (_, tail) = zero_or_more::<CloneSuffix>(ctx, subs, tail)?;
+            return Ok((MangledName::Encoding(encoding), tail));
         }
 
         if let Ok(tail) = consume(b"___Z", input).or_else(|_| consume(b"____Z", input)) {
@@ -1018,13 +1018,8 @@ impl<'subs> Demangle<'subs> for MangledName {
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
         match *self {
-            MangledName::Encoding(ref enc, ref cs) => {
+            MangledName::Encoding(ref enc) => {
                 enc.demangle(ctx, scope);
-                if !cs.is_empty() {
-                    for clone_suffix in cs {
-                        clone_suffix.demangle(ctx, scope);
-                    }
-                }
             }
             MangledName::BlockInvoke(ref enc, _) => {
                 ctx.push("invocation function for block in ", Colors::comment());
@@ -1129,11 +1124,7 @@ impl<'subs> Demangle<'subs> for Encoding {
                     scope
                 };
 
-                ctx.push_inner(self);
                 name.demangle(ctx, scope);
-                if ctx.pop_inner_if(self) {
-                    self.demangle_as_inner(ctx, scope);
-                }
             }
             Encoding::Data(ref name) => name.demangle(ctx, scope),
             Encoding::Special(ref name) => name.demangle(ctx, scope),
@@ -1575,13 +1566,6 @@ impl Parse for NestedName {
 }
 
 impl NestedName {
-    /// Get the CV-qualifiers for this name.
-    pub(crate) fn cv_qualifiers(&self) -> &CvQualifiers {
-        match *self {
-            NestedName::Unqualified(ref q, ..) | NestedName::Template(ref q, ..) => q,
-        }
-    }
-
     /// Get the ref-qualifier for this name, if one exists.
     pub(crate) fn ref_qualifier(&self) -> Option<&RefQualifier> {
         match *self {
@@ -1624,10 +1608,6 @@ impl<'subs> Demangle<'subs> for NestedName {
 
         if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope);
-        }
-
-        if self.cv_qualifiers() != &CvQualifiers::default() {
-            self.cv_qualifiers().demangle(ctx, scope);
         }
 
         if let Some(refs) = self.ref_qualifier() {
@@ -4601,11 +4581,6 @@ impl<'subs> Demangle<'subs> for TemplateArgs {
             need_comma = true;
         }
 
-        // Ensure "> >" because old C++ sucks and libiberty (and its tests)
-        // supports old C++.
-        if ctx.last_char_written == Some('>') {
-            ctx.push(" ", Colors::spacing());
-        }
         ctx.push(">", Colors::annotation());
     }
 }
