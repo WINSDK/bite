@@ -36,9 +36,9 @@ impl Uniforms {
 }
 
 pub struct Pipeline {
+    pipeline: wgpu::RenderPipeline,
     constant_buffer: wgpu::Buffer,
     constants: wgpu::BindGroup,
-    pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,

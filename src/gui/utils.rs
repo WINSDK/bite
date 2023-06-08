@@ -122,7 +122,10 @@ pub fn generate_window<T>(
         .with_title(title)
         .with_theme(Some(winit::window::Theme::Dark))
         .with_window_icon(icon)
-        .with_min_inner_size(super::MIN_WIN_SIZE)
+        .with_inner_size(winit::dpi::PhysicalSize {
+            width: super::WIDTH,
+            height: super::HEIGHT,
+        })
         .build(event_loop)
         .map_err(|_| Error::WindowCreation)
 }
@@ -143,7 +146,10 @@ pub fn generate_window<T>(
         .with_decorations(true)
         .with_taskbar_icon(icon.clone())
         .with_window_icon(icon)
-        .with_min_inner_size(super::MIN_WIN_SIZE)
+        .with_inner_size(winit::dpi::PhysicalSize {
+            width: super::WIDTH,
+            height: super::HEIGHT,
+        })
         .build(event_loop)
         .map_err(|_| Error::WindowCreation)?;
 
