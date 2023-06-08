@@ -1,12 +1,11 @@
 mod donut;
+mod backend;
+mod winit_backend;
 mod egui_backend;
 mod icons;
-mod quad;
 mod style;
 mod texture;
 mod utils;
-mod window;
-mod winit_backend;
 
 use egui_dock::tree::Tree;
 use once_cell::sync::OnceCell;
@@ -16,27 +15,24 @@ use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
 use crate::disassembly::Disassembly;
 use egui_backend::Pipeline;
+use backend::Backend;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
-use window::Backend;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
-use std::collections::HashMap;
 
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
-static WIDTH: u32 = 580;
-static HEIGHT: u32 = 580;
+static WIDTH: u32 = 1200;
+static HEIGHT: u32 = 800;
 
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Failure to retrieve the current texture from our surface.
-    DrawTexture(wgpu::SurfaceError),
-
     /// Failure from wgpu_glyph to draw text.
     DrawText(String),
 
@@ -64,8 +60,8 @@ pub enum Error {
 
 #[derive(PartialEq)]
 enum TabKind {
-    Source(String),
-    Listing(usize),
+    Source,
+    Listing,
 }
 
 struct Buffers {
@@ -78,13 +74,31 @@ impl Buffers {
     }
 }
 
+fn show_source(ui: &mut egui::Ui) {
+    ui.label("todo");
+}
+
+fn show_listing(ui: &mut egui::Ui) {
+    let text_style = egui::TextStyle::Body;
+    let row_height = ui.text_style_height(&text_style);
+    let total_rows = 10_000;
+    let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+
+    area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+        for row in row_range {
+            let text = format!("Row {}/{}", row + 1, total_rows);
+            ui.label(text);
+        }
+    });
+}
+
 impl egui_dock::TabViewer for Buffers {
     type Tab = Title;
 
     fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
         match self.inner.get(title) {
-            Some(TabKind::Source(src)) => ui.label(src),
-            Some(TabKind::Listing(id)) => ui.label(id.to_string()),
+            Some(TabKind::Source) => show_source(ui),
+            Some(TabKind::Listing) => show_listing(ui),
             _ => return,
         };
     }
@@ -150,20 +164,17 @@ pub fn init() -> Result<(), Error> {
         winit: event_loop.create_proxy(),
     });
 
-    let source_title = crate::icon!(EMBED2, "Source");
     let disass_title = crate::icon!(PARAGRAPH_LEFT, "Disassembly");
+    let source_title = crate::icon!(EMBED2, "Source");
 
-    let mut egui_rpass = Pipeline::new(&backend, 1);
-    let mut tabs = Tree::new(vec![source_title, disass_title]);
+    let mut egui_rpass = Pipeline::new(&backend.device, backend.surface_cfg.format, 1);
+    let mut tabs = Tree::new(vec![disass_title, source_title]);
 
     tabs.set_focused_node(egui_dock::NodeIndex::root());
 
     let buffers = HashMap::from([
-        (source_title, TabKind::Listing(1600)),
-        (
-            disass_title,
-            TabKind::Source(String::from("line 1\nline 2\nline 3")),
-        ),
+        (disass_title, TabKind::Listing),
+        (source_title, TabKind::Source),
     ]);
 
     let mut ctx = RenderContext {
@@ -217,7 +228,7 @@ pub fn init() -> Result<(), Error> {
                         Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
                 }
                 _ => {}
-            }
+            },
             Event::MainEventsCleared => {
                 handle_post_render(&mut ctx);
             }

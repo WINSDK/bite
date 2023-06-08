@@ -1,6 +1,4 @@
 //! You need to create a [`RenderPass`] and feed it with the output data provided by egui.
-use crate::gui::window::Backend;
-
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
@@ -72,10 +70,11 @@ impl Pipeline {
     /// Creates a new render pass to render a egui UI.
     ///
     /// If the format passed is not a *Srgb format, the shader will automatically convert to sRGB colors in the shader.
-    pub fn new(backend: &Backend, msaa_samples: u32) -> Self {
-        let device = &backend.device;
-        let output_format = backend.surface_cfg.format;
-
+    pub fn new(
+        device: &wgpu::Device,
+        output_format: wgpu::TextureFormat,
+        msaa_samples: u32,
+    ) -> Self {
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("egui_shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(

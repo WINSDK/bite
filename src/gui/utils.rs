@@ -122,7 +122,7 @@ pub fn generate_window<T>(
         .with_title(title)
         .with_theme(Some(winit::window::Theme::Dark))
         .with_window_icon(icon)
-        .with_inner_size(winit::dpi::PhysicalSize {
+        .with_inner_size(winit::dpi::LogicalSize {
             width: super::WIDTH,
             height: super::HEIGHT,
         })
@@ -146,7 +146,7 @@ pub fn generate_window<T>(
         .with_decorations(true)
         .with_taskbar_icon(icon.clone())
         .with_window_icon(icon)
-        .with_inner_size(winit::dpi::PhysicalSize {
+        .with_inner_size(winit::dpi::LogicalSize {
             width: super::WIDTH,
             height: super::HEIGHT,
         })

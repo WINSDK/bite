@@ -1,17 +1,17 @@
 use crate::disassembly::Disassembly;
 use crate::gui::egui_backend::{self, ScreenDescriptor};
+use crate::gui::winit_backend::{CustomEvent, Platform};
 use crate::gui::Error;
 use crate::gui::RenderContext;
-use crate::gui::winit_backend::{Platform, CustomEvent};
-use tokenizing::{Token, colors};
+use tokenizing::{colors, Token};
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use egui::CentralPanel;
 use egui::{Button, RichText};
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
-use egui::CentralPanel;
 
 pub struct Backend {
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -157,12 +157,10 @@ impl Backend {
 
     //     disassembly.lines = text;
     // }
-
-    pub fn redraw(
+    fn draw_donut(
         &mut self,
         ctx: &mut RenderContext,
         platform: &mut Platform,
-        render_pass: &mut egui_backend::Pipeline
     ) -> Result<(), Error> {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -200,6 +198,39 @@ impl Backend {
                 .map_err(Error::DrawText)?;
         }
 
+        // submit work
+        self.staging_belt.finish();
+        self.queue.submit(Some(encoder.finish()));
+
+        // schedule texture to be renderer on surface
+        frame.present();
+
+        // recall unused staging buffers
+        self.staging_belt.recall();
+
+        Ok(())
+    }
+
+    pub fn redraw(
+        &mut self,
+        ctx: &mut RenderContext,
+        platform: &mut Platform,
+        render_pass: &mut egui_backend::Pipeline,
+    ) -> Result<(), Error> {
+        if ctx.show_donut.load(Ordering::Relaxed) {
+            return self.draw_donut(ctx, platform);
+        }
+
+        let frame = match self.surface.get_current_texture() {
+            Ok(frame) => frame,
+            Err(..) => return Ok(()),
+        };
+
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("bite::gui encoder"),
+        });
+
         // begin to draw the UI frame
         platform.begin_frame();
 
@@ -212,7 +243,7 @@ impl Backend {
             )
             .show(&platform.context(), |ui| {
                 // alt-tab'ing between tabs
-                if ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, egui::Key::Tab)) {
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
                     let focused_idx = match ctx.tabs.focused_leaf() {
                         Some(idx) => idx,
                         None => egui_dock::NodeIndex::root(),
@@ -259,7 +290,9 @@ impl Backend {
         };
 
         let tdelta: egui::TexturesDelta = full_output.textures_delta;
-        render_pass.add_textures(&self.device, &self.queue, &tdelta).expect("add texture ok");
+        render_pass
+            .add_textures(&self.device, &self.queue, &tdelta)
+            .expect("add texture ok");
         render_pass.update_buffers(&self.device, &self.queue, &paint_jobs, &screen_descriptor);
 
         // Record all render passes.
@@ -296,26 +329,42 @@ impl Backend {
             self.surface.configure(&self.device, &self.surface_cfg);
         }
 
-        if let Some(ref mut disassembly) = ctx.dissasembly {
+        if let Some(ref mut disassembly) = ctx.dissasembly {}
+    }
+}
+
+fn ask_for_binary(ctx: &mut RenderContext) {
+    // create dialog popup and get references to the donut and dissasembly
+    let dialog = rfd::FileDialog::new().set_parent(&*ctx.window).pick_file();
+
+    // load binary
+    if let Some(path) = dialog {
+        // ghost disassembling thread if a binary is already loaded.
+        if ctx.disassembling_thread.is_some() {
+            ctx.disassembling_thread = None;
         }
+
+        let show_donut = Arc::clone(&ctx.show_donut);
+        ctx.dissasembly = None;
+        ctx.disassembling_thread = Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
     }
 }
 
 // if let Some(ref mut disassembly) = ctx.dissasembly {
 //     let mut lines_scrolled = (ctx.listing_offset / ctx.font_size) as isize;
 //     ctx.show_donut.store(false, Ordering::Relaxed);
-// 
+//
 //     // on first access refresh the listing
 //     if disassembly.current_addr == 0 {
 //         self.refresh_listing(disassembly, font_size);
 //     }
-// 
+//
 //     if lines_scrolled != 0 {
 //         // don't count any lines scrolled before the dissasembly is loaded
 //         if disassembly.current_addr == 0 {
 //             lines_scrolled = 0;
 //         }
-// 
+//
 //         // find the instructions equal to or high than the current address
 //         // then skipping the number of lines we've scrolled past and if there
 //         // isn't any instructions left, show just the last instruction
@@ -335,12 +384,13 @@ impl Backend {
 //                 .next()
 //                 .unwrap_or_else(|| disassembly.proc.iter().last().unwrap())
 //         };
-// 
+//
 //         disassembly.current_addr = inst.0;
 //         ctx.listing_offset = 0.0;
 //         self.refresh_listing(disassembly, font_size);
 //     }
 // }
+
 fn fullscreen(ctx: &mut RenderContext) {
     let monitor = match ctx.window.current_monitor() {
         Some(monitor) => monitor,
@@ -349,7 +399,7 @@ fn fullscreen(ctx: &mut RenderContext) {
 
     #[cfg(target_family = "windows")]
     unsafe {
-        use utils::windows::*;
+        use crate::gui::utils::windows::*;
         use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
 
         let mut info = MonitorInfo {
@@ -409,21 +459,7 @@ fn fullscreen(ctx: &mut RenderContext) {
 
 fn keyboard_input(ui: &mut egui::Ui, ctx: &mut RenderContext) {
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::O)) {
-        // create dialog popup and get references to the donut and dissasembly
-        let dialog = rfd::FileDialog::new().set_parent(&*ctx.window).pick_file();
-
-        // load binary
-        if let Some(path) = dialog {
-            // ghost disassembling thread if a binary is already loaded.
-            if ctx.disassembling_thread.is_some() {
-                ctx.disassembling_thread = None;
-            }
-
-            let show_donut = Arc::clone(&ctx.show_donut);
-            ctx.dissasembly = None;
-            ctx.disassembling_thread =
-                Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
-        }
+        ask_for_binary(ctx);
     }
 
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::F)) {
@@ -434,17 +470,15 @@ fn keyboard_input(ui: &mut egui::Ui, ctx: &mut RenderContext) {
 fn title_bar_ui(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
     egui::menu::bar(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if ui.button(crate::icon!(FOLDER_OPEN, "open")).clicked() {
+            if ui.button(crate::icon!(FOLDER_OPEN, "Open")).clicked() {
+                ask_for_binary(ctx);
                 ui.close_menu();
             }
-        });
 
-        ui.menu_button("Edit", |ui| {
-            ui.menu_button("My sub-menu", |ui| {
-                if ui.button("Close the menu").clicked() {
-                    ui.close_menu();
-                }
-            });
+            if ui.button(crate::icon!(CROSS, "Exit")).clicked() {
+                platform.send_event(CustomEvent::CloseRequest);
+                ui.close_menu();
+            }
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {

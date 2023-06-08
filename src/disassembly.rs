@@ -54,8 +54,9 @@ impl Disassembly {
         path: P,
         show_donut: Arc<AtomicBool>,
     ) -> Result<Self, DecodeError> {
-        let now = std::time::Instant::now();
         show_donut.store(true, Ordering::Relaxed);
+
+        let now = std::time::Instant::now();
 
         let binary = std::fs::read(&path).map_err(DecodeError::ReadFailed)?;
         let obj = object::File::parse(&binary[..]).map_err(DecodeError::IncompleteObject)?;
@@ -128,6 +129,8 @@ impl Disassembly {
             }
             arch => return Err(DecodeError::UnknownArchitecture(arch)),
         };
+
+        show_donut.store(false, Ordering::Relaxed);
 
         println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
         Ok(Self {

@@ -45,10 +45,10 @@ impl Style {
             wrap: None,
             spacing: Spacing {
                 menu_margin: Margin {
-                    top: 0.0,
-                    bottom: 3.0,
-                    left: 3.0,
-                    right: 3.0,
+                    top: 4.0,
+                    bottom: 4.0,
+                    left: 4.0,
+                    right: 4.0,
                 },
                 combo_width: 0.0,
                 scroll_bar_inner_margin: 0.0,
