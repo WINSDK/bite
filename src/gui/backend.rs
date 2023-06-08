@@ -434,8 +434,8 @@ fn fullscreen(ctx: &mut RenderContext) {
         } else {
             let attr = WS_VISIBLE | WS_OVERLAPPED;
 
-            ctx.unwindowed_size = ectx.window.outer_size();
-            ctx.unwindowed_pos = ectx.window.outer_position().unwrap_or_default();
+            ctx.unwindowed_size = ctx.window.outer_size();
+            ctx.unwindowed_pos = ctx.window.outer_position().unwrap_or_default();
 
             SetWindowLongPtrW(ctx.window.hwnd(), GWL_STYLE, attr);
             SetWindowPos(

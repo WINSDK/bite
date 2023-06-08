@@ -130,9 +130,9 @@ pub struct RenderContext {
     disassembling_thread: Option<DisassThread>,
 
     #[cfg(target_family = "windows")]
-    unwindowed_size: PhysicalSize<u32>,
+    unwindowed_size: winit::dpi::PhysicalPosition<u32>,
     #[cfg(target_family = "windows")]
-    unwindowed_pos: PhysicalPosition<i32>,
+    unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 }
 
 pub fn init() -> Result<(), Error> {
