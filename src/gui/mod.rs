@@ -112,19 +112,12 @@ impl Buffers {
             let mut job = LayoutJob::default();
 
             for token in tokens {
-                let color = egui::Color32::from_rgba_premultiplied(
-                    (token.color.0[0] * 255.0) as u8,
-                    (token.color.0[1] * 255.0) as u8,
-                    (token.color.0[2] * 255.0) as u8,
-                    (token.color.0[3] * 255.0) as u8,
-                );
-
                 job.append(
                     &token.text,
                     0.0,
                     egui::TextFormat {
                         font_id: font_id.clone(),
-                        color,
+                        color: *token.color,
                         ..Default::default()
                     },
                 );

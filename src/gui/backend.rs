@@ -3,7 +3,6 @@ use crate::gui::egui_backend::{self, ScreenDescriptor};
 use crate::gui::winit_backend::{CustomEvent, Platform};
 use crate::gui::Error;
 use crate::gui::RenderContext;
-use tokenizing::colors;
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -118,15 +117,17 @@ impl Backend {
         });
 
         if ctx.show_donut.load(Ordering::Relaxed) {
+            let text = wgpu_glyph::Text::new(&ctx.donut.frame)
+                .with_color([1.0, 1.0, 1.0, 1.0])
+                .with_scale(platform.scale_factor as f32 * 10.0);
+
             // queue donut text
             self.glyph_brush.queue(wgpu_glyph::Section {
                 screen_position: (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0),
                 layout: wgpu_glyph::Layout::default()
                     .h_align(wgpu_glyph::HorizontalAlign::Center)
                     .v_align(wgpu_glyph::VerticalAlign::Center),
-                text: vec![wgpu_glyph::Text::new(&ctx.donut.frame)
-                    .with_color(colors::WHITE)
-                    .with_scale(platform.scale_factor as f32 * 10.0)],
+                text: vec![text],
                 ..wgpu_glyph::Section::default()
             });
 

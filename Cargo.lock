@@ -2077,8 +2077,7 @@ dependencies = [
 name = "tokenizing"
 version = "0.0.0"
 dependencies = [
- "bytemuck",
- "wgpu_glyph",
+ "egui",
 ]
 
 [[package]]
