@@ -3,7 +3,7 @@ use crate::gui::egui_backend::{self, ScreenDescriptor};
 use crate::gui::winit_backend::{CustomEvent, Platform};
 use crate::gui::Error;
 use crate::gui::RenderContext;
-use tokenizing::{colors, Token};
+use tokenizing::colors;
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -102,61 +102,6 @@ impl Backend {
         })
     }
 
-    // fn refresh_listing(&mut self, disassembly: &mut Disassembly, font_size: f32) {
-    //     disassembly.lines_scrolled = 0;
-    //     let mut text: Vec<Token> = Vec::new();
-    //     let symbols = &disassembly.symbols;
-    //     let lines = disassembly
-    //         .proc
-    //         .iter()
-    //         .skip_while(|(addr, _)| {
-    //             disassembly.lines_scrolled += 1;
-    //             *addr < disassembly.current_addr
-    //         })
-    //         .take((self.size.height as f32 / font_size).ceil() as usize);
-
-    //     // for each instruction
-    //     for (addr, inst) in lines {
-    //         // if the address matches a symbol, print it
-    //         if let Some(label) = symbols.get_by_addr_ref(addr) {
-    //             text.push(Token::from_str("\n<", &colors::BLUE));
-    //             for token in label.tokens() {
-    //                 text.push(token.to_owned());
-    //             }
-
-    //             text.push(Token::from_str(">:\n", &colors::BLUE));
-    //         }
-
-    //         // memory address
-    //         text.push(Token::from_string(
-    //             format!("0x{addr:0>10X}  "),
-    //             &colors::GRAY40,
-    //         ));
-
-    //         // instruction's bytes
-    //         text.push(Token::from_string(
-    //             disassembly.proc.bytes(inst, addr),
-    //             &colors::GREEN,
-    //         ));
-
-    //         match inst {
-    //             Ok(inst) => {
-    //                 for token in inst.tokens().iter() {
-    //                     text.push(token.clone());
-    //                 }
-    //             }
-    //             Err(err) => {
-    //                 text.push(Token::from_str("<", &colors::GRAY40));
-    //                 text.push(Token::from_string(format!("{err:?}"), &colors::RED));
-    //                 text.push(Token::from_str(">", &colors::GRAY40));
-    //             }
-    //         }
-
-    //         text.push(Token::from_str("\n", &colors::WHITE));
-    //     }
-
-    //     disassembly.lines = text;
-    // }
     fn draw_donut(
         &mut self,
         ctx: &mut RenderContext,
@@ -321,15 +266,13 @@ impl Backend {
         Ok(())
     }
 
-    pub fn resize(&mut self, ctx: &mut RenderContext, size: PhysicalSize<u32>) {
+    pub fn resize(&mut self, size: PhysicalSize<u32>) {
         if size.width > 0 && size.height > 0 {
             self.size = size;
             self.surface_cfg.width = size.width;
             self.surface_cfg.height = size.height;
             self.surface.configure(&self.device, &self.surface_cfg);
         }
-
-        if let Some(ref mut disassembly) = ctx.dissasembly {}
     }
 }
 
@@ -349,47 +292,6 @@ fn ask_for_binary(ctx: &mut RenderContext) {
         ctx.disassembling_thread = Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
     }
 }
-
-// if let Some(ref mut disassembly) = ctx.dissasembly {
-//     let mut lines_scrolled = (ctx.listing_offset / ctx.font_size) as isize;
-//     ctx.show_donut.store(false, Ordering::Relaxed);
-//
-//     // on first access refresh the listing
-//     if disassembly.current_addr == 0 {
-//         self.refresh_listing(disassembly, font_size);
-//     }
-//
-//     if lines_scrolled != 0 {
-//         // don't count any lines scrolled before the dissasembly is loaded
-//         if disassembly.current_addr == 0 {
-//             lines_scrolled = 0;
-//         }
-//
-//         // find the instructions equal to or high than the current address
-//         // then skipping the number of lines we've scrolled past and if there
-//         // isn't any instructions left, show just the last instruction
-//         let inst = if lines_scrolled < 0 {
-//             disassembly
-//                 .proc
-//                 .in_range(Bound::Unbounded, Bound::Included(disassembly.current_addr))
-//                 .rev()
-//                 .skip(-lines_scrolled as usize)
-//                 .next()
-//                 .unwrap_or_else(|| disassembly.proc.iter().next().unwrap())
-//         } else {
-//             disassembly
-//                 .proc
-//                 .in_range(Bound::Included(disassembly.current_addr), Bound::Unbounded)
-//                 .skip(lines_scrolled as usize)
-//                 .next()
-//                 .unwrap_or_else(|| disassembly.proc.iter().last().unwrap())
-//         };
-//
-//         disassembly.current_addr = inst.0;
-//         ctx.listing_offset = 0.0;
-//         self.refresh_listing(disassembly, font_size);
-//     }
-// }
 
 fn fullscreen(ctx: &mut RenderContext) {
     let monitor = match ctx.window.current_monitor() {

@@ -125,7 +125,7 @@ pub mod colors {
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct Color([f32; 4]);
+pub struct Color(pub [f32; 4]);
 
 impl Default for Color {
     fn default() -> Self {

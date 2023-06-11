@@ -1,3 +1,4 @@
+use tokenizing::{colors, Token};
 use decoder::encode_hex_bytes_truncated;
 use decoder::{Decodable, Decoded, Failed};
 use object::{Object, ObjectSection, SectionKind};
@@ -41,12 +42,6 @@ pub struct Disassembly {
 
     /// Symbol lookup by absolute address.
     pub symbols: symbols::Index,
-
-    /// Number of listing lines scrolled.
-    pub lines_scrolled: usize,
-
-    /// Lines being displayed.
-    pub lines: Vec<tokenizing::Token<'static>>,
 }
 
 impl Disassembly {
@@ -137,9 +132,59 @@ impl Disassembly {
             current_addr: 0,
             proc,
             symbols,
-            lines_scrolled: 0,
-            lines: Vec::new(),
         })
+    }
+
+    pub fn listing(&self, range: std::ops::Range<usize>) -> Vec<Token<'static>> {
+        let mut text: Vec<Token> = Vec::new();
+        let symbols = &self.symbols;
+        let lines = self
+            .proc
+            .iter()
+            .skip(range.start)
+            .take(range.end - range.start);
+
+        // for each instruction
+        for (addr, inst) in lines {
+            // if the address matches a symbol, print it
+            if let Some(label) = symbols.get_by_addr_ref(addr) {
+                text.push(Token::from_str("\n<", &colors::BLUE));
+                for token in label.tokens() {
+                    text.push(token.to_owned());
+                }
+
+                text.push(Token::from_str(">:\n", &colors::BLUE));
+            }
+
+            // memory address
+            text.push(Token::from_string(
+                format!("0x{addr:0>10X}  "),
+                &colors::GRAY40,
+            ));
+
+            // instruction's bytes
+            text.push(Token::from_string(
+                self.proc.bytes(inst, addr),
+                &colors::GREEN,
+            ));
+
+            match inst {
+                Ok(inst) => {
+                    for token in inst.tokens().iter() {
+                        text.push(token.clone());
+                    }
+                }
+                Err(err) => {
+                    text.push(Token::from_str("<", &colors::GRAY40));
+                    text.push(Token::from_string(format!("{err:?}"), &colors::RED));
+                    text.push(Token::from_str(">", &colors::GRAY40));
+                }
+            }
+
+            text.push(Token::from_str("\n", &colors::WHITE));
+        }
+
+        return text;
     }
 }
 

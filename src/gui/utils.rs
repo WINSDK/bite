@@ -1,4 +1,4 @@
-use super::Error;
+use crate::gui::Error;
 
 pub struct Timer {
     start: std::time::Instant,

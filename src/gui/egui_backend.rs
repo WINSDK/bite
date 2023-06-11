@@ -1,10 +1,12 @@
 //! You need to create a [`RenderPass`] and feed it with the output data provided by egui.
+
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 
 use bytemuck::{Pod, Zeroable};
 use egui::epaint;
+pub use wgpu;
 use wgpu::util::DeviceExt;
 
 /// Error that the backend can return.
@@ -69,7 +71,8 @@ pub struct Pipeline {
 impl Pipeline {
     /// Creates a new render pass to render a egui UI.
     ///
-    /// If the format passed is not a *Srgb format, the shader will automatically convert to sRGB colors in the shader.
+    /// If the format passed is not a *Srgb format, the shader will automatically convert to sRGB
+    /// colors in the shader.
     pub fn new(
         device: &wgpu::Device,
         output_format: wgpu::TextureFormat,
@@ -77,9 +80,7 @@ impl Pipeline {
     ) -> Self {
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("egui_shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
-                "../../shaders/egui.wgsl"
-            ))),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../../shaders/egui.wgsl"))),
         };
         let module = device.create_shader_module(shader);
 
@@ -165,7 +166,11 @@ impl Pipeline {
                     // 0: vec2 position
                     // 1: vec2 texture coordinates
                     // 2: uint color
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Uint32],
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x2,
+                        1 => Float32x2,
+                        2 => Uint32
+                    ],
                 }],
             },
             primitive: wgpu::PrimitiveState {
@@ -219,7 +224,8 @@ impl Pipeline {
         }
     }
 
-    /// Executes the egui render pass. When `clear_color` is not None, the output target will get cleared with clear_color before writing to it.
+    /// Executes the egui render pass. When `clear_color` is not None, the output target will get
+    /// cleared with clear_color before writing to it.
     pub fn execute(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -270,22 +276,16 @@ impl Pipeline {
         let physical_width = screen_descriptor.physical_width;
         let physical_height = screen_descriptor.physical_height;
 
-        for (
-            (
-                egui::ClippedPrimitive {
-                    clip_rect,
-                    primitive,
-                },
-                vertex_buffer,
-            ),
-            index_buffer,
-        ) in paint_jobs.iter().zip(self.vertex_buffers.iter()).zip(self.index_buffers.iter())
+        for ((job, vertex_buffer), index_buffer) in paint_jobs
+            .iter()
+            .zip(self.vertex_buffers.iter())
+            .zip(self.index_buffers.iter())
         {
             // Transform clip rect to physical pixels.
-            let clip_min_x = scale_factor * clip_rect.min.x;
-            let clip_min_y = scale_factor * clip_rect.min.y;
-            let clip_max_x = scale_factor * clip_rect.max.x;
-            let clip_max_y = scale_factor * clip_rect.max.y;
+            let clip_min_x = scale_factor * job.clip_rect.min.x;
+            let clip_min_y = scale_factor * job.clip_rect.min.y;
+            let clip_max_x = scale_factor * job.clip_rect.max.x;
+            let clip_max_y = scale_factor * job.clip_rect.max.y;
 
             // Make sure clip rect can fit within an `u32`.
             let clip_min_x = clip_min_x.clamp(0.0, physical_width as f32);
@@ -301,22 +301,20 @@ impl Pipeline {
             let width = (clip_max_x - clip_min_x).max(1);
             let height = (clip_max_y - clip_min_y).max(1);
 
-            {
-                // Clip scissor rectangle to target size.
-                let x = clip_min_x.min(physical_width);
-                let y = clip_min_y.min(physical_height);
-                let width = width.min(physical_width - x);
-                let height = height.min(physical_height - y);
+            // Clip scissor rectangle to target size.
+            let x = clip_min_x.min(physical_width);
+            let y = clip_min_y.min(physical_height);
+            let width = width.min(physical_width - x);
+            let height = height.min(physical_height - y);
 
-                // Skip rendering with zero-sized clip areas.
-                if width == 0 || height == 0 {
-                    continue;
-                }
-
-                rpass.set_scissor_rect(x, y, width, height);
+            // Skip rendering with zero-sized clip areas.
+            if width == 0 || height == 0 {
+                continue;
             }
 
-            if let epaint::Primitive::Mesh(mesh) = primitive {
+            rpass.set_scissor_rect(x, y, width, height);
+
+            if let epaint::Primitive::Mesh(ref mesh) = job.primitive {
                 let bind_group = self.get_texture_bind_group(mesh.texture_id)?;
                 rpass.set_bind_group(1, bind_group, &[]);
 
@@ -566,8 +564,10 @@ impl Pipeline {
             return Err(BackendError::InvalidTextureId(id));
         }
 
-        let (_user_texture, user_texture_binding) =
-            self.textures.get_mut(&id).ok_or(BackendError::InvalidTextureId(id))?;
+        let (_user_texture, user_texture_binding) = self
+            .textures
+            .get_mut(&id)
+            .ok_or(BackendError::InvalidTextureId(id))?;
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             compare: None,

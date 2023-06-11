@@ -7,9 +7,11 @@ mod style;
 mod texture;
 mod utils;
 
+use egui::text::LayoutJob;
 use egui_dock::tree::Tree;
-use once_cell::sync::OnceCell;
+use once_cell::sync::{OnceCell, Lazy};
 use pollster::FutureExt;
+use tokenizing::Token;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
@@ -27,6 +29,7 @@ use std::time::Instant;
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
 static WIDTH: u32 = 1200;
 static HEIGHT: u32 = 800;
+static STYLE: Lazy<style::Style> = Lazy::new(style::Style::default);
 
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
@@ -66,30 +69,74 @@ enum TabKind {
 
 struct Buffers {
     inner: HashMap<Title, TabKind>,
+    dissasembly: Option<Arc<Disassembly>>,
+
+    cached_range: std::ops::Range<usize>,
+    cached_dissasembly: Vec<Token<'static>>,
 }
 
 impl Buffers {
+    fn new(buffers: HashMap<Title, TabKind>) -> Self {
+        Self {
+            inner: buffers,
+            dissasembly: None,
+            cached_range: std::ops::Range { start: 0, end: 0 },
+            cached_dissasembly: Vec::new(),
+        }
+    }
+
     fn has_multiple_tabs(&self) -> bool {
         self.inner.len() != 1
+    }
+
+    fn show_listing(&mut self, ui: &mut egui::Ui) {
+        let dissasembly = match self.dissasembly {
+            Some(ref dissasembly) => dissasembly,
+            None => return,
+        };
+
+        let text_style = egui::TextStyle::Body;
+        let row_height = ui.text_style_height(&text_style);
+        let total_rows = dissasembly.proc.instruction_count();
+        let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+
+        let style = STYLE.egui();
+        let font_id = egui::TextStyle::Body.resolve(&style);
+
+        area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+            if row_range != self.cached_range {
+                self.cached_dissasembly = dissasembly.listing(row_range);
+            }
+
+            let tokens = &self.cached_dissasembly[..];
+            let mut job = LayoutJob::default();
+
+            for token in tokens {
+                let color = egui::Color32::from_rgba_premultiplied(
+                    (token.color.0[0] * 255.0) as u8,
+                    (token.color.0[1] * 255.0) as u8,
+                    (token.color.0[2] * 255.0) as u8,
+                    (token.color.0[3] * 255.0) as u8,
+                );
+
+                job.append(
+                    &token.text,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: font_id.clone(),
+                        color,
+                        ..Default::default()
+                    },
+                );
+            }
+
+            ui.label(job);
+        });
     }
 }
 
 fn show_source(ui: &mut egui::Ui) {
     ui.label("todo");
-}
-
-fn show_listing(ui: &mut egui::Ui) {
-    let text_style = egui::TextStyle::Body;
-    let row_height = ui.text_style_height(&text_style);
-    let total_rows = 10_000;
-    let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
-
-    area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-        for row in row_range {
-            let text = format!("Row {}/{}", row + 1, total_rows);
-            ui.label(text);
-        }
-    });
 }
 
 impl egui_dock::TabViewer for Buffers {
@@ -98,7 +145,7 @@ impl egui_dock::TabViewer for Buffers {
     fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
         match self.inner.get(title) {
             Some(TabKind::Source) => show_source(ui),
-            Some(TabKind::Listing) => show_listing(ui),
+            Some(TabKind::Listing) => self.show_listing(ui),
             _ => return,
         };
     }
@@ -126,7 +173,7 @@ pub struct RenderContext {
     donut: donut::Donut,
     show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
-    dissasembly: Option<Disassembly>,
+    dissasembly: Option<Arc<Disassembly>>,
     disassembling_thread: Option<DisassThread>,
 
     #[cfg(target_family = "windows")]
@@ -154,13 +201,12 @@ pub fn init() -> Result<(), Error> {
 
     WINDOW.set(Arc::clone(&window)).unwrap();
 
-    let style = style::Style::default();
     let mut backend = Backend::new(&window).block_on()?;
     let mut platform = Platform::new(PlatformDescriptor {
         physical_width: 580,
         physical_height: 300,
         scale_factor: window.scale_factor(),
-        style: style.egui(),
+        style: STYLE.egui(),
         winit: event_loop.create_proxy(),
     });
 
@@ -179,8 +225,8 @@ pub fn init() -> Result<(), Error> {
 
     let mut ctx = RenderContext {
         tabs,
-        buffers: Buffers { inner: buffers },
-        style,
+        buffers: Buffers::new(buffers),
+        style: STYLE.clone(),
         window: Arc::clone(&window),
         donut: donut::Donut::new(true),
         show_donut: Arc::new(AtomicBool::new(false)),
@@ -219,7 +265,7 @@ pub fn init() -> Result<(), Error> {
             }
             Event::UserEvent(CustomEvent::CloseRequest) => *control = ControlFlow::Exit,
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::Resized(size) => backend.resize(&mut ctx, size),
+                WindowEvent::Resized(size) => backend.resize(size),
                 WindowEvent::CloseRequested => *control = ControlFlow::Exit,
                 WindowEvent::DroppedFile(path) => {
                     let show_donut = Arc::clone(&ctx.show_donut);
@@ -259,7 +305,12 @@ fn handle_post_render(ctx: &mut RenderContext) {
                     ctx.show_donut.store(false, Ordering::Relaxed);
                     crate::warning!("{err:?}");
                 }
-                Ok(Ok(val)) => ctx.dissasembly = Some(val),
+                Ok(Ok(val)) => {
+                    let dissasembly = Arc::new(val);
+
+                    ctx.dissasembly = Some(Arc::clone(&dissasembly));
+                    ctx.buffers.dissasembly = Some(Arc::clone(&dissasembly));
+                }
             }
 
             // mark the disassembling thread as not loading anything
