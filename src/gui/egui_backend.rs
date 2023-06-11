@@ -79,13 +79,13 @@ impl Pipeline {
         msaa_samples: u32,
     ) -> Self {
         let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("egui_shader"),
+            label: Some("bite::gui shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../../shaders/egui.wgsl"))),
         };
         let module = device.create_shader_module(shader);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("egui_uniform_buffer"),
+            label: Some("bite::gui uniform buffer"),
             contents: bytemuck::cast_slice(&[UniformBuffer {
                 screen_size: [0.0, 0.0],
             }]),
@@ -154,11 +154,7 @@ impl Pipeline {
             label: Some("bite::gui pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                entry_point: if output_format.is_srgb() {
-                    "vs_main"
-                } else {
-                    "vs_conv_main"
-                },
+                entry_point: "vs_main",
                 module: &module,
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: 5 * 4,

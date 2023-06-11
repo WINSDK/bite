@@ -4,6 +4,8 @@ use egui::epaint::Shadow;
 use egui::style::{Interaction, Selection, Spacing, Visuals, WidgetVisuals, Widgets};
 use egui::{vec2, Color32, FontFamily, FontId, Margin, Rounding, Stroke, TextStyle};
 
+use tokenizing::colors;
+
 #[derive(Clone)]
 pub struct Style {
     pub separator_width: f32,
@@ -23,16 +25,16 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             separator_width: 3.0,
-            active_background: Color32::from_gray(0x1E),
-            background: Color32::from_gray(0x1E),
-            button_background: Color32::from_gray(0x1E),
+            active_background: colors::GRAY10,
+            background: colors::GRAY10,
+            button_background: colors::GRAY10,
             selection_color: Color32::from_rgba_unmultiplied(61, 133, 224, 60),
-            close_tab_color: Color32::from_gray(0xaa),
-            tab_color: Color32::from_gray(0x30),
+            close_tab_color: colors::GRAYAA,
+            tab_color: colors::GRAY30,
             tab_rounding: Rounding::none(),
-            active_text_color: Color32::from_gray(0xff),
-            text_color: Color32::from_gray(0xaa),
-            separator: Color32::from_gray(0x28),
+            active_text_color: colors::WHITE,
+            text_color: colors::GRAYAA,
+            separator: colors::GRAY20,
         }
     }
 }
@@ -163,17 +165,17 @@ impl Style {
                 window_rounding: self.tab_rounding,
                 window_fill: self.tab_color,
                 panel_fill: self.tab_color,
-		extreme_bg_color: Color32::from_rgba_unmultiplied(100, 100, 100, 160),
+                extreme_bg_color: Color32::from_rgba_unmultiplied(100, 100, 100, 160),
                 ..Default::default()
             },
             explanation_tooltips: false,
             text_styles: {
                 let mut styles = BTreeMap::new(); 
 
-                styles.insert(TextStyle::Heading, FontId::new(25.0, FontFamily::Monospace));
-                styles.insert(TextStyle::Body, FontId::new(18.0, FontFamily::Monospace));
+                styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Monospace));
+                styles.insert(TextStyle::Body, FontId::new(16.0, FontFamily::Monospace));
                 styles.insert(TextStyle::Button, FontId::new(14.0, FontFamily::Monospace));
-                styles.insert(TextStyle::Small, FontId::new(10.0, FontFamily::Monospace));
+                styles.insert(TextStyle::Small, FontId::new(11.0, FontFamily::Monospace));
                 styles
             },
             ..Default::default()

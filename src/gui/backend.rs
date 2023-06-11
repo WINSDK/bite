@@ -390,10 +390,14 @@ fn title_bar_ui(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderCont
         });
     });
 
+    if bar.response.interact(egui::Sense::click()).double_clicked() {
+        fullscreen(ctx);
+    }
+
     if bar.response.interact(egui::Sense::drag()).dragged() {
-	platform.start_dragging();
+        platform.start_dragging();
     } else {
-	platform.stop_dragging();
+        platform.stop_dragging();
     }
 }
 

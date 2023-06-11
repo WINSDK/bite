@@ -105,16 +105,24 @@ pub mod colors {
 
     use super::Color;
 
-    pub const WHITE: Color = Color::from_rgb(0xff, 0xff, 0xff);
-    pub const BLUE: Color = Color::from_rgb(0x0f, 0x62, 0xfe);
-    pub const MAGENTA: Color = Color::from_rgb(0xf5, 0x12, 0x81);
-    pub const RED: Color = Color::from_rgb(0xff, 0x00, 0x0b);
-    pub const PURPLE: Color = Color::from_rgb(0x89, 0x1f, 0xff);
-    pub const GREEN: Color = Color::from_rgb(0x02, 0xed, 0x6e);
-    pub const GRAY10: Color = Color::from_rgb(0x10, 0x10, 0x10);
-    pub const GRAY20: Color = Color::from_rgb(0x20, 0x20, 0x20);
-    pub const GRAY40: Color = Color::from_rgb(0x40, 0x40, 0x40);
-    pub const GRAY99: Color = Color::from_rgb(0x99, 0x99, 0x99);
+    macro_rules! color {
+        ($r:expr, $g:expr, $b:expr) => {
+            Color::from_rgb($r, $g, $b)
+        };
+    }
+
+    pub const WHITE: Color = color!(0xff, 0xff, 0xff);
+    pub const BLUE: Color = color!(0x0f, 0x62, 0xfe);
+    pub const MAGENTA: Color = color!(0xf5, 0x12, 0x81);
+    pub const RED: Color = color!(0xff, 0x00, 0x0b);
+    pub const PURPLE: Color = color!(0x89, 0x1f, 0xff);
+    pub const GREEN: Color = color!(0x02, 0xed, 0x6e);
+    pub const GRAY10: Color = color!(0x10, 0x10, 0x10);
+    pub const GRAY20: Color = color!(0x20, 0x20, 0x20);
+    pub const GRAY30: Color = color!(0x30, 0x30, 0x30);
+    pub const GRAY40: Color = color!(0x40, 0x40, 0x40);
+    pub const GRAY99: Color = color!(0x99, 0x99, 0x99);
+    pub const GRAYAA: Color = color!(0xaa, 0xaa, 0xaa);
 }
 
 #[derive(Debug, Clone)]

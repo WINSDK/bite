@@ -141,11 +141,19 @@ impl Disassembly {
         let lines = self
             .proc
             .iter()
-            .skip(range.start)
-            .take(range.end - range.start);
+            .skip(range.start);
+
+        let mut lines_to_read = (range.end - range.start) as isize;
+
+        // prevent underflow, scuffed solution and should be done differently
+        lines_to_read += 10;
 
         // for each instruction
         for (addr, inst) in lines {
+            if lines_to_read <= 0 {
+                break;
+            }
+
             // if the address matches a symbol, print it
             if let Some(label) = symbols.get_by_addr_ref(addr) {
                 text.push(Token::from_str("\n<", &colors::BLUE));
@@ -154,6 +162,7 @@ impl Disassembly {
                 }
 
                 text.push(Token::from_str(">:\n", &colors::BLUE));
+                lines_to_read -= 2;
             }
 
             // memory address
@@ -182,6 +191,7 @@ impl Disassembly {
             }
 
             text.push(Token::from_str("\n", &colors::WHITE));
+            lines_to_read -= 1;
         }
 
         return text;
