@@ -53,7 +53,7 @@ impl Style {
                 combo_width: 0.0,
                 scroll_bar_inner_margin: 0.0,
                 scroll_bar_outer_margin: 0.0,
-                scroll_handle_min_length: 0.0,
+                scroll_handle_min_length: 15.0,
                 item_spacing: vec2(8.0, 3.0),
                 window_margin: Margin::same(6.0),
                 button_padding: vec2(0.0, 0.0),
@@ -67,7 +67,7 @@ impl Style {
                 tooltip_width: 600.0,
                 indent_ends_with_horizontal_line: false,
                 combo_height: 200.0,
-                scroll_bar_width: 8.0,
+                scroll_bar_width: 10.0,
             },
             interaction: Interaction {
                 resize_grab_radius_side: 5.0,
@@ -163,6 +163,7 @@ impl Style {
                 window_rounding: self.tab_rounding,
                 window_fill: self.tab_color,
                 panel_fill: self.tab_color,
+		extreme_bg_color: Color32::from_rgba_unmultiplied(100, 100, 100, 160),
                 ..Default::default()
             },
             explanation_tooltips: false,

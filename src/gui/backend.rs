@@ -371,7 +371,7 @@ fn keyboard_input(ui: &mut egui::Ui, ctx: &mut RenderContext) {
 }
 
 fn title_bar_ui(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
-    egui::menu::bar(ui, |ui| {
+    let bar = egui::menu::bar(ui, |ui| {
         ui.menu_button("File", |ui| {
             if ui.button(crate::icon!(FOLDER_OPEN, "Open")).clicked() {
                 ask_for_binary(ctx);
@@ -389,6 +389,12 @@ fn title_bar_ui(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderCont
             close_maximize_minimize(ui, platform, ctx);
         });
     });
+
+    if bar.response.interact(egui::Sense::drag()).dragged() {
+	platform.start_dragging();
+    } else {
+	platform.stop_dragging();
+    }
 }
 
 // Show some close/maximize/minimize buttons for the native window.
@@ -415,10 +421,6 @@ fn close_maximize_minimize(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut
     ));
 
     if minimized_response.clicked() {
-        if let Some(true) = ctx.window.is_minimized() {
-            ctx.window.set_minimized(true);
-        } else {
-            ctx.window.set_minimized(false);
-        }
+	ctx.window.set_minimized(true);
     }
 }

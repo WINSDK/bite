@@ -30,6 +30,7 @@ pub struct PlatformDescriptor {
 /// A custom event type for the winit app.
 pub enum CustomEvent {
     CloseRequest,
+    DragWindow,
 }
 
 fn handle_clipboard(output: &egui::PlatformOutput, clipboard: Option<&mut ClipboardContext>) {
@@ -57,6 +58,9 @@ pub struct Platform {
     // device IDs are opaque, so we have to create our own ID mapping.
     device_indices: HashMap<DeviceId, u64>,
     next_device_index: u64,
+
+    dragging: bool,
+
     winit: winit::event_loop::EventLoopProxy<CustomEvent>,
 }
 
@@ -108,11 +112,13 @@ impl Platform {
             touch_pointer_pressed: 0,
             device_indices: HashMap::new(),
             next_device_index: 1,
+	    dragging: false,
             winit: descriptor.winit,
         }
     }
 
-    /// Handles the given winit event and updates the egui context. Should be called before starting a new frame with `start_frame()`.
+    /// Handles the given winit event and updates the egui context. Should be
+    //called before starting a new frame with `start_frame()`.
     pub fn handle_event(&mut self, winit_event: &Event<CustomEvent>) {
         match winit_event {
             Event::WindowEvent {
@@ -238,7 +244,7 @@ impl Platform {
                 WindowEvent::MouseWheel { delta, .. } => {
                     let delta = match *delta {
                         winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                            let line_height = 8.0; // TODO as in egui_glium
+                            let line_height = 50.0;
                             vec2(x, y) * line_height
                         }
                         winit::event::MouseScrollDelta::PixelDelta(delta) => {
@@ -320,6 +326,18 @@ impl Platform {
             panic!("missing an event loop to handle event");
         }
     }
+
+    pub fn start_dragging(&mut self) {
+	if !self.dragging {
+	    self.send_event(CustomEvent::DragWindow);
+	    self.dragging = true;
+	}
+    }
+
+    pub fn stop_dragging(&mut self) {
+	self.dragging = false;
+    }
+
     /// Updates the internal time for egui used for animations. `elapsed_seconds` should be the
     /// seconds since some point in time (for example application start).
     pub fn update_time(&mut self, elapsed_seconds: f64) {

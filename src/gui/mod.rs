@@ -8,6 +8,7 @@ mod texture;
 mod utils;
 
 use egui::text::LayoutJob;
+use egui::epaint::text::TextWrapping;
 use egui_dock::tree::Tree;
 use once_cell::sync::{OnceCell, Lazy};
 use pollster::FutureExt;
@@ -109,7 +110,13 @@ impl Buffers {
             }
 
             let tokens = &self.cached_dissasembly[..];
-            let mut job = LayoutJob::default();
+            let mut job = LayoutJob {
+		wrap: TextWrapping {
+		    max_width: f32::INFINITY,
+		    ..Default::default()
+		},
+		..Default::default()
+	    };
 
             for token in tokens {
                 job.append(
@@ -170,7 +177,7 @@ pub struct RenderContext {
     disassembling_thread: Option<DisassThread>,
 
     #[cfg(target_family = "windows")]
-    unwindowed_size: winit::dpi::PhysicalPosition<u32>,
+    unwindowed_size: winit::dpi::PhysicalSize<u32>,
     #[cfg(target_family = "windows")]
     unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 }
@@ -257,6 +264,9 @@ pub fn init() -> Result<(), Error> {
                 }
             }
             Event::UserEvent(CustomEvent::CloseRequest) => *control = ControlFlow::Exit,
+	    Event::UserEvent(CustomEvent::DragWindow) => {
+		let _ = ctx.window.drag_window();
+	    },
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(size) => backend.resize(size),
                 WindowEvent::CloseRequested => *control = ControlFlow::Exit,
