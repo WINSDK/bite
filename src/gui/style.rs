@@ -44,7 +44,7 @@ impl Style {
         egui::Style {
             override_text_style: None,
             override_font_id: None,
-            wrap: None,
+            wrap: Some(false),
             spacing: Spacing {
                 menu_margin: Margin {
                     top: 4.0,

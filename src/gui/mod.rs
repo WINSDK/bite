@@ -110,13 +110,7 @@ impl Buffers {
             }
 
             let tokens = &self.cached_dissasembly[..];
-            let mut job = LayoutJob {
-		wrap: TextWrapping {
-		    max_width: f32::INFINITY,
-		    ..Default::default()
-		},
-		..Default::default()
-	    };
+            let mut job = LayoutJob::default();
 
             for token in tokens {
                 job.append(

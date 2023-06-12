@@ -364,10 +364,6 @@ fn keyboard_input(ui: &mut egui::Ui, ctx: &mut RenderContext) {
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::O)) {
         ask_for_binary(ctx);
     }
-
-    if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::F)) {
-        fullscreen(ctx);
-    }
 }
 
 fn title_bar_ui(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
@@ -425,6 +421,6 @@ fn close_maximize_minimize(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut
     ));
 
     if minimized_response.clicked() {
-	ctx.window.set_minimized(true);
+        ctx.window.set_minimized(true);
     }
 }

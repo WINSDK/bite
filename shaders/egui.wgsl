@@ -35,7 +35,7 @@ fn vs_main(
         f32((a_color >> 16u) & 255u),
         f32((a_color >> 24u) & 255u),
     );
-    out.color = vec4<f32>(color.rgb / 255.0, color.a / 255.0);
+    out.color = vec4<f32>(linear_from_srgb(color.rgb), color.a / 255.0);
 
     out.position = vec4<f32>(
         2.0 * a_pos.x / r_locals.screen_size.x - 1.0,
