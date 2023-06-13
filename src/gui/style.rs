@@ -84,27 +84,21 @@ impl Style {
                     noninteractive: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
-                        bg_stroke: Stroke {
-                            width: 1.0,
-                            color: self.text_color,
-                        },
+                        bg_stroke: Stroke::NONE,
                         rounding: self.tab_rounding,
-                        fg_stroke: Stroke {
-                            width: 1.0,
-                            color: self.text_color,
-                        },
+                        fg_stroke: Stroke::NONE,
                         expansion: 0.0,
                     },
                     inactive: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
                         bg_stroke: Stroke {
-                            width: 0.0,
+                            width: 5.0,
                             color: self.text_color,
                         },
                         rounding: self.tab_rounding,
                         fg_stroke: Stroke {
-                            width: 1.0,
+                            width: 5.0,
                             color: self.text_color,
                         },
                         expansion: 0.0,
@@ -113,12 +107,12 @@ impl Style {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
                         bg_stroke: Stroke {
-                            width: 1.0,
+                            width: 5.0,
                             color: self.active_text_color,
                         },
                         rounding: self.tab_rounding,
                         fg_stroke: Stroke {
-                            width: 1.0,
+                            width: 5.0,
                             color: self.active_text_color,
                         },
                         expansion: 0.0,
@@ -127,12 +121,12 @@ impl Style {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
                         bg_stroke: Stroke {
-                            width: 1.0,
+                            width: 5.0,
                             color: self.active_text_color,
                         },
                         rounding: self.tab_rounding,
                         fg_stroke: Stroke {
-                            width: 1.0,
+                            width: 5.0,
                             color: self.active_text_color,
                         },
                         expansion: 0.0,
@@ -141,12 +135,12 @@ impl Style {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
                         bg_stroke: Stroke {
-                            width: 1.0,
+                            width: 5.0,
                             color: self.active_text_color,
                         },
                         rounding: self.tab_rounding,
                         fg_stroke: Stroke {
-                            width: 1.0,
+                            width: 5.0,
                             color: self.active_text_color,
                         },
                         expansion: 0.0,
@@ -178,6 +172,14 @@ impl Style {
                 styles.insert(TextStyle::Small, FontId::new(11.0, FontFamily::Monospace));
                 styles
             },
+            // debug: egui::style::DebugOptions {
+            //     debug_on_hover: true,
+            //     show_expand_width: true,
+            //     show_expand_height: true,
+            //     show_resize: true,
+            //     show_interactive_widgets: true,
+            //     show_blocking_widget: true
+            // },
             ..Default::default()
         }
     }
@@ -186,10 +188,7 @@ impl Style {
         egui_dock::Style {
             dock_area_padding: None,
             selection_color: self.selection_color,
-            border: Stroke {
-                width: 1.0,
-                color: self.text_color,
-            },
+            border: Stroke::NONE,
             buttons: egui_dock::ButtonsStyle {
                 close_tab_color: self.close_tab_color,
                 close_tab_active_color: self.close_tab_color,
@@ -217,6 +216,7 @@ impl Style {
                 text_color_unfocused: self.text_color,
                 text_color_active_focused: self.active_text_color,
                 text_color_active_unfocused: self.text_color,
+                inner_margin: egui::Margin::same(4.0),
                 ..Default::default()
             },
         }

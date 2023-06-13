@@ -7,7 +7,7 @@ use crate::gui::RenderContext;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use egui::CentralPanel;
+use egui::{TopBottomPanel, CentralPanel};
 use egui::{Button, RichText};
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
@@ -191,49 +191,44 @@ impl Backend {
         // begin to draw the UI frame
         platform.begin_frame();
 
-        // draw the primary panel
-        CentralPanel::default()
-            .frame(
-                egui::Frame::central_panel(&platform.context().style())
-                    .inner_margin(0.0)
-                    .fill(ctx.style.tab_color),
-            )
-            .show(&platform.context(), |ui| {
-                // alt-tab'ing between tabs
-                if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
-                    let focused_idx = match ctx.tabs.focused_leaf() {
-                        Some(idx) => idx,
-                        None => egui_dock::NodeIndex::root(),
-                    };
+        TopBottomPanel::top("title bar").show(&platform.context(), |ui| {
+            // alt-tab'ing between tabs
+            if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
+                let focused_idx = match ctx.tabs.focused_leaf() {
+                    Some(idx) => idx,
+                    None => egui_dock::NodeIndex::root(),
+                };
 
-                    // don't do tab'ing if there are no tabs
-                    if ctx.tabs.len() == 0 {
-                        return;
-                    }
-
-                    let focused = &mut ctx.tabs[focused_idx];
-                    if let egui_dock::Node::Leaf { tabs, active, .. } = focused {
-                        if active.0 != tabs.len() - 1 {
-                            let tab_idx = active.0 + 1;
-                            ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(tab_idx));
-                        } else {
-                            ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(0));
-                        }
-                    }
+                // don't do tab'ing if there are no tabs
+                if ctx.tabs.len() == 0 {
+                    return;
                 }
 
-                // generic keyboard inputs
-                keyboard_input(ui, ctx);
+                let focused = &mut ctx.tabs[focused_idx];
+                if let egui_dock::Node::Leaf { tabs, active, .. } = focused {
+                    if active.0 != tabs.len() - 1 {
+                        let tab_idx = active.0 + 1;
+                        ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(tab_idx));
+                    } else {
+                        ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(0));
+                    }
+                }
+            }
 
-                // top bar
-                title_bar_ui(ui, platform, ctx);
+            // generic keyboard inputs
+            keyboard_input(ui, ctx);
 
-                egui_dock::DockArea::new(&mut ctx.tabs)
-                    .style(ctx.style.dock())
-                    .show_close_buttons(ctx.buffers.has_multiple_tabs())
-                    .draggable_tabs(ctx.buffers.has_multiple_tabs())
-                    .show_inside(ui, &mut ctx.buffers);
-            });
+            title_bar_ui(ui, platform, ctx);
+        });
+
+        // draw the primary panel
+        CentralPanel::default().show(&platform.context(), |ui| {
+            egui_dock::DockArea::new(&mut ctx.tabs)
+                .style(ctx.style.dock())
+                .show_close_buttons(ctx.buffers.has_multiple_tabs())
+                .draggable_tabs(ctx.buffers.has_multiple_tabs())
+                .show_inside(ui, &mut ctx.buffers);
+        });
 
         // end the UI frame. We could now handle the output and draw the UI with the backend
         let full_output = platform.end_frame(Some(&*ctx.window));
