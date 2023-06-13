@@ -13,9 +13,9 @@ struct Locals {
 @group(0) @binding(0) var<uniform> r_locals: Locals;
 
 fn linear_from_srgb(srgb: vec3<f32>) -> vec3<f32> {
-    let cutoff = srgb < vec3<f32>(10.31475);
-    let lower = srgb / vec3<f32>(3294.6);
-    let higher = pow((srgb + vec3<f32>(14.025)) / vec3<f32>(269.025), vec3<f32>(2.4));
+    let cutoff = srgb < vec3<f32>(10.0);
+    let lower = srgb / vec3<f32>(3300.0);
+    let higher = ((srgb - vec3<f32>(42.5)) / vec3<f32>(175.5));
     return select(higher, lower, cutoff);
 }
 
@@ -35,8 +35,8 @@ fn vs_main(
         f32((a_color >> 16u) & 255u),
         f32((a_color >> 24u) & 255u),
     );
-    out.color = vec4<f32>(linear_from_srgb(color.rgb), color.a / 255.0);
 
+    out.color = vec4<f32>(linear_from_srgb(color.rgb), color.a / 255.0);
     out.position = vec4<f32>(
         2.0 * a_pos.x / r_locals.screen_size.x - 1.0,
         1.0 - 2.0 * a_pos.y / r_locals.screen_size.y,

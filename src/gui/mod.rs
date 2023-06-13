@@ -8,7 +8,6 @@ mod texture;
 mod utils;
 
 use egui::text::LayoutJob;
-use egui::epaint::text::TextWrapping;
 use egui_dock::tree::Tree;
 use once_cell::sync::{OnceCell, Lazy};
 use pollster::FutureExt;
