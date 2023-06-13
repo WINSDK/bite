@@ -35,6 +35,17 @@ impl Backend {
             wgpu::Backends::METAL
         };
 
+        // try to use vulkan/metal, else fallback to any supported backend
+        match Self::new_with_backends(window, backends).await {
+            Err(..) => Self::new_with_backends(window, wgpu::Backends::all()).await,
+            Ok(this) => Ok(this),
+        }
+    }
+
+    async fn new_with_backends(
+        window: &winit::window::Window,
+        backends: wgpu::Backends,
+    ) -> Result<Self, Error> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,

@@ -248,10 +248,9 @@ impl Pipeline {
             depth_stencil_attachment: None,
             label: Some("bite::gui render pass"),
         });
-        rpass.push_debug_group("egui_pass");
 
+        rpass.push_debug_group("bite::egui render pass");
         self.execute_with_renderpass(&mut rpass, paint_jobs, screen_descriptor)?;
-
         rpass.pop_debug_group();
 
         Ok(())
