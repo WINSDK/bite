@@ -25,9 +25,9 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             separator_width: 3.0,
-            active_background: colors::GRAY10,
-            background: colors::GRAY10,
-            button_background: colors::GRAY10,
+            active_background: colors::GRAY20,
+            background: colors::GRAY20,
+            button_background: colors::GRAY20,
             selection_color: Color32::from_rgba_unmultiplied(61, 133, 224, 60),
             close_tab_color: colors::GRAYAA,
             tab_color: colors::GRAY30,

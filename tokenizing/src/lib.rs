@@ -44,11 +44,11 @@ pub struct IBM;
 
 impl ColorScheme for IBM {
     fn brackets() -> &'static Color {
-        &colors::GRAY40
+        &colors::GRAY60
     }
 
     fn delimiter() -> &'static Color {
-        &colors::GRAY20
+        &colors::GRAY40
     }
 
     fn comment() -> &'static Color {
@@ -121,6 +121,7 @@ pub mod colors {
     pub const GRAY20: Color = color!(0x20, 0x20, 0x20);
     pub const GRAY30: Color = color!(0x30, 0x30, 0x30);
     pub const GRAY40: Color = color!(0x40, 0x40, 0x40);
+    pub const GRAY60: Color = color!(0x60, 0x60, 0x60);
     pub const GRAY99: Color = color!(0x99, 0x99, 0x99);
     pub const GRAYAA: Color = color!(0xaa, 0xaa, 0xaa);
 }

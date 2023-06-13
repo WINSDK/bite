@@ -98,7 +98,9 @@ impl Buffers {
         let text_style = egui::TextStyle::Body;
         let row_height = ui.text_style_height(&text_style);
         let total_rows = dissasembly.proc.instruction_count();
-        let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+        let area = egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false);
 
         let style = STYLE.egui();
         let font_id = egui::TextStyle::Body.resolve(&style);
