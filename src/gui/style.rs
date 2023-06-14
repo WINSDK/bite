@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use egui::epaint::Shadow;
-use egui::style::{Interaction, Selection, Spacing, Visuals, WidgetVisuals, Widgets};
-use egui::{vec2, Color32, FontFamily, FontId, Margin, Rounding, Stroke, TextStyle};
+use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets};
+use egui::{Color32, FontFamily, FontId, Rounding, Stroke, TextStyle};
 
 use tokenizing::colors;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Style {
     pub separator_width: f32,
     pub active_background: Color32,
@@ -42,44 +42,12 @@ impl Default for Style {
 impl Style {
     pub fn egui(&self) -> egui::Style {
         egui::Style {
-            override_text_style: None,
-            override_font_id: None,
-            wrap: Some(false),
             spacing: Spacing {
-                menu_margin: Margin {
-                    top: 4.0,
-                    bottom: 4.0,
-                    left: 4.0,
-                    right: 4.0,
-                },
-                combo_width: 0.0,
-                scroll_bar_inner_margin: 0.0,
-                scroll_bar_outer_margin: 0.0,
-                scroll_handle_min_length: 15.0,
-                item_spacing: vec2(8.0, 3.0),
-                window_margin: Margin::same(6.0),
-                button_padding: vec2(0.0, 0.0),
-                indent: 18.0,
-                interact_size: vec2(40.0, 18.0),
                 slider_width: 100.0,
-                text_edit_width: 280.0,
-                icon_width: 14.0,
-                icon_width_inner: 8.0,
-                icon_spacing: 4.0,
-                tooltip_width: 600.0,
-                indent_ends_with_horizontal_line: false,
-                combo_height: 200.0,
                 scroll_bar_width: 10.0,
-            },
-            interaction: Interaction {
-                resize_grab_radius_side: 5.0,
-                resize_grab_radius_corner: 10.0,
-                show_tooltips_only_when_still: false,
+                ..Default::default()
             },
             visuals: Visuals {
-                menu_rounding: self.tab_rounding,
-                dark_mode: true,
-                override_text_color: None,
                 widgets: Widgets {
                     noninteractive: WidgetVisuals {
                         bg_fill: self.tab_color,
@@ -120,15 +88,9 @@ impl Style {
                     active: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
-                        bg_stroke: Stroke {
-                            width: 5.0,
-                            color: self.active_text_color,
-                        },
+                        bg_stroke: Stroke::NONE,
                         rounding: self.tab_rounding,
-                        fg_stroke: Stroke {
-                            width: 5.0,
-                            color: self.active_text_color,
-                        },
+                        fg_stroke: Stroke::NONE,
                         expansion: 0.0,
                     },
                     open: WidgetVisuals {
@@ -148,20 +110,19 @@ impl Style {
                 },
                 selection: Selection {
                     bg_fill: Color32::from_rgba_unmultiplied(61, 133, 224, 60),
-                    stroke: Stroke {
-                        width: 1.0,
-                        color: Color32::from_rgb(192, 222, 255),
-                    },
+                    stroke: Stroke::NONE,
                 },
-                button_frame: false,
+                menu_rounding: self.tab_rounding,
+                dark_mode: true,
+                override_text_color: None,
                 popup_shadow: Shadow::NONE,
-                clip_rect_margin: 0.0,
                 window_rounding: self.tab_rounding,
                 window_fill: self.tab_color,
                 panel_fill: self.tab_color,
                 extreme_bg_color: Color32::from_rgba_unmultiplied(100, 100, 100, 160),
                 ..Default::default()
             },
+            wrap: Some(false),
             explanation_tooltips: false,
             text_styles: {
                 let mut styles = BTreeMap::new(); 

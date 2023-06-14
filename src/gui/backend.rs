@@ -7,7 +7,6 @@ use crate::gui::RenderContext;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use egui::{TopBottomPanel, CentralPanel};
 use egui::{Button, RichText};
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
@@ -191,7 +190,7 @@ impl Backend {
         // begin to draw the UI frame
         platform.begin_frame();
 
-        TopBottomPanel::top("title bar").show(&platform.context(), |ui| {
+        egui::TopBottomPanel::top("title bar").show(&platform.context(), |ui| {
             // alt-tab'ing between tabs
             if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
                 let focused_idx = match ctx.tabs.focused_leaf() {
@@ -222,12 +221,27 @@ impl Backend {
         });
 
         // draw the primary panel
-        CentralPanel::default().show(&platform.context(), |ui| {
-            egui_dock::DockArea::new(&mut ctx.tabs)
-                .style(ctx.style.dock())
-                .show_close_buttons(ctx.buffers.has_multiple_tabs())
-                .draggable_tabs(ctx.buffers.has_multiple_tabs())
-                .show_inside(ui, &mut ctx.buffers);
+        egui::CentralPanel::default()
+            .frame({
+                let margin = egui::Margin {
+                    left: 0.0,
+                    right: 0.0,
+                    top: ctx.style.separator_width,
+                    bottom: 0.0,
+                };
+
+                egui::Frame::none().outer_margin(margin)
+            })
+            .show(&platform.context(), |ui| {
+                egui_dock::DockArea::new(&mut ctx.tabs)
+                    .style(ctx.style.dock())
+                    .show_close_buttons(ctx.buffers.has_multiple_tabs())
+                    .draggable_tabs(ctx.buffers.has_multiple_tabs())
+                    .show_inside(ui, &mut ctx.buffers);
+            });
+
+        egui::TopBottomPanel::bottom("command line").show(&platform.context(), |ui| {
+            ui.label(RichText::new(":)").size(12.0).color(tokenizing::colors::WHITE));
         });
 
         // end the UI frame. We could now handle the output and draw the UI with the backend
@@ -238,13 +252,12 @@ impl Backend {
         let screen_descriptor = ScreenDescriptor {
             physical_width: self.surface_cfg.width,
             physical_height: self.surface_cfg.height,
-            scale_factor: ctx.window.scale_factor() as f32,
+            scale_factor: platform.scale_factor as f32,
         };
 
         let tdelta: egui::TexturesDelta = full_output.textures_delta;
-        render_pass
-            .add_textures(&self.device, &self.queue, &tdelta)
-            .expect("add texture ok");
+
+        render_pass.add_textures(&self.device, &self.queue, &tdelta)?;
         render_pass.update_buffers(&self.device, &self.queue, &paint_jobs, &screen_descriptor);
 
         // Record all render passes.
@@ -265,7 +278,7 @@ impl Backend {
         // schedule texture to be renderer on surface
         frame.present();
 
-        render_pass.remove_textures(tdelta).expect("remove texture ok");
+        render_pass.remove_textures(tdelta)?;
 
         // recall unused staging buffers
         self.staging_belt.recall();

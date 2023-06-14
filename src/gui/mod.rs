@@ -51,6 +51,9 @@ pub enum Error {
     /// Failed to find a device that meets our adapter's limits.
     DeviceRequest(wgpu::RequestDeviceError),
 
+    /// A given `egui::TextureId` from the backend was invalid.
+    InvalidTextureId(egui::TextureId),
+
     /// Invalid data given to the png decoder.
     PngDecode,
 
@@ -130,16 +133,14 @@ impl Buffers {
     }
 }
 
-fn show_source(ui: &mut egui::Ui) {
-    ui.label("todo");
-}
-
 impl egui_dock::TabViewer for Buffers {
     type Tab = Title;
 
     fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
         match self.inner.get(title) {
-            Some(TabKind::Source) => show_source(ui),
+            Some(TabKind::Source) => {
+                ui.label("todo");
+            }
             Some(TabKind::Listing) => self.show_listing(ui),
             _ => return,
         };
@@ -259,9 +260,9 @@ pub fn init() -> Result<(), Error> {
                 }
             }
             Event::UserEvent(CustomEvent::CloseRequest) => *control = ControlFlow::Exit,
-	    Event::UserEvent(CustomEvent::DragWindow) => {
-		let _ = ctx.window.drag_window();
-	    },
+            Event::UserEvent(CustomEvent::DragWindow) => {
+                let _ = ctx.window.drag_window();
+            },
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(size) => backend.resize(size),
                 WindowEvent::CloseRequested => *control = ControlFlow::Exit,

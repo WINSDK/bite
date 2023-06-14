@@ -1,20 +1,12 @@
 //! You need to create a [`RenderPass`] and feed it with the output data provided by egui.
 
+use crate::gui::Error;
+
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 
-use bytemuck::{Pod, Zeroable};
-use egui::epaint;
-pub use wgpu;
 use wgpu::util::DeviceExt;
-
-/// Error that the backend can return.
-#[derive(Debug)]
-pub enum BackendError {
-    /// The given `egui::TextureId` was invalid.
-    InvalidTextureId(egui::TextureId),
-}
 
 /// Enum for selecting the right buffer type.
 #[derive(Debug)]
@@ -49,8 +41,8 @@ struct UniformBuffer {
     screen_size: [f32; 2],
 }
 
-unsafe impl Pod for UniformBuffer {}
-unsafe impl Zeroable for UniformBuffer {}
+unsafe impl bytemuck::Pod for UniformBuffer {}
+unsafe impl bytemuck::Zeroable for UniformBuffer {}
 
 /// RenderPass to render a egui based GUI.
 pub struct Pipeline {
@@ -60,7 +52,6 @@ pub struct Pipeline {
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     texture_bind_group_layout: wgpu::BindGroupLayout,
-    next_user_texture_id: u64,
 
     /// Map of egui texture IDs to textures and their associated bindgroups (texture view +
     /// sampler). The texture may be None if the TextureId is just a handle to a user-provided
@@ -215,7 +206,6 @@ impl Pipeline {
             uniform_buffer,
             uniform_bind_group,
             texture_bind_group_layout,
-            next_user_texture_id: 0,
             textures: BTreeMap::new(),
         }
     }
@@ -229,7 +219,7 @@ impl Pipeline {
         paint_jobs: &[egui::epaint::ClippedPrimitive],
         screen_descriptor: &ScreenDescriptor,
         clear_color: Option<wgpu::Color>,
-    ) -> Result<(), BackendError> {
+    ) -> Result<(), Error> {
         let load_operation = if let Some(color) = clear_color {
             wgpu::LoadOp::Clear(color)
         } else {
@@ -262,7 +252,7 @@ impl Pipeline {
         rpass: &mut wgpu::RenderPass<'rpass>,
         paint_jobs: &[egui::epaint::ClippedPrimitive],
         screen_descriptor: &ScreenDescriptor,
-    ) -> Result<(), BackendError> {
+    ) -> Result<(), Error> {
         rpass.set_pipeline(&self.pipeline);
 
         rpass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -309,7 +299,7 @@ impl Pipeline {
 
             rpass.set_scissor_rect(x, y, width, height);
 
-            if let epaint::Primitive::Mesh(ref mesh) = job.primitive {
+            if let egui::epaint::Primitive::Mesh(ref mesh) = job.primitive {
                 let bind_group = self.get_texture_bind_group(mesh.texture_id)?;
                 rpass.set_bind_group(1, bind_group, &[]);
 
@@ -325,10 +315,10 @@ impl Pipeline {
     fn get_texture_bind_group(
         &self,
         texture_id: egui::TextureId,
-    ) -> Result<&wgpu::BindGroup, BackendError> {
+    ) -> Result<&wgpu::BindGroup, Error> {
         self.textures
             .get(&texture_id)
-            .ok_or(BackendError::InvalidTextureId(texture_id))
+            .ok_or(Error::InvalidTextureId(texture_id))
             .map(|x| &x.1)
     }
 
@@ -338,7 +328,7 @@ impl Pipeline {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         textures: &egui::TexturesDelta,
-    ) -> Result<(), BackendError> {
+    ) -> Result<(), Error> {
         for (texture_id, image_delta) in textures.set.iter() {
             let image_size = image_delta.image.size();
 
@@ -415,7 +405,7 @@ impl Pipeline {
                                 image_size,
                             );
                         } else {
-                            return Err(BackendError::InvalidTextureId(*texture_id));
+                            return Err(Error::InvalidTextureId(*texture_id));
                         }
                     }
                 },
@@ -439,152 +429,18 @@ impl Pipeline {
     }
 
     /// Remove the textures egui no longer needs. Should be called after `execute()`
-    pub fn remove_textures(&mut self, textures: egui::TexturesDelta) -> Result<(), BackendError> {
+    pub fn remove_textures(&mut self, textures: egui::TexturesDelta) -> Result<(), Error> {
         for texture_id in textures.free {
             let (texture, _binding) = self.textures.remove(&texture_id).ok_or({
                 // This can happen due to a bug in egui, or if the user doesn't call `add_textures`
                 // when required.
-                BackendError::InvalidTextureId(texture_id)
+                Error::InvalidTextureId(texture_id)
             })?;
 
             if let Some(texture) = texture {
                 texture.destroy();
             }
         }
-
-        Ok(())
-    }
-
-    /// Registers a `wgpu::Texture` with a `egui::TextureId`.
-    ///
-    /// This enables the application to reference the texture inside an image ui element.
-    /// This effectively enables off-screen rendering inside the egui UI. Texture must have
-    /// the texture format `TextureFormat::Rgba8UnormSrgb` and
-    /// Texture usage `TextureUsage::SAMPLED`.
-    pub fn egui_texture_from_wgpu_texture(
-        &mut self,
-        device: &wgpu::Device,
-        texture: &wgpu::TextureView,
-        texture_filter: wgpu::FilterMode,
-    ) -> egui::TextureId {
-        self.egui_texture_from_wgpu_texture_with_sampler_options(
-            device,
-            texture,
-            wgpu::SamplerDescriptor {
-                label: Some("bite::gui ui texture sample"),
-                mag_filter: texture_filter,
-                min_filter: texture_filter,
-                ..Default::default()
-            },
-        )
-    }
-
-    /// Registers a `wgpu::Texture` with an existing `egui::TextureId`.
-    ///
-    /// This enables applications to reuse `TextureId`s.
-    pub fn update_egui_texture_from_wgpu_texture(
-        &mut self,
-        device: &wgpu::Device,
-        texture: &wgpu::TextureView,
-        texture_filter: wgpu::FilterMode,
-        id: egui::TextureId,
-    ) -> Result<(), BackendError> {
-        self.update_egui_texture_from_wgpu_texture_with_sampler_options(
-            device,
-            texture,
-            wgpu::SamplerDescriptor {
-                label: Some("bite::gui ui texture sample"),
-                mag_filter: texture_filter,
-                min_filter: texture_filter,
-                ..Default::default()
-            },
-            id,
-        )
-    }
-
-    /// Registers a `wgpu::Texture` with a `egui::TextureId` while also accepting custom
-    /// `wgpu::SamplerDescriptor` options.
-    ///
-    /// This allows applications to specify individual minification/magnification filters as well as
-    /// custom mipmap and tiling options.
-    ///
-    /// The `Texture` must have the format `TextureFormat::Rgba8UnormSrgb` and usage
-    /// `TextureUsage::SAMPLED`. Any compare function supplied in the `SamplerDescriptor` will be
-    /// ignored.
-    pub fn egui_texture_from_wgpu_texture_with_sampler_options(
-        &mut self,
-        device: &wgpu::Device,
-        texture: &wgpu::TextureView,
-        sampler_descriptor: wgpu::SamplerDescriptor,
-    ) -> egui::TextureId {
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            compare: None,
-            ..sampler_descriptor
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bite::gui ui texture bind group"),
-            layout: &self.texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(texture),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        let id = egui::TextureId::User(self.next_user_texture_id);
-        self.textures.insert(id, (None, bind_group));
-        self.next_user_texture_id += 1;
-
-        id
-    }
-
-    /// Registers a `wgpu::Texture` with an existing `egui::TextureId` while also accepting custom
-    /// `wgpu::SamplerDescriptor` options.
-    ///
-    /// This allows applications to reuse `TextureId`s created with custom sampler options.
-    pub fn update_egui_texture_from_wgpu_texture_with_sampler_options(
-        &mut self,
-        device: &wgpu::Device,
-        texture: &wgpu::TextureView,
-        sampler_descriptor: wgpu::SamplerDescriptor,
-        id: egui::TextureId,
-    ) -> Result<(), BackendError> {
-        if let egui::TextureId::Managed(_) = id {
-            return Err(BackendError::InvalidTextureId(id));
-        }
-
-        let (_user_texture, user_texture_binding) = self
-            .textures
-            .get_mut(&id)
-            .ok_or(BackendError::InvalidTextureId(id))?;
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            compare: None,
-            ..sampler_descriptor
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bite::gui ui texture bind group"),
-            layout: &self.texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(texture),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        *user_texture_binding = bind_group;
 
         Ok(())
     }
@@ -615,8 +471,8 @@ impl Pipeline {
 
         for (idx, egui::ClippedPrimitive { primitive, .. }) in paint_jobs.iter().enumerate() {
             let mesh = match primitive {
-                epaint::Primitive::Mesh(mesh) => mesh,
-                epaint::Primitive::Callback(_) => continue,
+                egui::epaint::Primitive::Mesh(mesh) => mesh,
+                egui::epaint::Primitive::Callback(_) => continue,
             };
 
             let data: &[u8] = bytemuck::cast_slice(&mesh.indices);

@@ -65,10 +65,8 @@ pub struct Platform {
 }
 
 impl Platform {
-    /// Creates a new `Platform`.
     pub fn new(descriptor: PlatformDescriptor) -> Self {
         let context = Context::default();
-
         let mut fonts = FontDefinitions::default();
 
         fonts.font_data.insert(
@@ -84,7 +82,6 @@ impl Platform {
         );
 
         fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("icons".to_owned());
-
         fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("liga".to_owned());
 
         context.set_fonts(fonts);
@@ -112,7 +109,7 @@ impl Platform {
             touch_pointer_pressed: 0,
             device_indices: HashMap::new(),
             next_device_index: 1,
-	    dragging: false,
+            dragging: false,
             winit: descriptor.winit,
         }
     }
@@ -125,10 +122,7 @@ impl Platform {
                 window_id: _window_id,
                 event,
             } => match event {
-                WindowEvent::Resized(PhysicalSize {
-                    width: 0,
-                    height: 0,
-                }) => {}
+                WindowEvent::Resized(PhysicalSize { width: 0, height: 0 }) => {}
                 WindowEvent::Resized(physical_size) => {
                     self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                         Default::default(),
@@ -328,14 +322,14 @@ impl Platform {
     }
 
     pub fn start_dragging(&mut self) {
-	if !self.dragging {
-	    self.send_event(CustomEvent::DragWindow);
-	    self.dragging = true;
-	}
+        if !self.dragging {
+            self.send_event(CustomEvent::DragWindow);
+            self.dragging = true;
+        }
     }
 
     pub fn stop_dragging(&mut self) {
-	self.dragging = false;
+        self.dragging = false;
     }
 
     /// Updates the internal time for egui used for animations. `elapsed_seconds` should be the
