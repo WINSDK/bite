@@ -229,11 +229,17 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
 }
 
 fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
+    ui.style_mut().wrap = Some(true);
+
     if !ctx.cmd_input.is_empty() {
+        let text = format!("{}\u{2588}", ctx.cmd_input);
+
         ui.label(
-            egui::RichText::new(&ctx.cmd_input).color(tokenizing::colors::WHITE)
+            egui::RichText::new(&text).color(tokenizing::colors::WHITE)
         );
     };
+
+    ui.style_mut().wrap = Some(false);
 }
 
 pub struct RenderContext {
@@ -278,7 +284,7 @@ pub fn init() -> Result<(), Error> {
     let mut platform = Platform::new(PlatformDescriptor {
         physical_width: 580,
         physical_height: 300,
-        scale_factor: window.scale_factor(),
+        scale_factor: window.scale_factor() as f32,
         style: STYLE.egui(),
         winit: event_loop.create_proxy(),
     });

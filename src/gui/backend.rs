@@ -9,6 +9,9 @@ use std::sync::Arc;
 
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
+use winit::event::{VirtualKeyCode, ModifiersState};
+
+const NO_MODIFIERS: ModifiersState = ModifiersState::empty();
 
 pub struct Backend {
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -141,7 +144,7 @@ impl Backend {
         if ctx.show_donut.load(Ordering::Relaxed) {
             let text = wgpu_glyph::Text::new(&ctx.donut.frame)
                 .with_color([1.0, 1.0, 1.0, 1.0])
-                .with_scale(platform.scale_factor as f32 * 10.0);
+                .with_scale(platform.scale_factor() * 10.0);
 
             // queue donut text
             self.glyph_brush.queue(wgpu_glyph::Section {
@@ -200,84 +203,25 @@ impl Backend {
         });
 
         // keep a record of all keystroke since the previous frame
-        let keys = platform.take_keys();
+        let keys = platform.raw_keys();
 
-        if keys.contains(&(egui::Key::Backspace, egui::Modifiers::NONE)) {
+        if keys.contains(&(NO_MODIFIERS, VirtualKeyCode::Backslash)) {
             ctx.cmd_input.pop();
         }
 
-        if keys.contains(&(egui::Key::Enter, egui::Modifiers::NONE)) {
+        if keys.contains(&(NO_MODIFIERS, VirtualKeyCode::Return)) {
             ctx.cmd_input = String::new();
         }
 
-        for key in keys.iter() {
-            let key = match key {
-                (egui::Key::Num0, _) => '0',
-                (egui::Key::Num1, _) => '1',
-                (egui::Key::Num2, _) => '2',
-                (egui::Key::Num3, _) => '3',
-                (egui::Key::Num4, _) => '4',
-                (egui::Key::Num5, _) => '5',
-                (egui::Key::Num6, _) => '6',
-                (egui::Key::Num7, _) => '7',
-                (egui::Key::Num8, _) => '8',
-                (egui::Key::Num9, _) => '9',
-                (egui::Key::A, egui::Modifiers::NONE) => 'a',
-                (egui::Key::B, egui::Modifiers::NONE) => 'b',
-                (egui::Key::C, egui::Modifiers::NONE) => 'c',
-                (egui::Key::D, egui::Modifiers::NONE) => 'd',
-                (egui::Key::E, egui::Modifiers::NONE) => 'e',
-                (egui::Key::F, egui::Modifiers::NONE) => 'f',
-                (egui::Key::G, egui::Modifiers::NONE) => 'g',
-                (egui::Key::H, egui::Modifiers::NONE) => 'h',
-                (egui::Key::I, egui::Modifiers::NONE) => 'i',
-                (egui::Key::J, egui::Modifiers::NONE) => 'j',
-                (egui::Key::K, egui::Modifiers::NONE) => 'k',
-                (egui::Key::L, egui::Modifiers::NONE) => 'l',
-                (egui::Key::M, egui::Modifiers::NONE) => 'm',
-                (egui::Key::N, egui::Modifiers::NONE) => 'n',
-                (egui::Key::O, egui::Modifiers::NONE) => 'o',
-                (egui::Key::P, egui::Modifiers::NONE) => 'p',
-                (egui::Key::Q, egui::Modifiers::NONE) => 'q',
-                (egui::Key::R, egui::Modifiers::NONE) => 'r',
-                (egui::Key::S, egui::Modifiers::NONE) => 's',
-                (egui::Key::T, egui::Modifiers::NONE) => 't',
-                (egui::Key::U, egui::Modifiers::NONE) => 'u',
-                (egui::Key::V, egui::Modifiers::NONE) => 'v',
-                (egui::Key::W, egui::Modifiers::NONE) => 'w',
-                (egui::Key::X, egui::Modifiers::NONE) => 'x',
-                (egui::Key::Y, egui::Modifiers::NONE) => 'y',
-                (egui::Key::Z, egui::Modifiers::NONE) => 'z',
-                (egui::Key::A, egui::Modifiers::SHIFT) => 'A',
-                (egui::Key::B, egui::Modifiers::SHIFT) => 'B',
-                (egui::Key::C, egui::Modifiers::SHIFT) => 'C',
-                (egui::Key::D, egui::Modifiers::SHIFT) => 'D',
-                (egui::Key::E, egui::Modifiers::SHIFT) => 'E',
-                (egui::Key::F, egui::Modifiers::SHIFT) => 'F',
-                (egui::Key::G, egui::Modifiers::SHIFT) => 'G',
-                (egui::Key::H, egui::Modifiers::SHIFT) => 'H',
-                (egui::Key::I, egui::Modifiers::SHIFT) => 'I',
-                (egui::Key::J, egui::Modifiers::SHIFT) => 'J',
-                (egui::Key::K, egui::Modifiers::SHIFT) => 'K',
-                (egui::Key::L, egui::Modifiers::SHIFT) => 'L',
-                (egui::Key::M, egui::Modifiers::SHIFT) => 'M',
-                (egui::Key::N, egui::Modifiers::SHIFT) => 'N',
-                (egui::Key::O, egui::Modifiers::SHIFT) => 'O',
-                (egui::Key::P, egui::Modifiers::SHIFT) => 'P',
-                (egui::Key::Q, egui::Modifiers::SHIFT) => 'Q',
-                (egui::Key::R, egui::Modifiers::SHIFT) => 'R',
-                (egui::Key::S, egui::Modifiers::SHIFT) => 'S',
-                (egui::Key::T, egui::Modifiers::SHIFT) => 'T',
-                (egui::Key::U, egui::Modifiers::SHIFT) => 'U',
-                (egui::Key::V, egui::Modifiers::SHIFT) => 'V',
-                (egui::Key::W, egui::Modifiers::SHIFT) => 'W',
-                (egui::Key::X, egui::Modifiers::SHIFT) => 'X',
-                (egui::Key::Y, egui::Modifiers::SHIFT) => 'Y',
-                (egui::Key::Z, egui::Modifiers::SHIFT) => 'Z',
-                _ => continue
-            };
+        for (modi, key) in keys {
+            // only record keys that either have no modifiers or the shift modifier
+            if (modi | ModifiersState::SHIFT) != ModifiersState::SHIFT {
+                continue;
+            }
 
-            ctx.cmd_input.push(key);
+            if let Some(chr) = winit_key_to_char(modi, key) {
+                ctx.cmd_input.push(chr);
+            }
         }
 
         // begin to draw the UI frame
@@ -319,7 +263,7 @@ impl Backend {
         let screen_descriptor = ScreenDescriptor {
             physical_width: self.surface_cfg.width,
             physical_height: self.surface_cfg.height,
-            scale_factor: platform.scale_factor as f32,
+            scale_factor: platform.scale_factor(),
         };
 
         let tdelta: egui::TexturesDelta = full_output.textures_delta;
@@ -358,6 +302,26 @@ impl Backend {
             self.surface.configure(&self.device, &self.surface_cfg);
         }
     }
+}
+
+fn winit_key_to_char(modifiers: ModifiersState, keycode: VirtualKeyCode) -> Option<char> {
+    if keycode == VirtualKeyCode::Space {
+        return Some(' ');
+    }
+
+    if keycode >= VirtualKeyCode::A && keycode <= VirtualKeyCode::Z {
+        let base_char = if modifiers.shift() {
+            'A'
+        } else {
+            'a'
+        };
+
+        let key_index = keycode as u8 - VirtualKeyCode::A as u8;
+        let character = (base_char as u8 + key_index) as char;
+        return Some(character)
+    }
+
+    None
 }
 
 pub fn ask_for_binary(ctx: &mut RenderContext) {

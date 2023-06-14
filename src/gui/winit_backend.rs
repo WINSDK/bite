@@ -18,7 +18,7 @@ pub struct PlatformDescriptor {
     pub physical_height: u32,
 
     /// HiDPI scale factor.
-    pub scale_factor: f64,
+    pub scale_factor: f32,
 
     /// Egui style configuration.
     pub style: egui::Style,
@@ -43,9 +43,10 @@ fn handle_clipboard(output: &egui::PlatformOutput, clipboard: Option<&mut Clipbo
 
 /// Provides the integration between egui and winit.
 pub struct Platform {
-    pub scale_factor: f64,
+    scale_factor: f32,
     context: egui::Context,
     raw_input: egui::RawInput,
+    raw_keys: Vec<(ModifiersState, VirtualKeyCode)>,
     modifier_state: ModifiersState,
     pointer_pos: Option<egui::Pos2>,
     clipboard: Option<ClipboardContext>,
@@ -101,6 +102,7 @@ impl Platform {
 
         Self {
             scale_factor: descriptor.scale_factor,
+            raw_keys: Vec::new(),
             context,
             raw_input,
             modifier_state: ModifiersState::empty(),
@@ -134,8 +136,8 @@ impl Platform {
                     scale_factor,
                     new_inner_size,
                 } => {
-                    self.scale_factor = *scale_factor;
-                    self.raw_input.pixels_per_point = Some(*scale_factor as f32);
+                    self.scale_factor = *scale_factor as f32;
+                    self.raw_input.pixels_per_point = Some(self.scale_factor);
                     self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                         Default::default(),
                         vec2(new_inner_size.width as f32, new_inner_size.height as f32)
@@ -289,6 +291,10 @@ impl Platform {
                                 }
                             }
                             _ => {
+                                if pressed {
+                                    self.raw_keys.push((self.modifier_state, virtual_keycode));
+                                }
+
                                 if let Some(key) = winit_to_egui_key_code(virtual_keycode) {
                                     self.raw_input.events.push(egui::Event::Key {
                                         key,
@@ -339,22 +345,8 @@ impl Platform {
     }
 
     /// Consumes all keys pressed that didn't have any modifiers.
-    /// Must be called before `begin_frame`.
-    pub fn take_keys(&mut self) -> Vec<(egui::Key, egui::Modifiers)> {
-        let mut recorded = Vec::new();
-        let mut remaining = Vec::new();
-
-        for event in std::mem::take(&mut self.raw_input.events) {
-            match event {
-                egui::Event::Key { key, pressed: true, modifiers, .. } => {
-                    recorded.push((key, modifiers));
-                }
-                _ => remaining.push(event),
-            }
-        }
-            
-        self.raw_input.events = remaining;
-        recorded
+    pub fn raw_keys(&mut self) -> Vec<(ModifiersState, VirtualKeyCode)> {
+        std::mem::take(&mut self.raw_keys)
     }
 
     /// Starts a new frame by providing a new `Ui` instance to write into.
@@ -389,6 +381,11 @@ impl Platform {
     /// Returns the internal egui context.
     pub fn context(&self) -> Context {
         self.context.clone()
+    }
+
+    /// Current scale factor being used to render the UI.
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
     }
 }
 
