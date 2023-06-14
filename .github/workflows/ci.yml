@@ -11,22 +11,20 @@ jobs:
       - name: Checking out repo
         uses: actions/checkout@v3
       - name: Checking out rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
           components: rustfmt
       - name: Caching cargo
         uses: Swatinem/rust-cache@v2
       - name: Install dependencies
-        run: |
-          sudo apt-get install libgtk-3-dev
+        run: sudo apt-get install libgtk-3-dev
       - name: Build
         run: cargo build --release
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
-          name: Release build
+          name: Linux build
           path: ./target/release/bite
   build-macos:
     runs-on: macos-latest
@@ -34,9 +32,8 @@ jobs:
       - name: Checking out repo
         uses: actions/checkout@v3
       - name: Checking out rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
           components: rustfmt
       - name: Caching cargo
@@ -46,7 +43,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
-          name: Release build
+          name: MacOS build
           path: ./target/release/bite
   build-windows:
     runs-on: windows-latest
@@ -54,9 +51,8 @@ jobs:
       - name: Checking out repo
         uses: actions/checkout@v3
       - name: Checking out rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
           components: rustfmt
       - name: Caching cargo
@@ -66,26 +62,22 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
-          name: Release build
-          path: ./target/release/bite
+          name: Windows build
+          path: ./target/release/bite.exe
   test-ubuntu:
     runs-on: ubuntu-latest
     steps:
       - name: Checking out repo
         uses: actions/checkout@v3
       - name: Checking out rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
-      - name: Add aditional rustc target's
-        run: |
-          rustup target add riscv64gc-unknown-none-elf
+          targets: riscv64gc-unknown-none-elf
       - name: Caching cargo
         uses: Swatinem/rust-cache@v2
       - name: Install dependencies
-        run: |
-          sudo apt-get install libgtk-3-dev
+        run: sudo apt-get install libgtk-3-dev
       - name: Test
         run: cargo test --workspace --lib
   test-macos:
@@ -94,13 +86,10 @@ jobs:
       - name: Checking out repo
         uses: actions/checkout@v3
       - name: Checking out rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
-      - name: Add aditional rustc target's
-        run: |
-          rustup target add riscv64gc-unknown-none-elf
+          targets: riscv64gc-unknown-none-elf
       - name: Caching cargo
         uses: Swatinem/rust-cache@v2
       - name: Test
@@ -111,13 +100,10 @@ jobs:
       - name: Checking out repo
         uses: actions/checkout@v3
       - name: Checking out rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
-      - name: Add aditional rustc target's
-        run: |
-          rustup target add riscv64gc-unknown-none-elf
+          targets: riscv64gc-unknown-none-elf
       - name: Caching cargo
         uses: Swatinem/rust-cache@v2
       - name: Test
