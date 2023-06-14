@@ -338,6 +338,25 @@ impl Platform {
         self.raw_input.time = Some(elapsed_seconds);
     }
 
+    /// Consumes all keys pressed that didn't have any modifiers.
+    /// Must be called before `begin_frame`.
+    pub fn take_keys(&mut self) -> Vec<(egui::Key, egui::Modifiers)> {
+        let mut recorded = Vec::new();
+        let mut remaining = Vec::new();
+
+        for event in std::mem::take(&mut self.raw_input.events) {
+            match event {
+                egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                    recorded.push((key, modifiers));
+                }
+                _ => remaining.push(event),
+            }
+        }
+            
+        self.raw_input.events = remaining;
+        recorded
+    }
+
     /// Starts a new frame by providing a new `Ui` instance to write into.
     pub fn begin_frame(&mut self) {
         self.context.begin_frame(self.raw_input.take());

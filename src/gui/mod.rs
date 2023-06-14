@@ -228,8 +228,12 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
         .show_inside(ui, &mut ctx.buffers);
 }
 
-fn terminal(ui: &mut egui::Ui) {
-    ui.label(RichText::new(":)").size(12.0).color(tokenizing::colors::WHITE));
+fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
+    if !ctx.cmd_input.is_empty() {
+        ui.label(
+            egui::RichText::new(&ctx.cmd_input).color(tokenizing::colors::WHITE)
+        );
+    };
 }
 
 pub struct RenderContext {
@@ -243,6 +247,7 @@ pub struct RenderContext {
     timer60: utils::Timer,
     dissasembly: Option<Arc<Disassembly>>,
     disassembling_thread: Option<DisassThread>,
+    cmd_input: String,
 
     #[cfg(target_family = "windows")]
     unwindowed_size: winit::dpi::PhysicalSize<u32>,
@@ -301,6 +306,7 @@ pub fn init() -> Result<(), Error> {
         timer60: utils::Timer::new(60),
         dissasembly: None,
         disassembling_thread: None,
+        cmd_input: String::new(),
         #[cfg(target_family = "windows")]
         unwindowed_size: window.outer_size(),
         #[cfg(target_family = "windows")]

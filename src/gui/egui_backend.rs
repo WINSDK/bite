@@ -8,6 +8,13 @@ use std::collections::BTreeMap;
 
 use wgpu::util::DeviceExt;
 
+pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
+    r: 10.0 / 255.0,
+    g: 10.0 / 255.0,
+    b: 10.0 / 255.0,
+    a: 1.0,
+};
+
 /// Enum for selecting the right buffer type.
 #[derive(Debug)]
 enum BufferType {
@@ -218,20 +225,13 @@ impl Pipeline {
         color_attachment: &wgpu::TextureView,
         paint_jobs: &[egui::epaint::ClippedPrimitive],
         screen_descriptor: &ScreenDescriptor,
-        clear_color: Option<wgpu::Color>,
     ) -> Result<(), Error> {
-        let load_operation = if let Some(color) = clear_color {
-            wgpu::LoadOp::Clear(color)
-        } else {
-            wgpu::LoadOp::Load
-        };
-
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: color_attachment,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: load_operation,
+                    load: wgpu::LoadOp::Clear(CLEAR_COLOR),
                     store: true,
                 },
             })],
