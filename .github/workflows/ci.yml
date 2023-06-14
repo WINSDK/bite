@@ -22,7 +22,12 @@ jobs:
         run: |
           sudo apt-get install libgtk-3-dev
       - name: Build
-        run: cargo build
+        run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: Release build
+          path: ./target/release/bite
   build-macos:
     runs-on: macos-latest
     steps:
@@ -37,7 +42,12 @@ jobs:
       - name: Caching cargo
         uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build
+        run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: Release build
+          path: ./target/release/bite
   build-windows:
     runs-on: windows-latest
     steps:
@@ -52,7 +62,12 @@ jobs:
       - name: Caching cargo
         uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build
+        run: cargo build --release
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: Release build
+          path: ./target/release/bite
   test-ubuntu:
     runs-on: ubuntu-latest
     steps:
