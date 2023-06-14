@@ -1,7 +1,7 @@
 pub struct Donut {
     is_eaten: bool,
-    a: f64,
-    b: f64,
+    a: f32,
+    b: f32,
     pub frame: String,
 }
 
@@ -16,11 +16,11 @@ impl Donut {
     }
 
     pub fn update_frame(&mut self) {
-        let mut b2 = [' '; 1408];
-        let mut z = [0.0; 1408];
+        let mut b2 = [b' '; 1408];
+        let mut z = [0.0f32; 1408];
 
-        for j in (0..90).map(|x| x as f64 * 0.07) {
-            for i in (0..314 - self.is_eaten as usize * 60).map(|x| x as f64 * 0.02) {
+        for j in (0..90).map(|x| x as f32 * 0.07) {
+            for i in (0..314 - self.is_eaten as usize * 60).map(|x| x as f32 * 0.02) {
                 let sini = i.sin();
                 let cosi = i.cos();
                 let sinj = j.sin();
@@ -42,7 +42,7 @@ impl Donut {
 
                 if y > 0.0 && y < 22.0 && x > 0.0 && x < 64.0 && m > z[o] {
                     z[o] = m;
-                    b2[o] = ['.', ',', '-', '~', ':', ';', '=', '!', '*', '#', '$', '@'][n];
+                    b2[o] = b".,-~:;=!*#$@"[n];
                 }
             }
         }
@@ -51,7 +51,7 @@ impl Donut {
         for k in 0..1408 {
             match k % 64 {
                 0 => self.frame.push('\n'),
-                _ => self.frame.push(b2[k]),
+                _ => self.frame.push(b2[k] as char),
             }
         }
 

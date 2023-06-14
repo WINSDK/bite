@@ -1,6 +1,6 @@
 [package]
 name = "bite"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 
 [dependencies]
@@ -9,7 +9,7 @@ pdb = "0.8"
 triple_accel = "0.4"
 once_cell = "1.1"
 glam = { version = "0.23", features = ["bytemuck"] }
-bytemuck = { version = "1.1", default-features = false }
+bytemuck = { version = "1.13", default-features = false }
 winit = "0.28.6"
 wgpu = { version = "0.16", default-features = false }
 wgpu_glyph = "0.20"
@@ -17,6 +17,10 @@ ab_glyph = { version = "0.2", default-features = false }
 png = "0.17"
 rfd = "0.11"
 pollster = "0.3.0"
+egui = { version = "0.22.0", features = ["bytemuck"] }
+egui_dock = "0.6.1"
+copypasta = "0.8"
+
 decoder = { path = "./decoder" }
 disassembler = { path = "./disassembler" }
 tokenizing = { path = "./tokenizing" }

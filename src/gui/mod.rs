@@ -1,31 +1,42 @@
-mod controls;
 mod donut;
-mod quad;
+mod backend;
+mod winit_backend;
+mod egui_backend;
+mod icons;
+mod style;
 mod texture;
 mod utils;
-mod window;
 
+use egui::text::LayoutJob;
+use egui_dock::tree::Tree;
+use once_cell::sync::{OnceCell, Lazy};
 use pollster::FutureExt;
-use winit::dpi::{PhysicalPosition, PhysicalSize, Size};
-use winit::event::{
-    ElementState, Event, KeyboardInput, ModifiersState, MouseScrollDelta, VirtualKeyCode,
-    WindowEvent,
-};
-use winit::event_loop::{ControlFlow, EventLoop};
-
-use once_cell::sync::OnceCell;
+use tokenizing::Token;
+use winit::event::{Event, WindowEvent};
+use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
 use crate::disassembly::Disassembly;
+use egui_backend::Pipeline;
+use backend::Backend;
+use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
+use egui::{RichText, Button};
+
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
+static WIDTH: u32 = 1200;
+static HEIGHT: u32 = 800;
+static STYLE: Lazy<style::Style> = Lazy::new(style::Style::default);
+
+type Title = &'static str;
+type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
+
 #[derive(Debug)]
 pub enum Error {
-    /// Failure to retrieve the current texture from our surface.
-    DrawTexture(wgpu::SurfaceError),
-
     /// Failure from wgpu_glyph to draw text.
     DrawText(String),
 
@@ -41,6 +52,9 @@ pub enum Error {
     /// Failed to find a device that meets our adapter's limits.
     DeviceRequest(wgpu::RequestDeviceError),
 
+    /// A given `egui::TextureId` from the backend was invalid.
+    InvalidTextureId(egui::TextureId),
+
     /// Invalid data given to the png decoder.
     PngDecode,
 
@@ -51,39 +65,198 @@ pub enum Error {
     NotFound(std::path::PathBuf),
 }
 
-type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
+#[derive(PartialEq)]
+enum TabKind {
+    Source,
+    Listing,
+}
+
+struct Buffers {
+    inner: HashMap<Title, TabKind>,
+    dissasembly: Option<Arc<Disassembly>>,
+
+    cached_range: std::ops::Range<usize>,
+    cached_dissasembly: Vec<Token<'static>>,
+}
+
+impl Buffers {
+    fn new(buffers: HashMap<Title, TabKind>) -> Self {
+        Self {
+            inner: buffers,
+            dissasembly: None,
+            cached_range: std::ops::Range { start: 0, end: 0 },
+            cached_dissasembly: Vec::new(),
+        }
+    }
+
+    fn has_multiple_tabs(&self) -> bool {
+        self.inner.len() != 1
+    }
+
+    fn show_listing(&mut self, ui: &mut egui::Ui) {
+        let dissasembly = match self.dissasembly {
+            Some(ref dissasembly) => dissasembly,
+            None => return,
+        };
+
+        let text_style = egui::TextStyle::Body;
+        let row_height = ui.text_style_height(&text_style);
+        let total_rows = dissasembly.proc.instruction_count();
+        let area = egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false);
+
+        let style = STYLE.egui();
+        let font_id = egui::TextStyle::Body.resolve(&style);
+
+        area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+            if row_range != self.cached_range {
+                self.cached_dissasembly = dissasembly.listing(row_range);
+            }
+
+            let tokens = &self.cached_dissasembly[..];
+            let mut job = LayoutJob::default();
+
+            for token in tokens {
+                job.append(
+                    &token.text,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: font_id.clone(),
+                        color: *token.color,
+                        ..Default::default()
+                    },
+                );
+            }
+
+            ui.label(job);
+        });
+    }
+}
+
+impl egui_dock::TabViewer for Buffers {
+    type Tab = Title;
+
+    fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
+        match self.inner.get(title) {
+            Some(TabKind::Source) => {
+                ui.label("todo");
+            }
+            Some(TabKind::Listing) => self.show_listing(ui),
+            _ => return,
+        };
+    }
+
+    fn title(&mut self, title: &mut Self::Tab) -> egui::WidgetText {
+        (*title).into()
+    }
+
+    fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
+        if self.inner.len() == 1 {
+            false
+        } else {
+            self.inner.remove(tab);
+            true
+        }
+    }
+}
+
+fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) {
+    let bar = egui::menu::bar(ui, |ui| {
+        ui.menu_button("File", |ui| {
+            if ui.button(crate::icon!(FOLDER_OPEN, "Open")).clicked() {
+                backend::ask_for_binary(ctx);
+                ui.close_menu();
+            }
+
+            if ui.button(crate::icon!(CROSS, "Exit")).clicked() {
+                platform.send_event(CustomEvent::CloseRequest);
+                ui.close_menu();
+            }
+        });
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            top_bar_native(ui, platform, ctx);
+        });
+    });
+
+    if bar.response.interact(egui::Sense::click()).double_clicked() {
+        backend::fullscreen(ctx);
+    }
+
+    if bar.response.interact(egui::Sense::drag()).dragged() {
+        platform.start_dragging();
+    } else {
+        platform.stop_dragging();
+    }
+}
+
+/// Show some close/maximize/minimize buttons for the native window.
+fn top_bar_native(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
+    let height = 12.0;
+    let close_response = ui.add(Button::new(
+        RichText::new(crate::icon!(CROSS, "")).size(height),
+    ));
+
+    if close_response.clicked() {
+        platform.send_event(CustomEvent::CloseRequest);
+    }
+
+    let maximized_response = ui.add(Button::new(
+        RichText::new(crate::icon!(CHECKBOX_UNCHECKED, "")).size(height),
+    ));
+
+    if maximized_response.clicked() {
+        backend::fullscreen(ctx);
+    }
+
+    let minimized_response = ui.add(Button::new(
+        RichText::new(crate::icon!(MINUS, "")).size(height),
+    ));
+
+    if minimized_response.clicked() {
+        ctx.window.set_minimized(true);
+    }
+}
+
+fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
+    egui_dock::DockArea::new(&mut ctx.tabs)
+        .style(ctx.style.dock())
+        .show_close_buttons(ctx.buffers.has_multiple_tabs())
+        .draggable_tabs(ctx.buffers.has_multiple_tabs())
+        .show_inside(ui, &mut ctx.buffers);
+}
+
+fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
+    if !ctx.cmd_input.is_empty() {
+        ui.label(
+            egui::RichText::new(&ctx.cmd_input).color(tokenizing::colors::WHITE)
+        );
+    };
+}
 
 pub struct RenderContext {
-    fps: usize,
+    tabs: Tree<Title>,
+    buffers: Buffers,
+
+    style: style::Style,
+    window: Arc<winit::window::Window>,
     donut: donut::Donut,
     show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
-    timer10: utils::Timer,
-    dissasembly: Option<Disassembly>,
+    dissasembly: Option<Arc<Disassembly>>,
     disassembling_thread: Option<DisassThread>,
-    listing_offset: f32,
-    scale_factor: f32,
-    font_size: f32,
-}
+    cmd_input: String,
 
-struct EventContext {
-    frame_time: Instant,
-    keyboard: controls::KeyMap,
-    backend: window::Backend,
-    window: Arc<winit::window::Window>,
     #[cfg(target_family = "windows")]
-    unwindowed_size: PhysicalSize<u32>,
+    unwindowed_size: winit::dpi::PhysicalSize<u32>,
     #[cfg(target_family = "windows")]
-    unwindowed_pos: PhysicalPosition<i32>,
+    unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 }
-
-pub const MIN_REAL_SIZE: PhysicalSize<u32> = PhysicalSize::new(580, 300);
-pub const MIN_WIN_SIZE: Size = Size::Physical(MIN_REAL_SIZE);
-
-pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
 
 pub fn init() -> Result<(), Error> {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<CustomEvent>::with_user_event().build();
 
     let window = {
         #[cfg(target_os = "linux")]
@@ -101,24 +274,39 @@ pub fn init() -> Result<(), Error> {
 
     WINDOW.set(Arc::clone(&window)).unwrap();
 
-    let mut rctx = RenderContext {
-        fps: 0,
+    let mut backend = Backend::new(&window).block_on()?;
+    let mut platform = Platform::new(PlatformDescriptor {
+        physical_width: 580,
+        physical_height: 300,
+        scale_factor: window.scale_factor(),
+        style: STYLE.egui(),
+        winit: event_loop.create_proxy(),
+    });
+
+    let disass_title = crate::icon!(PARAGRAPH_LEFT, "Disassembly");
+    let source_title = crate::icon!(EMBED2, "Source");
+
+    let mut egui_rpass = Pipeline::new(&backend.device, backend.surface_cfg.format, 1);
+    let mut tabs = Tree::new(vec![disass_title, source_title]);
+
+    tabs.set_focused_node(egui_dock::NodeIndex::root());
+
+    let buffers = HashMap::from([
+        (disass_title, TabKind::Listing),
+        (source_title, TabKind::Source),
+    ]);
+
+    let mut ctx = RenderContext {
+        tabs,
+        buffers: Buffers::new(buffers),
+        style: STYLE.clone(),
+        window: Arc::clone(&window),
         donut: donut::Donut::new(true),
         show_donut: Arc::new(AtomicBool::new(false)),
         timer60: utils::Timer::new(60),
-        timer10: utils::Timer::new(10),
         dissasembly: None,
         disassembling_thread: None,
-        listing_offset: 0.0,
-        scale_factor: window.scale_factor() as f32,
-        font_size: 20.0,
-    };
-
-    let mut ectx = EventContext {
-        frame_time: Instant::now(),
-        keyboard: controls::KeyMap::new(),
-        backend: window::Backend::new(&window).block_on()?,
-        window: Arc::clone(&window),
+        cmd_input: String::new(),
         #[cfg(target_family = "windows")]
         unwindowed_size: window.outer_size(),
         #[cfg(target_family = "windows")]
@@ -126,210 +314,86 @@ pub fn init() -> Result<(), Error> {
     };
 
     if let Some(ref path) = crate::ARGS.path {
-        let show_donut = Arc::clone(&rctx.show_donut);
-        rctx.dissasembly = None;
-        rctx.disassembling_thread = Some(std::thread::spawn(move || {
+        let show_donut = Arc::clone(&ctx.show_donut);
+        ctx.dissasembly = None;
+        ctx.disassembling_thread = Some(std::thread::spawn(move || {
             Disassembly::new(path, show_donut)
         }));
     }
 
-    event_loop.run(move |event, _, control| {
-        // exit window on closing it
-        if let Event::WindowEvent { ref event, .. } = event {
-            if event == &WindowEvent::CloseRequested {
-                *control = ControlFlow::Exit;
-            }
-        }
+    let start_time = Instant::now();
 
-        // handle events that don't rqeuire references
-        handle_event(&mut rctx, &mut ectx, event);
+    event_loop.run(move |event, _, control| {
+        // Pass the winit events to the platform integration
+        platform.handle_event(&event);
+
+        match event {
+            Event::RedrawRequested(..) => {
+                // update time elapsed
+                platform.update_time(start_time.elapsed().as_secs_f64());
+
+                // draw ui
+                if let Err(err) = backend.redraw(&mut ctx, &mut platform, &mut egui_rpass) {
+                    crate::warning!("{err:?}");
+                }
+            }
+            Event::UserEvent(CustomEvent::CloseRequest) => *control = ControlFlow::Exit,
+            Event::UserEvent(CustomEvent::DragWindow) => {
+                let _ = ctx.window.drag_window();
+            },
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::Resized(size) => backend.resize(size),
+                WindowEvent::CloseRequested => *control = ControlFlow::Exit,
+                WindowEvent::DroppedFile(path) => {
+                    let show_donut = Arc::clone(&ctx.show_donut);
+                    ctx.dissasembly = None;
+                    ctx.disassembling_thread =
+                        Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
+                }
+                _ => {}
+            },
+            Event::MainEventsCleared => {
+                handle_post_render(&mut ctx);
+            }
+            _ => {}
+        }
     })
 }
 
-fn handle_event(
-    rctx: &mut RenderContext,
-    ectx: &mut EventContext,
-    event: winit::event::Event<'_, ()>,
-) {
-    match event {
-        Event::WindowEvent { event, .. } => match event {
-            WindowEvent::ModifiersChanged(modi) => ectx.keyboard.press_modifiers(modi),
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        virtual_keycode: Some(keycode),
-                        state,
-                        ..
-                    },
-                ..
-            } => match state {
-                ElementState::Pressed => ectx.keyboard.press(keycode),
-                ElementState::Released => ectx.keyboard.release(keycode),
-            },
-            WindowEvent::Resized(size) => ectx.backend.resize(rctx, size),
-            WindowEvent::DroppedFile(path) => {
-                let show_donut = Arc::clone(&rctx.show_donut);
-                rctx.dissasembly = None;
-                rctx.disassembling_thread =
-                    Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
-            }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let delta = -match delta {
-                    // I'm assuming a line is about 100 pixels
-                    MouseScrollDelta::LineDelta(_, scroll) => scroll * 100.0,
-                    MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => {
-                        scroll as f32
-                    }
-                };
-
-                rctx.listing_offset += delta;
-            }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                rctx.scale_factor = scale_factor as f32;
-            }
-            _ => {}
-        },
-        Event::RedrawRequested(_) => {
-            ectx.frame_time = std::time::Instant::now();
-
-            if let Err(e) = ectx.backend.redraw(rctx) {
-                eprintln!("Failed to redraw frame, due to {e:?}");
-            }
-        }
-        Event::MainEventsCleared => {
-            handle_post_render(rctx, ectx);
-        }
-        _ => {}
-    }
-}
-
-fn handle_post_render(rctx: &mut RenderContext, ectx: &mut EventContext) {
-    if rctx.timer10.reached() {
-        rctx.fps = (1_000_000_000 / ectx.frame_time.elapsed().as_nanos()) as usize;
-        rctx.timer10.reset();
-    }
-
-    if rctx.show_donut.load(Ordering::Relaxed) && rctx.timer60.reached() {
-        rctx.donut.update_frame();
-        rctx.timer60.reset();
+fn handle_post_render(ctx: &mut RenderContext) {
+    if ctx.show_donut.load(Ordering::Relaxed) && ctx.timer60.reached() {
+        ctx.donut.update_frame();
+        ctx.timer60.reset();
     }
 
     // if there is a binary being loaded
-    if let Some(true) = rctx.disassembling_thread.as_ref().map(JoinHandle::is_finished) {
-        let thread = rctx.disassembling_thread.take().unwrap();
+    if let Some(true) = ctx.disassembling_thread.as_ref().map(JoinHandle::is_finished) {
+        let thread = ctx.disassembling_thread.take().unwrap();
 
         // check if it's finished loading
         if thread.is_finished() {
             // store the loaded binary
             match thread.join() {
                 Err(err) => {
-                    rctx.show_donut.store(false, Ordering::Relaxed);
+                    ctx.show_donut.store(false, Ordering::Relaxed);
                     crate::warning!("{err:?}");
                 }
                 Ok(Err(err)) => {
-                    rctx.show_donut.store(false, Ordering::Relaxed);
+                    ctx.show_donut.store(false, Ordering::Relaxed);
                     crate::warning!("{err:?}");
                 }
-                Ok(Ok(val)) => rctx.dissasembly = Some(val),
+                Ok(Ok(val)) => {
+                    let dissasembly = Arc::new(val);
+
+                    ctx.dissasembly = Some(Arc::clone(&dissasembly));
+                    ctx.buffers.dissasembly = Some(Arc::clone(&dissasembly));
+                }
             }
 
             // mark the disassembling thread as not loading anything
-            rctx.disassembling_thread = None;
+            ctx.disassembling_thread = None;
         }
     }
 
-    if ectx.keyboard.pressed(VirtualKeyCode::O, ModifiersState::CTRL) {
-        // create dialog popup and get references to the donut and dissasembly
-        let dialog = rfd::FileDialog::new().set_parent(&*ectx.window).pick_file();
-
-        // load binary
-        if let Some(path) = dialog {
-            // ghost disassembling thread if a binary is already loaded.
-            if rctx.disassembling_thread.is_some() {
-                rctx.disassembling_thread = None;
-            }
-
-            let show_donut = Arc::clone(&rctx.show_donut);
-            rctx.dissasembly = None;
-            rctx.disassembling_thread =
-                Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
-        }
-    }
-
-    if ectx.keyboard.pressed(VirtualKeyCode::F, ModifiersState::CTRL) {
-        let monitor = match ectx.window.current_monitor() {
-            Some(monitor) => monitor,
-            None => return,
-        };
-
-        #[cfg(target_family = "windows")]
-        unsafe {
-            use utils::windows::*;
-            use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows};
-
-            let mut info = MonitorInfo {
-                size: std::mem::size_of::<MonitorInfo>() as u32,
-                monitor_area: Rect::default(),
-                work_area: Rect::default(),
-                flags: 0,
-            };
-
-            if GetMonitorInfoW(monitor.hmonitor(), &mut info) == 0 {
-                return;
-            }
-
-            let PhysicalSize { width, height } = ectx.window.outer_size();
-            let work_area_width = info.work_area.right - info.work_area.left;
-            let work_area_height = info.work_area.bottom - info.work_area.top;
-
-            // check if the window is fullscreen borderless
-            if width == work_area_width && height == work_area_height {
-                let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
-
-                SetWindowLongPtrW(ectx.window.hwnd(), GWL_STYLE, attr);
-                SetWindowPos(
-                    ectx.window.hwnd(),
-                    HWND_TOP,
-                    ectx.unwindowed_pos.x as u32,
-                    ectx.unwindowed_pos.y as u32,
-                    ectx.unwindowed_size.width,
-                    ectx.unwindowed_size.height,
-                    SWP_NOZORDER,
-                );
-            } else {
-                let attr = WS_VISIBLE | WS_OVERLAPPED;
-
-                ectx.unwindowed_size = ectx.window.outer_size();
-                ectx.unwindowed_pos = ectx.window.outer_position().unwrap_or_default();
-
-                SetWindowLongPtrW(ectx.window.hwnd(), GWL_STYLE, attr);
-                SetWindowPos(
-                    ectx.window.hwnd(),
-                    HWND_TOP,
-                    info.work_area.left,
-                    info.work_area.top,
-                    work_area_width,
-                    work_area_height,
-                    SWP_NOZORDER,
-                );
-            }
-        }
-
-        #[cfg(target_family = "unix")]
-        ectx.window.set_fullscreen(match ectx.window.fullscreen() {
-            Some(..) => None,
-            None => Some(winit::window::Fullscreen::Borderless(Some(monitor))),
-        });
-    }
-
-    if ectx.keyboard.pressed(VirtualKeyCode::Minus, ModifiersState::CTRL) {
-        rctx.scale_factor = f32::clamp(rctx.scale_factor / 1.025, 0.5, 10.0);
-    }
-
-    if ectx.keyboard.pressed(VirtualKeyCode::Equals, ModifiersState::CTRL) {
-        rctx.scale_factor = f32::clamp(rctx.scale_factor * 1.025, 0.5, 10.0);
-    }
-
-    ectx.window.request_redraw();
-    ectx.keyboard.release_pressed();
+    ctx.window.request_redraw();
 }
