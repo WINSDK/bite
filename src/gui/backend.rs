@@ -120,8 +120,28 @@ impl Backend {
 
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("bite::gui encoder"),
+            label: Some("bite::donut encoder"),
         });
+
+        let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("bite::donut render pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 10.0 / 255.0,
+                        g: 10.0 / 255.0,
+                        b: 10.0 / 255.0,
+                        a: 1.0,
+                    }),
+                    store: true,
+                },
+            })],
+            depth_stencil_attachment: None,
+        });
+
+        drop(rpass);
 
         if ctx.show_donut.load(Ordering::Relaxed) {
             let text = wgpu_glyph::Text::new(&ctx.donut.frame)
