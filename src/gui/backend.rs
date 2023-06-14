@@ -205,7 +205,7 @@ impl Backend {
         // keep a record of all keystroke since the previous frame
         let keys = platform.raw_keys();
 
-        if keys.contains(&(NO_MODIFIERS, VirtualKeyCode::Backslash)) {
+        if keys.contains(&(NO_MODIFIERS, VirtualKeyCode::Back)) {
             ctx.cmd_input.pop();
         }
 
