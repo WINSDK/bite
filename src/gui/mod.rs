@@ -19,6 +19,7 @@ use crate::disassembly::Disassembly;
 use egui_backend::Pipeline;
 use backend::Backend;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
+use egui::{RichText, Button};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -158,6 +159,77 @@ impl egui_dock::TabViewer for Buffers {
             true
         }
     }
+}
+
+fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) {
+    let bar = egui::menu::bar(ui, |ui| {
+        ui.menu_button("File", |ui| {
+            if ui.button(crate::icon!(FOLDER_OPEN, "Open")).clicked() {
+                backend::ask_for_binary(ctx);
+                ui.close_menu();
+            }
+
+            if ui.button(crate::icon!(CROSS, "Exit")).clicked() {
+                platform.send_event(CustomEvent::CloseRequest);
+                ui.close_menu();
+            }
+        });
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            top_bar_native(ui, platform, ctx);
+        });
+    });
+
+    if bar.response.interact(egui::Sense::click()).double_clicked() {
+        backend::fullscreen(ctx);
+    }
+
+    if bar.response.interact(egui::Sense::drag()).dragged() {
+        platform.start_dragging();
+    } else {
+        platform.stop_dragging();
+    }
+}
+
+/// Show some close/maximize/minimize buttons for the native window.
+fn top_bar_native(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
+    let height = 12.0;
+    let close_response = ui.add(Button::new(
+        RichText::new(crate::icon!(CROSS, "")).size(height),
+    ));
+
+    if close_response.clicked() {
+        platform.send_event(CustomEvent::CloseRequest);
+    }
+
+    let maximized_response = ui.add(Button::new(
+        RichText::new(crate::icon!(CHECKBOX_UNCHECKED, "")).size(height),
+    ));
+
+    if maximized_response.clicked() {
+        backend::fullscreen(ctx);
+    }
+
+    let minimized_response = ui.add(Button::new(
+        RichText::new(crate::icon!(MINUS, "")).size(height),
+    ));
+
+    if minimized_response.clicked() {
+        ctx.window.set_minimized(true);
+    }
+}
+
+fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
+    egui_dock::DockArea::new(&mut ctx.tabs)
+        .style(ctx.style.dock())
+        .show_close_buttons(ctx.buffers.has_multiple_tabs())
+        .draggable_tabs(ctx.buffers.has_multiple_tabs())
+        .show_inside(ui, &mut ctx.buffers);
+}
+
+fn terminal(ui: &mut egui::Ui) {
+    ui.label(RichText::new(":)").size(12.0).color(tokenizing::colors::WHITE));
 }
 
 pub struct RenderContext {

@@ -1,13 +1,12 @@
 use crate::disassembly::Disassembly;
 use crate::gui::egui_backend::{self, ScreenDescriptor};
-use crate::gui::winit_backend::{CustomEvent, Platform};
+use crate::gui::winit_backend::Platform;
 use crate::gui::Error;
 use crate::gui::RenderContext;
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use egui::{Button, RichText};
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
@@ -68,9 +67,7 @@ impl Backend {
             adapter.request_device(&device_desc, None).await.map_err(Error::DeviceRequest)?;
 
         let surface_capabilities = surface.get_capabilities(&adapter);
-
         let alpha_mode = surface_capabilities.alpha_modes[0];
-
         let surface_format = {
             let default_format = surface_capabilities.formats[0];
 
@@ -190,34 +187,12 @@ impl Backend {
         // begin to draw the UI frame
         platform.begin_frame();
 
-        egui::TopBottomPanel::top("title bar").show(&platform.context(), |ui| {
-            // alt-tab'ing between tabs
-            if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
-                let focused_idx = match ctx.tabs.focused_leaf() {
-                    Some(idx) => idx,
-                    None => egui_dock::NodeIndex::root(),
-                };
-
-                // don't do tab'ing if there are no tabs
-                if ctx.tabs.len() == 0 {
-                    return;
-                }
-
-                let focused = &mut ctx.tabs[focused_idx];
-                if let egui_dock::Node::Leaf { tabs, active, .. } = focused {
-                    if active.0 != tabs.len() - 1 {
-                        let tab_idx = active.0 + 1;
-                        ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(tab_idx));
-                    } else {
-                        ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(0));
-                    }
-                }
-            }
-
+        egui::TopBottomPanel::top("top bar").show(&platform.context(), |ui| {
             // generic keyboard inputs
             keyboard_input(ui, ctx);
 
-            title_bar_ui(ui, platform, ctx);
+            // title bar
+            super::top_bar(ui, ctx, platform);
         });
 
         // draw the primary panel
@@ -233,15 +208,11 @@ impl Backend {
                 egui::Frame::none().outer_margin(margin)
             })
             .show(&platform.context(), |ui| {
-                egui_dock::DockArea::new(&mut ctx.tabs)
-                    .style(ctx.style.dock())
-                    .show_close_buttons(ctx.buffers.has_multiple_tabs())
-                    .draggable_tabs(ctx.buffers.has_multiple_tabs())
-                    .show_inside(ui, &mut ctx.buffers);
+                super::tabbed_panel(ui, ctx);
             });
 
-        egui::TopBottomPanel::bottom("command line").show(&platform.context(), |ui| {
-            ui.label(RichText::new(":)").size(12.0).color(tokenizing::colors::WHITE));
+        egui::TopBottomPanel::bottom("terminal").show(&platform.context(), |ui| {
+            super::terminal(ui);
         });
 
         // end the UI frame. We could now handle the output and draw the UI with the backend
@@ -296,7 +267,7 @@ impl Backend {
     }
 }
 
-fn ask_for_binary(ctx: &mut RenderContext) {
+pub fn ask_for_binary(ctx: &mut RenderContext) {
     // create dialog popup and get references to the donut and dissasembly
     let dialog = rfd::FileDialog::new().set_parent(&*ctx.window).pick_file();
 
@@ -313,7 +284,7 @@ fn ask_for_binary(ctx: &mut RenderContext) {
     }
 }
 
-fn fullscreen(ctx: &mut RenderContext) {
+pub fn fullscreen(ctx: &mut RenderContext) {
     let monitor = match ctx.window.current_monitor() {
         Some(monitor) => monitor,
         None => return,
@@ -379,67 +350,31 @@ fn fullscreen(ctx: &mut RenderContext) {
     });
 }
 
-fn keyboard_input(ui: &mut egui::Ui, ctx: &mut RenderContext) {
+pub fn keyboard_input(ui: &mut egui::Ui, ctx: &mut RenderContext) {
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::O)) {
         ask_for_binary(ctx);
     }
-}
 
-fn title_bar_ui(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
-    let bar = egui::menu::bar(ui, |ui| {
-        ui.menu_button("File", |ui| {
-            if ui.button(crate::icon!(FOLDER_OPEN, "Open")).clicked() {
-                ask_for_binary(ctx);
-                ui.close_menu();
+    // alt-tab'ing between tabs
+    if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
+        let focused_idx = match ctx.tabs.focused_leaf() {
+            Some(idx) => idx,
+            None => egui_dock::NodeIndex::root(),
+        };
+
+        // don't do tab'ing if there are no tabs
+        if ctx.tabs.len() == 0 {
+            return;
+        }
+
+        let focused = &mut ctx.tabs[focused_idx];
+        if let egui_dock::Node::Leaf { tabs, active, .. } = focused {
+            if active.0 != tabs.len() - 1 {
+                let tab_idx = active.0 + 1;
+                ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(tab_idx));
+            } else {
+                ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(0));
             }
-
-            if ui.button(crate::icon!(CROSS, "Exit")).clicked() {
-                platform.send_event(CustomEvent::CloseRequest);
-                ui.close_menu();
-            }
-        });
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            close_maximize_minimize(ui, platform, ctx);
-        });
-    });
-
-    if bar.response.interact(egui::Sense::click()).double_clicked() {
-        fullscreen(ctx);
-    }
-
-    if bar.response.interact(egui::Sense::drag()).dragged() {
-        platform.start_dragging();
-    } else {
-        platform.stop_dragging();
-    }
-}
-
-// Show some close/maximize/minimize buttons for the native window.
-fn close_maximize_minimize(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
-    let height = 12.0;
-    let close_response = ui.add(Button::new(
-        RichText::new(crate::icon!(CROSS, "")).size(height),
-    ));
-
-    if close_response.clicked() {
-        platform.send_event(CustomEvent::CloseRequest);
-    }
-
-    let maximized_response = ui.add(Button::new(
-        RichText::new(crate::icon!(CHECKBOX_UNCHECKED, "")).size(height),
-    ));
-
-    if maximized_response.clicked() {
-        fullscreen(ctx);
-    }
-
-    let minimized_response = ui.add(Button::new(
-        RichText::new(crate::icon!(MINUS, "")).size(height),
-    ));
-
-    if minimized_response.clicked() {
-        ctx.window.set_minimized(true);
+        }
     }
 }

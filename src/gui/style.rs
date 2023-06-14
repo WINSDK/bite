@@ -52,19 +52,22 @@ impl Style {
                     noninteractive: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
-                        bg_stroke: Stroke::NONE,
                         rounding: self.tab_rounding,
-                        fg_stroke: Stroke::NONE,
+                        bg_stroke: Stroke::NONE,
+                        fg_stroke: Stroke {
+                            width: 5.0,
+                            color: self.active_text_color,
+                        },
                         expansion: 0.0,
                     },
                     inactive: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
+                        rounding: self.tab_rounding,
                         bg_stroke: Stroke {
                             width: 5.0,
                             color: self.text_color,
                         },
-                        rounding: self.tab_rounding,
                         fg_stroke: Stroke {
                             width: 5.0,
                             color: self.text_color,
@@ -74,11 +77,11 @@ impl Style {
                     hovered: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
+                        rounding: self.tab_rounding,
                         bg_stroke: Stroke {
                             width: 5.0,
                             color: self.active_text_color,
                         },
-                        rounding: self.tab_rounding,
                         fg_stroke: Stroke {
                             width: 5.0,
                             color: self.active_text_color,
@@ -88,19 +91,22 @@ impl Style {
                     active: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
-                        bg_stroke: Stroke::NONE,
                         rounding: self.tab_rounding,
-                        fg_stroke: Stroke::NONE,
+                        bg_stroke: Stroke::NONE,
+                        fg_stroke: Stroke {
+                            width: 5.0,
+                            color: self.active_text_color,
+                        },
                         expansion: 0.0,
                     },
                     open: WidgetVisuals {
                         bg_fill: self.tab_color,
                         weak_bg_fill: Color32::TRANSPARENT,
+                        rounding: self.tab_rounding,
                         bg_stroke: Stroke {
                             width: 5.0,
                             color: self.active_text_color,
                         },
-                        rounding: self.tab_rounding,
                         fg_stroke: Stroke {
                             width: 5.0,
                             color: self.active_text_color,

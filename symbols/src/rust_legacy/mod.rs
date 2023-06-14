@@ -20,23 +20,21 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 
     loop {
         // it's not valid to not have a closing 'E' character
-        if unparsed.as_bytes().get(0).is_none() {
-            return None;
-        }
+        unparsed.as_bytes().first()?;
 
         // break on finding closing character
-        if let Some(b'E') = unparsed.as_bytes().get(0) {
+        if let Some(b'E') = unparsed.as_bytes().first() {
             break;
         }
 
         // there must be a length
-        if !unparsed.as_bytes().get(0)?.is_ascii_digit() {
+        if !unparsed.as_bytes().first()?.is_ascii_digit() {
             return None;
         }
 
         // length of path component
         let mut len = 0usize;
-        while let Some(digit @ b'0'..=b'9') = unparsed.as_bytes().get(0) {
+        while let Some(digit @ b'0'..=b'9') = unparsed.as_bytes().first() {
             len = len.checked_mul(10)?.checked_add((digit - b'0') as usize)?;
             unparsed = &unparsed[1..];
         }
@@ -91,11 +89,10 @@ pub fn parse(s: &str) -> Option<TokenStream> {
                         }
                     }
                     _ => {
-                        if escape.starts_with('u') {
-                            let digits = &escape[1..];
-                            let all_lower_hex = digits.chars().all(|c| match c {
-                                '0'..='9' | 'a'..='f' => true,
-                                _ => false,
+                        if let Some(stripped) = escape.strip_prefix('u') {
+                            let digits = stripped;
+                            let all_lower_hex = digits.chars().all(|c| {
+                                matches!(c, '0'..='9' | 'a'..='f')
                             });
 
                             let chr = u32::from_str_radix(digits, 16).ok().and_then(char::from_u32);
@@ -133,5 +130,5 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 }
 
 fn is_rust_hash(s: &str) -> bool {
-    s.starts_with('h') && s[1..].chars().all(|c| c.is_digit(16))
+    s.starts_with('h') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
 }

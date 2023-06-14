@@ -167,7 +167,7 @@ impl Index {
     }
 
     fn parse_pe_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> object::Result<()> {
-        let obj = PeFile::<H>::parse(&binary[..])?;
+        let obj = PeFile::<H>::parse(binary)?;
 
         if let Some(import_table) = obj.import_table()? {
             let mut import_descs = import_table.descriptors()?;
@@ -228,7 +228,7 @@ impl Index {
     }
 
     fn parse_elf_imports<H: FileHeader>(&mut self, binary: &[u8]) -> object::Result<()> {
-        let obj = ElfFile::<H>::parse(&binary[..])?;
+        let obj = ElfFile::<H>::parse(binary)?;
 
         let relocations = match obj.dynamic_relocations() {
             Some(relocations) => relocations,
@@ -283,7 +283,7 @@ impl Index {
                         _ => continue,
                     };
 
-                    self.tree.insert(phys_addr as usize, Arc::new(parser(name)));
+                    self.tree.insert(phys_addr, Arc::new(parser(name)));
                 }
             }
         }
