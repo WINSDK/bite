@@ -28,9 +28,14 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
-static WIDTH: u32 = 1200;
-static HEIGHT: u32 = 800;
 static STYLE: Lazy<style::Style> = Lazy::new(style::Style::default);
+
+const WIDTH: u32 = 1200;
+const HEIGHT: u32 = 800;
+
+const DISASS_TITLE: &str = crate::icon!(PARAGRAPH_LEFT, "Disassembly");
+const SOURCE_TITLE: &str = crate::icon!(EMBED2, "Source");
+const FUNCS_TITLE: &str = crate::icon!(LIGATURE, "Functions");
 
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
@@ -65,32 +70,57 @@ pub enum Error {
     NotFound(std::path::PathBuf),
 }
 
-#[derive(PartialEq)]
+pub struct RenderContext {
+    tabs: Tree<Title>,
+    buffers: Buffers,
+
+    style: style::Style,
+    window: Arc<winit::window::Window>,
+    donut: donut::Donut,
+    show_donut: Arc<AtomicBool>,
+    timer60: utils::Timer,
+    dissasembly: Option<Arc<Disassembly>>,
+    disassembling_thread: Option<DisassThread>,
+    cmd_input: String,
+
+    #[cfg(target_family = "windows")]
+    unwindowed_size: winit::dpi::PhysicalSize<u32>,
+    #[cfg(target_family = "windows")]
+    unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 enum TabKind {
     Source,
     Listing,
+    Functions,
 }
 
 struct Buffers {
-    inner: HashMap<Title, TabKind>,
+    mapping: HashMap<Title, TabKind>,
     dissasembly: Option<Arc<Disassembly>>,
 
-    cached_range: std::ops::Range<usize>,
-    cached_dissasembly: Vec<Token<'static>>,
+    cached_diss_range: std::ops::Range<usize>,
+    cached_diss: Vec<Token<'static>>,
+
+    cached_funcs_range: std::ops::Range<usize>,
+    cached_funcs: Vec<Token<'static>>,
 }
 
 impl Buffers {
-    fn new(buffers: HashMap<Title, TabKind>) -> Self {
+    fn new(mapping: HashMap<Title, TabKind>) -> Self {
         Self {
-            inner: buffers,
+            mapping,
             dissasembly: None,
-            cached_range: std::ops::Range { start: 0, end: 0 },
-            cached_dissasembly: Vec::new(),
+            cached_diss_range: std::ops::Range { start: 0, end: 0 },
+            cached_diss: Vec::new(),
+            cached_funcs_range: std::ops::Range { start: 0, end: 0 },
+            cached_funcs: Vec::new(),
         }
     }
 
     fn has_multiple_tabs(&self) -> bool {
-        self.inner.len() != 1
+        self.mapping.len() != 1
     }
 
     fn show_listing(&mut self, ui: &mut egui::Ui) {
@@ -106,15 +136,54 @@ impl Buffers {
             .auto_shrink([false, false])
             .drag_to_scroll(false);
 
-        let style = STYLE.egui();
-        let font_id = egui::TextStyle::Body.resolve(&style);
+        let font_id = text_style.resolve(&STYLE.egui());
 
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-            if row_range != self.cached_range {
-                self.cached_dissasembly = dissasembly.listing(row_range);
+            if row_range != self.cached_diss_range {
+                self.cached_diss = dissasembly.listing(row_range);
             }
 
-            let tokens = &self.cached_dissasembly[..];
+            let tokens = &self.cached_diss[..];
+            let mut job = LayoutJob::default();
+
+            for token in tokens {
+                job.append(
+                    &token.text,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: font_id.clone(),
+                        color: *token.color,
+                        ..Default::default()
+                    },
+                );
+            }
+
+            ui.label(job);
+        });
+    }
+
+    fn show_functions(&mut self, ui: &mut egui::Ui) {
+        let dissasembly = match self.dissasembly {
+            Some(ref dissasembly) => dissasembly,
+            None => return,
+        };
+
+        let text_style = egui::TextStyle::Small;
+        let row_height = ui.text_style_height(&text_style);
+        let total_rows = dissasembly.symbols.len();
+
+        let area = egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false);
+
+        let font_id = text_style.resolve(&STYLE.egui());
+
+        area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+            if row_range != self.cached_funcs_range {
+                self.cached_funcs = dissasembly.functions(row_range);
+            }
+
+            let tokens = &self.cached_funcs[..];
             let mut job = LayoutJob::default();
 
             for token in tokens {
@@ -138,26 +207,18 @@ impl egui_dock::TabViewer for Buffers {
     type Tab = Title;
 
     fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
-        match self.inner.get(title) {
+        match self.mapping.get(title) {
             Some(TabKind::Source) => {
                 ui.label("todo");
-            }
+            },
+            Some(TabKind::Functions) => self.show_functions(ui),
             Some(TabKind::Listing) => self.show_listing(ui),
-            _ => return,
+            None => return,
         };
     }
 
     fn title(&mut self, title: &mut Self::Tab) -> egui::WidgetText {
         (*title).into()
-    }
-
-    fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
-        if self.inner.len() == 1 {
-            false
-        } else {
-            self.inner.remove(tab);
-            true
-        }
     }
 }
 
@@ -171,6 +232,30 @@ fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) 
 
             if ui.button(crate::icon!(CROSS, "Exit")).clicked() {
                 platform.send_event(CustomEvent::CloseRequest);
+                ui.close_menu();
+            }
+        });
+
+        ui.menu_button("Windows", |ui| {
+            let mut goto_window = |title| {
+                match ctx.tabs.find_tab(&title) {
+                    Some((node_idx, tab_idx)) => ctx.tabs.set_active_tab(node_idx, tab_idx),
+                    None => ctx.tabs.push_to_first_leaf(title)
+                }
+            };
+
+            if ui.button(DISASS_TITLE).clicked() {
+                goto_window(DISASS_TITLE);
+                ui.close_menu();
+            }
+
+            if ui.button(SOURCE_TITLE).clicked() {
+                goto_window(SOURCE_TITLE);
+                ui.close_menu();
+            }
+
+            if ui.button(FUNCS_TITLE).clicked() {
+                goto_window(FUNCS_TITLE);
                 ui.close_menu();
             }
         });
@@ -223,7 +308,6 @@ fn top_bar_native(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderCo
 fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
     egui_dock::DockArea::new(&mut ctx.tabs)
         .style(ctx.style.dock())
-        .show_close_buttons(ctx.buffers.has_multiple_tabs())
         .draggable_tabs(ctx.buffers.has_multiple_tabs())
         .show_inside(ui, &mut ctx.buffers);
 }
@@ -231,34 +315,17 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
 fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
     ui.style_mut().wrap = Some(true);
 
-    if !ctx.cmd_input.is_empty() {
-        let text = format!("{}\u{2588}", ctx.cmd_input);
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        if !ctx.cmd_input.is_empty() {
+            let text = format!("{}\u{2588}", ctx.cmd_input);
 
-        ui.label(
-            egui::RichText::new(&text).color(tokenizing::colors::WHITE)
-        );
-    };
+            ui.label(
+                egui::RichText::new(&text).color(tokenizing::colors::WHITE)
+            );
+        };
+    });
 
     ui.style_mut().wrap = Some(false);
-}
-
-pub struct RenderContext {
-    tabs: Tree<Title>,
-    buffers: Buffers,
-
-    style: style::Style,
-    window: Arc<winit::window::Window>,
-    donut: donut::Donut,
-    show_donut: Arc<AtomicBool>,
-    timer60: utils::Timer,
-    dissasembly: Option<Arc<Disassembly>>,
-    disassembling_thread: Option<DisassThread>,
-    cmd_input: String,
-
-    #[cfg(target_family = "windows")]
-    unwindowed_size: winit::dpi::PhysicalSize<u32>,
-    #[cfg(target_family = "windows")]
-    unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 }
 
 pub fn init() -> Result<(), Error> {
@@ -289,17 +356,15 @@ pub fn init() -> Result<(), Error> {
         winit: event_loop.create_proxy(),
     });
 
-    let disass_title = crate::icon!(PARAGRAPH_LEFT, "Disassembly");
-    let source_title = crate::icon!(EMBED2, "Source");
-
     let mut egui_rpass = Pipeline::new(&backend.device, backend.surface_cfg.format, 1);
-    let mut tabs = Tree::new(vec![disass_title, source_title]);
+    let mut tabs = Tree::new(vec![DISASS_TITLE, SOURCE_TITLE, FUNCS_TITLE]);
 
     tabs.set_focused_node(egui_dock::NodeIndex::root());
 
     let buffers = HashMap::from([
-        (disass_title, TabKind::Listing),
-        (source_title, TabKind::Source),
+        (DISASS_TITLE, TabKind::Listing),
+        (SOURCE_TITLE, TabKind::Source),
+        (FUNCS_TITLE, TabKind::Functions),
     ]);
 
     let mut ctx = RenderContext {

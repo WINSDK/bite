@@ -1,3 +1,5 @@
+//! IcoMoon icons.
+
 #[macro_export]
 macro_rules! icon {
     () => {};

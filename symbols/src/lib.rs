@@ -303,6 +303,14 @@ impl Index {
         self.tree.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.tree.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&usize, &Arc<TokenStream>)> {
+        self.tree.iter()
+    }
+
     pub fn get_by_addr(&self, addr: usize) -> Option<Arc<TokenStream>> {
         Some(Arc::clone(self.tree.get(&addr)?))
     }

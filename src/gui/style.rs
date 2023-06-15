@@ -136,7 +136,7 @@ impl Style {
                 styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Monospace));
                 styles.insert(TextStyle::Body, FontId::new(16.0, FontFamily::Monospace));
                 styles.insert(TextStyle::Button, FontId::new(14.0, FontFamily::Monospace));
-                styles.insert(TextStyle::Small, FontId::new(11.0, FontFamily::Monospace));
+                styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Monospace));
                 styles
             },
             // debug: egui::style::DebugOptions {

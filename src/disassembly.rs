@@ -167,7 +167,7 @@ impl Disassembly {
 
             // memory address
             text.push(Token::from_string(
-                format!("0x{addr:0>10X}  "),
+                format!("{addr:0>10X}  "),
                 &colors::GRAY40,
             ));
 
@@ -192,6 +192,35 @@ impl Disassembly {
 
             text.push(Token::from_str("\n", &colors::WHITE));
             lines_to_read -= 1;
+        }
+
+        return text;
+    }
+
+    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token<'static>> {
+        let mut text: Vec<Token> = Vec::new();
+
+        let lines_to_read = range.end - range.start;
+        let lines = self
+            .symbols
+            .iter()
+            .skip(range.start)
+            .take(lines_to_read + 10);
+
+        // for each instruction
+        for (addr, symbol) in lines {
+            text.push(Token::from_string(
+                format!("{addr:0>10X}"),
+                &colors::WHITE,
+            ));
+
+            text.push(Token::from_str(" | ", &colors::WHITE));
+
+            for token in symbol.tokens() {
+                text.push(token.to_owned());
+            }
+
+            text.push(Token::from_str("\n", &colors::WHITE));
         }
 
         return text;
