@@ -2601,7 +2601,7 @@ impl PartialEq for Instruction {
 /// typically an opcode will be inspected by [`Instruction::opcode()`], and an instruction has
 /// [`Instruction::operand_count()`] many operands. operands are provided by
 /// [`Instruction::operand()`].
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Instruction {
     pub prefixes: Prefixes,
     /*

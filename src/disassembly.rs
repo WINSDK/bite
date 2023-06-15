@@ -1,4 +1,4 @@
-use tokenizing::{colors, Token};
+use tokenizing::{colors, Token, Colors, ColorScheme};
 use decoder::encode_hex_bytes_truncated;
 use decoder::{Decodable, Decoded, Failed};
 use object::{Object, ObjectSection, SectionKind};
@@ -157,7 +157,7 @@ impl Disassembly {
             // if the address matches a symbol, print it
             if let Some(label) = symbols.get_by_addr_ref(addr) {
                 text.push(Token::from_str("\n<", &colors::BLUE));
-                for token in label.tokens() {
+                for token in label.name() {
                     text.push(token.to_owned());
                 }
 
@@ -216,7 +216,14 @@ impl Disassembly {
 
             text.push(Token::from_str(" | ", &colors::WHITE));
 
-            for token in symbol.tokens() {
+            if let Some(module) = symbol.module() {
+                let module = module.strip_suffix(".dll").unwrap_or(module);
+
+                text.push(Token::from_string(module.to_owned(), &Colors::root()));
+                text.push(Token::from_str("!", &Colors::brackets()));
+            }
+
+            for token in symbol.name() {
                 text.push(token.to_owned());
             }
 

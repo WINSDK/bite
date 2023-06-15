@@ -2046,7 +2046,7 @@ impl ToTokens for Instruction {
             {
                 if let Some(ref xref) = self.shadowing[0] {
                     stream.push("[", Colors::brackets());
-                    for token in xref.text.tokens() {
+                    for token in xref.text.name() {
                         match &token.text {
                             Cow::Borrowed(text) => stream.push(text, token.color),
                             Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
@@ -2097,7 +2097,7 @@ impl ToTokens for Instruction {
 
             if let Some(ref xref) = self.shadowing[0] {
                 stream.push("[", Colors::brackets());
-                for token in xref.text.tokens() {
+                for token in xref.text.name() {
                     match &token.text {
                         Cow::Borrowed(text) => stream.push(text, token.color),
                         Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
@@ -2130,7 +2130,7 @@ impl ToTokens for Instruction {
 
                 if let Some(ref xref) = self.shadowing[idx as usize] {
                     stream.push("[", Colors::brackets());
-                    for token in xref.text.tokens() {
+                    for token in xref.text.name() {
                         match &token.text {
                             Cow::Borrowed(text) => stream.push(text, token.color),
                             Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),

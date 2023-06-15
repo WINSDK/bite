@@ -56,9 +56,23 @@ fn parser(s: &str) -> TokenStream {
     TokenStream::simple(s)
 }
 
-#[derive(Debug)]
+pub struct Function {
+    name: TokenStream,
+    module: Option<String>,
+}
+
+impl Function {
+    pub fn name(&self) -> &[Token<'static>] {
+        self.name.tokens.as_slice()
+    }
+
+    pub fn module(&self) -> Option<&str> {
+        self.module.as_deref()
+    }
+}
+
 pub struct Index {
-    tree: BTreeMap<usize, Arc<TokenStream>>,
+    tree: BTreeMap<usize, Arc<Function>>,
 }
 
 impl Index {
@@ -113,12 +127,23 @@ impl Index {
         let entrypoint = obj.entry() as usize;
         println!("entrypoint {entrypoint:#x}");
 
+        let entry_func = Function {
+            name: TokenStream::simple("entry"),
+            module: None,
+        };
+
         // insert entrypoint and override it if it's got a defined name
-        self.tree.insert(entrypoint, Arc::new(TokenStream::simple("entry")));
+        self.tree.insert(entrypoint, Arc::new(entry_func));
 
         // insert defined symbols
-        let map_symbol = |(addr, symbol): &(usize, &str)| (*addr, Arc::new(parser(symbol)));
-        self.tree.extend(symbols.iter().map(map_symbol));
+        for (addr, symbol) in symbols {
+            let func = Function {
+                name: parser(symbol),
+                module: None,
+            };
+
+            self.tree.insert(addr, Arc::new(func));
+        }
 
         Ok(())
     }
@@ -172,9 +197,7 @@ impl Index {
         if let Some(import_table) = obj.import_table()? {
             let mut import_descs = import_table.descriptors()?;
             while let Some(import_desc) = import_descs.next()? {
-                // let library = import_table.name(import_desc.name.get(LE))?;
-                // println!("library: {}", String::from_utf8_lossy(library));
-
+                let module = import_table.name(import_desc.name.get(LE))?;
                 let first_thunk = import_desc.first_thunk.get(LE);
                 let original_first_thunk = import_desc.original_first_thunk.get(LE);
 
@@ -215,7 +238,12 @@ impl Index {
                             func_rva as u64 + obj.relative_address_base()
                         };
 
-                        self.tree.insert(phys_addr as usize, Arc::new(parser(name)));
+                        let func = Function {
+                            name: parser(name),
+                            module: Some(String::from_utf8_lossy(module).into_owned()),
+                        };
+
+                        self.tree.insert(phys_addr as usize, Arc::new(func));
                     }
 
                     // skip over an entry
@@ -283,7 +311,12 @@ impl Index {
                         _ => continue,
                     };
 
-                    self.tree.insert(phys_addr, Arc::new(parser(name)));
+                    let func = Function {
+                        name: parser(name),
+                        module: None, // TODO: find modules
+                    };
+
+                    self.tree.insert(phys_addr, Arc::new(func));
                 }
             }
         }
@@ -295,7 +328,7 @@ impl Index {
         Ok(())
     }
 
-    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Arc<TokenStream>> {
+    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Arc<Function>> {
         self.tree.values()
     }
 
@@ -307,15 +340,15 @@ impl Index {
         self.tree.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&usize, &Arc<TokenStream>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&usize, &Arc<Function>)> {
         self.tree.iter()
     }
 
-    pub fn get_by_addr(&self, addr: usize) -> Option<Arc<TokenStream>> {
+    pub fn get_by_addr(&self, addr: usize) -> Option<Arc<Function>> {
         Some(Arc::clone(self.tree.get(&addr)?))
     }
 
-    pub fn get_by_addr_ref(&self, addr: usize) -> Option<&TokenStream> {
+    pub fn get_by_addr_ref(&self, addr: usize) -> Option<&Function> {
         self.tree.get(&addr).map(Arc::as_ref)
     }
 }

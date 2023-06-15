@@ -8,7 +8,7 @@ pub trait ToTokens {
     fn tokenize(&self, stream: &mut TokenStream);
 }
 
-pub trait Decoded: ToTokens + Debug {
+pub trait Decoded: ToTokens {
     fn width(&self) -> usize;
     fn tokens(&self) -> TokenStream {
         let mut stream = TokenStream::new();
@@ -32,10 +32,10 @@ pub trait Decodable {
     fn max_width(&self) -> usize;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Xref {
     pub addr: usize,
-    pub text: Arc<symbols::TokenStream>,
+    pub text: Arc<symbols::Function>,
 }
 
 pub struct TokenStream {

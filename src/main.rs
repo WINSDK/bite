@@ -75,7 +75,7 @@ fn main() {
         }
 
         for symbol in index.symbols() {
-            let symbol = symbol.tokens().iter().map(|s| &s.text[..]);
+            let symbol = symbol.name().iter().map(|s| &s.text[..]);
             let symbol = String::from_iter(symbol);
 
             println!("{symbol}");
