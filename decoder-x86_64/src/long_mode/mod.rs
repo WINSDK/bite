@@ -4,13 +4,13 @@ mod tests;
 pub mod uarch;
 mod vex;
 
-pub use crate::MemoryAccessSize;
-
 use std::cmp::PartialEq;
 use std::hash::{Hash, Hasher};
+use std::fmt;
 
-use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 use crate::Error;
+use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
+pub use crate::MemoryAccessSize;
 
 use decoder::Xref;
 use decoder::{Decodable, Reader, ToTokens};
@@ -2604,12 +2604,6 @@ impl PartialEq for Instruction {
 #[derive(Clone)]
 pub struct Instruction {
     pub prefixes: Prefixes,
-    /*
-    modrm_rrr: RegSpec,
-    modrm_mmm: RegSpec, // doubles as sib_base
-    sib_index: RegSpec,
-    vex_reg: RegSpec,
-    */
     regs: [RegSpec; 4],
     scale: u8,
     length: u8,
@@ -2620,6 +2614,22 @@ pub struct Instruction {
     opcode: Opcode,
     mem_size: u8,
     shadowing: [Option<Xref>; 4],
+}
+
+impl fmt::Debug for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.debug_struct("Instruction")
+         .field("prefixes", &self.prefixes)
+         .field("scale", &self.scale)
+         .field("length", &self.length)
+         .field("operand_count", &self.operand_count)
+         .field("operands", &self.operands)
+         .field("imm", &self.imm)
+         .field("disp", &self.disp)
+         .field("opcode", &self.opcode)
+         .field("mem_size", &self.mem_size)
+         .finish()
+    }
 }
 
 impl decoder::Decoded for Instruction {
