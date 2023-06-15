@@ -71,7 +71,7 @@ pub enum Error {
 }
 
 pub struct RenderContext {
-    tabs: Tree<Title>,
+    panels: Tree<Title>,
     buffers: Buffers,
 
     style: style::Style,
@@ -117,10 +117,6 @@ impl Buffers {
             cached_funcs_range: std::ops::Range { start: 0, end: 0 },
             cached_funcs: Vec::new(),
         }
-    }
-
-    fn has_multiple_tabs(&self) -> bool {
-        self.mapping.len() != 1
     }
 
     fn show_listing(&mut self, ui: &mut egui::Ui) {
@@ -238,9 +234,9 @@ fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) 
 
         ui.menu_button("Windows", |ui| {
             let mut goto_window = |title| {
-                match ctx.tabs.find_tab(&title) {
-                    Some((node_idx, tab_idx)) => ctx.tabs.set_active_tab(node_idx, tab_idx),
-                    None => ctx.tabs.push_to_first_leaf(title)
+                match ctx.panels.find_tab(&title) {
+                    Some((node_idx, tab_idx)) => ctx.panels.set_active_tab(node_idx, tab_idx),
+                    None => ctx.panels.push_to_first_leaf(title)
                 }
             };
 
@@ -306,9 +302,11 @@ fn top_bar_native(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderCo
 }
 
 fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
-    egui_dock::DockArea::new(&mut ctx.tabs)
+    let tab_count = ctx.panels.num_tabs();
+
+    egui_dock::DockArea::new(&mut ctx.panels)
         .style(ctx.style.dock())
-        .draggable_tabs(ctx.buffers.has_multiple_tabs())
+        .draggable_tabs(tab_count > 1)
         .show_inside(ui, &mut ctx.buffers);
 }
 
@@ -357,18 +355,18 @@ pub fn init() -> Result<(), Error> {
     });
 
     let mut egui_rpass = Pipeline::new(&backend.device, backend.surface_cfg.format, 1);
-    let mut tabs = Tree::new(vec![DISASS_TITLE, SOURCE_TITLE, FUNCS_TITLE]);
+    let mut panels = Tree::new(vec![DISASS_TITLE, FUNCS_TITLE, SOURCE_TITLE]);
 
-    tabs.set_focused_node(egui_dock::NodeIndex::root());
+    panels.set_focused_node(egui_dock::NodeIndex::root());
 
     let buffers = HashMap::from([
         (DISASS_TITLE, TabKind::Listing),
-        (SOURCE_TITLE, TabKind::Source),
         (FUNCS_TITLE, TabKind::Functions),
+        (SOURCE_TITLE, TabKind::Source),
     ]);
 
     let mut ctx = RenderContext {
-        tabs,
+        panels,
         buffers: Buffers::new(buffers),
         style: STYLE.clone(),
         window: Arc::clone(&window),

@@ -414,23 +414,23 @@ pub fn keyboard_input(ui: &mut egui::Ui, ctx: &mut RenderContext) {
 
     // alt-tab'ing between tabs
     if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
-        let focused_idx = match ctx.tabs.focused_leaf() {
+        let focused_idx = match ctx.panels.focused_leaf() {
             Some(idx) => idx,
             None => egui_dock::NodeIndex::root(),
         };
 
         // don't do tab'ing if there are no tabs
-        if ctx.tabs.len() == 0 {
+        if ctx.panels.num_tabs() == 0 {
             return;
         }
 
-        let focused = &mut ctx.tabs[focused_idx];
+        let focused = &mut ctx.panels[focused_idx];
         if let egui_dock::Node::Leaf { tabs, active, .. } = focused {
             if active.0 != tabs.len() - 1 {
                 let tab_idx = active.0 + 1;
-                ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(tab_idx));
+                ctx.panels.set_active_tab(focused_idx, egui_dock::TabIndex(tab_idx));
             } else {
-                ctx.tabs.set_active_tab(focused_idx, egui_dock::TabIndex(0));
+                ctx.panels.set_active_tab(focused_idx, egui_dock::TabIndex(0));
             }
         }
     }
