@@ -73,6 +73,12 @@ use tokenizing::ColorScheme;
 
 use crate::Colors;
 
+#[cfg(test)]
+const PRINTING_SCOPE: bool = true;
+
+#[cfg(not(test))]
+const PRINTING_SCOPE: bool = false;
+
 pub fn parse(s: &str) -> Option<crate::TokenStream> {
     let mut ctx = Context::new(s);
     let mut backrefs = Backrefs::new();
@@ -1658,14 +1664,16 @@ enum StorageVariable {
 
 impl<'a> Demangle<'a> for StorageVariable {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        let literal = match self {
-            StorageVariable::PrivateStatic => "private: static ",
-            StorageVariable::ProtectedStatic => "protected: static ",
-            StorageVariable::PublicStatic => "public: static ",
-            StorageVariable::Global | StorageVariable::FunctionLocalStatic => return,
-        };
+        if PRINTING_SCOPE {
+            let literal = match self {
+                StorageVariable::PrivateStatic => "private: static ",
+                StorageVariable::ProtectedStatic => "protected: static ",
+                StorageVariable::PublicStatic => "public: static ",
+                StorageVariable::Global | StorageVariable::FunctionLocalStatic => return,
+            };
 
-        ctx.stream.push(literal, Colors::root());
+            ctx.stream.push(literal, Colors::root());
+        }
     }
 }
 
@@ -1744,16 +1752,18 @@ impl<'a> Demangle<'a> for StorageScope {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
         let color = Colors::root();
 
-        if self.contains(StorageScope::PUBLIC) {
-            ctx.stream.push("public: ", color);
-        }
+        if PRINTING_SCOPE {
+            if self.contains(StorageScope::PUBLIC) {
+                ctx.stream.push("public: ", color);
+            }
 
-        if self.contains(StorageScope::PRIVATE) {
-            ctx.stream.push("private: ", color);
-        }
+            if self.contains(StorageScope::PRIVATE) {
+                ctx.stream.push("private: ", color);
+            }
 
-        if self.contains(StorageScope::PROTECTED) {
-            ctx.stream.push("protected: ", color);
+            if self.contains(StorageScope::PROTECTED) {
+                ctx.stream.push("protected: ", color);
+            }
         }
 
         if self.contains(StorageScope::STATIC) {
