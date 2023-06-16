@@ -1,5 +1,6 @@
 //! Colors used for rendering text in the GUI.
-use std::borrow::Cow;
+use std::sync::Arc;
+use std::ops::Deref;
 
 pub use egui::Color32 as Color; 
 
@@ -127,22 +128,42 @@ pub mod colors {
 }
 
 #[derive(Debug, Clone)]
-pub struct Token<'txt> {
-    pub text: Cow<'txt, str>,
+pub enum MaybeStatic {
+    Dynamic(Arc<str>),
+    Static(&'static str),
+}
+
+impl Deref for MaybeStatic {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Dynamic(s) => &s as &str,
+            Self::Static(s) => s,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub text: MaybeStatic,
     pub color: &'static Color,
 }
 
-impl<'txt> Token<'txt> {
-    pub fn from_string(text: String, color: &'static Color) -> Self {
+impl Token {
+    #[inline]
+    pub fn from_str(text: &'static str, color: &'static Color) -> Self {
         Self {
-            text: Cow::Owned(text),
+            text: MaybeStatic::Static(text),
             color,
         }
     }
 
-    pub fn from_str(text: &'static str, color: &'static Color) -> Self {
+    #[inline]
+    pub fn from_string(text: String, color: &'static Color) -> Self {
         Self {
-            text: Cow::Borrowed(text),
+            text: MaybeStatic::Dynamic(Arc::from(text)),
             color,
         }
     }

@@ -65,8 +65,6 @@
 mod context;
 mod tests;
 
-use std::borrow::Cow;
-
 use bitflags::bitflags;
 use context::{Backrefs, Context};
 use tokenizing::ColorScheme;
@@ -632,14 +630,13 @@ impl<'a> PositionalDemangle<'a> for Type {
                 func.params.demangle(ctx, backrefs);
             }
             Type::Constant(val) => {
-                let val = Cow::Owned(val.to_string());
-                ctx.stream.push_cow(val, Colors::item());
+                ctx.stream.push_string(val.to_string(), Colors::item());
             }
             Type::TemplateParameterIdx(idx) => {
                 ctx.stream.push("`", Colors::brackets());
                 ctx.stream.push("template-parameter", Colors::known());
                 ctx.stream.push("-", Colors::delimiter());
-                ctx.stream.push_cow(Cow::Owned(idx.to_string()), Colors::item());
+                ctx.stream.push_string(idx.to_string(), Colors::item());
                 ctx.stream.push("'", Colors::brackets());
             }
             Type::Typedef(modi, name) => {
@@ -718,10 +715,8 @@ impl<'a> PositionalDemangle<'a> for Type {
             Type::Variable(Variable { tipe, .. }) => tipe.demangle_post(ctx, backrefs),
             Type::Array(array) => {
                 for len in array.lens.iter() {
-                    let len = Cow::Owned(len.to_string());
-
                     ctx.stream.push("[", Colors::brackets());
-                    ctx.stream.push_cow(len, Colors::annotation());
+                    ctx.stream.push_string(len.to_string(), Colors::annotation());
                     ctx.stream.push("]", Colors::brackets());
                 }
             }
@@ -738,7 +733,7 @@ impl<'a> PositionalDemangle<'a> for Type {
             },
             Type::VCallThunk(offset, _) => {
                 ctx.stream.push("{{", Colors::brackets());
-                ctx.stream.push_cow(Cow::Owned(offset.to_string()), Colors::item());
+                ctx.stream.push_string(offset.to_string(), Colors::item());
                 ctx.stream.push(", {{flat}}}}", Colors::brackets());
             }
             Type::Extern(tipe) => tipe.demangle_post(ctx, backrefs),
@@ -1400,16 +1395,16 @@ impl<'a> Demangle<'a> for Intrinsics {
                 ctx.stream.push("RTTI Base Class Descriptor at ", Colors::known());
                 ctx.stream.push("(", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(nv_off.to_string()), Colors::annotation());
+                ctx.stream.push_string(nv_off.to_string(), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(ptr_off.to_string()), Colors::annotation());
+                ctx.stream.push_string(ptr_off.to_string(), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(vbtable_off.to_string()), Colors::annotation());
+                ctx.stream.push_string(vbtable_off.to_string(), Colors::annotation());
                 ctx.stream.push(", ", Colors::brackets());
 
-                ctx.stream.push_cow(Cow::Owned(flags.to_string()), Colors::annotation());
+                ctx.stream.push_string(flags.to_string(), Colors::annotation());
                 ctx.stream.push(")'", Colors::brackets());
                 return;
             }
@@ -2227,7 +2222,7 @@ impl<'a> Demangle<'a> for NestedPath {
             NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
             NestedPath::Disambiguator(val) => {
                 ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push_cow(Cow::Owned(val.to_string()), Colors::item());
+                ctx.stream.push_string(val.to_string(), Colors::item());
                 ctx.stream.push("'", Colors::brackets());
             }
             NestedPath::MD5(md5) => md5.demangle(ctx, backrefs),

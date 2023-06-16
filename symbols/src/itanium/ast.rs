@@ -413,7 +413,7 @@ impl<'a> DemangleContext<'a> {
 
     fn push_owned(&mut self, text: String, color: &'static Color) {
         self.last_char_written = text.chars().last();
-        self.stream.push_cow(std::borrow::Cow::Owned(text), color);
+        self.stream.push_string(text, color);
     }
 
     fn push(&mut self, text: &'static str, color: &'static Color) {

@@ -1,6 +1,5 @@
 //! Symbol demangler for common mangling schemes.
 
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -58,16 +57,16 @@ fn parser(s: &str) -> TokenStream {
 
 pub struct Function {
     name: TokenStream,
-    module: Option<String>,
+    module: Option<Token>,
 }
 
 impl Function {
-    pub fn name(&self) -> &[Token<'static>] {
+    pub fn name(&self) -> &[Token] {
         self.name.tokens.as_slice()
     }
 
-    pub fn module(&self) -> Option<&str> {
-        self.module.as_deref()
+    pub fn module(&self) -> Option<Token> {
+        self.module.clone()
     }
 }
 
@@ -238,9 +237,16 @@ impl Index {
                             func_rva as u64 + obj.relative_address_base()
                         };
 
+                        let module = String::from_utf8_lossy(module);
+                        let module = module
+                            .strip_prefix(".dll")
+                            .unwrap_or(&module)
+                            .to_owned();
+                        let module = Token::from_string(module, &Colors::root());
+
                         let func = Function {
                             name: parser(name),
-                            module: Some(String::from_utf8_lossy(module).into_owned()),
+                            module: Some(module),
                         };
 
                         self.tree.insert(phys_addr as usize, Arc::new(func));
@@ -367,7 +373,7 @@ pub struct TokenStream {
     inner: std::pin::Pin<String>,
 
     /// Internal token representation which is unsafe to access outside of calling [Self::tokens].
-    tokens: Vec<Token<'static>>,
+    tokens: Vec<Token>,
 }
 
 impl TokenStream {
@@ -384,11 +390,7 @@ impl TokenStream {
             tokens: Vec::with_capacity(1),
         };
 
-        this.tokens.push(Token {
-            text: Cow::Borrowed(this.inner()),
-            color: Colors::item(),
-        });
-
+        this.tokens.push(Token::from_string(s.to_string(), Colors::item()));
         this
     }
 
@@ -400,15 +402,12 @@ impl TokenStream {
 
     #[inline]
     pub fn push(&mut self, text: &'static str, color: &'static Color) {
-        self.tokens.push(Token {
-            text: Cow::Borrowed(text),
-            color,
-        })
+        self.tokens.push(Token::from_str(text, color));
     }
 
     #[inline]
-    pub fn push_cow(&mut self, text: Cow<'static, str>, color: &'static Color) {
-        self.tokens.push(Token { text, color })
+    pub fn push_string(&mut self, text: String, color: &'static Color) {
+        self.tokens.push(Token::from_string(text, color));
     }
 
     #[inline]
@@ -417,7 +416,7 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn tokens(&self) -> &[Token<'static>] {
+    pub fn tokens(&self) -> &[Token] {
         self.tokens.as_slice()
     }
 }

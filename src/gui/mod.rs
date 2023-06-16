@@ -101,10 +101,10 @@ struct Buffers {
     dissasembly: Option<Arc<Disassembly>>,
 
     cached_diss_range: std::ops::Range<usize>,
-    cached_diss: Vec<Token<'static>>,
+    cached_diss: Vec<Token>,
 
     cached_funcs_range: std::ops::Range<usize>,
-    cached_funcs: Vec<Token<'static>>,
+    cached_funcs: Vec<Token>,
 }
 
 impl Buffers {

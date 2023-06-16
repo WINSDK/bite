@@ -10,7 +10,7 @@ pub trait ToTokens {
 
 pub trait Decoded: ToTokens {
     fn width(&self) -> usize;
-    fn tokens(&self) -> TokenStream {
+    fn stream(&self) -> TokenStream {
         let mut stream = TokenStream::new();
         self.tokenize(&mut stream);
         stream
@@ -38,8 +38,9 @@ pub struct Xref {
     pub text: Arc<symbols::Function>,
 }
 
+#[derive(Debug)]
 pub struct TokenStream {
-    inner: Vec<Token<'static>>,
+    inner: Vec<Token>,
 }
 
 impl TokenStream {
@@ -49,42 +50,26 @@ impl TokenStream {
         }
     }
 
+    pub fn push_token(&mut self, token: Token) {
+        self.inner.push(token);
+    }
+
     pub fn push(&mut self, text: &'static str, color: &'static Color) {
-        self.inner.push(Token {
-            text: std::borrow::Cow::Borrowed(text),
-            color,
-        });
+        self.push_token(Token::from_str(text, color));
     }
 
     pub fn push_owned(&mut self, text: String, color: &'static Color) {
-        self.inner.push(Token {
-            text: std::borrow::Cow::Owned(text),
-            color,
-        });
+        self.push_token(Token::from_string(text, color));
     }
 
-    pub fn tokens(&self) -> &[Token<'static>] {
-        &self.inner
-    }
-}
-
-impl Debug for TokenStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.inner.fmt(f)
-    }
-}
-
-impl std::ops::Deref for TokenStream {
-    type Target = [Token<'static>];
-
-    fn deref(&self) -> &Self::Target {
+    pub fn tokens(&self) -> &[Token] {
         &self.inner
     }
 }
 
 impl ToString for TokenStream {
     fn to_string(&self) -> String {
-        self.iter().map(|t| &t.text as &str).collect()
+        self.tokens().iter().map(|t| &t.text as &str).collect()
     }
 }
 

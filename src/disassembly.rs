@@ -135,7 +135,7 @@ impl Disassembly {
         })
     }
 
-    pub fn listing(&self, range: std::ops::Range<usize>) -> Vec<Token<'static>> {
+    pub fn listing(&self, range: std::ops::Range<usize>) -> Vec<Token> {
         let mut text: Vec<Token> = Vec::new();
         let symbols = &self.symbols;
         let lines = self
@@ -158,10 +158,10 @@ impl Disassembly {
             if let Some(label) = symbols.get_by_addr_ref(addr) {
                 text.push(Token::from_str("\n<", &colors::BLUE));
                 for token in label.name() {
-                    text.push(token.to_owned());
+                    text.push(token.clone());
                 }
-
                 text.push(Token::from_str(">:\n", &colors::BLUE));
+
                 lines_to_read -= 2;
             }
 
@@ -179,7 +179,7 @@ impl Disassembly {
 
             match inst {
                 Ok(inst) => {
-                    for token in inst.tokens().iter() {
+                    for token in inst.stream().tokens() {
                         text.push(token.clone());
                     }
                 }
@@ -197,7 +197,7 @@ impl Disassembly {
         return text;
     }
 
-    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token<'static>> {
+    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
         let mut text: Vec<Token> = Vec::new();
 
         let lines_to_read = range.end - range.start;
@@ -217,14 +217,12 @@ impl Disassembly {
             text.push(Token::from_str(" | ", &colors::WHITE));
 
             if let Some(module) = symbol.module() {
-                let module = module.strip_suffix(".dll").unwrap_or(module);
-
-                text.push(Token::from_string(module.to_owned(), &Colors::root()));
+                text.push(module);
                 text.push(Token::from_str("!", &Colors::brackets()));
             }
 
             for token in symbol.name() {
-                text.push(token.to_owned());
+                text.push(token.clone());
             }
 
             text.push(Token::from_str("\n", &colors::WHITE));

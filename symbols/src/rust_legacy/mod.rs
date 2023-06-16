@@ -99,9 +99,7 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 
                             if let (true, Some(chr)) = (all_lower_hex, chr) {
                                 if !chr.is_control() {
-                                    let chr = std::borrow::Cow::Owned(format!("{chr}"));
-
-                                    stream.push_cow(chr, Colors::item());
+                                    stream.push_string(chr.to_string(), Colors::item());
                                     part = after_escape;
                                     continue;
                                 }

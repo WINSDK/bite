@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::fmt;
 
 use crate::long_mode::{
@@ -2045,10 +2044,7 @@ impl ToTokens for Instruction {
                 if let Some(ref xref) = self.shadowing[0] {
                     stream.push("[", Colors::brackets());
                     for token in xref.text.name() {
-                        match &token.text {
-                            Cow::Borrowed(text) => stream.push(text, token.color),
-                            Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
-                        };
+                        stream.push_token(token.clone());
                     }
                     stream.push("]", Colors::brackets());
                     return;
@@ -2096,10 +2092,7 @@ impl ToTokens for Instruction {
             if let Some(ref xref) = self.shadowing[0] {
                 stream.push("[", Colors::brackets());
                 for token in xref.text.name() {
-                    match &token.text {
-                        Cow::Borrowed(text) => stream.push(text, token.color),
-                        Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
-                    };
+                    stream.push_token(token.clone());
                 }
                 stream.push("]", Colors::brackets());
                 return;
@@ -2117,10 +2110,7 @@ impl ToTokens for Instruction {
                 if let Some(ref xref) = self.shadowing[idx as usize] {
                     stream.push("[", Colors::brackets());
                     for token in xref.text.name() {
-                        match &token.text {
-                            Cow::Borrowed(text) => stream.push(text, token.color),
-                            Cow::Owned(text) => stream.push_owned(text.to_owned(), token.color),
-                        };
+                        stream.push_token(token.clone());
                     }
                     stream.push("]", Colors::brackets());
                     continue;
