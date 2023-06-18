@@ -166,7 +166,7 @@ impl Buffers {
 
         let text_style = egui::TextStyle::Small;
         let row_height = ui.text_style_height(&text_style);
-        let total_rows = dissasembly.symbols.len();
+        let total_rows = dissasembly.symbols.named_len();
 
         let area = egui::ScrollArea::both()
             .auto_shrink([false, false])

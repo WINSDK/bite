@@ -55,12 +55,22 @@ fn parser(s: &str) -> TokenStream {
     TokenStream::simple(s)
 }
 
+#[derive(Clone)]
 pub struct Function {
-    name: TokenStream,
+    name: Arc<TokenStream>,
     module: Option<Token>,
+    intrisic: bool,
 }
 
 impl Function {
+    fn new(name: TokenStream, module: Option<Token>) -> Self {
+        Self {
+            name: Arc::new(name),
+            module,
+            intrisic: false,
+        }
+    }
+
     pub fn name(&self) -> &[Token] {
         self.name.tokens.as_slice()
     }
@@ -68,16 +78,26 @@ impl Function {
     pub fn module(&self) -> Option<Token> {
         self.module.clone()
     }
+
+    /// Is the function a unnamed compiler generated artifact.
+    pub fn intrinsic(&self) -> bool {
+        self.intrisic
+    }
 }
 
 pub struct Index {
-    tree: BTreeMap<usize, Arc<Function>>,
+    /// Mapping from address starting at the header base to functions.
+    tree: BTreeMap<usize, Function>,
+
+    /// Number of named compiler artifacts.
+    named_len: usize,
 }
 
 impl Index {
     pub fn new() -> Self {
         Self {
             tree: BTreeMap::new(),
+            named_len: 0
         }
     }
 
@@ -126,22 +146,15 @@ impl Index {
         let entrypoint = obj.entry() as usize;
         println!("entrypoint {entrypoint:#x}");
 
-        let entry_func = Function {
-            name: TokenStream::simple("entry"),
-            module: None,
-        };
+        let entry_func = Function::new(TokenStream::simple("entry"), None);
 
         // insert entrypoint and override it if it's got a defined name
-        self.tree.insert(entrypoint, Arc::new(entry_func));
+        self.tree.insert(entrypoint, entry_func);
 
         // insert defined symbols
         for (addr, symbol) in symbols {
-            let func = Function {
-                name: parser(symbol),
-                module: None,
-            };
-
-            self.tree.insert(addr, Arc::new(func));
+            let func = Function::new(parser(symbol), None);
+            self.tree.insert(addr, func);
         }
 
         Ok(())
@@ -243,13 +256,9 @@ impl Index {
                             .unwrap_or(&module)
                             .to_owned();
                         let module = Token::from_string(module, &Colors::root());
+                        let func = Function::new(parser(name), Some(module));
 
-                        let func = Function {
-                            name: parser(name),
-                            module: Some(module),
-                        };
-
-                        self.tree.insert(phys_addr as usize, Arc::new(func));
+                        self.tree.insert(phys_addr as usize, func);
                     }
 
                     // skip over an entry
@@ -317,12 +326,9 @@ impl Index {
                         _ => continue,
                     };
 
-                    let func = Function {
-                        name: parser(name),
-                        module: None, // TODO: find modules
-                    };
-
-                    self.tree.insert(phys_addr, Arc::new(func));
+                    // TODO: find modules
+                    let func = Function::new(parser(name), None);
+                    self.tree.insert(phys_addr, func);
                 }
             }
         }
@@ -334,7 +340,37 @@ impl Index {
         Ok(())
     }
 
-    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Arc<Function>> {
+    /// Generate metadata based on the symbol name.
+    pub fn label(&mut self) {
+        for symbol in self.tree.values_mut() {
+            let name = symbol.name.inner();
+
+            if name.is_empty() {
+                symbol.intrisic = true;
+                continue;
+            }
+
+            if name.starts_with("GCC_except_table") {
+                symbol.intrisic = true;
+                continue;
+            }
+
+            if name.starts_with("str.") {
+                symbol.intrisic = true;
+                continue;
+            }
+
+            if name.starts_with(".L") {
+                symbol.intrisic = true;
+                continue;
+            }
+
+            // if we don't filter the function, it must be named
+            self.named_len += 1;
+        }
+    }
+
+    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Function> {
         self.tree.values()
     }
 
@@ -346,16 +382,20 @@ impl Index {
         self.tree.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&usize, &Arc<Function>)> {
+    pub fn named_len(&self) -> usize {
+        self.named_len
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&usize, &Function)> {
         self.tree.iter()
     }
 
-    pub fn get_by_addr(&self, addr: usize) -> Option<Arc<Function>> {
-        Some(Arc::clone(self.tree.get(&addr)?))
+    pub fn get_by_addr(&self, addr: usize) -> Option<Function> {
+        self.tree.get(&addr).cloned()
     }
 
     pub fn get_by_addr_ref(&self, addr: usize) -> Option<&Function> {
-        self.tree.get(&addr).map(Arc::as_ref)
+        self.tree.get(&addr)
     }
 }
 

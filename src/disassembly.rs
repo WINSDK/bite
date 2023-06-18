@@ -75,6 +75,7 @@ impl Disassembly {
         symbols
             .parse_imports(&binary[..], &obj)
             .map_err(DecodeError::IncompleteImportTable)?;
+        symbols.label();
 
         let proc: Box<dyn InspectProcessor + Send> = match obj.architecture() {
             object::Architecture::Riscv32 => {
@@ -204,6 +205,7 @@ impl Disassembly {
         let lines = self
             .symbols
             .iter()
+            .filter(|(_, func)| !func.intrinsic())
             .skip(range.start)
             .take(lines_to_read + 10);
 
