@@ -1,7 +1,7 @@
-use tokenizing::{colors, Token, Colors, ColorScheme};
 use decoder::encode_hex_bytes_truncated;
 use decoder::{Decodable, Decoded, Failed};
 use object::{Object, ObjectSection, SectionKind};
+use tokenizing::{colors, ColorScheme, Colors, Token};
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -139,11 +139,7 @@ impl Disassembly {
     pub fn listing(&self, range: std::ops::Range<usize>) -> Vec<Token> {
         let mut text: Vec<Token> = Vec::new();
         let symbols = &self.symbols;
-        let lines = self
-            .proc
-            .iter()
-            .skip(range.start);
-
+        let lines = self.proc.iter().skip(range.start);
         let mut lines_to_read = (range.end - range.start) as isize;
 
         // prevent underflow, scuffed solution and should be done differently
@@ -211,11 +207,7 @@ impl Disassembly {
 
         // for each instruction
         for (addr, symbol) in lines {
-            text.push(Token::from_string(
-                format!("{addr:0>10X}"),
-                &colors::WHITE,
-            ));
-
+            text.push(Token::from_string(format!("{addr:0>10X}"), &colors::WHITE));
             text.push(Token::from_str(" | ", &colors::WHITE));
 
             if let Some(module) = symbol.module() {

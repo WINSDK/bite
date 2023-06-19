@@ -131,7 +131,7 @@ impl Style {
             wrap: Some(false),
             explanation_tooltips: false,
             text_styles: {
-                let mut styles = BTreeMap::new(); 
+                let mut styles = BTreeMap::new();
 
                 styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Monospace));
                 styles.insert(TextStyle::Body, FontId::new(16.0, FontFamily::Monospace));

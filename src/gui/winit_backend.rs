@@ -124,7 +124,10 @@ impl Platform {
                 window_id: _window_id,
                 event,
             } => match event {
-                WindowEvent::Resized(PhysicalSize { width: 0, height: 0 }) => {}
+                WindowEvent::Resized(PhysicalSize {
+                    width: 0,
+                    height: 0,
+                }) => {}
                 WindowEvent::Resized(physical_size) => {
                     self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                         Default::default(),
@@ -278,7 +281,7 @@ impl Platform {
 
                         match (pressed, ctrl, virtual_keycode) {
                             (true, true, VirtualKeyCode::C) => {
-                                self.raw_input.events.push(egui::Event::Copy)
+                                self.raw_input.events.push(egui::Event::Copy);
                             }
                             (true, true, VirtualKeyCode::X) => {
                                 self.raw_input.events.push(egui::Event::Cut)
@@ -290,20 +293,20 @@ impl Platform {
                                     }
                                 }
                             }
-                            _ => {
-                                if pressed {
-                                    self.raw_keys.push((self.modifier_state, virtual_keycode));
-                                }
+                            _ => {}
+                        }
 
-                                if let Some(key) = winit_to_egui_key_code(virtual_keycode) {
-                                    self.raw_input.events.push(egui::Event::Key {
-                                        key,
-                                        pressed,
-                                        modifiers: winit_to_egui_modifiers(self.modifier_state),
-                                        repeat: false,
-                                    });
-                                }
-                            }
+                        if pressed {
+                            self.raw_keys.push((self.modifier_state, virtual_keycode));
+                        }
+
+                        if let Some(key) = winit_to_egui_key_code(virtual_keycode) {
+                            self.raw_input.events.push(egui::Event::Key {
+                                key,
+                                pressed,
+                                modifiers: winit_to_egui_modifiers(self.modifier_state),
+                                repeat: false,
+                            });
                         }
                     }
                 }
@@ -359,7 +362,7 @@ impl Platform {
                     ..
                 } => {
                     raw.pop();
-                },
+                }
                 egui::Event::Key {
                     key: egui::Key::Enter,
                     pressed: true,
@@ -372,6 +375,12 @@ impl Platform {
                     modifiers: egui::Modifiers::NONE,
                     ..
                 } => return (raw, true),
+                egui::Event::Key {
+                    key: egui::Key::C,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } if modifiers.ctrl => return (raw, true),
                 _ => {}
             }
         }

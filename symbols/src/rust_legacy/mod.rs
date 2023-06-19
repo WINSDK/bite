@@ -91,9 +91,8 @@ pub fn parse(s: &str) -> Option<TokenStream> {
                     _ => {
                         if let Some(stripped) = escape.strip_prefix('u') {
                             let digits = stripped;
-                            let all_lower_hex = digits.chars().all(|c| {
-                                matches!(c, '0'..='9' | 'a'..='f')
-                            });
+                            let all_lower_hex =
+                                digits.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'));
 
                             let chr = u32::from_str_radix(digits, 16).ok().and_then(char::from_u32);
 

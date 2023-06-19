@@ -255,12 +255,7 @@ impl Backend {
         render_pass.update_buffers(&self.device, &self.queue, &paint_jobs, &screen_descriptor);
 
         // Record all render passes.
-        render_pass.execute(
-            &mut encoder,
-            &view,
-            &paint_jobs,
-            &screen_descriptor,
-        )?;
+        render_pass.execute(&mut encoder, &view, &paint_jobs, &screen_descriptor)?;
 
         // submit work
         self.staging_belt.finish();

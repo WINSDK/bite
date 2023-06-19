@@ -97,7 +97,7 @@ impl Index {
     pub fn new() -> Self {
         Self {
             tree: BTreeMap::new(),
-            named_len: 0
+            named_len: 0,
         }
     }
 
@@ -251,10 +251,7 @@ impl Index {
                         };
 
                         let module = String::from_utf8_lossy(module);
-                        let module = module
-                            .strip_prefix(".dll")
-                            .unwrap_or(&module)
-                            .to_owned();
+                        let module = module.strip_prefix(".dll").unwrap_or(&module).to_owned();
                         let module = Token::from_string(module, &Colors::root());
                         let func = Function::new(parser(name), Some(module));
 

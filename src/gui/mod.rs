@@ -1,25 +1,25 @@
-mod donut;
 mod backend;
-mod winit_backend;
+mod donut;
 mod egui_backend;
 mod icons;
 mod style;
 mod texture;
 mod utils;
+mod winit_backend;
 
 use egui::text::LayoutJob;
 use egui_dock::tree::Tree;
-use once_cell::sync::{OnceCell, Lazy};
+use once_cell::sync::{Lazy, OnceCell};
 use pollster::FutureExt;
 use tokenizing::Token;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
 use crate::disassembly::Disassembly;
-use egui_backend::Pipeline;
 use backend::Backend;
+use egui::{Button, RichText};
+use egui_backend::Pipeline;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
-use egui::{RichText, Button};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -128,9 +128,7 @@ impl Buffers {
         let text_style = egui::TextStyle::Body;
         let row_height = ui.text_style_height(&text_style);
         let total_rows = dissasembly.proc.instruction_count();
-        let area = egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .drag_to_scroll(false);
+        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
 
         let font_id = text_style.resolve(&STYLE.egui());
 
@@ -168,9 +166,7 @@ impl Buffers {
         let row_height = ui.text_style_height(&text_style);
         let total_rows = dissasembly.symbols.named_len();
 
-        let area = egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .drag_to_scroll(false);
+        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
 
         let font_id = text_style.resolve(&STYLE.egui());
 
@@ -206,7 +202,7 @@ impl egui_dock::TabViewer for Buffers {
         match self.mapping.get(title) {
             Some(TabKind::Source) => {
                 ui.label("todo");
-            },
+            }
             Some(TabKind::Functions) => self.show_functions(ui),
             Some(TabKind::Listing) => self.show_listing(ui),
             None => return,
@@ -233,11 +229,9 @@ fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) 
         });
 
         ui.menu_button("Windows", |ui| {
-            let mut goto_window = |title| {
-                match ctx.panels.find_tab(&title) {
-                    Some((node_idx, tab_idx)) => ctx.panels.set_active_tab(node_idx, tab_idx),
-                    None => ctx.panels.push_to_first_leaf(title)
-                }
+            let mut goto_window = |title| match ctx.panels.find_tab(&title) {
+                Some((node_idx, tab_idx)) => ctx.panels.set_active_tab(node_idx, tab_idx),
+                None => ctx.panels.push_to_first_leaf(title),
             };
 
             if ui.button(DISASS_TITLE).clicked() {
@@ -317,9 +311,7 @@ fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
         if !ctx.cmd_input.is_empty() {
             let text = format!("{}\u{2588}", ctx.cmd_input);
 
-            ui.label(
-                egui::RichText::new(&text).color(tokenizing::colors::WHITE)
-            );
+            ui.label(egui::RichText::new(&text).color(tokenizing::colors::WHITE));
         };
     });
 
@@ -409,7 +401,7 @@ pub fn init() -> Result<(), Error> {
             Event::UserEvent(CustomEvent::CloseRequest) => *control = ControlFlow::Exit,
             Event::UserEvent(CustomEvent::DragWindow) => {
                 let _ = ctx.window.drag_window();
-            },
+            }
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(size) => backend.resize(size),
                 WindowEvent::CloseRequested => *control = ControlFlow::Exit,

@@ -78,7 +78,9 @@ impl Pipeline {
     ) -> Self {
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("bite::gui shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../../shaders/egui.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                "../../shaders/egui.wgsl"
+            ))),
         };
         let module = device.create_shader_module(shader);
 
@@ -261,10 +263,8 @@ impl Pipeline {
         let physical_width = screen_descriptor.physical_width;
         let physical_height = screen_descriptor.physical_height;
 
-        for ((job, vertex_buffer), index_buffer) in paint_jobs
-            .iter()
-            .zip(self.vertex_buffers.iter())
-            .zip(self.index_buffers.iter())
+        for ((job, vertex_buffer), index_buffer) in
+            paint_jobs.iter().zip(self.vertex_buffers.iter()).zip(self.index_buffers.iter())
         {
             // Transform clip rect to physical pixels.
             let clip_min_x = scale_factor * job.clip_rect.min.x;

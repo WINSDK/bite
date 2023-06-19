@@ -1,8 +1,8 @@
 //! Colors used for rendering text in the GUI.
-use std::sync::Arc;
 use std::ops::Deref;
+use std::sync::Arc;
 
-pub use egui::Color32 as Color; 
+pub use egui::Color32 as Color;
 
 /// Currently used global colorscheme
 pub type Colors = IBM;
@@ -167,5 +167,4 @@ impl Token {
             color,
         }
     }
-
 }
