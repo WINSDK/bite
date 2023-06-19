@@ -33,9 +33,9 @@ static STYLE: Lazy<style::Style> = Lazy::new(style::Style::default);
 const WIDTH: u32 = 1200;
 const HEIGHT: u32 = 800;
 
-const DISASS_TITLE: &str = crate::icon!(PARAGRAPH_LEFT, "Disassembly");
-const SOURCE_TITLE: &str = crate::icon!(EMBED2, "Source");
-const FUNCS_TITLE: &str = crate::icon!(LIGATURE, "Functions");
+const DISASS_TITLE: &str = crate::icon!(PARAGRAPH_LEFT, " Disassembly");
+const SOURCE_TITLE: &str = crate::icon!(EMBED2, " Source");
+const FUNCS_TITLE: &str = crate::icon!(LIGATURE, " Functions");
 
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
@@ -217,12 +217,12 @@ impl egui_dock::TabViewer for Buffers {
 fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) {
     let bar = egui::menu::bar(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if ui.button(crate::icon!(FOLDER_OPEN, "Open")).clicked() {
+            if ui.button(crate::icon!(FOLDER_OPEN, " Open")).clicked() {
                 backend::ask_for_binary(ctx);
                 ui.close_menu();
             }
 
-            if ui.button(crate::icon!(CROSS, "Exit")).clicked() {
+            if ui.button(crate::icon!(CROSS, " Exit")).clicked() {
                 platform.send_event(CustomEvent::CloseRequest);
                 ui.close_menu();
             }
@@ -251,7 +251,7 @@ fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) 
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Max), |ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.spacing_mut().item_spacing.x = 5.0;
             top_bar_native(ui, platform, ctx);
         });
     });
@@ -270,25 +270,21 @@ fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) 
 /// Show some close/maximize/minimize buttons for the native window.
 fn top_bar_native(ui: &mut egui::Ui, platform: &mut Platform, ctx: &mut RenderContext) {
     let height = 12.0;
-    let close_response = ui.add(Button::new(
-        RichText::new(crate::icon!(CROSS, "")).size(height),
-    ));
+    let close_response = ui.add(Button::new(RichText::new(crate::icon!(CROSS)).size(height)));
 
     if close_response.clicked() {
         platform.send_event(CustomEvent::CloseRequest);
     }
 
     let maximized_response = ui.add(Button::new(
-        RichText::new(crate::icon!(CHECKBOX_UNCHECKED, "")).size(height),
+        RichText::new(crate::icon!(CHECKBOX_UNCHECKED)).size(height),
     ));
 
     if maximized_response.clicked() {
         backend::fullscreen(ctx);
     }
 
-    let minimized_response = ui.add(Button::new(
-        RichText::new(crate::icon!(MINUS, "")).size(height),
-    ));
+    let minimized_response = ui.add(Button::new(RichText::new(crate::icon!(MINUS)).size(height)));
 
     if minimized_response.clicked() {
         ctx.window.set_minimized(true);
@@ -347,7 +343,7 @@ pub fn init() -> Result<(), Error> {
     });
 
     let mut egui_rpass = Pipeline::new(&backend.device, backend.surface_cfg.format, 1);
-    let mut panels = Tree::new(vec![DISASS_TITLE, FUNCS_TITLE, SOURCE_TITLE]);
+    let mut panels = Tree::new(vec![DISASS_TITLE, FUNCS_TITLE]);
 
     panels.set_focused_node(egui_dock::NodeIndex::root());
 
@@ -413,9 +409,7 @@ pub fn init() -> Result<(), Error> {
                 }
                 _ => {}
             },
-            Event::MainEventsCleared => {
-                handle_post_render(&mut ctx);
-            }
+            Event::MainEventsCleared => handle_post_render(&mut ctx),
             _ => {}
         }
     })
