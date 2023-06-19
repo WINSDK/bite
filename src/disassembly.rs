@@ -156,7 +156,7 @@ impl Disassembly {
             }
 
             // if the address matches a symbol, print it
-            if let Some(label) = symbols.get_by_addr_ref(addr) {
+            if let Some(label) = symbols.get_by_addr(addr) {
                 text.push(Token::from_str("\n<", &colors::BLUE));
                 for token in label.name() {
                     text.push(token.clone());

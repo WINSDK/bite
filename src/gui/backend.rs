@@ -9,9 +9,6 @@ use std::sync::Arc;
 
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
-use winit::event::{VirtualKeyCode, ModifiersState};
-
-const NO_MODIFIERS: ModifiersState = ModifiersState::empty();
 
 pub struct Backend {
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -203,25 +200,11 @@ impl Backend {
         });
 
         // keep a record of all keystroke since the previous frame
-        let keys = platform.raw_keys();
+        let (keys, finished) = platform.raw_characters();
 
-        if keys.contains(&(NO_MODIFIERS, VirtualKeyCode::Back)) {
-            ctx.cmd_input.pop();
-        }
-
-        if keys.contains(&(NO_MODIFIERS, VirtualKeyCode::Return)) {
-            ctx.cmd_input = String::new();
-        }
-
-        for (modi, key) in keys {
-            // only record keys that either have no modifiers or the shift modifier
-            if (modi | ModifiersState::SHIFT) != ModifiersState::SHIFT {
-                continue;
-            }
-
-            if let Some(chr) = winit_key_to_char(modi, key) {
-                ctx.cmd_input.push(chr);
-            }
+        ctx.cmd_input += &keys;
+        if finished {
+            ctx.cmd_input.clear();
         }
 
         // begin to draw the UI frame
@@ -302,26 +285,6 @@ impl Backend {
             self.surface.configure(&self.device, &self.surface_cfg);
         }
     }
-}
-
-fn winit_key_to_char(modifiers: ModifiersState, keycode: VirtualKeyCode) -> Option<char> {
-    if keycode == VirtualKeyCode::Space {
-        return Some(' ');
-    }
-
-    if keycode >= VirtualKeyCode::A && keycode <= VirtualKeyCode::Z {
-        let base_char = if modifiers.shift() {
-            'A'
-        } else {
-            'a'
-        };
-
-        let key_index = keycode as u8 - VirtualKeyCode::A as u8;
-        let character = (base_char as u8 + key_index) as char;
-        return Some(character)
-    }
-
-    None
 }
 
 pub fn ask_for_binary(ctx: &mut RenderContext) {

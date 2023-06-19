@@ -393,10 +393,6 @@ impl Index {
     pub fn get_by_addr(&self, addr: usize) -> Option<Function> {
         self.tree.get(&addr).cloned()
     }
-
-    pub fn get_by_addr_ref(&self, addr: usize) -> Option<&Function> {
-        self.tree.get(&addr)
-    }
 }
 
 fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(usize, &'sym str)> {

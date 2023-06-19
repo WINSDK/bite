@@ -344,9 +344,39 @@ impl Platform {
         self.raw_input.time = Some(elapsed_seconds);
     }
 
-    /// Consumes all keys pressed that didn't have any modifiers.
-    pub fn raw_keys(&mut self) -> Vec<(ModifiersState, VirtualKeyCode)> {
-        std::mem::take(&mut self.raw_keys)
+    /// Consumes all keys pressed.
+    /// Returns true if an escape character was received: escape, enter, etc.
+    pub fn raw_characters(&mut self) -> (String, bool) {
+        let mut raw = String::new();
+
+        for event in self.raw_input.events.iter() {
+            match event {
+                egui::Event::Text(received) => raw += &received,
+                egui::Event::Key {
+                    key: egui::Key::Backspace,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                    ..
+                } => {
+                    raw.pop();
+                },
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                    ..
+                } => return (raw, true),
+                egui::Event::Key {
+                    key: egui::Key::Escape,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                    ..
+                } => return (raw, true),
+                _ => {}
+            }
+        }
+
+        (raw, false)
     }
 
     /// Starts a new frame by providing a new `Ui` instance to write into.
