@@ -362,6 +362,11 @@ impl Index {
                 continue;
             }
 
+            if name.starts_with("anon.") {
+                symbol.intrisic = true;
+                continue;
+            }
+
             // if we don't filter the function, it must be named
             self.named_len += 1;
         }

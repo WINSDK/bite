@@ -11,7 +11,6 @@ mod disassembly;
 mod gui;
 mod macros;
 
-use object::Object;
 use once_cell::sync::Lazy;
 use std::fs;
 
@@ -44,23 +43,25 @@ fn main() {
     let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {
-        let imports = obj.imports().expect("Failed to resolve any symbols.");
+        let mut index = symbols::Index::new();
 
-        if imports.is_empty() {
+        if let Err(err) = index.parse_imports(&binary, &obj) {
+            exit!("Failed to parse import table ({err:?})");
+        }
+
+        if index.is_empty() {
             exit!("Object \"{path}\" doesn't seem to import anything.");
         }
 
         println!("{path}:");
 
-        for import in imports {
-            let library = match std::str::from_utf8(import.library()) {
-                Ok(library) => library,
-                Err(_) => continue,
-            };
+        for function in index.symbols() {
+            let symbol = function.name().iter().map(|s| &s.text[..]);
+            let symbol = String::from_iter(symbol);
 
-            match std::str::from_utf8(import.name()) {
-                Ok(name) => println!("\t{library} => {name}"),
-                Err(_) => println!("\t{library}"),
+            match function.module() {
+                Some(module) => println!("\t{} => {symbol}", &*module.text),
+                None => println!("\t{symbol}"),
             };
         }
     }
@@ -68,14 +69,16 @@ fn main() {
     if ARGS.names {
         let mut index = symbols::Index::new();
 
-        index.parse_debug(&obj).expect("Failed to parse symbols table.");
+        if let Err(err) = index.parse_debug(&obj) {
+            exit!("Failed to parse symbol table ({err:?})");
+        }
 
         if index.is_empty() {
             exit!("Object \"{path}\" doesn't seem to export any symbols.");
         }
 
-        for symbol in index.symbols() {
-            let symbol = symbol.name().iter().map(|s| &s.text[..]);
+        for function in index.symbols() {
+            let symbol = function.name().iter().map(|s| &s.text[..]);
             let symbol = String::from_iter(symbol);
 
             println!("{symbol}");
