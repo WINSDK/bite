@@ -199,14 +199,6 @@ impl Backend {
             label: Some("bite::gui encoder"),
         });
 
-        // keep a record of all keystroke since the previous frame
-        let (keys, finished) = platform.raw_characters();
-
-        ctx.cmd_input += &keys;
-        if finished {
-            ctx.cmd_input.clear();
-        }
-
         // begin to draw the UI frame
         platform.begin_frame();
 
@@ -235,7 +227,7 @@ impl Backend {
             });
 
         egui::TopBottomPanel::bottom("terminal").show(&platform.context(), |ui| {
-            super::terminal(ui, ctx);
+            super::terminal(ui, platform);
         });
 
         // end the UI frame. We could now handle the output and draw the UI with the backend

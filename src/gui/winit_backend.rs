@@ -61,8 +61,8 @@ pub struct Platform {
     next_device_index: u64,
 
     dragging: bool,
-
     winit: winit::event_loop::EventLoopProxy<CustomEvent>,
+    terminal_input: String,
 }
 
 impl Platform {
@@ -113,6 +113,7 @@ impl Platform {
             next_device_index: 1,
             dragging: false,
             winit: descriptor.winit,
+            terminal_input: String::new(),
         }
     }
 
@@ -347,49 +348,47 @@ impl Platform {
         self.raw_input.time = Some(elapsed_seconds);
     }
 
-    /// Consumes all keys pressed.
-    /// Returns true if an escape character was received: escape, enter, etc.
-    pub fn raw_characters(&mut self) -> (String, bool) {
-        let mut raw = String::new();
+    pub fn terminal_input(&self) -> &str {
+        &self.terminal_input
+    }
 
+    /// Process all character having been entered.
+    fn record_terminal_input(&mut self) {
         for event in self.raw_input.events.iter() {
             match event {
-                egui::Event::Text(received) => raw += &received,
+                egui::Event::Text(received) => self.terminal_input += &received,
                 egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => {
-                    raw.pop();
-                }
+                } => self.terminal_input.clear(),
                 egui::Event::Key {
                     key: egui::Key::Enter,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => return (raw, true),
+                } => self.terminal_input.clear(),
                 egui::Event::Key {
                     key: egui::Key::Escape,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => return (raw, true),
+                } => self.terminal_input.clear(),
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
-                    modifiers,
+                    modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
-                } if modifiers.ctrl => return (raw, true),
+                } => self.terminal_input.clear(),
                 _ => {}
             }
         }
-
-        (raw, false)
     }
 
     /// Starts a new frame by providing a new `Ui` instance to write into.
     pub fn begin_frame(&mut self) {
+        self.record_terminal_input();
         self.context.begin_frame(self.raw_input.take());
     }
 

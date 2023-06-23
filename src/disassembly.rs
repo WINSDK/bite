@@ -1,6 +1,6 @@
 use decoder::encode_hex_bytes_truncated;
 use decoder::{Decodable, Decoded, Failed};
-use object::{Object, ObjectSection, SectionKind};
+use object::{Object, ObjectSection, SectionKind, ObjectKind};
 use tokenizing::{colors, ColorScheme, Colors, Token};
 
 use std::collections::BTreeMap;
@@ -16,6 +16,9 @@ pub enum DecodeError {
 
     /// Failed to find a section with the given entrypoint.
     NoValidSections,
+
+    /// A given object is likely a dynamic library or relocatable.
+    NotAnExecutable,
 
     /// Failed to decompress a given section section.
     DecompressionFailed(object::Error),
@@ -55,6 +58,10 @@ impl Disassembly {
 
         let binary = std::fs::read(&path).map_err(DecodeError::ReadFailed)?;
         let obj = object::File::parse(&binary[..]).map_err(DecodeError::IncompleteObject)?;
+
+        if obj.kind() != ObjectKind::Executable {
+            return Err(DecodeError::NotAnExecutable);
+        }
 
         let entrypoint = obj.entry();
         let section = obj

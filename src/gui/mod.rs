@@ -81,7 +81,6 @@ pub struct RenderContext {
     timer60: utils::Timer,
     dissasembly: Option<Arc<Disassembly>>,
     disassembling_thread: Option<DisassThread>,
-    cmd_input: String,
 
     #[cfg(target_family = "windows")]
     unwindowed_size: winit::dpi::PhysicalSize<u32>,
@@ -300,12 +299,12 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
         .show_inside(ui, &mut ctx.buffers);
 }
 
-fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
+fn terminal(ui: &mut egui::Ui, platform: &Platform) {
     ui.style_mut().wrap = Some(true);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        if !ctx.cmd_input.is_empty() {
-            let text = format!("{}\u{2588}", ctx.cmd_input);
+        if !platform.terminal_input().is_empty() {
+            let text = format!("{}\u{2588}", platform.terminal_input());
 
             ui.label(egui::RichText::new(&text).color(tokenizing::colors::WHITE));
         };
@@ -363,7 +362,6 @@ pub fn init() -> Result<(), Error> {
         timer60: utils::Timer::new(60),
         dissasembly: None,
         disassembling_thread: None,
-        cmd_input: String::new(),
         #[cfg(target_family = "windows")]
         unwindowed_size: window.outer_size(),
         #[cfg(target_family = "windows")]
