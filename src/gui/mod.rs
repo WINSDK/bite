@@ -200,14 +200,18 @@ impl egui_dock::TabViewer for Buffers {
     type Tab = Title;
 
     fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
-        match self.mapping.get(title) {
-            Some(TabKind::Source) => {
-                ui.label("todo");
-            }
-            Some(TabKind::Functions) => self.show_functions(ui),
-            Some(TabKind::Listing) => self.show_listing(ui),
-            None => return,
-        };
+        egui::Frame::none()
+            .outer_margin(STYLE.separator_width)
+            .show(ui, |ui| {
+                match self.mapping.get(title) {
+                    Some(TabKind::Source) => {
+                        ui.label("todo");
+                    }
+                    Some(TabKind::Functions) => self.show_functions(ui),
+                    Some(TabKind::Listing) => self.show_listing(ui),
+                    None => return,
+                };
+            });
     }
 
     fn title(&mut self, title: &mut Self::Tab) -> egui::WidgetText {

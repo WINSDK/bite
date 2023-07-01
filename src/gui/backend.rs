@@ -231,15 +231,14 @@ impl Backend {
             .max_height(510.0)
             .resizable(true)
             .frame({
-                let margin = egui::Margin {
-                    left: 0.0,
-                    right: 0.0,
-                    top: ctx.style.separator_width * 2.0,
-                    bottom: 0.0,
-                };
+                let mut margin = super::STYLE.egui().spacing.window_margin;
+                margin.top = ctx.style.separator_width * 2.0;
 
-                egui::Frame::none()
-                    .outer_margin(margin)
+                egui::Frame::default()
+                    .outer_margin(egui::Margin {
+                        top: ctx.style.separator_width * 2.0,
+                        ..Default::default()
+                    })
                     .inner_margin(margin)
                     .fill(tokenizing::colors::GRAY35)
             });
@@ -253,14 +252,11 @@ impl Backend {
         // draw the primary panel
         egui::CentralPanel::default()
             .frame({
-                let margin = egui::Margin {
-                    left: 0.0,
-                    right: 0.0,
-                    top: ctx.style.separator_width,
-                    bottom: 0.0,
-                };
-
-                egui::Frame::none().outer_margin(margin)
+                egui::Frame::default()
+                    .inner_margin(egui::Margin {
+                        top: ctx.style.separator_width,
+                        ..Default::default()
+                    })
             })
             .show(&platform.context(), |ui| {
                 super::tabbed_panel(ui, ctx);

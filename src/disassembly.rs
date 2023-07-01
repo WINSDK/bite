@@ -1,6 +1,6 @@
 use decoder::encode_hex_bytes_truncated;
 use decoder::{Decodable, Decoded, Failed};
-use object::{Object, ObjectSection, SectionKind, ObjectKind};
+use object::{Object, ObjectSection, SectionKind};
 use tokenizing::{colors, ColorScheme, Colors, Token};
 
 use std::collections::BTreeMap;
@@ -59,7 +59,7 @@ impl Disassembly {
         let binary = std::fs::read(&path).map_err(DecodeError::ReadFailed)?;
         let obj = object::File::parse(&binary[..]).map_err(DecodeError::IncompleteObject)?;
 
-        if obj.kind() != ObjectKind::Executable {
+        if obj.entry() == 0 {
             return Err(DecodeError::NotAnExecutable);
         }
 

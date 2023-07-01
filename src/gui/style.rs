@@ -43,8 +43,10 @@ impl Style {
     pub fn egui(&self) -> egui::Style {
         egui::Style {
             spacing: Spacing {
-                slider_width: 100.0,
+                slider_width: 10.0,
                 scroll_bar_width: 10.0,
+                scroll_bar_inner_margin: self.separator_width,
+                scroll_bar_outer_margin: self.separator_width,
                 ..Default::default()
             },
             visuals: Visuals {
@@ -164,7 +166,7 @@ impl Style {
                 ..Default::default()
             },
             separator: egui_dock::SeparatorStyle {
-                width: 3.0,
+                width: self.separator_width,
                 color_idle: self.separator,
                 color_hovered: self.separator,
                 color_dragged: self.separator,
@@ -172,7 +174,7 @@ impl Style {
             },
             tab_bar: egui_dock::TabBarStyle {
                 bg_fill: self.separator,
-                height: 30.0,
+                height: 24.0,
                 show_scroll_bar_on_overflow: true,
                 rounding: self.tab_rounding,
                 hline_color: self.separator,
