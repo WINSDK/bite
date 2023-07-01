@@ -21,9 +21,9 @@ Whenever I have time this year I'll try implementing most of these. \
 If you're feeling like it, submit a pull request and I'll have a look at it.
 
 - [x] Port GUI to wgpu + winit
-- [ ] Header with buttons and options
+- [x] Header with buttons and options
 - [x] Assembly listing exploration
-- [ ] Interactive terminal
+- [x] Interactive terminal
 - [ ] Assembly instruction byte patching
 - [ ] Hex binary viewer
 - [ ] Some form of debugger front-end
