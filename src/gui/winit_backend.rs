@@ -388,10 +388,6 @@ impl Platform {
                     modifiers: egui::Modifiers::NONE,
                     ..
                 } => {
-                    if self.terminal_input.is_empty() {
-                        continue;
-                    }
-
                     self.commands.push(self.terminal_input.clone());
                     self.terminal_input.clear();
                 }
@@ -401,10 +397,6 @@ impl Platform {
                     modifiers: egui::Modifiers::NONE,
                     ..
                 } => {
-                    if self.terminal_input.is_empty() {
-                        continue;
-                    }
-
                     self.commands.push(self.terminal_input.clone());
                     self.terminal_input.clear();
                 }
@@ -414,10 +406,6 @@ impl Platform {
                     modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
                 } => {
-                    if self.terminal_input.is_empty() {
-                        continue;
-                    }
-
                     self.commands.push(self.terminal_input.clone());
                     self.terminal_input.clear();
                 }

@@ -203,6 +203,12 @@ impl Backend {
         platform.begin_frame();
 
         for cmd in platform.commands() {
+            ctx.terminal_prompt.push_str(&format!("(bite) {cmd}\n"));
+
+            if cmd.is_empty() {
+                continue;
+            }
+
             if let Some(("open", path)) = cmd.split_once(' ') {
                 // TODO: open file here
                 ctx.terminal_prompt.push_str(&format!("binary '{path}' was opened.\n"));
@@ -228,13 +234,14 @@ impl Backend {
                 let margin = egui::Margin {
                     left: 0.0,
                     right: 0.0,
-                    top: ctx.style.separator_width,
+                    top: ctx.style.separator_width * 2.0,
                     bottom: 0.0,
                 };
 
                 egui::Frame::none()
                     .outer_margin(margin)
-                    .fill(tokenizing::colors::GRAY40)
+                    .inner_margin(margin)
+                    .fill(tokenizing::colors::GRAY35)
             });
 
         terminal.show(&platform.context(), |ui| {

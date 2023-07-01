@@ -121,6 +121,7 @@ pub mod colors {
     pub const GRAY10: Color = color!(0x10, 0x10, 0x10);
     pub const GRAY20: Color = color!(0x20, 0x20, 0x20);
     pub const GRAY30: Color = color!(0x30, 0x30, 0x30);
+    pub const GRAY35: Color = color!(0x35, 0x35, 0x35);
     pub const GRAY40: Color = color!(0x40, 0x40, 0x40);
     pub const GRAY60: Color = color!(0x60, 0x60, 0x60);
     pub const GRAY99: Color = color!(0x99, 0x99, 0x99);
