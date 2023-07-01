@@ -63,6 +63,8 @@ pub struct Platform {
     dragging: bool,
     winit: winit::event_loop::EventLoopProxy<CustomEvent>,
     terminal_input: String,
+    commands_history: Vec<String>,
+    commands: Vec<String>,
 }
 
 impl Platform {
@@ -114,6 +116,8 @@ impl Platform {
             dragging: false,
             winit: descriptor.winit,
             terminal_input: String::new(),
+            commands: Vec::new(),
+            commands_history: Vec::new(),
         }
     }
 
@@ -352,6 +356,19 @@ impl Platform {
         &self.terminal_input
     }
 
+    pub fn command_history(&mut self) -> &[String] {
+        &self.commands_history
+    }
+
+    /// Consumes terminal commands recorded since last frame.
+    pub fn commands(&mut self) -> &[String] {
+        let cmds = std::mem::take(&mut self.commands);
+        let ncmds = cmds.len();
+
+        self.commands_history.extend(cmds);
+        &self.commands_history[self.commands_history.len() - ncmds..]
+    }
+
     /// Process all character having been entered.
     fn record_terminal_input(&mut self) {
         for event in self.raw_input.events.iter() {
@@ -362,25 +379,48 @@ impl Platform {
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => self.terminal_input.clear(),
+                } => {
+                    self.terminal_input.pop();
+                }
                 egui::Event::Key {
                     key: egui::Key::Enter,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => self.terminal_input.clear(),
+                } => {
+                    if self.terminal_input.is_empty() {
+                        continue;
+                    }
+
+                    self.commands.push(self.terminal_input.clone());
+                    self.terminal_input.clear();
+                }
                 egui::Event::Key {
                     key: egui::Key::Escape,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => self.terminal_input.clear(),
+                } => {
+                    if self.terminal_input.is_empty() {
+                        continue;
+                    }
+
+                    self.commands.push(self.terminal_input.clone());
+                    self.terminal_input.clear();
+                }
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
                     modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
-                } => self.terminal_input.clear(),
+                } => {
+                    if self.terminal_input.is_empty() {
+                        continue;
+                    }
+
+                    self.commands.push(self.terminal_input.clone());
+                    self.terminal_input.clear();
+                }
                 _ => {}
             }
         }

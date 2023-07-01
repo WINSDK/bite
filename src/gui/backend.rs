@@ -202,12 +202,45 @@ impl Backend {
         // begin to draw the UI frame
         platform.begin_frame();
 
+        for cmd in platform.commands() {
+            if let Some(("open", path)) = cmd.split_once(' ') {
+                // TODO: open file here
+                ctx.terminal_prompt.push_str(&format!("binary '{path}' was opened.\n"));
+                continue;
+            }
+
+            ctx.terminal_prompt.push_str(&format!("command '{cmd}' is unknown.\n"));
+        }
+
         egui::TopBottomPanel::top("top bar").show(&platform.context(), |ui| {
             // generic keyboard inputs
             keyboard_input(ui, ctx);
 
             // title bar
             super::top_bar(ui, ctx, platform);
+        });
+
+        let terminal = egui::TopBottomPanel::bottom("terminal")
+            .min_height(80.0)
+            .max_height(510.0)
+            .resizable(true)
+            .frame({
+                let margin = egui::Margin {
+                    left: 0.0,
+                    right: 0.0,
+                    top: ctx.style.separator_width,
+                    bottom: 0.0,
+                };
+
+                egui::Frame::none()
+                    .outer_margin(margin)
+                    .fill(tokenizing::colors::GRAY40)
+            });
+
+        terminal.show(&platform.context(), |ui| {
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                super::terminal(ui, platform, ctx);
+            })
         });
 
         // draw the primary panel
@@ -226,10 +259,6 @@ impl Backend {
                 super::tabbed_panel(ui, ctx);
             });
 
-        egui::TopBottomPanel::bottom("terminal").show(&platform.context(), |ui| {
-            super::terminal(ui, platform);
-        });
-
         // end the UI frame. We could now handle the output and draw the UI with the backend
         let full_output = platform.end_frame(Some(&*ctx.window));
         let paint_jobs = platform.context().tessellate(full_output.shapes);
@@ -241,7 +270,7 @@ impl Backend {
             scale_factor: platform.scale_factor(),
         };
 
-        let tdelta: egui::TexturesDelta = full_output.textures_delta;
+        let tdelta = full_output.textures_delta;
 
         render_pass.add_textures(&self.device, &self.queue, &tdelta)?;
         render_pass.update_buffers(&self.device, &self.queue, &paint_jobs, &screen_descriptor);

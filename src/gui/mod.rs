@@ -86,6 +86,8 @@ pub struct RenderContext {
     unwindowed_size: winit::dpi::PhysicalSize<u32>,
     #[cfg(target_family = "windows")]
     unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
+
+    terminal_prompt: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -299,15 +301,20 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
         .show_inside(ui, &mut ctx.buffers);
 }
 
-fn terminal(ui: &mut egui::Ui, platform: &Platform) {
+fn terminal(ui: &mut egui::Ui, platform: &Platform, ctx: &mut RenderContext) {
     ui.style_mut().wrap = Some(true);
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        if !platform.terminal_input().is_empty() {
-            let text = format!("{}\u{2588}", platform.terminal_input());
+    let area = egui::ScrollArea::vertical().auto_shrink([false, false]).drag_to_scroll(false);
 
-            ui.label(egui::RichText::new(&text).color(tokenizing::colors::WHITE));
-        };
+    area.show(ui, |ui| {
+        let mut output = String::new();
+
+        output.push_str(&ctx.terminal_prompt);
+        output.push_str("(bite) ");
+        output.push_str(platform.terminal_input());
+        output.push('\u{2588}');
+
+        ui.label(egui::RichText::new(output).color(tokenizing::colors::WHITE));
     });
 
     ui.style_mut().wrap = Some(false);
@@ -366,6 +373,7 @@ pub fn init() -> Result<(), Error> {
         unwindowed_size: window.outer_size(),
         #[cfg(target_family = "windows")]
         unwindowed_pos: window.outer_position().unwrap_or_default(),
+        terminal_prompt: String::new(),
     };
 
     if let Some(ref path) = crate::ARGS.path {
