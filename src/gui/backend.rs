@@ -1,12 +1,9 @@
-use crate::disassembly::Disassembly;
 use crate::gui::egui_backend::{self, ScreenDescriptor};
 use crate::gui::winit_backend::Platform;
 use crate::gui::Error;
 use crate::gui::RenderContext;
 
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
@@ -202,21 +199,8 @@ impl Backend {
         // begin to draw the UI frame
         platform.begin_frame();
 
-        for cmd in platform.commands() {
-            ctx.terminal_prompt.push_str(&format!("(bite) {cmd}\n"));
-
-            if cmd.is_empty() {
-                continue;
-            }
-
-            if let Some(("open", path)) = cmd.split_once(' ') {
-                // TODO: open file here
-                ctx.terminal_prompt.push_str(&format!("binary '{path}' was opened.\n"));
-                continue;
-            }
-
-            ctx.terminal_prompt.push_str(&format!("command '{cmd}' is unknown.\n"));
-        }
+        // process terminal commands
+        crate::commands::process_commands(ctx, platform.commands());
 
         egui::TopBottomPanel::top("top bar").show(&platform.context(), |ui| {
             // generic keyboard inputs
@@ -243,11 +227,21 @@ impl Backend {
                     .fill(tokenizing::colors::GRAY35)
             });
 
+        // disable on-hover highlighting for terminal
+        let mut visuals = super::STYLE.egui().visuals;
+        visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;
+        platform.context().set_visuals(visuals);
+
         terminal.show(&platform.context(), |ui| {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 super::terminal(ui, platform, ctx);
             })
         });
+
+        // re-enable on-hover highlighting
+        let visuals = super::STYLE.egui().visuals;
+        platform.context().set_visuals(visuals);
 
         // draw the primary panel
         egui::CentralPanel::default()
@@ -317,9 +311,7 @@ pub fn ask_for_binary(ctx: &mut RenderContext) {
             ctx.disassembling_thread = None;
         }
 
-        let show_donut = Arc::clone(&ctx.show_donut);
-        ctx.dissasembly = None;
-        ctx.disassembling_thread = Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
+        ctx.start_disassembling(path);
     }
 }
 

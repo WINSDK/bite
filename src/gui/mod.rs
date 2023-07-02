@@ -87,7 +87,18 @@ pub struct RenderContext {
     #[cfg(target_family = "windows")]
     unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 
-    terminal_prompt: String,
+    pub terminal_prompt: String,
+}
+
+impl RenderContext {
+    pub fn start_disassembling(&mut self, path: impl AsRef<std::path::Path> + 'static + Send) {
+        let show_donut = Arc::clone(&self.show_donut);
+
+        self.dissasembly = None;
+        self.disassembling_thread = Some(std::thread::spawn(move || {
+            Disassembly::new(path, show_donut)
+        }));
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -381,11 +392,7 @@ pub fn init() -> Result<(), Error> {
     };
 
     if let Some(ref path) = crate::ARGS.path {
-        let show_donut = Arc::clone(&ctx.show_donut);
-        ctx.dissasembly = None;
-        ctx.disassembling_thread = Some(std::thread::spawn(move || {
-            Disassembly::new(path, show_donut)
-        }));
+        ctx.start_disassembling(path);
     }
 
     let start_time = Instant::now();
@@ -411,12 +418,7 @@ pub fn init() -> Result<(), Error> {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(size) => backend.resize(size),
                 WindowEvent::CloseRequested => *control = ControlFlow::Exit,
-                WindowEvent::DroppedFile(path) => {
-                    let show_donut = Arc::clone(&ctx.show_donut);
-                    ctx.dissasembly = None;
-                    ctx.disassembling_thread =
-                        Some(std::thread::spawn(|| Disassembly::new(path, show_donut)));
-                }
+                WindowEvent::DroppedFile(path) => ctx.start_disassembling(path),
                 _ => {}
             },
             Event::MainEventsCleared => handle_post_render(&mut ctx),

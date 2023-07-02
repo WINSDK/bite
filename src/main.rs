@@ -9,6 +9,7 @@ compile_error!("Bite can only be build for windows, macos and linux.");
 mod args;
 mod disassembly;
 mod gui;
+mod commands;
 mod macros;
 
 use once_cell::sync::Lazy;
