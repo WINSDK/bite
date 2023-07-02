@@ -25,6 +25,7 @@ decoder = { path = "./decoder" }
 disassembler = { path = "./disassembler" }
 tokenizing = { path = "./tokenizing" }
 symbols = { path = "./symbols" }
+dirs = "5"
 
 [profile.release]
 strip = true
