@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::gui::RenderContext;
 
-const CMDS: &[&str] = &["open", "pwd", "cd"];
+const CMDS: &[&str] = &["open", "pwd", "cd", "quit"];
 
 fn possible_command(unknown: &str) -> Option<&str> {
     let mut distance = u32::MAX;
@@ -80,25 +80,24 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
         }
 
         if cmd == "cd" {
-            if let Some(path) = arg {
-                let path = expand_homedir(path);
+            let path = expand_homedir(arg.unwrap_or("~"));
 
-                if let Err(err) = std::env::set_current_dir(path) {
-                    ctx.terminal_prompt
-                        .push_str(&format!("Failed to change directory: '{err}'.\n"));
-                    continue;
-                }
-                print_cwd(ctx);
+            if let Err(err) = std::env::set_current_dir(path) {
+                ctx.terminal_prompt.push_str(&format!("Failed to change directory: '{err}'.\n"));
                 continue;
             }
 
-            ctx.terminal_prompt.push_str(&format!("Command 'cd' requires a path.\n"));
+            print_cwd(ctx);
             continue;
         }
 
         if cmd == "pwd" {
             print_cwd(ctx);
             continue;
+        }
+
+        if cmd == "quit" || cmd == "q" {
+            std::process::exit(0);
         }
 
         match possible_command(cmd) {

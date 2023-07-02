@@ -62,9 +62,9 @@ pub struct Platform {
 
     dragging: bool,
     winit: winit::event_loop::EventLoopProxy<CustomEvent>,
-    terminal_input: String,
-    commands_history: Vec<String>,
     commands: Vec<String>,
+    commands_unprocessed: usize,
+    command_position: usize,
 }
 
 impl Platform {
@@ -115,9 +115,9 @@ impl Platform {
             next_device_index: 1,
             dragging: false,
             winit: descriptor.winit,
-            terminal_input: String::new(),
-            commands: Vec::new(),
-            commands_history: Vec::new(),
+            commands: vec![String::new()],
+            commands_unprocessed: 0,
+            command_position: 0,
         }
     }
 
@@ -353,34 +353,30 @@ impl Platform {
     }
 
     pub fn terminal_input(&self) -> &str {
-        &self.terminal_input
-    }
-
-    pub fn command_history(&mut self) -> &[String] {
-        &self.commands_history
+        &self.commands[self.command_position]
     }
 
     /// Consumes terminal commands recorded since last frame.
     pub fn commands(&mut self) -> &[String] {
-        let cmds = std::mem::take(&mut self.commands);
-        let ncmds = cmds.len();
-
-        self.commands_history.extend(cmds);
-        &self.commands_history[self.commands_history.len() - ncmds..]
+        let ncmds = self.commands_unprocessed;
+        self.commands_unprocessed = 0;
+        &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
     }
 
     /// Process all character having been entered.
     fn record_terminal_input(&mut self) {
         for event in self.raw_input.events.iter() {
             match event {
-                egui::Event::Text(received) => self.terminal_input += &received,
+                egui::Event::Text(received) => {
+                    self.commands[self.command_position] += &received;
+                }
                 egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
                 } => {
-                    self.terminal_input.pop();
+                    self.commands[self.command_position].pop();
                 }
                 egui::Event::Key {
                     key: egui::Key::Enter,
@@ -388,26 +384,46 @@ impl Platform {
                     modifiers: egui::Modifiers::NONE,
                     ..
                 } => {
-                    self.commands.push(self.terminal_input.clone());
-                    self.terminal_input.clear();
+                    // if we're using a command previously used, replace the top command
+                    // with the currently selected one
+                    if self.command_position != self.commands.len() - 1 {
+                        let top = self.commands.len() - 1;
+                        self.commands[top] = self.commands[self.command_position].clone();
+                    }
+
+                    self.commands.push(String::new());
+                    self.commands_unprocessed += 1;
+                    self.command_position = self.commands.len() - 1;
                 }
                 egui::Event::Key {
                     key: egui::Key::Escape,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => {
-                    self.commands.push(self.terminal_input.clone());
-                    self.terminal_input.clear();
-                }
+                } => self.commands[self.command_position].clear(),
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
                     modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
+                } => self.commands[self.command_position].clear(),
+                egui::Event::Key {
+                    key: egui::Key::ArrowDown,
+                    pressed: true,
+                    ..
                 } => {
-                    self.commands.push(self.terminal_input.clone());
-                    self.terminal_input.clear();
+                    if self.command_position != self.commands.len() - 1 {
+                        self.command_position += 1;
+                   }
+                }
+                egui::Event::Key {
+                    key: egui::Key::ArrowUp,
+                    pressed: true,
+                    ..
+                } => {
+                    if self.command_position != 0 {
+                        self.command_position -= 1;
+                   }
                 }
                 _ => {}
             }
