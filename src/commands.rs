@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::gui::RenderContext;
 
-const CMDS: &[&str] = &["open", "pwd", "cd", "quit"];
+const CMDS: &[&str] = &["exec", "pwd", "cd", "quit"];
 
 fn possible_command(unknown: &str) -> Option<&str> {
     let mut distance = u32::MAX;
@@ -66,7 +66,7 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
 
         let arg = delimited.next();
 
-        if cmd == "open" {
+        if cmd == "exec" || cmd == "e" {
             if let Some(unexpanded) = arg {
                 let path = expand_homedir(unexpanded);
 
@@ -75,7 +75,7 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
                 continue;
             }
 
-            ctx.terminal_prompt.push_str(&format!("Command 'open' requires a path.\n"));
+            ctx.terminal_prompt.push_str(&format!("Command 'exec' requires a path.\n"));
             continue;
         }
 

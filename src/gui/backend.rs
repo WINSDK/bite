@@ -228,7 +228,7 @@ impl Backend {
             });
 
         // disable on-hover highlighting for terminal
-        let mut visuals = super::STYLE.egui().visuals;
+        let mut visuals = super::STYLE.egui().visuals.clone();
         visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
         visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;
         platform.context().set_visuals(visuals);
@@ -240,7 +240,7 @@ impl Backend {
         });
 
         // re-enable on-hover highlighting
-        let visuals = super::STYLE.egui().visuals;
+        let visuals = super::STYLE.egui().visuals.clone();
         platform.context().set_visuals(visuals);
 
         // draw the primary panel

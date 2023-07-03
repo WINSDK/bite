@@ -5,7 +5,8 @@ use std::collections::HashMap;
 
 use copypasta::{ClipboardContext, ClipboardProvider};
 use egui::emath::{pos2, vec2};
-use egui::{Context, FontData, FontDefinitions, FontFamily, Key};
+use egui::text::LayoutJob;
+use egui::{Context, FontData, FontDefinitions, FontFamily, Key, FontId};
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceId, Event, ModifiersState, TouchPhase, VirtualKeyCode, WindowEvent};
 
@@ -65,6 +66,7 @@ pub struct Platform {
     commands: Vec<String>,
     commands_unprocessed: usize,
     command_position: usize,
+    cursor_position: usize,
 }
 
 impl Platform {
@@ -118,6 +120,7 @@ impl Platform {
             commands: vec![String::new()],
             commands_unprocessed: 0,
             command_position: 0,
+            cursor_position: 0,
         }
     }
 
@@ -352,8 +355,38 @@ impl Platform {
         self.raw_input.time = Some(elapsed_seconds);
     }
 
-    pub fn terminal_input(&self) -> &str {
+    fn current_line(&self) -> &str {
         &self.commands[self.command_position]
+    }
+
+    pub fn terminal_input(&self, buffer: &mut LayoutJob, font_id: FontId) {
+        let input = self.current_line();
+
+        let (left, right) = input.split_at(self.cursor_position);
+        let (select, right) = if right.is_empty() {
+            (" ", "")
+        } else {
+            right.split_at(1)
+        };
+
+        buffer.append(left, 0.0, egui::TextFormat {
+            font_id: font_id.clone(),
+            color: super::STYLE.egui().noninteractive().fg_stroke.color,
+            ..Default::default()
+        });
+
+        buffer.append(select, 0.0, egui::TextFormat {
+            font_id: font_id.clone(),
+            color: super::STYLE.egui().noninteractive().bg_fill,
+            background: super::STYLE.egui().noninteractive().fg_stroke.color,
+            ..Default::default()
+        });
+
+        buffer.append(right, 0.0, egui::TextFormat {
+            font_id: font_id.clone(),
+            color: super::STYLE.egui().noninteractive().fg_stroke.color,
+            ..Default::default()
+        });
     }
 
     /// Consumes terminal commands recorded since last frame.
@@ -368,7 +401,8 @@ impl Platform {
         for event in self.raw_input.events.iter() {
             match event {
                 egui::Event::Text(received) => {
-                    self.commands[self.command_position] += &received;
+                    self.commands[self.command_position].insert_str(self.cursor_position, &received);
+                    self.cursor_position += received.len();
                 }
                 egui::Event::Key {
                     key: egui::Key::Backspace,
@@ -376,7 +410,12 @@ impl Platform {
                     modifiers: egui::Modifiers::NONE,
                     ..
                 } => {
-                    self.commands[self.command_position].pop();
+                    if self.cursor_position == 0 {
+                        continue;
+                    }
+
+                    self.commands[self.command_position].remove(self.cursor_position - 1);
+                    self.cursor_position -= 1;
                 }
                 egui::Event::Key {
                     key: egui::Key::Enter,
@@ -393,6 +432,7 @@ impl Platform {
 
                     self.commands.push(String::new());
                     self.commands_unprocessed += 1;
+                    self.cursor_position = 0;
                     self.command_position = self.commands.len() - 1;
                 }
                 egui::Event::Key {
@@ -408,22 +448,56 @@ impl Platform {
                     ..
                 } => self.commands[self.command_position].clear(),
                 egui::Event::Key {
+                    key: egui::Key::A,
+                    pressed: true,
+                    modifiers: egui::Modifiers { ctrl: true, .. },
+                    ..
+                } => self.cursor_position = 0,
+                egui::Event::Key {
+                    key: egui::Key::E,
+                    pressed: true,
+                    modifiers: egui::Modifiers { ctrl: true, .. },
+                    ..
+                } => self.cursor_position = self.current_line().len(),
+                egui::Event::Key {
                     key: egui::Key::ArrowDown,
                     pressed: true,
                     ..
                 } => {
+                    self.cursor_position = self.current_line().len();
                     if self.command_position != self.commands.len() - 1 {
                         self.command_position += 1;
-                   }
+                        self.cursor_position = self.current_line().len();
+                    }
                 }
                 egui::Event::Key {
                     key: egui::Key::ArrowUp,
                     pressed: true,
                     ..
                 } => {
+                    self.cursor_position = self.current_line().len();
                     if self.command_position != 0 {
                         self.command_position -= 1;
-                   }
+                        self.cursor_position = self.current_line().len();
+                    }
+                }
+                egui::Event::Key {
+                    key: egui::Key::ArrowRight,
+                    pressed: true,
+                    ..
+                } => {
+                    if self.cursor_position < self.current_line().len() {
+                        self.cursor_position += 1;
+                    }
+                }
+                egui::Event::Key {
+                    key: egui::Key::ArrowLeft,
+                    pressed: true,
+                    ..
+                } => {
+                    if self.cursor_position != 0 {
+                        self.cursor_position -= 1;
+                    }
                 }
                 _ => {}
             }

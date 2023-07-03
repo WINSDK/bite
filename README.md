@@ -26,10 +26,14 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
 - [x] Interactive terminal
 - [ ] Assembly instruction byte patching
 - [ ] Hex binary viewer
-- [ ] Some form of debugger front-end
-  - [ ] [GDB](https://www.sourceware.org/gdb) bindings + support
-  - [ ] [LLDB](https://lldb.llvm.org) bindings + support
-  - [ ] [WinDbg](https://windbg.org) (maybe?) / own implementation (depends)
+- [ ] Debugging front-end's
+  - [ ] [GDB](https://www.sourceware.org/gdb)
+  - [ ] [LLDB](https://lldb.llvm.org)
+  - [ ] [WinDbg](https://windbg.org)
+- [ ] Debugging back-end
+  - [ ] Initial MacOS support
+  - [ ] Initial Windows support
+  - [ ] Initial Linux support
 - [x] X86-64 support
 - [ ] AArch64/AArch32 support
 - [x] Riscv64gc/Riscv32gc support

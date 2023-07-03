@@ -141,8 +141,7 @@ impl Buffers {
         let row_height = ui.text_style_height(&text_style);
         let total_rows = dissasembly.proc.instruction_count();
         let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
-
-        let font_id = text_style.resolve(&STYLE.egui());
+        let font_id = text_style.resolve(STYLE.egui());
 
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
             if row_range != self.cached_diss_range {
@@ -311,7 +310,7 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
     let tab_count = ctx.panels.num_tabs();
 
     egui_dock::DockArea::new(&mut ctx.panels)
-        .style(ctx.style.dock())
+        .style(ctx.style.dock().clone())
         .draggable_tabs(tab_count > 1)
         .show_inside(ui, &mut ctx.buffers);
 }
@@ -322,14 +321,26 @@ fn terminal(ui: &mut egui::Ui, platform: &Platform, ctx: &mut RenderContext) {
     let area = egui::ScrollArea::vertical().auto_shrink([false, false]).drag_to_scroll(false);
 
     area.show(ui, |ui| {
-        let mut output = String::new();
+        let mut output = LayoutJob::default();
 
-        output.push_str(&ctx.terminal_prompt);
-        output.push_str("(bite) ");
-        output.push_str(platform.terminal_input());
-        output.push('\u{2588}');
+        let text_style = egui::TextStyle::Body;
+        let font_id = text_style.resolve(STYLE.egui());
 
-        ui.label(egui::RichText::new(output).color(tokenizing::colors::WHITE));
+        output.append(&ctx.terminal_prompt, 0.0, egui::TextFormat {
+            font_id: font_id.clone(),
+            color: STYLE.egui().noninteractive().fg_stroke.color,
+            ..Default::default()
+        });
+
+        output.append("(bite) ", 0.0, egui::TextFormat {
+            font_id: font_id.clone(),
+            color: STYLE.egui().noninteractive().fg_stroke.color,
+            ..Default::default()
+        });
+
+        platform.terminal_input(&mut output, font_id);
+
+        ui.label(output);
     });
 
     ui.style_mut().wrap = Some(false);
@@ -359,7 +370,7 @@ pub fn init() -> Result<(), Error> {
         physical_width: 580,
         physical_height: 300,
         scale_factor: window.scale_factor() as f32,
-        style: STYLE.egui(),
+        style: STYLE.egui().clone(),
         winit: event_loop.create_proxy(),
     });
 
