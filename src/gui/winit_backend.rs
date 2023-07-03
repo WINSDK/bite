@@ -427,7 +427,7 @@ impl Platform {
                     // with the currently selected one
                     if self.command_position != self.commands.len() - 1 {
                         let top = self.commands.len() - 1;
-                        self.commands[top] = self.commands[self.command_position].clone();
+                        self.commands[top] = self.current_line().to_string();
                     }
 
                     self.commands.push(String::new());
@@ -464,10 +464,14 @@ impl Platform {
                     pressed: true,
                     ..
                 } => {
-                    self.cursor_position = self.current_line().len();
-                    if self.command_position != self.commands.len() - 1 {
+                    // search through newer commands, finding one that isn't empty
+                    while self.command_position != self.commands.len() - 1 {
                         self.command_position += 1;
                         self.cursor_position = self.current_line().len();
+
+                        if !self.current_line().is_empty() {
+                            break;
+                        }
                     }
                 }
                 egui::Event::Key {
@@ -475,10 +479,14 @@ impl Platform {
                     pressed: true,
                     ..
                 } => {
-                    self.cursor_position = self.current_line().len();
-                    if self.command_position != 0 {
+                    // search through older commands, finding one that isn't empty
+                    while self.command_position != 0 {
                         self.command_position -= 1;
                         self.cursor_position = self.current_line().len();
+
+                        if !self.current_line().is_empty() {
+                            break;
+                        }
                     }
                 }
                 egui::Event::Key {
