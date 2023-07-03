@@ -246,11 +246,10 @@ impl Backend {
         // draw the primary panel
         egui::CentralPanel::default()
             .frame({
-                egui::Frame::default()
-                    .inner_margin(egui::Margin {
-                        top: ctx.style.separator_width,
-                        ..Default::default()
-                    })
+                egui::Frame::default().inner_margin(egui::Margin {
+                    top: ctx.style.separator_width,
+                    ..Default::default()
+                })
             })
             .show(&platform.context(), |ui| {
                 super::tabbed_panel(ui, ctx);

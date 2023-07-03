@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use copypasta::{ClipboardContext, ClipboardProvider};
 use egui::emath::{pos2, vec2};
 use egui::text::LayoutJob;
-use egui::{Context, FontData, FontDefinitions, FontFamily, Key, FontId};
+use egui::{Context, FontData, FontDefinitions, FontFamily, FontId, Key};
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceId, Event, ModifiersState, TouchPhase, VirtualKeyCode, WindowEvent};
 
@@ -369,24 +369,36 @@ impl Platform {
             right.split_at(1)
         };
 
-        buffer.append(left, 0.0, egui::TextFormat {
-            font_id: font_id.clone(),
-            color: super::STYLE.egui().noninteractive().fg_stroke.color,
-            ..Default::default()
-        });
+        buffer.append(
+            left,
+            0.0,
+            egui::TextFormat {
+                font_id: font_id.clone(),
+                color: super::STYLE.egui().noninteractive().fg_stroke.color,
+                ..Default::default()
+            },
+        );
 
-        buffer.append(select, 0.0, egui::TextFormat {
-            font_id: font_id.clone(),
-            color: super::STYLE.egui().noninteractive().bg_fill,
-            background: super::STYLE.egui().noninteractive().fg_stroke.color,
-            ..Default::default()
-        });
+        buffer.append(
+            select,
+            0.0,
+            egui::TextFormat {
+                font_id: font_id.clone(),
+                color: super::STYLE.egui().noninteractive().bg_fill,
+                background: super::STYLE.egui().noninteractive().fg_stroke.color,
+                ..Default::default()
+            },
+        );
 
-        buffer.append(right, 0.0, egui::TextFormat {
-            font_id: font_id.clone(),
-            color: super::STYLE.egui().noninteractive().fg_stroke.color,
-            ..Default::default()
-        });
+        buffer.append(
+            right,
+            0.0,
+            egui::TextFormat {
+                font_id: font_id.clone(),
+                color: super::STYLE.egui().noninteractive().fg_stroke.color,
+                ..Default::default()
+            },
+        );
     }
 
     /// Consumes terminal commands recorded since last frame.
@@ -401,7 +413,8 @@ impl Platform {
         for event in self.raw_input.events.iter() {
             match event {
                 egui::Event::Text(received) => {
-                    self.commands[self.command_position].insert_str(self.cursor_position, &received);
+                    self.commands[self.command_position]
+                        .insert_str(self.cursor_position, &received);
                     self.cursor_position += received.len();
                 }
                 egui::Event::Key {

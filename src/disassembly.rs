@@ -5,35 +5,43 @@ use tokenizing::{colors, ColorScheme, Colors, Token};
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::fmt;
 use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-#[derive(Debug)]
 pub enum DecodeError {
-    /// Unexpected read of binary failed.
-    ReadFailed(std::io::Error),
-
-    /// Failed to find a section with the given entrypoint.
-    NoValidSections,
-
-    /// A given object is likely a dynamic library or relocatable.
+    IO(std::io::Error),
     NotAnExecutable,
-
-    /// Failed to decompress a given section section.
     DecompressionFailed(object::Error),
-
-    /// Failed to parse object.
     IncompleteObject(object::Error),
-
-    /// Failed to parse import table.
     IncompleteImportTable(object::Error),
-
-    /// Failed to parse symbols table.
     IncompleteSymbolTable(pdb::Error),
-
-    /// Decoder support for this platform doesn't yet exist.
     UnknownArchitecture(object::Architecture),
+}
+
+impl fmt::Debug for DecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IO(err) => f.write_fmt(format_args!("{err}.")),
+            Self::NotAnExecutable => f.write_str("A given object is not an executable."),
+            Self::DecompressionFailed(..) => {
+                f.write_str("Failed to decompress an object's section.")
+            }
+            Self::IncompleteObject(err) => {
+                f.write_fmt(format_args!("Failed to parse an object: '{err}'."))
+            }
+            Self::IncompleteImportTable(err) => {
+                f.write_fmt(format_args!("Failed to parse import table: '{err}'."))
+            }
+            Self::IncompleteSymbolTable(err) => {
+                f.write_fmt(format_args!("Failed to parse symbol table: '{err}'."))
+            }
+            Self::UnknownArchitecture(arch) => {
+                f.write_fmt(format_args!("Unsupported architecture: '{arch:?}'."))
+            }
+        }
+    }
 }
 
 pub struct Disassembly {
@@ -56,19 +64,21 @@ impl Disassembly {
 
         let now = std::time::Instant::now();
 
-        let binary = std::fs::read(&path).map_err(DecodeError::ReadFailed)?;
+        let binary = std::fs::read(&path).map_err(DecodeError::IO)?;
         let obj = object::File::parse(&binary[..]).map_err(DecodeError::IncompleteObject)?;
 
         if obj.entry() == 0 {
             return Err(DecodeError::NotAnExecutable);
         }
 
+        // TODO: refactor disassembly process to not just work on executables
+        //       and handle all text sections of any object
         let entrypoint = obj.entry();
         let section = obj
             .sections()
             .filter(|s| s.kind() == SectionKind::Text)
             .find(|s| (s.address()..s.address() + s.size()).contains(&entrypoint))
-            .ok_or(DecodeError::NoValidSections)?;
+            .unwrap_or_else(|| crate::exit!("All objects have an entrypoint."));
 
         let raw = section
             .uncompressed_data()

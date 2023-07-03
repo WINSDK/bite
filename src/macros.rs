@@ -15,6 +15,9 @@ macro_rules! exit {
         } else {
             std::process::exit(0);
         }
+
+        // return a ! as this macro never returns
+        loop {}
     }};
 
     ($($arg:tt)*) => {{
@@ -37,6 +40,9 @@ macro_rules! exit {
             eprintln!($($arg)*);
             std::process::exit(0);
         }
+
+        // return a ! as this macro never returns
+        loop {}
     }};
 }
 
@@ -66,6 +72,9 @@ macro_rules! error {
             unsafe { std::arch::asm!("int3") }
             std::process::exit(j);
         }
+
+        // return a ! as this macro never returns
+        loop {}
     }};
 
     ($($arg:tt)*) => {{
@@ -92,6 +101,9 @@ macro_rules! error {
             unsafe { std::arch::asm!("int3") }
             std::process::exit(1);
         }
+
+        // return a ! as this macro never returns
+        loop {}
     }};
 }
 
@@ -115,6 +127,9 @@ macro_rules! warning {
         } else {
             eprintln!("Error occurred");
         }
+
+        // return a ! as this macro never returns
+        loop {}
     }};
 
     ($($arg:tt)*) => {{
@@ -135,6 +150,9 @@ macro_rules! warning {
         } else {
             eprintln!($($arg)*);
         }
+
+        // return a ! as this macro never returns
+        loop {}
     }};
 }
 
@@ -149,24 +167,6 @@ macro_rules! assert_exit {
     ($cond:expr, $($arg:tt)+) => {{
         if !($cond) {
             $crate::exit!($($arg)*);
-        }
-    }};
-}
-
-#[macro_export]
-macro_rules! unchecked_println {
-    ($($arg:tt)*) => {{
-        use std::io::Write;
-
-        let mut stdout = std::io::stdout();
-        match stdout.write_fmt(format_args!($($arg)*)) {
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => $crate::exit!(),
-            _ => {}
-        }
-
-        match stdout.write(b"\n") {
-            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => $crate::exit!(),
-            _ => {}
         }
     }};
 }

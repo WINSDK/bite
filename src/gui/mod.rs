@@ -22,6 +22,7 @@ use egui_backend::Pipeline;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -40,34 +41,42 @@ const FUNCS_TITLE: &str = crate::icon!(LIGATURE, " Functions");
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
 
-#[derive(Debug)]
 pub enum Error {
-    /// Failure from wgpu_glyph to draw text.
     DrawText(String),
-
-    /// Failed to create a winit window.
     WindowCreation,
-
-    /// Failed to to create a surface.
     SurfaceCreation(wgpu::CreateSurfaceError),
-
-    /// Failed to find a adapter that supports our surface.
     AdapterRequest,
-
-    /// Failed to find a device that meets our adapter's limits.
     DeviceRequest(wgpu::RequestDeviceError),
-
-    /// A given `egui::TextureId` from the backend was invalid.
     InvalidTextureId(egui::TextureId),
-
-    /// Invalid data given to the png decoder.
     PngDecode,
-
-    /// Unsupported texture format produced by the png decoder.
     PngFormat,
-
-    /// File is not found.
     NotFound(std::path::PathBuf),
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DrawText(msg) => f.write_str(msg),
+            Self::WindowCreation => f.write_str("Failed to create a window."),
+            Self::SurfaceCreation(..) => f.write_str("Failed to create a surface."),
+            Self::AdapterRequest => {
+                f.write_str("Failed to find a adapter that supports our surface.")
+            }
+            Self::DeviceRequest(..) => {
+                f.write_str("Failed to find a device that meets our adapter's limits.")
+            }
+            Self::InvalidTextureId(id) => {
+                f.write_fmt(format_args!("Egui texture id '{id:?}' was invalid."))
+            }
+            Self::PngDecode => f.write_str("Invalid data given to the png decoder."),
+            Self::PngFormat => {
+                f.write_str("Unsupported texture format produced by the png decoder.")
+            }
+            Self::NotFound(path) => {
+                f.write_fmt(format_args!("Failed to find path: '{}'", path.display()))
+            }
+        }
+    }
 }
 
 pub struct RenderContext {
@@ -210,18 +219,16 @@ impl egui_dock::TabViewer for Buffers {
     type Tab = Title;
 
     fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
-        egui::Frame::none()
-            .outer_margin(STYLE.separator_width)
-            .show(ui, |ui| {
-                match self.mapping.get(title) {
-                    Some(TabKind::Source) => {
-                        ui.label("todo");
-                    }
-                    Some(TabKind::Functions) => self.show_functions(ui),
-                    Some(TabKind::Listing) => self.show_listing(ui),
-                    None => return,
-                };
-            });
+        egui::Frame::none().outer_margin(STYLE.separator_width).show(ui, |ui| {
+            match self.mapping.get(title) {
+                Some(TabKind::Source) => {
+                    ui.label("todo");
+                }
+                Some(TabKind::Functions) => self.show_functions(ui),
+                Some(TabKind::Listing) => self.show_listing(ui),
+                None => return,
+            };
+        });
     }
 
     fn title(&mut self, title: &mut Self::Tab) -> egui::WidgetText {
@@ -326,17 +333,25 @@ fn terminal(ui: &mut egui::Ui, platform: &Platform, ctx: &mut RenderContext) {
         let text_style = egui::TextStyle::Body;
         let font_id = text_style.resolve(STYLE.egui());
 
-        output.append(&ctx.terminal_prompt, 0.0, egui::TextFormat {
-            font_id: font_id.clone(),
-            color: STYLE.egui().noninteractive().fg_stroke.color,
-            ..Default::default()
-        });
+        output.append(
+            &ctx.terminal_prompt,
+            0.0,
+            egui::TextFormat {
+                font_id: font_id.clone(),
+                color: STYLE.egui().noninteractive().fg_stroke.color,
+                ..Default::default()
+            },
+        );
 
-        output.append("(bite) ", 0.0, egui::TextFormat {
-            font_id: font_id.clone(),
-            color: STYLE.egui().noninteractive().fg_stroke.color,
-            ..Default::default()
-        });
+        output.append(
+            "(bite) ",
+            0.0,
+            egui::TextFormat {
+                font_id: font_id.clone(),
+                color: STYLE.egui().noninteractive().fg_stroke.color,
+                ..Default::default()
+            },
+        );
 
         platform.terminal_input(&mut output, font_id);
 

@@ -131,19 +131,8 @@ impl Cli {
     }
 
     fn validate_args(&mut self) {
-        if let Some(ref config) = self.config {
-            assert_exit!(config.is_file(), "Path to config {config:?} is invalid.");
-        }
-
         if self.disassemble || self.libs || self.names {
-            let path = self.path.as_ref();
-
-            assert_exit!(path.is_some(), "Missing path to an object.");
-            assert_exit!(
-                path.unwrap().is_file(),
-                "Path to object {:?} is invalid.",
-                path.unwrap()
-            );
+            assert_exit!(self.path.is_some(), "Missing path to an object.");
         }
 
         assert_exit!(

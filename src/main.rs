@@ -7,9 +7,9 @@
 compile_error!("Bite can only be build for windows, macos and linux.");
 
 mod args;
+mod commands;
 mod disassembly;
 mod gui;
-mod commands;
 mod macros;
 
 use once_cell::sync::Lazy;
@@ -17,24 +17,7 @@ use std::fs;
 
 static ARGS: Lazy<args::Cli> = Lazy::new(args::Cli::parse);
 
-fn set_panic_handler() {
-    #[cfg(not(debug_assertions))]
-    std::panic::set_hook(Box::new(|details| {
-        if let Some(msg) = details.payload().downcast_ref::<String>() {
-            exit!("{msg}");
-        }
-
-        if let Some(msg) = details.payload().downcast_ref::<&str>() {
-            exit!("{msg}");
-        }
-
-        exit!("Panic occurred.");
-    }));
-}
-
 fn main() {
-    set_panic_handler();
-
     if ARGS.disassemble {
         return gui::init().unwrap();
     }
