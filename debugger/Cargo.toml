@@ -1,0 +1,10 @@
+[package]
+name = "debugger"
+version = "0.0.0"
+edition = "2021"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.26", features = ["process", "uio", "ptrace"] }
+
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3"
