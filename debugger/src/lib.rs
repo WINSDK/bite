@@ -29,4 +29,16 @@ pub trait Tracee {
 
     /// Remove debugger's hooks from process, killing it in the process.
     fn kill(self);
+
+    /// Read's a segment of memory.
+    ///
+    /// On linux this is currently only supports unprotected memory pages.
+    /// Whilst this is faster than the ptrace alternative, it's more restrictive.
+    fn read_process_memory(&self, base_addr: usize, len: usize) -> Result<Vec<u8>, Error>;
+
+    /// Writes to a segment of memory.
+    ///
+    /// On linux this is currently only supports unprotected memory pages.
+    /// Whilst this is faster than the ptrace alternative, it's more restrictive.
+    fn write_process_memory(&mut self, base_addr: usize, data: &[u8]) -> Result<(), Error>;
 }
