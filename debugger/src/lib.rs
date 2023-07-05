@@ -1,3 +1,5 @@
+mod collections;
+
 #[cfg(target_os = "linux")]
 mod linux;
 
@@ -35,6 +37,10 @@ pub trait Tracee {
 
     /// Remove debugger's hooks from process, killing it in the process.
     fn kill(self);
+
+    fn pause(&self);
+
+    fn kontinue(&self);
 
     /// Read's a segment of memory.
     ///
