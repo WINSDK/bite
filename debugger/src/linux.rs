@@ -2,10 +2,13 @@ use std::ffi::CString;
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 
+use nix::sys::signal::Signal;
+use nix::sys::wait::WaitStatus;
 use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
 
 use crate::collections::Tree;
+use crate::{Process, Tracee};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pid(nix::unistd::Pid);
@@ -73,9 +76,45 @@ impl Debugger {
 
         ptrace::setoptions(pid.0, options).map_err(Error::Kernel)
     }
+
+    pub fn run_to_end(&mut self) -> Result<(), Error> {
+        loop {
+            let status = nix::sys::wait::waitpid(self.pids.root().0, None).map_err(Error::Kernel)?;
+
+            match dbg!(status) {
+                WaitStatus::Exited(pid, _) => {
+                    self.pids.remove(&Pid(pid));
+                }
+                WaitStatus::Stopped(pid, Signal::SIGTRAP)
+                | WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, _) => {
+                    let state = self.pids.find(&Pid(pid));
+
+                    if *state == State::WaitingForInit {
+                        *state = State::Running;
+                        self.set_options(Pid(pid))?;
+                    }
+                }
+                WaitStatus::PtraceSyscall(pid) => {
+                    let regs = ptrace::getregs(pid).map_err(Error::Kernel)?;
+                    // println!("syscall number: {:#x}", regs.rax);
+                    dbg!(regs);
+                }
+                WaitStatus::Stopped(.., signal) => {
+                    println!("stopped with signal: {signal:?}");
+                }
+                _ => {}
+            }
+
+            if self.pids.is_empty() {
+                return Ok(());
+            }
+
+            self.kontinue();
+        }
+    }
 }
 
-impl super::Process for Debugger {
+impl Process for Debugger {
     fn spawn<P: AsRef<std::path::Path>>(path: P, args: &[&str]) -> Result<Self, Error> {
         let c_path = CString::new(path.as_ref().as_os_str().as_bytes())
             .map_err(|_| Error::InvalidPathName)?;
@@ -131,7 +170,7 @@ impl super::Process for Debugger {
     }
 }
 
-impl super::Tracee for Debugger {
+impl Tracee for Debugger {
     fn detach(self) {
         // ignore the result since detaching can't fail
         let _ = ptrace::detach(self.pids.root().0, None);
@@ -203,46 +242,11 @@ impl super::Tracee for Debugger {
 
 #[cfg(test)]
 mod test {
-    use super::{Pid, State};
-    use crate::{Debugger, Process, Tracee};
-    use nix::sys::signal::Signal;
-    use nix::sys::wait::WaitStatus;
+    use super::*;
 
     #[test]
     fn spawn() {
-        // let mut session = Debugger::spawn("sh", &["-c", "echo 10; sleep 1"]).unwrap();
-        let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
-
-        loop {
-            let status = nix::sys::wait::waitpid(session.pids.root().0, None).unwrap();
-
-            match dbg!(status) {
-                WaitStatus::Exited(pid, _) => {
-                    let state = session.pids.remove(&Pid(pid));
-                }
-                WaitStatus::Stopped(pid, Signal::SIGTRAP)
-                | WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, _) => {
-                    let state = session.pids.find(&Pid(pid));
-
-                    if *state == State::WaitingForInit {
-                        *state = State::Running;
-                        session.set_options(Pid(pid)).unwrap();
-                    }
-
-                    session.kontinue();
-                }
-                WaitStatus::Stopped(pid, signal) => {
-                    println!("stopped with signal: {signal:?}");
-                    session.kontinue();
-                }
-                _ => {}
-            }
-
-            if session.pids.is_empty() {
-                break;
-            }
-
-            session.kontinue();
-        }
+        let mut session = Debugger::spawn("echo", &["10"]).unwrap();
+        session.run_to_end().unwrap();
     }
 }

@@ -43,7 +43,7 @@ impl<K: Ord + Clone, V> Tree<K, V> {
 
     #[allow(dead_code)]
     pub fn push_child(&mut self, parent: &K, key: K, value: V) -> Option<()> {
-        let root = self.root.as_mut().expect("Can't push a child, if there are not parents.");
+        let root = self.root.as_mut().expect("Can't push a child, if there are no parents.");
         let parent = root.find_node(parent)?;
 
         parent.childeren.push(Node::new(key, value));

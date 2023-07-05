@@ -10,13 +10,13 @@ mod macos;
 mod windows;
 
 #[cfg(target_os = "linux")]
-use linux::*;
+pub use linux::*;
 
 #[cfg(target_os = "macos")]
-use macos::*;
+pub use macos::*;
 
 #[cfg(target_os = "windows")]
-use windows::*;
+pub use windows::*;
 
 /// Behaviour related to creating starting a debug session.
 pub trait Process: Tracee
