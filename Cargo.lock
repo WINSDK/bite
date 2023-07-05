@@ -525,6 +525,7 @@ name = "debugger"
 version = "0.0.0"
 dependencies = [
  "nix 0.26.2",
+ "syscalls",
  "winapi",
 ]
 
@@ -2074,6 +2075,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "syscalls"
+version = "0.6.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97feb70b9443edd79ca26f40122d271fa61df4ffb2220965a27711bfe6ceec7c"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

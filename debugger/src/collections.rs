@@ -1,5 +1,3 @@
-use std::ops::Index;
-
 struct Node<K, V> {
     key: K,
     value: V,

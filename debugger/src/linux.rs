@@ -10,6 +10,12 @@ use nix::unistd::{execvp, fork, ForkResult};
 use crate::collections::Tree;
 use crate::{Process, Tracee};
 
+#[cfg(target_arch = "x86_64")]
+type Sysno = syscalls::x86_64::Sysno;
+
+#[cfg(target_arch = "x86")]
+type Sysno = syscalls::x86::Sysno;
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pid(nix::unistd::Pid);
 
@@ -81,7 +87,7 @@ impl Debugger {
         loop {
             let status = nix::sys::wait::waitpid(self.pids.root().0, None).map_err(Error::Kernel)?;
 
-            match dbg!(status) {
+            match status {
                 WaitStatus::Exited(pid, _) => {
                     self.pids.remove(&Pid(pid));
                 }
@@ -96,8 +102,11 @@ impl Debugger {
                 }
                 WaitStatus::PtraceSyscall(pid) => {
                     let regs = ptrace::getregs(pid).map_err(Error::Kernel)?;
-                    // println!("syscall number: {:#x}", regs.rax);
-                    dbg!(regs);
+
+                    // a negative syscall isn't valid, therefore it must be an exit from a syscall
+                    if regs.rax as i64 >= 0 {
+                        println!("{}(..) -> {:x}", Sysno::from(regs.orig_rax as u32), regs.rax);
+                    }
                 }
                 WaitStatus::Stopped(.., signal) => {
                     println!("stopped with signal: {signal:?}");
