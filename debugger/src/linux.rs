@@ -45,7 +45,7 @@ impl super::Process for Debugger {
         }
 
         match unsafe { fork().map_err(Error::Kernel)? } {
-            ForkResult::Parent { child, .. } => Ok(Debugger { pid: Pid(child) }),
+            ForkResult::Parent { child } => Ok(Debugger { pid: Pid(child) }),
             ForkResult::Child => {
                 // disable ASLR
                 personality::set(personality::Persona::ADDR_NO_RANDOMIZE).map_err(Error::Kernel)?;
@@ -80,8 +80,9 @@ impl super::Tracee for Debugger {
     }
 
     fn read_process_memory(&self, base_addr: usize, len: usize) -> Result<Vec<u8>, Error> {
+        // create buffer of that can hold `len` elements
         let mut buf: Vec<u8> = Vec::with_capacity(len);
-        let uninit: &mut [u8] = unsafe { std::mem::transmute(buf.spare_capacity_mut()) };
+        let uninit = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr(), len) };
 
         let local = std::io::IoSliceMut::new(uninit);
         let remote = nix::sys::uio::RemoteIoVec {
@@ -96,6 +97,8 @@ impl super::Tracee for Debugger {
             return Err(Error::IncompleteRead(len, bytes_read));
         }
 
+        // set buffer size to `len` iff `len` number of bytes have been read
+        unsafe { buf.set_len(len) }
         Ok(buf)
     }
 
