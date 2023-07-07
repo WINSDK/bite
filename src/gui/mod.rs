@@ -17,6 +17,7 @@ use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
 use crate::disassembly::Disassembly;
 use backend::Backend;
+use debugger::{Tracee, Debugger};
 use egui::{Button, RichText};
 use egui_backend::Pipeline;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
@@ -40,6 +41,7 @@ const FUNCS_TITLE: &str = crate::icon!(LIGATURE, " Functions");
 
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
+type DebugThread = JoinHandle<Result<Debugger, debugger::Error>>;
 
 pub enum Error {
     DrawText(String),
@@ -96,6 +98,10 @@ pub struct RenderContext {
     #[cfg(target_family = "windows")]
     unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 
+    debugger: Option<debugger::Debugger>,
+    debugger_thread: Option<DebugThread>,
+
+    pub process_path: Option<std::path::PathBuf>,
     pub terminal_prompt: String,
 }
 
@@ -103,10 +109,21 @@ impl RenderContext {
     pub fn start_disassembling(&mut self, path: impl AsRef<std::path::Path> + 'static + Send) {
         let show_donut = Arc::clone(&self.show_donut);
 
+        self.process_path = Some(path.as_ref().to_path_buf());
         self.dissasembly = None;
         self.disassembling_thread = Some(std::thread::spawn(move || {
             Disassembly::new(path, show_donut)
         }));
+    }
+
+    pub fn start_debugging(
+        &mut self,
+        path: impl AsRef<std::path::Path> + 'static + Send,
+        args: &[&str],
+    ) {
+        if let Some(debugger) = std::mem::take(&mut self.debugger) {
+            debugger.kill();
+        }
     }
 }
 
@@ -414,6 +431,9 @@ pub fn init() -> Result<(), Error> {
         unwindowed_size: window.outer_size(),
         #[cfg(target_family = "windows")]
         unwindowed_pos: window.outer_position().unwrap_or_default(),
+        process_path: None,
+        debugger: None,
+        debugger_thread: None,
         terminal_prompt: String::new(),
     };
 

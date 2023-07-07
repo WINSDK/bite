@@ -21,6 +21,7 @@ egui = { version = "0.22.0", features = ["bytemuck"] }
 egui_dock = "0.6.1"
 copypasta = "0.8"
 
+debugger = { path = "./debugger" }
 decoder = { path = "./decoder" }
 disassembler = { path = "./disassembler" }
 tokenizing = { path = "./tokenizing" }

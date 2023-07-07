@@ -215,6 +215,7 @@ dependencies = [
  "ab_glyph",
  "bytemuck",
  "copypasta",
+ "debugger",
  "decoder",
  "dirs",
  "disassembler",

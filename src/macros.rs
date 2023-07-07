@@ -127,9 +127,6 @@ macro_rules! warning {
         } else {
             eprintln!("Error occurred");
         }
-
-        // return a ! as this macro never returns
-        loop {}
     }};
 
     ($($arg:tt)*) => {{
@@ -150,9 +147,6 @@ macro_rules! warning {
         } else {
             eprintln!($($arg)*);
         }
-
-        // return a ! as this macro never returns
-        loop {}
     }};
 }
 

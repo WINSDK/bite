@@ -12,7 +12,7 @@ use crate::{Process, Tracee};
 
 mod trace;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Pid(nix::unistd::Pid);
 
 pub enum Error {
@@ -37,7 +37,7 @@ impl fmt::Debug for Error {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 enum State {
     WaitingForInit,
     Running,
@@ -64,17 +64,17 @@ impl Debugger {
         }
 
         // break on common syscalls
-        // let options = options
-        //     // new thread
-        //     | ptrace::Options::PTRACE_O_TRACECLONE
-        //     // new process
-        //     | ptrace::Options::PTRACE_O_TRACEEXEC
-        //     // exit child
-        //     | ptrace::Options::PTRACE_O_TRACEEXIT
-        //     // new child
-        //     | ptrace::Options::PTRACE_O_TRACEFORK
-        //     // new child in same memory space
-        //     | ptrace::Options::PTRACE_O_TRACEVFORK;
+        let options = options
+            // new thread
+            | ptrace::Options::PTRACE_O_TRACECLONE
+            // new process
+            | ptrace::Options::PTRACE_O_TRACEEXEC
+            // exit child
+            //| ptrace::Options::PTRACE_O_TRACEEXIT
+            // new child
+            | ptrace::Options::PTRACE_O_TRACEFORK
+            // new child in same memory space
+            | ptrace::Options::PTRACE_O_TRACEVFORK;
 
         ptrace::setoptions(pid.0, options).map_err(Error::Kernel)
     }
@@ -85,11 +85,7 @@ impl Debugger {
                 nix::sys::wait::waitpid(self.pids.root().0, None).map_err(Error::Kernel)?;
 
             match status {
-                WaitStatus::Exited(pid, _) => {
-                    self.pids.remove(&Pid(pid));
-                }
-                WaitStatus::Stopped(pid, Signal::SIGTRAP)
-                | WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, _) => {
+                WaitStatus::Stopped(pid, Signal::SIGTRAP) => {
                     let state = self.pids.find(&Pid(pid));
 
                     if *state == State::WaitingForInit {
@@ -107,10 +103,30 @@ impl Debugger {
                         println!("{func}");
                     }
                 }
-                WaitStatus::Stopped(.., signal) => {
-                    println!("stopped with signal: {signal:?}");
+                WaitStatus::PtraceEvent(pid, _, event) => {
+                    use nix::libc::*;
+
+                    // if a new pid was created, store it as the child of it's parent
+                    if let PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK | PTRACE_EVENT_CLONE = event {
+                        let created_pid = ptrace::getevent(pid).map_err(Error::Kernel)?;
+                        let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
+
+                        self.pids.push_child(
+                            &Pid(pid),
+                            Pid(created_pid),
+                            State::WaitingForInit,
+                        );
+                    }
                 }
-                _ => {}
+                WaitStatus::Signaled(pid, signal, ..) => {
+                    println!("stopped by signal: {signal:?}");
+                    self.pids.remove(&Pid(pid));
+                }
+                WaitStatus::Exited(pid, _) => {
+                    println!("process '{pid:?}' exited");
+                    self.pids.remove(&Pid(pid));
+                }
+                _ => unreachable!(),
             }
 
             if self.pids.is_empty() {
@@ -119,6 +135,10 @@ impl Debugger {
 
             self.kontinue();
         }
+    }
+
+    pub fn trace_syscalls(&mut self, tracing: bool) {
+        self.tracing_syscalls = tracing;
     }
 }
 
@@ -145,7 +165,7 @@ impl Process for Debugger {
 
                 Ok(Debugger {
                     pids,
-                    tracing_syscalls: true,
+                    tracing_syscalls: false,
                     remote: false,
                 })
             }
@@ -172,7 +192,7 @@ impl Process for Debugger {
 
         Ok(Debugger {
             pids,
-            tracing_syscalls: true,
+            tracing_syscalls: false,
             remote: true,
         })
     }
@@ -254,7 +274,8 @@ mod test {
 
     #[test]
     fn spawn() {
-        let mut session = Debugger::spawn("echo", &["10"]).unwrap();
+        let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
+        session.trace_syscalls(true);
         session.run_to_end().unwrap();
     }
 }

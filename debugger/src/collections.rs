@@ -1,83 +1,84 @@
-struct Node<K, V> {
-    key: K,
+use std::{collections::HashMap, hash::Hash};
+
+#[derive(Debug)]
+pub struct Node<V> {
     value: V,
-    childeren: Vec<Node<K, V>>,
+    children: Vec<Node<V>>,
 }
 
-impl<K: Ord, V> Node<K, V> {
-    fn new(key: K, value: V) -> Self {
+impl<V> Node<V> {
+    fn new(value: V) -> Self {
         Self {
-            key,
             value,
-            childeren: Vec::new(),
+            children: Vec::new(),
         }
-    }
-
-    fn find_node(&mut self, key: &K) -> Option<&mut Self> {
-        if &self.key == key {
-            return Some(self);
-        }
-
-        self.childeren.iter_mut().find_map(|child| child.find_node(key))
     }
 }
 
-pub struct Tree<K: Ord, V> {
-    root: Option<Node<K, V>>,
-    length: usize,
+impl<V> std::ops::Deref for Node<V> {
+    type Target = V;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
 }
 
-impl<K: Ord + Clone, V> Tree<K, V> {
+impl<V> std::ops::DerefMut for Node<V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+pub struct Tree<K, V> {
+    root: Option<K>,
+    nodes: HashMap<K, Node<V>>,
+}
+
+impl<K: Clone + Hash + Eq, V: Clone> Tree<K, V> {
     pub fn new() -> Self {
         Self {
             root: None,
-            length: 0,
+            nodes: HashMap::new(),
         }
     }
 
     pub fn root(&self) -> K {
-        self.root.as_ref().expect("No root.").key.clone()
+        self.root.as_ref().expect("No root").clone()
     }
 
-    #[allow(dead_code)]
-    pub fn push_child(&mut self, parent: &K, key: K, value: V) -> Option<()> {
-        let root = self.root.as_mut().expect("Can't push a child, if there are no parents.");
-        let parent = root.find_node(parent)?;
+    pub fn push_child(&mut self, parent: &K, key: K, value: V) {
+        let parent = self.nodes.get_mut(parent).expect("Failed to find parent");
 
-        parent.childeren.push(Node::new(key, value));
-        self.length += 1;
-
-        Some(())
+        parent.children.push(Node::new(value.clone()));
+        self.nodes.insert(key, Node::new(value));
     }
 
     pub fn push_root(&mut self, key: K, value: V) {
-        self.root = Some(Node::new(key, value));
-        self.length += 1;
+        self.root = Some(key.clone());
+        self.nodes.insert(key, Node::new(value));
     }
 
     pub fn find(&mut self, key: &K) -> &mut V {
-        let root = self.root.as_mut().expect("Key wasn't found.");
-        root.find_node(key).map(|node| &mut node.value).expect("Key wasn't found.")
+        &mut self.nodes.get_mut(key).expect("Failed a find()").value
     }
 
     pub fn remove(&mut self, key: &K) {
-        let root = self.root.as_mut().expect("Key wasn't found");
-
-        if key == &root.key {
+        if Some(key) == self.root.as_ref() {
             self.root = None;
-            self.length = 0;
-            return;
         }
 
-        root.find_node(key)
-            .expect("Key wasn't found")
-            .childeren
-            .retain(|c| &c.key != key);
-
-        self.length -= 1;
+        self.nodes.remove(key);
     }
 
     pub fn is_empty(&self) -> bool {
-        self.length == 0
+        self.nodes.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.nodes.iter().map(|(key, node)| (key, &node.value))
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        self.nodes.iter_mut().map(|(key, node)| (key, &mut node.value))
     }
 }
