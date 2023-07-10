@@ -453,13 +453,19 @@ impl Platform {
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => self.commands[self.command_position].clear(),
+                } => {
+                    self.cursor_position = 0;
+                    self.commands[self.command_position].clear();
+                }
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
                     modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
-                } => self.commands[self.command_position].clear(),
+                } => {
+                    self.cursor_position = 0;
+                    self.commands[self.command_position].clear();
+                }
                 egui::Event::Key {
                     key: egui::Key::A,
                     pressed: true,

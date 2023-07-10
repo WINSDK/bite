@@ -1,12 +1,12 @@
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 #[derive(Debug)]
-pub struct Node<V> {
+pub struct Node<K, V> {
     value: V,
-    children: Vec<Node<V>>,
+    children: Vec<K>,
 }
 
-impl<V> Node<V> {
+impl<K, V> Node<K, V> {
     fn new(value: V) -> Self {
         Self {
             value,
@@ -15,7 +15,7 @@ impl<V> Node<V> {
     }
 }
 
-impl<V> std::ops::Deref for Node<V> {
+impl<K, V> std::ops::Deref for Node<K, V> {
     type Target = V;
 
     fn deref(&self) -> &Self::Target {
@@ -23,18 +23,19 @@ impl<V> std::ops::Deref for Node<V> {
     }
 }
 
-impl<V> std::ops::DerefMut for Node<V> {
+impl<K, V> std::ops::DerefMut for Node<K, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
 }
 
+#[derive(Debug)]
 pub struct Tree<K, V> {
     root: Option<K>,
-    nodes: HashMap<K, Node<V>>,
+    nodes: HashMap<K, Node<K, V>>,
 }
 
-impl<K: Clone + Hash + Eq, V: Clone> Tree<K, V> {
+impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
     pub fn new() -> Self {
         Self {
             root: None,
@@ -49,7 +50,7 @@ impl<K: Clone + Hash + Eq, V: Clone> Tree<K, V> {
     pub fn push_child(&mut self, parent: &K, key: K, value: V) {
         let parent = self.nodes.get_mut(parent).expect("Failed to find parent");
 
-        parent.children.push(Node::new(value.clone()));
+        parent.children.push(key.clone());
         self.nodes.insert(key, Node::new(value));
     }
 
@@ -74,10 +75,12 @@ impl<K: Clone + Hash + Eq, V: Clone> Tree<K, V> {
         self.nodes.is_empty()
     }
 
+    #[allow(dead_code)]
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.nodes.iter().map(|(key, node)| (key, &node.value))
     }
 
+    #[allow(dead_code)]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
         self.nodes.iter_mut().map(|(key, node)| (key, &mut node.value))
     }
