@@ -10,6 +10,7 @@ use nix::unistd::{execvp, fork, ForkResult};
 use crate::collections::Tree;
 use crate::{Process, Tracee};
 
+mod ioctl;
 mod trace;
 
 pub type Pid = nix::unistd::Pid;
@@ -313,7 +314,7 @@ mod test {
     #[test]
     fn spawn() {
         // let mut session = Debugger::spawn("sh", &["-c", "echo 10"]).unwrap();
-        let mut session = Debugger::spawn("./a.out", &[]).unwrap();
+        let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
         // let mut session = Debugger::spawn("./a.out", &[]).unwrap();
         session.trace_syscalls(true);
         session.run_to_end().unwrap();

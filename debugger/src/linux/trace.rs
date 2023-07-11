@@ -5,7 +5,7 @@ use nix::sys::{signal, stat};
 use std::ffi::{c_int, CString};
 use std::fmt;
 use std::mem::size_of;
-use std::os::fd::{AsRawFd, AsFd};
+use std::os::fd::{AsFd, AsRawFd};
 use std::ptr;
 
 #[cfg(target_arch = "x86_64")]
@@ -291,6 +291,27 @@ fn format_stat(session: &mut Debugger, addr: u64) -> String {
     }
 }
 
+fn format_ioctl(request: u64) -> &'static str {
+    // don't ask me why we only take the first 15 bits, I don't know
+    //
+    // FIXME: figure out what's happening here
+    let request = request as u32 & 0b111111111111111;
+
+    if cfg!(target_arch = "x86_64") {
+        let search = super::ioctl::ARCH_CODES.iter().find(|(_, code)| code == &request);
+        if let Some((name, _)) = search {
+            return name;
+        }
+    }
+
+    let search = super::ioctl::GENERIC_CODES.iter().find(|(_, code)| code == &request);
+    if let Some((name, _)) = search {
+        return name;
+    }
+
+    "???"
+}
+
 impl super::Debugger {
     pub fn display(&mut self, syscall: Sysno, args: [u64; 6]) -> String {
         let mut func = String::new();
@@ -382,9 +403,8 @@ impl super::Debugger {
             Sysno::rt_sigreturn => print_delimited![],
             Sysno::ioctl => print_delimited![
                 func,
-                args[0].to_string(),
-                args[1].to_string(),
-                // TODO: print all the ioctl call kinds
+                format_fd(args[0]),
+                format_ioctl(args[1]),
                 format_ptr(args[2])
             ],
             Sysno::pread64 => print_delimited![
