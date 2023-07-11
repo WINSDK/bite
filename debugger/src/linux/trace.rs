@@ -1,9 +1,11 @@
 use crate::{Debugger, Tracee};
 use nix::libc;
 use nix::sys::{signal, stat};
+
 use std::ffi::{c_int, CString};
 use std::fmt;
-use std::os::fd::AsRawFd;
+use std::mem::size_of;
+use std::os::fd::{AsRawFd, AsFd};
 use std::ptr;
 
 #[cfg(target_arch = "x86_64")]
@@ -36,23 +38,35 @@ macro_rules! format_flags {
 }
 
 #[repr(transparent)]
-struct PollFd(libc::pollfd);
+struct PollFd(nix::poll::PollFd<'static>);
 
 impl fmt::Debug for PollFd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let pollfd = nix::poll::PollFd::new(
-            self.0.fd,
-            nix::poll::PollFlags::from_bits(self.0.events).unwrap(),
-        );
+        let fd = format_fd(self.0.as_fd().as_raw_fd() as u64);
 
-        f.write_fmt(format_args!(
-            "{{fd: {}, ",
-            format_fd(pollfd.as_raw_fd() as u64)
-        ))?;
+        f.write_fmt(format_args!("{{fd: {fd}, ",))?;
+        f.write_fmt(format_args!("events: {:?}}}", self.0.events()))
+    }
+}
 
-        f.write_fmt(format_args!("events: {:?}}}", pollfd.events()))?;
+#[repr(transparent)]
+struct IoVec(libc::iovec);
 
-        Ok(())
+impl fmt::Debug for IoVec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let base = format_ptr(self.0.iov_base as u64);
+
+        f.write_fmt(format_args!("{{base: {base}, ",))?;
+        f.write_fmt(format_args!("len: {:?}}}", self.0.iov_len))
+    }
+}
+
+#[repr(transparent)]
+struct Fd(c_int);
+
+impl fmt::Debug for Fd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&format_fd(self.0 as u64))
     }
 }
 
@@ -70,6 +84,22 @@ fn format_fd(fd: u64) -> String {
         1 => "stdout".to_string(),
         2 => "stderr".to_string(),
         n => n.to_string(),
+    }
+}
+
+fn format_fdset(session: &mut Debugger, addr: u64) -> String {
+    if addr == 0 {
+        return "NULL".to_string();
+    }
+
+    match session.read_process_memory(addr as usize, size_of::<nix::sys::select::FdSet>()) {
+        Ok(data) => {
+            let set = unsafe { ptr::read(data.as_ptr() as *const nix::sys::select::FdSet) };
+            let set: Vec<_> = set.fds(None).map(|fd| Fd(fd.as_raw_fd())).collect();
+
+            format!("{set:?}")
+        }
+        Err(..) => format!("\"???\""),
     }
 }
 
@@ -101,7 +131,7 @@ fn format_array<T: std::fmt::Debug>(session: &mut Debugger, addr: u64, len: u64)
         return "NULL".to_string();
     }
 
-    let width = std::mem::size_of::<T>();
+    let width = size_of::<T>();
     let end_of_array = addr + len * width as u64;
     let mut items = Vec::new();
     for addr in (addr..end_of_array).step_by(width).take(20) {
@@ -120,7 +150,7 @@ fn format_str(session: &mut Debugger, addr: u64, len: u64) -> String {
         return "NULL".to_string();
     }
 
-    let bytes_to_read = std::cmp::min(len as usize, 60 * std::mem::size_of::<char>());
+    let bytes_to_read = std::cmp::min(len as usize, 60 * size_of::<char>());
     match session.read_process_memory(addr as usize, bytes_to_read) {
         Ok(data) => {
             let data = String::from_utf8_lossy(&data).into_owned();
@@ -143,7 +173,7 @@ fn format_c_str(session: &mut Debugger, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    let bytes_to_read = 60 * std::mem::size_of::<char>();
+    let bytes_to_read = 60 * size_of::<char>();
     match session.read_process_memory(addr as usize, bytes_to_read) {
         Ok(mut data) => {
             // add a null terminator if one wasn't found in the first 40 bytes
@@ -175,17 +205,27 @@ fn format_c_str(session: &mut Debugger, addr: u64) -> String {
     }
 }
 
+// FIXME: i don't think this is being interpreted correctly
 fn format_sigset(session: &mut Debugger, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, std::mem::size_of::<signal::SigSet>()) {
+    match session.read_process_memory(addr as usize, size_of::<signal::SigSet>()) {
         Ok(data) => {
             let set = unsafe { ptr::read(data.as_ptr() as *const signal::SigSet) };
+
+            if set == signal::SigSet::all() {
+                return format!("~[]");
+            }
+
             let set: Vec<signal::Signal> = set.iter().collect();
 
-            format!("{set:?}")
+            // if all 31 signals are set, it must be an empty set mask
+            match set.len() {
+                31 => format!("~[]"),
+                _ => format!("{set:?}"),
+            }
         }
         Err(..) => format!("???"),
     }
@@ -196,7 +236,7 @@ fn format_sigaction(session: &mut Debugger, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, std::mem::size_of::<signal::SigAction>()) {
+    match session.read_process_memory(addr as usize, size_of::<signal::SigAction>()) {
         Ok(data) => {
             let action = unsafe { ptr::read(data.as_ptr() as *const signal::SigAction) };
             let handler = action.handler();
@@ -239,7 +279,7 @@ fn format_stat(session: &mut Debugger, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, std::mem::size_of::<stat::FileStat>()) {
+    match session.read_process_memory(addr as usize, size_of::<stat::FileStat>()) {
         Ok(data) => {
             let stats = unsafe { ptr::read(data.as_ptr() as *const stat::FileStat) };
             let mode = stats.st_mode;
@@ -252,13 +292,11 @@ fn format_stat(session: &mut Debugger, addr: u64) -> String {
 }
 
 impl super::Debugger {
-    pub fn display(&mut self, syscall: Sysno, regs: libc::user_regs_struct) -> String {
+    pub fn display(&mut self, syscall: Sysno, args: [u64; 6]) -> String {
         let mut func = String::new();
 
         func += &syscall.to_string();
         func += "(";
-
-        let args = [regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9];
 
         match syscall {
             Sysno::read => print_delimited![
@@ -287,8 +325,8 @@ impl super::Debugger {
             Sysno::poll => print_delimited![
                 func,
                 format_array::<PollFd>(self, args[0], args[1]),
-                (args[1] as i32).to_string(),
-                (args[2] as i32).to_string()
+                (args[1] as c_int).to_string(),
+                (args[2] as c_int).to_string()
             ],
             Sysno::lseek => print_delimited![
                 func,
@@ -324,7 +362,7 @@ impl super::Debugger {
             Sysno::brk => print_delimited![func, format_ptr(args[0])],
             Sysno::rt_sigaction => print_delimited![
                 func,
-                signal::Signal::try_from(args[0] as i32)
+                signal::Signal::try_from(args[0] as c_int)
                     .map(|s| s.as_str())
                     .unwrap_or("(unknown)"),
                 format_sigaction(self, args[1]),
@@ -341,6 +379,101 @@ impl super::Debugger {
                 format_sigset(self, args[1]),
                 format_sigset(self, args[2])
             ],
+            Sysno::rt_sigreturn => print_delimited![],
+            Sysno::ioctl => print_delimited![
+                func,
+                args[0].to_string(),
+                args[1].to_string(),
+                // TODO: print all the ioctl call kinds
+                format_ptr(args[2])
+            ],
+            Sysno::pread64 => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_str(self, args[1], args[2]),
+                args[2].to_string(),
+                (args[3] as i64).to_string()
+            ],
+            Sysno::pwrite64 => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_str(self, args[1], args[2]),
+                args[2].to_string(),
+                (args[3] as i64).to_string()
+            ],
+            Sysno::readv => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_array::<IoVec>(self, args[1], args[2]),
+                args[2].to_string()
+            ],
+            Sysno::writev => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_array::<IoVec>(self, args[1], args[2]),
+                args[2].to_string()
+            ],
+            Sysno::access => print_delimited![
+                func,
+                format_c_str(self, args[0]),
+                format_flags!(args[1] => nix::unistd::AccessFlags)
+            ],
+            Sysno::pipe => print_delimited![func, format_array::<Fd>(self, args[0], 2)],
+            Sysno::pipe2 => print_delimited![
+                func,
+                format_array::<Fd>(self, args[0], 2),
+                format_flags!(args[1] => nix::fcntl::OFlag)
+            ],
+            Sysno::select => print_delimited![
+                func,
+                args[0].to_string(),
+                format_fdset(self, args[1]),
+                format_fdset(self, args[2]),
+                format_fdset(self, args[3]),
+                format_ptr(args[4])
+            ],
+            Sysno::pselect6 => print_delimited![
+                func,
+                args[0].to_string(),
+                format_fdset(self, args[1]),
+                format_fdset(self, args[2]),
+                format_fdset(self, args[3]),
+                format_ptr(args[4]),
+                format_sigset(self, args[5])
+            ],
+            Sysno::sched_yield => print_delimited![],
+            Sysno::mremap => {
+                if args[3] as i32 & libc::MREMAP_FIXED == libc::MREMAP_FIXED {
+                    print_delimited![
+                        func,
+                        format_ptr(args[0]),
+                        args[1].to_string(),
+                        args[2].to_string(),
+                        format_flags!(args[3] => nix::sys::mman::MRemapFlags),
+                        format_ptr(args[4])
+                    ]
+                } else {
+                    print_delimited![
+                        func,
+                        format_ptr(args[0]),
+                        args[1].to_string(),
+                        args[2].to_string(),
+                        format_flags!(args[3] => nix::sys::mman::MRemapFlags)
+                    ]
+                }
+            }
+            Sysno::msync => print_delimited![
+                func,
+                format_ptr(args[0]),
+                args[1].to_string(),
+                format_flags!(args[2] => nix::sys::mman::MsFlags)
+            ],
+            Sysno::mincore => print_delimited![
+                func,
+                format_ptr(args[0]),
+                args[1].to_string(),
+                format_bytes_u8(self, args[2], args[1])
+            ],
             Sysno::openat => print_delimited![
                 func,
                 if args[0] == 4294967196 {
@@ -350,18 +483,6 @@ impl super::Debugger {
                 },
                 format_c_str(self, args[1]),
                 format_flags!(args[2] => nix::fcntl::OFlag)
-            ],
-            Sysno::access => print_delimited![
-                func,
-                format_c_str(self, args[0]),
-                format_flags!(args[1] => nix::unistd::AccessFlags)
-            ],
-            Sysno::pread64 => print_delimited![
-                func,
-                args[0].to_string(),
-                format_str(self, args[1], args[2]),
-                args[2].to_string(),
-                (args[3] as i64).to_string()
             ],
             Sysno::set_tid_address => print_delimited![func, format_ptr(args[0])],
             Sysno::set_robust_list => {
@@ -389,13 +510,6 @@ impl super::Debugger {
                 format_c_str(self, args[1]),
                 format_stat(self, args[2]),
                 format_flags!(args[3] => nix::fcntl::AtFlags)
-            ],
-            Sysno::ioctl => print_delimited![
-                func,
-                args[0].to_string(),
-                args[1].to_string(),
-                // TODO: print all the ioctl call kinds
-                format_ptr(args[2])
             ],
             Sysno::futex => print_delimited![
                 func,
@@ -471,7 +585,7 @@ impl super::Debugger {
             _ => func += "..",
         }
 
-        func += ") -> ";
+        func += ")";
         func
     }
 }

@@ -4,7 +4,8 @@ version = "0.0.0"
 edition = "2021"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nix = { version = "0.26", features = ["process", "uio", "ptrace"] }
+# fork that includes `getsyscallinfo`
+nix = { git = "https://github.com/mbyzhang/nix" }
 
 [target.'cfg(all(target_os="linux", target_arch="x86_64"))'.dependencies]
 syscalls = { version = "0.6", features = ["x86_64"], default-features = false }

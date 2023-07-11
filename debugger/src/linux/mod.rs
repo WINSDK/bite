@@ -79,8 +79,6 @@ impl Debugger {
     }
 
     pub fn run_to_end(&mut self) -> Result<(), Error> {
-        let mut is_syscall_entry = true;
-
         loop {
             let status = nix::sys::wait::wait().map_err(Error::Kernel)?;
 
@@ -115,7 +113,7 @@ impl Debugger {
                     | Signal::SIGPIPE
                     | Signal::SIGTERM),
                 ) => {
-                    println!("exited by signal: '{signal:?}'");
+                    println!("\nexited by signal: '{signal:?}'");
                     self.pids.remove(&pid);
                 }
                 WaitStatus::Stopped(_, signal) => {
@@ -123,48 +121,37 @@ impl Debugger {
                 }
                 WaitStatus::Signaled(pid, signal, ..) => {
                     self.pids.remove(&pid);
-
-                    // print trailing return value from unhandled syscall exit
-                    if self.tracing_syscalls && !is_syscall_entry && self.pids.is_empty() {
-                        println!("!");
-                    }
-
-                    println!("exited by signal: {signal:?}");
+                    println!("\nexited by signal: {signal:?}");
                 }
                 WaitStatus::Exited(pid, _) => {
                     self.pids.remove(&pid);
-
-                    // print trailing return value from unhandled syscall exit
-                    if self.tracing_syscalls && !is_syscall_entry && self.pids.is_empty() {
-                        println!("!");
-                    }
-
-                    println!("process '{pid:?}' exited");
+                    println!("\nprocess '{pid:?}' exited");
                 }
                 WaitStatus::PtraceSyscall(pid) => {
-                    let regs = ptrace::getregs(pid).map_err(Error::Kernel)?;
+                    let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
 
-                    if is_syscall_entry {
-                        let func = self.display(trace::Sysno::from(regs.orig_rax as u32), regs);
-                        print!("{func}");
+                    match syscall.op {
+                        ptrace::SyscallInfoOp::Entry { nr, args } => {
+                            let func = self.display(trace::Sysno::from(nr as i32), args);
+                            print!("{func}");
+                        },
+                        ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
+                            let mut ret = String::new();
 
-                    } else {
-                        let mut ret = String::new();
+                            ret += " -> ";
+                            ret += &ret_val.to_string();
 
-                        ret += &format!("{}", regs.rax as i64);
+                            if is_error == 1 {
+                                let err = nix::Error::from_i32(-ret_val as i32);
 
-                        if regs.rax as i64 == -1 {
-                            ret += " ";
-                            ret += &nix::Error::last().to_string();
-                            ret += "(";
-                            ret += nix::Error::last().desc();
-                            ret += ")";
+                                ret += " ";
+                                ret += &err.to_string();
+                            }
+
+                            println!("{ret}");
                         }
-
-                        println!("{ret}");
+                        _ => {},
                     }
-
-                    is_syscall_entry = !is_syscall_entry;
                 }
                 WaitStatus::PtraceEvent(pid, _, event) => {
                     use nix::libc::*;
@@ -326,7 +313,7 @@ mod test {
     #[test]
     fn spawn() {
         // let mut session = Debugger::spawn("sh", &["-c", "echo 10"]).unwrap();
-        let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
+        let mut session = Debugger::spawn("./a.out", &[]).unwrap();
         // let mut session = Debugger::spawn("./a.out", &[]).unwrap();
         session.trace_syscalls(true);
         session.run_to_end().unwrap();
