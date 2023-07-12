@@ -1,5 +1,7 @@
 use crate::{Debugger, Tracee};
+
 use nix::libc;
+use nix::sys::socket::{self, SockaddrLike};
 use nix::sys::{signal, stat};
 
 use std::ffi::{c_int, CString};
@@ -13,6 +15,8 @@ pub type Sysno = syscalls::x86_64::Sysno;
 
 #[cfg(target_arch = "x86")]
 pub type Sysno = syscalls::x86::Sysno;
+
+const ETH_ALL: c_int = libc::ETH_P_ALL.to_be();
 
 macro_rules! print_delimited {
     [$str:expr, $x:expr, $($xs:expr),+] => {{
@@ -312,6 +316,183 @@ fn format_ioctl(request: u64) -> &'static str {
     "???"
 }
 
+fn format_timespec(session: &mut Debugger, addr: u64) -> String {
+    if addr == 0 {
+        return "NULL".to_string();
+    }
+
+    match session.read_process_memory(addr as usize, size_of::<nix::sys::time::TimeSpec>()) {
+        Ok(data) => {
+            let time = unsafe { ptr::read(data.as_ptr() as *const nix::sys::time::TimeSpec) };
+            let duration = std::time::Duration::from(time);
+
+            format!("{duration:#?}")
+        }
+        Err(..) => format!("???"),
+    }
+}
+
+fn format_timerval(session: &mut Debugger, addr: u64) -> String {
+    if addr == 0 {
+        return "NULL".to_string();
+    }
+
+    match session.read_process_memory(addr as usize, size_of::<nix::sys::time::TimeVal>()) {
+        Ok(data) => {
+            let time = unsafe { ptr::read(data.as_ptr() as *const nix::sys::time::TimeVal) };
+            format!("{time}")
+        }
+        Err(..) => format!("???"),
+    }
+}
+
+fn format_itimerval(session: &mut Debugger, addr: u64) -> String {
+    if addr == 0 {
+        return "NULL".to_string();
+    }
+
+    let interval = format_timerval(session, addr);
+    let next = format_timerval(session, addr + size_of::<nix::sys::time::TimeVal>() as u64);
+
+    format!("{{interval: {interval}, next: {next}}}")
+}
+
+fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: u64) -> String {
+    let addr = addr as usize;
+    let socketlen = socketlen as u32;
+
+    if addr == 0 {
+        return "NULL".to_string();
+    }
+
+    // read the first field of any sockaddr struct, it includes what family of addresses we
+    // are working with
+    let family = match session.read_process_memory(addr, size_of::<libc::sa_family_t>()) {
+        Ok(data) => {
+            let raw = libc::sa_family_t::from_le_bytes(data.try_into().unwrap());
+
+            match socket::AddressFamily::from_i32(raw as i32) {
+                Some(family) => family,
+                None => return format!("(unknown address family)"),
+            }
+        }
+        Err(..) => return format!("???"),
+    };
+
+    match family {
+        // struct sockaddr_in
+        socket::AddressFamily::Inet => {
+            let read = session.read_process_memory(addr, size_of::<socket::sockaddr_in>());
+            let sock_addr = match read {
+                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in) },
+                Err(..) => return format!("???"),
+            };
+
+            let addr = std::net::Ipv4Addr::from(sock_addr.sin_addr.s_addr);
+            let port = sock_addr.sin_port;
+
+            format!("{{addr: {addr}, port: {port}}}")
+        }
+        // struct sockaddr_in6
+        socket::AddressFamily::Inet6 => {
+            let read = session.read_process_memory(addr, size_of::<socket::sockaddr_in6>());
+            let sock_addr = match read {
+                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in6) },
+                Err(..) => return format!("???"),
+            };
+
+            let addr = std::net::Ipv6Addr::from(sock_addr.sin6_addr.s6_addr);
+            let port = sock_addr.sin6_port;
+
+            format!("{{addr: {addr}, port: {port}}}")
+        }
+        // struct sockaddr_un
+        socket::AddressFamily::Unix => {
+            let read = session.read_process_memory(addr, size_of::<socket::sockaddr>());
+            let sock_addr = match read {
+                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr) },
+                Err(..) => return format!("???"),
+            };
+
+            // SAFETY: since we pass the length, it will be validated
+            let unix_addr = unsafe {
+                match socket::UnixAddr::from_raw(&sock_addr, Some(socketlen)) {
+                    Some(addr) => addr,
+                    None => return format!("???"),
+                }
+            };
+
+            match unix_addr.path() {
+                Some(path) => format!("{{path: {path:#?}}}"),
+                None => format!("???"),
+            }
+        }
+        // struct sockaddr_nl
+        socket::AddressFamily::Netlink => {
+            let read = session.read_process_memory(addr, size_of::<socket::NetlinkAddr>());
+            let netlink_addr = match read {
+                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::NetlinkAddr) },
+                Err(..) => return format!("???"),
+            };
+
+            let pid = netlink_addr.pid();
+            let groups = netlink_addr.groups();
+
+            format!("{{pid: {pid}, groups: {groups}}}")
+        }
+        // struct sockaddr_alg
+        socket::AddressFamily::Alg => {
+            let read = session.read_process_memory(addr, size_of::<socket::AlgAddr>());
+            let alg_addr = match read {
+                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::AlgAddr) },
+                Err(..) => return format!("???"),
+            };
+
+            let tipe = alg_addr.alg_type().to_string_lossy();
+            let name = alg_addr.alg_name().to_string_lossy();
+
+            format!("{{type: {tipe}, name: {name}}}")
+        }
+        // struct sockaddr_ll
+        socket::AddressFamily::Packet => {
+            let read = session.read_process_memory(addr, size_of::<socket::LinkAddr>());
+            let link_addr = match read {
+                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::LinkAddr) },
+                Err(..) => return format!("???"),
+            };
+
+            let protocol = link_addr.protocol();
+            let iface = link_addr.ifindex();
+
+            match link_addr.addr() {
+                Some(mac) => {
+                    let mac = format!(
+                        "{:<02X}:{:<02X}:{:<02X}:{:<02X}:{:<02X}:{:<02X}",
+                        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+                    );
+
+                    format!("{{protocol: {protocol}, iface: {iface}, mac: {mac}}}")
+                }
+                None => format!("{{protocol: {protocol}, iface: {iface}}}")
+            }
+        }
+        // struct sockaddr_vm
+        socket::AddressFamily::Vsock => {
+            let read = session.read_process_memory(addr, size_of::<socket::VsockAddr>());
+            let vsock_addr = match read {
+                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::VsockAddr) },
+                Err(..) => return format!("???"),
+            };
+
+            let cid = vsock_addr.cid();
+            let port = vsock_addr.port();
+
+            format!("{{cid: {cid}, port: {port}}}")
+        }
+        _ => format!("(unknown address family)"),
+    }
+}
+
 impl super::Debugger {
     pub fn display(&mut self, syscall: Sysno, args: [u64; 6]) -> String {
         let mut func = String::new();
@@ -353,12 +534,12 @@ impl super::Debugger {
                 func,
                 format_fd(args[0]),
                 (args[1] as i64).to_string(),
-                match args[2] {
-                    0 => "SEEK_SET",
-                    1 => "SEEK_CUR",
-                    2 => "SEEK_END",
-                    3 => "SEEK_DATA",
-                    4 => "SEEK_HOLE",
+                match args[2] as c_int {
+                    libc::SEEK_SET => "SEEK_SET",
+                    libc::SEEK_CUR => "SEEK_CUR",
+                    libc::SEEK_END => "SEEK_END",
+                    libc::SEEK_DATA => "SEEK_DATA",
+                    libc::SEEK_HOLE => "SEEK_HOLE",
                     _ => "(unknown)",
                 }
             ],
@@ -383,18 +564,19 @@ impl super::Debugger {
             Sysno::brk => print_delimited![func, format_ptr(args[0])],
             Sysno::rt_sigaction => print_delimited![
                 func,
-                signal::Signal::try_from(args[0] as c_int)
-                    .map(|s| s.as_str())
-                    .unwrap_or("(unknown)"),
+                match signal::Signal::try_from(args[0] as c_int) {
+                    Ok(s) => s.as_str(),
+                    Err(..) => "(unknown)",
+                },
                 format_sigaction(self, args[1]),
                 format_sigaction(self, args[2])
             ],
             Sysno::rt_sigprocmask => print_delimited![
                 func,
-                match args[0] {
-                    0 => "SIG_BLOCK",
-                    1 => "SIG_UNBLOCK",
-                    2 => "SIG_SETMASK",
+                match args[0] as c_int {
+                    libc::SIG_BLOCK => "SIG_BLOCK",
+                    libc::SIG_UNBLOCK => "SIG_UNBLOCK",
+                    libc::SIG_SETMASK => "SIG_SETMASK",
                     _ => "(unknown)",
                 },
                 format_sigset(self, args[1]),
@@ -493,6 +675,133 @@ impl super::Debugger {
                 format_ptr(args[0]),
                 args[1].to_string(),
                 format_bytes_u8(self, args[2], args[1])
+            ],
+            Sysno::madvise => print_delimited![
+                func,
+                format_ptr(args[0]),
+                args[1].to_string(),
+                match args[2] as c_int {
+                    libc::MADV_NORMAL => "MADV_NORMAL",
+                    libc::MADV_RANDOM => "MADV_RANDOM",
+                    libc::MADV_SEQUENTIAL => "MADV_SEQUENTIAL",
+                    libc::MADV_WILLNEED => "MADV_WILLNEED",
+                    libc::MADV_DONTNEED => "MADV_DONTNEED",
+                    libc::MADV_REMOVE => "MADV_REMOVE",
+                    libc::MADV_DONTFORK => "MADV_DONTFORK",
+                    libc::MADV_DOFORK => "MADV_DOFORK",
+                    libc::MADV_HWPOISON => "MADV_HWPOISON",
+                    libc::MADV_MERGEABLE => "MADV_MERGEABLE",
+                    libc::MADV_UNMERGEABLE => "MADV_UNMERGEABLE",
+                    libc::MADV_SOFT_OFFLINE => "MADV_SOFT_OFFLINE",
+                    libc::MADV_HUGEPAGE => "MADV_HUGEPAGE",
+                    libc::MADV_NOHUGEPAGE => "MADV_NOHUGEPAGE",
+                    libc::MADV_DONTDUMP => "MADV_DONTDUMP",
+                    libc::MADV_DODUMP => "MADV_DODUMP",
+                    libc::MADV_FREE => "MADV_FREE",
+                    _ => "(unknown)",
+                }
+            ],
+            Sysno::shmget => print_delimited![
+                func,
+                (args[0] as c_int).to_string(),
+                args[1].to_string(),
+                // TODO: print shmflg
+                args[2].to_string()
+            ],
+            Sysno::shmat => print_delimited![
+                func,
+                // TODO: print shmid
+                args[0].to_string(),
+                format_ptr(args[1]),
+                // TODO: print shmflg
+                args[0].to_string()
+            ],
+            Sysno::shmctl => print_delimited![
+                func,
+                // TODO: print shmid
+                args[0].to_string(),
+                match args[1] as c_int {
+                    libc::IPC_RMID => "IPC_RMID",
+                    libc::IPC_SET => "IPC_SET",
+                    libc::IPC_STAT => "IPC_STAT",
+                    libc::IPC_INFO => "IPC_INFO",
+                    _ => "(unknown)",
+                },
+                format_ptr(args[2])
+            ],
+            Sysno::dup => print_delimited![func, format_fd(args[0])],
+            Sysno::dup2 => print_delimited![func, format_fd(args[0]), format_fd(args[0])],
+            Sysno::pause => print_delimited![],
+            Sysno::nanosleep => {
+                print_delimited![func, format_timespec(self, args[0]), format_ptr(args[1])]
+            }
+            Sysno::getitimer => print_delimited![
+                func,
+                match args[0] as c_int {
+                    libc::ITIMER_REAL => "ITIMER_REAL",
+                    libc::ITIMER_VIRTUAL => "ITIMER_VIRUAL",
+                    libc::ITIMER_PROF => "ITIMER_PROF",
+                    _ => "(unknown)",
+                },
+                format_itimerval(self, args[1])
+            ],
+            Sysno::alarm => print_delimited![func, args[0].to_string()],
+            Sysno::setitimer => print_delimited![
+                func,
+                match args[0] as c_int {
+                    libc::ITIMER_REAL => "ITIMER_REAL",
+                    libc::ITIMER_VIRTUAL => "ITIMER_VIRUAL",
+                    libc::ITIMER_PROF => "ITIMER_PROF",
+                    _ => "(unknown)",
+                },
+                format_itimerval(self, args[1]),
+                format_itimerval(self, args[2])
+            ],
+            Sysno::getpid => print_delimited![func, args[0].to_string()],
+            Sysno::sendfile => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_fd(args[1]),
+                format_ptr(args[2]),
+                args[3].to_string()
+            ],
+            Sysno::socket => print_delimited![
+                func,
+                match socket::AddressFamily::from_i32(args[0] as i32) {
+                    Some(s) => format!("{s:?}"),
+                    None => "(unknown)".to_string(),
+                },
+                match socket::SockType::try_from(args[1] as i32) {
+                    Ok(s) => format!("{s:?}"),
+                    Err(..) => "(unknown)".to_string(),
+                },
+                match args[2] as c_int {
+                    libc::IPPROTO_TCP => "Tcp",
+                    libc::IPPROTO_UDP => "Udp",
+                    libc::IPPROTO_RAW => "Ip",
+                    libc::NETLINK_ROUTE => "NetlinkRoute",
+                    libc::NETLINK_USERSOCK => "NetlinkUsersock",
+                    libc::NETLINK_SOCK_DIAG => "NetlinkSockDiag",
+                    libc::NETLINK_SELINUX => "NetlinkSELINUX",
+                    libc::NETLINK_ISCSI => "NetlinkISCSI",
+                    libc::NETLINK_AUDIT => "NetlinkAudit",
+                    libc::NETLINK_FIB_LOOKUP => "NetlinkFIBLookup",
+                    libc::NETLINK_NETFILTER => "NetlinkNetfilter",
+                    libc::NETLINK_SCSITRANSPORT => "NetlinkSCSITransport",
+                    libc::NETLINK_RDMA => "NetlinkRDMA",
+                    libc::NETLINK_IP6_FW => "NetlinkIpv6Firewall",
+                    libc::NETLINK_DNRTMSG => "NetlinkDECNetroutingMsg",
+                    libc::NETLINK_KOBJECT_UEVENT => "NetlinkKObjectUEvent",
+                    libc::NETLINK_CRYPTO => "NetlinkCrypto",
+                    ETH_ALL => "EthAll",
+                    _ => "(unknown)",
+                }
+            ],
+            Sysno::connect => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_sockaddr(self, args[1], args[2]),
+                args[2].to_string()
             ],
             Sysno::openat => print_delimited![
                 func,

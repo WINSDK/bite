@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 
-use nix::sys::signal::Signal;
+use nix::sys::signal::{Signal, kill};
 use nix::sys::wait::WaitStatus;
 use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
@@ -245,7 +245,7 @@ impl Tracee for Debugger {
 
     fn kill(self) {
         // ignore the result since killing a process can't fail
-        let _ = ptrace::kill(self.pids.root());
+        let _ = kill(self.pids.root(), Signal::SIGKILL);
     }
 
     fn pause(&self) {
