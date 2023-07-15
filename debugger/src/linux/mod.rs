@@ -64,17 +64,17 @@ impl Debugger {
         }
 
         // break on common syscalls
-        // let options = options
-        //     // new thread
-        //     | ptrace::Options::PTRACE_O_TRACECLONE
-        //     // new process
-        //     | ptrace::Options::PTRACE_O_TRACEEXEC
-        //     // exit child
-        //     //| ptrace::Options::PTRACE_O_TRACEEXIT
-        //     // new child
-        //     | ptrace::Options::PTRACE_O_TRACEFORK
-        //     // new child in same memory space
-        //     | ptrace::Options::PTRACE_O_TRACEVFORK;
+        let options = options
+            // new thread
+            | ptrace::Options::PTRACE_O_TRACECLONE
+            // new process
+            | ptrace::Options::PTRACE_O_TRACEEXEC
+            // exit child
+            | ptrace::Options::PTRACE_O_TRACEEXIT
+            // new child
+            | ptrace::Options::PTRACE_O_TRACEFORK
+            // new child in same memory space
+            | ptrace::Options::PTRACE_O_TRACEVFORK;
 
         ptrace::setoptions(pid, options).map_err(Error::Kernel)
     }
@@ -89,6 +89,7 @@ impl Debugger {
                     signal @ (Signal::SIGTRAP | Signal::SIGSTOP | Signal::SIGTSTP),
                 ) => match self.pids.find(&pid) {
                     State::WaitingForInit => {
+                        let _ = ptrace::detach(pid, None).unwrap();
                         self.set_options(pid)?;
                         *self.pids.find(&pid) = State::Running;
                     }

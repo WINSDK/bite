@@ -16,6 +16,12 @@ pub type Sysno = syscalls::x86_64::Sysno;
 #[cfg(target_arch = "x86")]
 pub type Sysno = syscalls::x86::Sysno;
 
+#[cfg(target_arch = "aarch64")]
+pub type Sysno = syscalls::aarch64::Sysno;
+
+#[cfg(target_arch = "arm")]
+pub type Sysno = syscalls::arm::Sysno;
+
 const ETH_ALL: c_int = libc::ETH_P_ALL.to_be();
 
 macro_rules! print_delimited {
@@ -78,7 +84,7 @@ fn format_ptr(addr: u64) -> String {
     if addr == 0 {
         "NULL".to_string()
     } else {
-        format!("{addr:x}")
+        format!("{addr:#x}")
     }
 }
 
@@ -103,11 +109,13 @@ fn format_fdset(session: &mut Debugger, addr: u64) -> String {
 
             format!("{set:?}")
         }
-        Err(..) => format!("\"???\""),
+        Err(..) => format!("???"),
     }
 }
 
 // Try to read 20 bytes.
+//
+// TODO: guess whether the bytes could be a utf-8 sequence
 fn format_bytes_u8(session: &mut Debugger, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
@@ -125,7 +133,7 @@ fn format_bytes_u8(session: &mut Debugger, addr: u64, len: u64) -> String {
 
             data
         }
-        Err(..) => format!("\"???\""),
+        Err(..) => format!("???"),
     }
 }
 
@@ -167,7 +175,7 @@ fn format_str(session: &mut Debugger, addr: u64, len: u64) -> String {
 
             format!("\"{data}\"")
         }
-        Err(..) => format!("\"???\""),
+        Err(..) => format!("???"),
     }
 }
 
@@ -248,7 +256,7 @@ fn format_sigaction(session: &mut Debugger, addr: u64) -> String {
             let mask = action.mask();
             let mask: Vec<signal::Signal> = mask.iter().collect();
 
-            format!("{{sa_handler: {handler:?}, sa_mask: {mask:?}, sa_flags={flags:?}}}")
+            format!("{{sa_handler: {handler:?}, sa_mask: {mask:?}, sa_flags: {flags:?}}}")
         }
         Err(..) => format!("???"),
     }
@@ -357,9 +365,8 @@ fn format_itimerval(session: &mut Debugger, addr: u64) -> String {
     format!("{{interval: {interval}, next: {next}}}")
 }
 
-fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: u64) -> String {
+fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) -> String {
     let addr = addr as usize;
-    let socketlen = socketlen as u32;
 
     if addr == 0 {
         return "NULL".to_string();
@@ -369,9 +376,13 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: u64) -> String 
     // are working with
     let family = match session.read_process_memory(addr, size_of::<libc::sa_family_t>()) {
         Ok(data) => {
-            let raw = libc::sa_family_t::from_le_bytes(data.try_into().unwrap());
+            let raw = libc::sa_family_t::from_le_bytes(data.try_into().unwrap()) as i32;
 
-            match socket::AddressFamily::from_i32(raw as i32) {
+            if raw == libc::AF_UNSPEC {
+                return format!("(opaque)");
+            }
+
+            match socket::AddressFamily::from_i32(raw) {
                 Some(family) => family,
                 None => return format!("(unknown address family)"),
             }
@@ -416,7 +427,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: u64) -> String 
 
             // SAFETY: since we pass the length, it will be validated
             let unix_addr = unsafe {
-                match socket::UnixAddr::from_raw(&sock_addr, Some(socketlen)) {
+                match socket::UnixAddr::from_raw(&sock_addr, socketlen) {
                     Some(addr) => addr,
                     None => return format!("???"),
                 }
@@ -473,7 +484,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: u64) -> String 
 
                     format!("{{protocol: {protocol}, iface: {iface}, mac: {mac}}}")
                 }
-                None => format!("{{protocol: {protocol}, iface: {iface}}}")
+                None => format!("{{protocol: {protocol}, iface: {iface}}}"),
             }
         }
         // struct sockaddr_vm
@@ -491,6 +502,144 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: u64) -> String 
         }
         _ => format!("(unknown address family)"),
     }
+}
+
+/// `sock_addr` is a *const sockaddr and `len_addr` is a *const u32.
+fn format_sockaddr_using_len(session: &mut Debugger, sock_addr: u64, len_addr: u64) -> String {
+    if len_addr == 0 {
+        return format_sockaddr(session, sock_addr, None);
+    }
+
+    match session.read_process_memory(len_addr as usize, size_of::<u32>()) {
+        Ok(data) => {
+            let len = unsafe { ptr::read(data.as_ptr() as *const u32) };
+            format_sockaddr(session, sock_addr, Some(len))
+        }
+        Err(..) => "???".to_string(),
+    }
+}
+
+fn format_sock_protocol(protocol: u64) -> &'static str {
+    match protocol as c_int {
+        libc::IPPROTO_TCP => "Tcp",
+        libc::IPPROTO_UDP => "Udp",
+        libc::IPPROTO_RAW => "Ip",
+        libc::NETLINK_ROUTE => "NetlinkRoute",
+        libc::NETLINK_USERSOCK => "NetlinkUsersock",
+        libc::NETLINK_SOCK_DIAG => "NetlinkSockDiag",
+        libc::NETLINK_SELINUX => "NetlinkSELINUX",
+        libc::NETLINK_ISCSI => "NetlinkISCSI",
+        libc::NETLINK_AUDIT => "NetlinkAudit",
+        libc::NETLINK_FIB_LOOKUP => "NetlinkFIBLookup",
+        libc::NETLINK_NETFILTER => "NetlinkNetfilter",
+        libc::NETLINK_SCSITRANSPORT => "NetlinkSCSITransport",
+        libc::NETLINK_RDMA => "NetlinkRDMA",
+        libc::NETLINK_IP6_FW => "NetlinkIpv6Firewall",
+        libc::NETLINK_DNRTMSG => "NetlinkDECNetroutingMsg",
+        libc::NETLINK_KOBJECT_UEVENT => "NetlinkKObjectUEvent",
+        libc::NETLINK_CRYPTO => "NetlinkCrypto",
+        ETH_ALL => "EthAll",
+        _ => "(unknown)",
+    }
+}
+
+fn format_msghdr(session: &mut Debugger, addr: u64) -> String {
+    let msghdr = match session.read_process_memory(addr as usize, size_of::<libc::msghdr>()) {
+        Ok(data) => unsafe { ptr::read(data.as_ptr() as *const libc::msghdr) },
+        Err(..) => return format!("???"),
+    };
+
+    let name = format_sockaddr(session, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
+    let name_len = msghdr.msg_namelen;
+
+    let msg_iov = format_array::<IoVec>(session, msghdr.msg_iov as u64, msghdr.msg_iovlen as u64);
+    let msg_iov_len = msghdr.msg_iovlen;
+
+    let msg_ctrl = format_ptr(msghdr.msg_control as u64);
+    let msg_ctrl_len = msghdr.msg_controllen;
+
+    // ignore msg_flags as they don't appear to ever be set
+
+    format!("{{name: {name}, name_len: {name_len}, msg_iov: {msg_iov}, msg_iov_len: {msg_iov_len}, \
+             msg_ctrl: {msg_ctrl}, msg_ctrl_len: {msg_ctrl_len}")
+}
+
+fn format_socklevel(level: u64) -> &'static str {
+    match level as c_int {
+        libc::SOL_SOCKET => "SOL_SOCKET",
+        libc::IPPROTO_TCP => "IPPROTO_TCP",
+        libc::IPPROTO_IP => "IPPROTO_IP",
+        libc::IPPROTO_IPV6 => "IPPROTO_IPV6",
+        libc::SO_TYPE => "SO_TYPE",
+        libc::SOL_UDP => "SOL_UDP",
+        _ => "(unknown)"
+    }
+}
+
+// there are probably a few missing here, but it includes all the ones
+// I've found in the wild and some more
+fn format_sockoptname(optname: u64) -> &'static str {
+    match optname as c_int {
+        libc::IP6T_SO_ORIGINAL_DST => "IP6T_SO_ORIGINAL_DST",
+        libc::IPV6_DONTFRAG => "IPV6_DONTFRAG",
+        libc::IPV6_RECVERR => "IPV6_RECVERR",
+        libc::IPV6_RECVPKTINFO => "IPV6_RECVPKTINFO",
+        libc::IPV6_TCLASS => "IPV6_TCLASS",
+        libc::IPV6_UNICAST_HOPS => "IPV6_UNICAST_HOPS",
+        libc::IPV6_V6ONLY => "IPV6_V6ONLY",
+        libc::IP_DROP_MEMBERSHIP => "IP_DROP_MEMBERSHIP",
+        libc::IP_MTU => "IP_MTU",
+        libc::IP_RECVERR => "IP_RECVERR",
+        libc::IP_TOS => "IP_TOS",
+        libc::IP_TRANSPARENT => "IP_TRANSPARENT",
+        libc::SO_ACCEPTCONN => "SO_ACCEPTCONN",
+        libc::SO_BROADCAST => "SO_BROADCAST",
+        libc::SO_DONTROUTE => "SO_DONTROUTE",
+        libc::SO_ERROR => "SO_ERROR",
+        libc::SO_KEEPALIVE => "SO_KEEPALIVE",
+        libc::SO_LINGER => "SO_LINGER",
+        libc::SO_OOBINLINE => "SO_OOBINLINE",
+        libc::SO_PEERCRED => "SO_PEERCRED",
+        libc::SO_PRIORITY => "SO_PRIORITY",
+        libc::SO_RCVBUF => "SO_RCVBUF",
+        libc::SO_RCVBUFFORCE => "SO_RCVBUFFORCE",
+        libc::SO_RCVTIMEO => "SO_RCVTIMEO",
+        libc::SO_REUSEADDR => "SO_REUSEADDR",
+        libc::SO_REUSEPORT => "SO_REUSEPORT",
+        libc::SO_RXQ_OVFL => "SO_RXQ_OVFL",
+        libc::SO_SNDBUF => "SO_SNDBUF",
+        libc::SO_SNDBUFFORCE => "SO_SNDBUFFORCE",
+        libc::SO_SNDTIMEO => "SO_SNDTIMEO",
+        libc::SO_TIMESTAMP => "SO_TIMESTAMP",
+        libc::SO_TIMESTAMPING => "SO_TIMESTAMPING",
+        libc::SO_TIMESTAMPNS => "SO_TIMESTAMPNS",
+        libc::SO_TXTIME => "SO_TXTIME",
+        libc::SO_TYPE => "SO_TYPE",
+        libc::TCP_USER_TIMEOUT => "TCP_USER_TIMEOUT",
+        libc::UDP_GRO => "UDP_GRO",
+        libc::UDP_SEGMENT => "UDP_SEGMENT",
+        _ => "(unknown)"
+    }
+}
+
+/// Format arrays like argv and envp that include are made of an array of pointers
+/// where the last element is a null pointer.
+fn format_nullable_args(session: &mut Debugger, addr: u64) -> String {
+    let mut args = Vec::new();
+
+    // only try to read the first 20 args
+    for idx in 0..20 {
+        let addr = addr + idx * std::mem::size_of::<*const i8>() as u64;
+        let arg = format_c_str(session, addr);
+
+        if arg == "NULL" {
+            break;
+        }
+
+        args.push(arg);
+    }
+
+    format!("{args:?}")
 }
 
 impl super::Debugger {
@@ -757,7 +906,7 @@ impl super::Debugger {
                 format_itimerval(self, args[1]),
                 format_itimerval(self, args[2])
             ],
-            Sysno::getpid => print_delimited![func, args[0].to_string()],
+            Sysno::getpid => print_delimited![],
             Sysno::sendfile => print_delimited![
                 func,
                 format_fd(args[0]),
@@ -775,33 +924,128 @@ impl super::Debugger {
                     Ok(s) => format!("{s:?}"),
                     Err(..) => "(unknown)".to_string(),
                 },
-                match args[2] as c_int {
-                    libc::IPPROTO_TCP => "Tcp",
-                    libc::IPPROTO_UDP => "Udp",
-                    libc::IPPROTO_RAW => "Ip",
-                    libc::NETLINK_ROUTE => "NetlinkRoute",
-                    libc::NETLINK_USERSOCK => "NetlinkUsersock",
-                    libc::NETLINK_SOCK_DIAG => "NetlinkSockDiag",
-                    libc::NETLINK_SELINUX => "NetlinkSELINUX",
-                    libc::NETLINK_ISCSI => "NetlinkISCSI",
-                    libc::NETLINK_AUDIT => "NetlinkAudit",
-                    libc::NETLINK_FIB_LOOKUP => "NetlinkFIBLookup",
-                    libc::NETLINK_NETFILTER => "NetlinkNetfilter",
-                    libc::NETLINK_SCSITRANSPORT => "NetlinkSCSITransport",
-                    libc::NETLINK_RDMA => "NetlinkRDMA",
-                    libc::NETLINK_IP6_FW => "NetlinkIpv6Firewall",
-                    libc::NETLINK_DNRTMSG => "NetlinkDECNetroutingMsg",
-                    libc::NETLINK_KOBJECT_UEVENT => "NetlinkKObjectUEvent",
-                    libc::NETLINK_CRYPTO => "NetlinkCrypto",
-                    ETH_ALL => "EthAll",
-                    _ => "(unknown)",
-                }
+                format_sock_protocol(args[2])
             ],
             Sysno::connect => print_delimited![
                 func,
                 format_fd(args[0]),
-                format_sockaddr(self, args[1], args[2]),
+                format_sockaddr(self, args[1], Some(args[2] as u32)),
                 args[2].to_string()
+            ],
+            Sysno::accept => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_sockaddr_using_len(self, args[1], args[2]),
+                format_ptr(args[2])
+            ],
+            Sysno::sendto => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_bytes_u8(self, args[1], args[2]),
+                args[2].to_string(),
+                format_flags!(args[3] => nix::sys::socket::MsgFlags),
+                format_sockaddr(self, args[4], Some(args[5] as u32)),
+                args[5].to_string()
+            ],
+            Sysno::recvfrom => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_bytes_u8(self, args[1], args[2]),
+                args[2].to_string(),
+                format_flags!(args[3] => nix::sys::socket::MsgFlags),
+                format_sockaddr_using_len(self, args[4], args[5]),
+                format_ptr(args[5])
+            ],
+            Sysno::sendmsg => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_msghdr(self, args[1]),
+                format_flags!(args[2] => nix::sys::socket::MsgFlags)
+            ],
+            Sysno::recvmsg => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_msghdr(self, args[1]),
+                format_flags!(args[2] => nix::sys::socket::MsgFlags)
+            ],
+            Sysno::shutdown => print_delimited![
+                func,
+                format_fd(args[0]),
+                match args[1] as c_int {
+                    libc::SHUT_RD => "SHUT_READ",
+                    libc::SHUT_WR => "SHUT_WRITE",
+                    libc::SHUT_RDWR => "SHUT_RW",
+                    _ => "(unknown)"
+                }
+            ],
+            Sysno::bind => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_sockaddr(self, args[1], Some(args[2] as u32)),
+                args[2].to_string()
+            ],
+            Sysno::listen => print_delimited![
+                func,
+                format_fd(args[0]),
+                args[1].to_string()
+            ],
+            Sysno::getsockname => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_sockaddr_using_len(self, args[1], args[2]),
+                format_ptr(args[2])
+            ],
+            Sysno::getpeername => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_sockaddr_using_len(self, args[1], args[2]),
+                format_ptr(args[2])
+            ],
+            Sysno::socketpair => print_delimited![
+                func,
+                match socket::AddressFamily::from_i32(args[0] as i32) {
+                    Some(family) => format!("{family:?}"),
+                    None => format!("(unknown address family)"),
+                },
+                match socket::SockType::try_from(args[1] as i32) {
+                    Ok(tipe) => format!("{tipe:?}"),
+                    Err(..) => format!("(unknown address family)"),
+                },
+                format_sock_protocol(args[2]),
+                format_ptr(args[3])
+            ],
+            Sysno::setsockopt => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_socklevel(args[1]),
+                format_sockoptname(args[2]),
+                format_bytes_u8(self, args[3], args[4]),
+                args[4].to_string()
+            ],
+            Sysno::getsockopt => print_delimited![
+                func,
+                format_fd(args[0]),
+                format_socklevel(args[1]),
+                format_sockoptname(args[2]),
+                format_ptr(args[3]),
+                format_ptr(args[3])
+            ],
+            Sysno::clone => print_delimited![
+                func,
+                format!("flags: {}", format_flags!(args[0] & !0xff => nix::sched::CloneFlags)),
+                match signal::Signal::try_from((args[0] & 0xff) as c_int) {
+                    Ok(s) => format!("exit_signal: {s}"),
+                    Err(..) => "(unknown)".to_string(),
+                },
+                format!("child_stack: {}", format_ptr(args[1]))
+            ],
+            Sysno::fork => print_delimited![],
+            Sysno::vfork => print_delimited![],
+            Sysno::execve => print_delimited![
+                func,
+                format_c_str(self, args[0]),
+                format_nullable_args(self, args[1]),
+                format_nullable_args(self, args[2])
             ],
             Sysno::openat => print_delimited![
                 func,

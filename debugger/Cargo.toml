@@ -13,5 +13,11 @@ syscalls = { version = "0.6", features = ["x86_64"], default-features = false }
 [target.'cfg(all(target_os="linux", target_arch="x86"))'.dependencies]
 syscalls = { version = "0.6", features = ["x86"], default-features = false }
 
+[target.'cfg(all(target_os="linux", target_arch="aarch64"))'.dependencies]
+syscalls = { version = "0.6", features = ["aarch64"], default-features = false }
+
+[target.'cfg(all(target_os="linux", target_arch="arm"))'.dependencies]
+syscalls = { version = "0.6", features = ["arm"], default-features = false }
+
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3"
