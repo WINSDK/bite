@@ -2,8 +2,8 @@ use std::ffi::CString;
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 
-use nix::sys::signal::{Signal, kill};
-use nix::sys::wait::WaitStatus;
+use nix::sys::signal::{self, kill, Signal};
+use nix::sys::wait::{self, WaitPidFlag, WaitStatus};
 use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
 
@@ -47,9 +47,65 @@ pub struct Debugger {
     pids: Tree<Pid, State>,
     tracing_syscalls: bool,
     remote: bool,
+    unprocessed_signal: Option<Signal>,
+    last_syscall: ptrace::SyscallInfoOp,
+}
+
+fn poll_pid(pid: Pid) -> Result<Option<wait::WaitStatus>, Error> {
+    let status = wait::waitpid(pid, Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED))
+        .map_err(Error::Kernel)?;
+
+    if status == WaitStatus::StillAlive {
+        Ok(None)
+    } else {
+        Ok(Some(status))
+    }
+}
+
+fn set_empty_signal_handler(signal: Signal) -> Result<(), Error> {
+    unsafe {
+        signal::sigaction(
+            signal,
+            &signal::SigAction::new(
+                signal::SigHandler::SigIgn,
+                signal::SaFlags::empty(),
+                signal::SigSet::empty(),
+            ),
+        )
+        .map_err(Error::Kernel)?;
+    }
+
+    Ok(())
+}
+
+fn set_signal_handlers() -> Result<(), Error> {
+    set_empty_signal_handler(Signal::SIGINT)?;
+    set_empty_signal_handler(Signal::SIGQUIT)?;
+    set_empty_signal_handler(Signal::SIGPIPE)?;
+    set_empty_signal_handler(Signal::SIGTERM)?;
+    Ok(())
 }
 
 impl Debugger {
+    fn local(parent: Pid) -> Self {
+        let mut pids = Tree::new();
+        pids.push_root(parent, State::WaitingForInit);
+
+        Debugger {
+            pids,
+            tracing_syscalls: false,
+            remote: false,
+            unprocessed_signal: None,
+            last_syscall: ptrace::SyscallInfoOp::None,
+        }
+    }
+
+    fn remote(parent: Pid) -> Self {
+        let mut this = Debugger::local(parent);
+        this.remote = true;
+        this
+    }
+
     fn set_options(&mut self, pid: Pid) -> Result<(), Error> {
         let mut options = ptrace::Options::empty();
 
@@ -81,100 +137,135 @@ impl Debugger {
 
     pub fn run_to_end(&mut self) -> Result<(), Error> {
         loop {
-            let status = nix::sys::wait::wait().map_err(Error::Kernel)?;
+            // wait for child to give send a message
+            let status = wait::waitid(
+                wait::Id::All,
+                wait::WaitPidFlag::WEXITED
+                    | wait::WaitPidFlag::WNOWAIT
+                    | wait::WaitPidFlag::WSTOPPED,
+            )
+            .map_err(Error::Kernel)?;
 
-            match status {
-                WaitStatus::Stopped(
-                    pid,
-                    signal @ (Signal::SIGTRAP | Signal::SIGSTOP | Signal::SIGTSTP),
-                ) => match self.pids.find(&pid) {
-                    State::WaitingForInit => {
-                        let _ = ptrace::detach(pid, None).unwrap();
-                        self.set_options(pid)?;
-                        *self.pids.find(&pid) = State::Running;
-                    }
-                    State::Running => {
-                        println!("stopped by signal: {signal:?}");
-                        self.pause();
-                        continue;
-                    }
-                },
-                WaitStatus::Stopped(
-                    pid,
-                    signal @ (Signal::SIGHUP
-                    | Signal::SIGINT
-                    | Signal::SIGQUIT
-                    | Signal::SIGILL
-                    | Signal::SIGABRT
-                    | Signal::SIGBUS
-                    | Signal::SIGFPE
-                    | Signal::SIGKILL
-                    | Signal::SIGUSR1
-                    | Signal::SIGUSR2
-                    | Signal::SIGSEGV
-                    | Signal::SIGPIPE
-                    | Signal::SIGTERM),
-                ) => {
-                    println!("\nexited by signal: '{signal:?}'");
-                    self.pids.remove(&pid);
-                }
-                WaitStatus::Stopped(_, signal) => {
-                    println!("signal '{signal:?}' happened");
-                }
-                WaitStatus::Signaled(pid, signal, ..) => {
-                    self.pids.remove(&pid);
-                    println!("\nexited by signal: {signal:?}");
-                }
-                WaitStatus::Exited(pid, _) => {
-                    self.pids.remove(&pid);
-                    println!("\nprocess '{pid:?}' exited");
-                }
-                WaitStatus::PtraceSyscall(pid) => {
-                    let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
+            let mut pid = status.pid().unwrap();
 
-                    match syscall.op {
-                        ptrace::SyscallInfoOp::Entry { nr, args } => {
-                            let func = self.display(trace::Sysno::from(nr as i32), args);
-                            print!("{func}");
-                        },
-                        ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
-                            let mut ret = String::new();
-
-                            ret += " -> ";
-                            ret += &ret_val.to_string();
-
-                            if is_error == 1 {
-                                let err = nix::Error::from_i32(-ret_val as i32);
-
-                                ret += " ";
-                                ret += &err.to_string();
-                            }
-
-                            println!("{ret}");
-                        }
-                        _ => {},
+            // check whether the pid is known, if so wait on it
+            let status = if self.pids.find(&pid).is_some() {
+                poll_pid(pid)?
+            } else {
+                // go through each tracee and see if they have an event which
+                // would spawn this new pid
+                let mut status = None;
+                for (new_pid, _) in self.pids.iter() {
+                    if let Some(new_status) = poll_pid(*new_pid)? {
+                        status = Some(new_status);
+                        pid = *new_pid;
                     }
                 }
-                WaitStatus::PtraceEvent(pid, _, event) => {
-                    use nix::libc::*;
 
-                    // if a new pid was created, store it as the child of it's parent
-                    if let PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK | PTRACE_EVENT_CLONE = event {
-                        let created_pid = ptrace::getevent(pid).map_err(Error::Kernel)?;
-                        let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
+                status
+            };
 
-                        self.pids.push_child(&pid, created_pid, State::WaitingForInit);
-                    }
+            let status = match status {
+                Some(status) => status,
+                None => {
+                    println!("unknown pid send a message");
+                    continue;
                 }
-                _ => unreachable!("{status:?}"),
+            };
+
+            let state = self.pids.find(&pid).unwrap();
+
+            match state {
+                State::WaitingForInit => {
+                    *state = State::Running;
+                    self.set_options(pid)?;
+                    self.kontinue(pid);
+                }
+                State::Running => self.process_event(status)?,
             }
 
             if self.pids.is_empty() {
                 return Ok(());
             }
-
-            self.kontinue();
         }
+    }
+
+    fn process_event(&mut self, status: wait::WaitStatus) -> Result<(), Error> {
+        match status {
+            WaitStatus::Stopped(pid, signal) => {
+                self.unprocessed_signal = Some(signal);
+                self.kontinue(pid);
+            }
+            WaitStatus::Signaled(pid, signal, ..) => {
+                self.pids.remove(&pid);
+                self.kontinue(pid);
+                println!("child exited by signal: {signal:?}");
+            }
+            WaitStatus::Exited(pid, code) => {
+                self.pids.remove(&pid);
+                self.kontinue(pid);
+                println!("child '{pid}' exited with code '{code}'");
+            }
+            WaitStatus::PtraceSyscall(pid) => {
+                let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
+
+                match syscall.op {
+                    ptrace::SyscallInfoOp::Entry { nr, args } => {
+                        let sysno = trace::Sysno::from(nr as i32);
+                        let func = self.display(sysno, args);
+
+                        if sysno == trace::Sysno::exit_group {
+                            println!("{func}");
+                        } else {
+                            print!("{func}");
+                        }
+
+                        self.last_syscall = syscall.op;
+                    }
+                    ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
+                        const EXIT: u64 = trace::Sysno::exit_group as u64;
+                        let mut ret = String::new();
+
+                        // `exit_group` syscall doesn't have a return value
+                        if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = self.last_syscall {
+                            self.kontinue(pid);
+                            return Ok(());
+                        }
+
+                        ret += " -> ";
+                        ret += &ret_val.to_string();
+
+                        if is_error == 1 {
+                            let err = nix::Error::from_i32(-ret_val as i32);
+
+                            ret += " ";
+                            ret += &err.to_string();
+                        }
+
+                        println!("{ret}");
+                    }
+                    _ => {}
+                }
+
+                self.kontinue(pid);
+            }
+            WaitStatus::PtraceEvent(pid, _, event) => {
+                use nix::libc::*;
+
+                // if a new pid was created, store it as the child of it's parent
+                if let PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK | PTRACE_EVENT_CLONE = event {
+                    let created_pid = ptrace::getevent(pid).map_err(Error::Kernel)?;
+                    let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
+
+                    self.pids.push_child(&pid, created_pid, State::WaitingForInit);
+                }
+
+                self.kontinue(pid);
+            }
+            _ => unreachable!("{status:?}"),
+        }
+
+        Ok(())
     }
 
     pub fn trace_syscalls(&mut self, tracing: bool) {
@@ -199,16 +290,7 @@ impl Process for Debugger {
         }
 
         match unsafe { fork().map_err(Error::Kernel)? } {
-            ForkResult::Parent { child } => {
-                let mut pids = Tree::new();
-                pids.push_root(child, State::WaitingForInit);
-
-                Ok(Debugger {
-                    pids,
-                    tracing_syscalls: false,
-                    remote: false,
-                })
-            }
+            ForkResult::Parent { child } => Ok(Debugger::local(child)),
             ForkResult::Child => {
                 // disable ASLR
                 personality::set(personality::Persona::ADDR_NO_RANDOMIZE).map_err(Error::Kernel)?;
@@ -219,6 +301,8 @@ impl Process for Debugger {
                 // execute program
                 execvp(&c_path, &c_args).map_err(Error::Kernel)?;
 
+                let _ = kill(nix::unistd::Pid::this(), Signal::SIGSTOP);
+
                 // `execvp` can't exit successfully, this shouldn't be run
                 unsafe { nix::libc::_exit(1) }
             }
@@ -227,14 +311,7 @@ impl Process for Debugger {
 
     fn attach(pid: Pid) -> Result<Self, Error> {
         ptrace::attach(pid).map_err(Error::Kernel)?;
-        let mut pids = Tree::new();
-        pids.push_root(pid, State::WaitingForInit);
-
-        Ok(Debugger {
-            pids,
-            tracing_syscalls: false,
-            remote: true,
-        })
+        Ok(Debugger::remote(pid))
     }
 }
 
@@ -249,19 +326,21 @@ impl Tracee for Debugger {
         let _ = kill(self.pids.root(), Signal::SIGKILL);
     }
 
-    fn pause(&self) {
+    fn pause(&self, pid: Pid) {
         // ignore the result since it appears to be unlikely interrupting can fail
         //
         // https://github.com/torvalds/linux/blob/d528014517f2b0531862c02865b9d4c908019dc4/kernel/ptrace.c#L1137
-        let _ = ptrace::interrupt(self.pids.root());
+        let _ = ptrace::interrupt(pid);
     }
 
-    fn kontinue(&self) {
+    fn kontinue(&mut self, pid: Pid) {
+        let sig = std::mem::take(&mut self.unprocessed_signal);
+
         // ignore the result since continuing a process can't fail
         if self.tracing_syscalls {
-            let _ = ptrace::syscall(self.pids.root(), None);
+            let _ = ptrace::syscall(pid, sig);
         } else {
-            let _ = ptrace::cont(self.pids.root(), None);
+            let _ = ptrace::cont(pid, sig);
         }
     }
 
@@ -316,7 +395,6 @@ mod test {
     fn spawn() {
         // let mut session = Debugger::spawn("sh", &["-c", "echo 10"]).unwrap();
         let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
-        // let mut session = Debugger::spawn("./a.out", &[]).unwrap();
         session.trace_syscalls(true);
         session.run_to_end().unwrap();
     }

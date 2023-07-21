@@ -199,10 +199,7 @@ fn format_c_str(session: &mut Debugger, addr: u64) -> String {
 
             let data = match CString::from_vec_with_nul(data.clone()) {
                 Ok(data) => data.to_string_lossy().into_owned(),
-                Err(err) => {
-                    println!("access {data:?}");
-                    return format!("\"{err}\"");
-                }
+                Err(..) => return format!("???"),
             };
 
             let mut data = data.escape_default().to_string();

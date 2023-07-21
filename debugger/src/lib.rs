@@ -38,9 +38,9 @@ pub trait Tracee {
     /// Remove debugger's hooks from process, killing it in the process.
     fn kill(self);
 
-    fn pause(&self);
+    fn pause(&self, pid: Pid);
 
-    fn kontinue(&self);
+    fn kontinue(&mut self, pid: Pid);
 
     /// Read's a segment of memory.
     ///

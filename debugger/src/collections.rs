@@ -3,13 +3,15 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Node<K, V> {
     value: V,
+    parent: Option<K>,
     children: Vec<K>,
 }
 
 impl<K, V> Node<K, V> {
-    fn new(value: V) -> Self {
+    fn new(value: V, parent: Option<K>) -> Self {
         Self {
             value,
+            parent,
             children: Vec::new(),
         }
     }
@@ -48,24 +50,49 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
     }
 
     pub fn push_child(&mut self, parent: &K, key: K, value: V) {
-        let parent = self.nodes.get_mut(parent).expect("Failed to find parent");
+        let parent_node = self.nodes.get_mut(parent).expect("Failed to find parent");
 
-        parent.children.push(key.clone());
-        self.nodes.insert(key, Node::new(value));
+        parent_node.children.push(key.clone());
+        self.nodes.insert(key, Node::new(value, Some(parent.clone())));
     }
 
     pub fn push_root(&mut self, key: K, value: V) {
         self.root = Some(key.clone());
-        self.nodes.insert(key, Node::new(value));
+        self.nodes.insert(key, Node::new(value, None));
     }
 
-    pub fn find(&mut self, key: &K) -> &mut V {
-        &mut self.nodes.get_mut(key).expect("Failed a find()").value
+    pub fn find(&mut self, key: &K) -> Option<&mut V> {
+        self.nodes.get_mut(key).map(|node| &mut node.value)
     }
 
     pub fn remove(&mut self, key: &K) {
         if Some(key) == self.root.as_ref() {
+            assert!(
+                self.nodes.len() == 1,
+                "can't remove root when there are still leafs"
+            );
+
             self.root = None;
+        }
+
+        // find parent of node
+        let opt_parent = self
+            .nodes
+            .get(key)
+            .expect("value being removed isn't part of the tree")
+            .parent
+            .clone();
+
+        // if we aren't removing the root
+        if let Some(parent) = opt_parent {
+            // find the parent node
+            let parent_node = self.nodes.get_mut(&parent).unwrap();
+
+            // get the index of the parent's child (the node we're removing)
+            let child_of_parent = parent_node.children.iter().position(|k| k == key).unwrap();
+
+            // remove reference
+            parent_node.children.remove(child_of_parent);
         }
 
         self.nodes.remove(key);
