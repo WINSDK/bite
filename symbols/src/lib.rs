@@ -55,16 +55,18 @@ fn parser(s: &str) -> TokenStream {
     TokenStream::simple(s)
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     name: Arc<TokenStream>,
+    name_as_str: String,
     module: Option<Token>,
     intrisic: bool,
 }
 
 impl Function {
-    fn new(name: TokenStream, module: Option<Token>) -> Self {
+    pub fn new(name: TokenStream, module: Option<Token>) -> Self {
         Self {
+            name_as_str: String::from_iter(name.tokens().iter().map(|t| &t.text[..])),
             name: Arc::new(name),
             module,
             intrisic: false,
@@ -85,6 +87,7 @@ impl Function {
     }
 }
 
+#[derive(Debug)]
 pub struct Index {
     /// Mapping from address starting at the header base to functions.
     tree: BTreeMap<usize, Function>,
@@ -395,6 +398,17 @@ impl Index {
     pub fn get_by_addr(&self, addr: usize) -> Option<Function> {
         self.tree.get(&addr).cloned()
     }
+
+    pub fn get_by_name(&self, name: &str) -> Option<(usize, Function)> {
+        self.tree
+            .iter()
+            .find(|(_, func)| func.name_as_str == name)
+            .map(|(addr, func)| (*addr, func.clone()))
+    }
+
+    pub fn insert(&mut self, addr: usize, function: Function) {
+        self.tree.insert(addr, function);
+    }
 }
 
 fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(usize, &'sym str)> {
@@ -456,5 +470,11 @@ impl TokenStream {
     #[inline]
     pub fn tokens(&self) -> &[Token] {
         self.tokens.as_slice()
+    }
+}
+
+impl PartialEq for TokenStream {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
     }
 }

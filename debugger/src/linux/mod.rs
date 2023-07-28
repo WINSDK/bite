@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 
-use nix::sys::signal::{self, kill, Signal};
+use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{self, WaitPidFlag, WaitStatus};
 use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
@@ -62,29 +62,29 @@ fn poll_pid(pid: Pid) -> Result<Option<wait::WaitStatus>, Error> {
     }
 }
 
-fn set_empty_signal_handler(signal: Signal) -> Result<(), Error> {
-    unsafe {
-        signal::sigaction(
-            signal,
-            &signal::SigAction::new(
-                signal::SigHandler::SigIgn,
-                signal::SaFlags::empty(),
-                signal::SigSet::empty(),
-            ),
-        )
-        .map_err(Error::Kernel)?;
-    }
+// fn set_empty_signal_handler(signal: Signal) -> Result<(), Error> {
+//     unsafe {
+//         signal::sigaction(
+//             signal,
+//             &signal::SigAction::new(
+//                 signal::SigHandler::SigIgn,
+//                 signal::SaFlags::empty(),
+//                 signal::SigSet::empty(),
+//             ),
+//         )
+//         .map_err(Error::Kernel)?;
+//     }
+//
+//     Ok(())
+// }
 
-    Ok(())
-}
-
-fn set_signal_handlers() -> Result<(), Error> {
-    set_empty_signal_handler(Signal::SIGINT)?;
-    set_empty_signal_handler(Signal::SIGQUIT)?;
-    set_empty_signal_handler(Signal::SIGPIPE)?;
-    set_empty_signal_handler(Signal::SIGTERM)?;
-    Ok(())
-}
+// fn set_signal_handlers() -> Result<(), Error> {
+//     set_empty_signal_handler(Signal::SIGINT)?;
+//     set_empty_signal_handler(Signal::SIGQUIT)?;
+//     set_empty_signal_handler(Signal::SIGPIPE)?;
+//     set_empty_signal_handler(Signal::SIGTERM)?;
+//     Ok(())
+// }
 
 impl Debugger {
     fn local(parent: Pid) -> Self {
@@ -150,7 +150,7 @@ impl Debugger {
 
             // check whether the pid is known, if so wait on it
             let status = if self.pids.find(&pid).is_some() {
-                poll_pid(pid)?
+                Some(poll_pid(pid)?.expect("???"))
             } else {
                 // go through each tracee and see if they have an event which
                 // would spawn this new pid
@@ -168,7 +168,8 @@ impl Debugger {
             let status = match status {
                 Some(status) => status,
                 None => {
-                    println!("unknown pid send a message");
+                    println!("unknown pid send a message, forced to add it");
+                    self.pids.push_child(&self.pids.root(), pid, State::WaitingForInit);
                     continue;
                 }
             };

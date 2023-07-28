@@ -90,7 +90,7 @@ pub struct RenderContext {
     donut: donut::Donut,
     show_donut: Arc<AtomicBool>,
     timer60: utils::Timer,
-    dissasembly: Option<Arc<Disassembly>>,
+    pub dissasembly: Option<Arc<Disassembly>>,
     disassembling_thread: Option<DisassThread>,
 
     #[cfg(target_family = "windows")]
@@ -118,8 +118,8 @@ impl RenderContext {
 
     pub fn start_debugging(
         &mut self,
-        path: impl AsRef<std::path::Path> + 'static + Send,
-        args: &[&str],
+        _path: impl AsRef<std::path::Path> + 'static + Send,
+        _args: &[&str],
     ) {
         if let Some(debugger) = std::mem::take(&mut self.debugger) {
             debugger.kill();

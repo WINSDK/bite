@@ -169,3 +169,9 @@ impl Token {
         }
     }
 }
+
+impl PartialEq for Token {
+    fn eq(&self, other: &Self) -> bool {
+        *self.text == *other.text
+    }
+}

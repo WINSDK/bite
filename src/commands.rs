@@ -117,11 +117,29 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
             std::process::exit(0);
         }
 
+        if cmd_name == "goto" || cmd_name == "g" {
+            let expr = cmd.strip_prefix("goto").or(cmd.strip_prefix("g")).unwrap_or(cmd);
+            let expr = match ctx.dissasembly {
+                Some(ref dissasembly) => crate::expr::parse(&dissasembly.symbols, expr),
+                None => {
+                    let index = symbols::Index::new();
+                    crate::expr::parse(&index, expr)
+                }
+            };
+
+            match expr {
+                Ok(addr) => ctx.terminal_prompt.push_str(&format!("{addr:#x}\n")),
+                Err(err) => ctx.terminal_prompt.push_str(&format!("{err:?}.\n"))
+            }
+
+            continue;
+        }
+
         match possible_command(cmd_name) {
             Some(guess) => ctx.terminal_prompt.push_str(&format!(
-                "Command '{cmd}' is unknown, did you mean '{guess}'?.\n"
+                "Command '{cmd_name}' is unknown, did you mean '{guess}'?.\n"
             )),
-            None => ctx.terminal_prompt.push_str(&format!("Command '{cmd}' is unknown.\n")),
+            None => ctx.terminal_prompt.push_str(&format!("Command '{cmd_name}' is unknown.\n")),
         }
     }
 }
