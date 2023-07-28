@@ -1,5 +1,4 @@
 use std::path::Path;
-
 use crate::gui::RenderContext;
 
 const CMDS: &[&str] = &["exec", "pwd", "cd", "quit"];
@@ -128,8 +127,33 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
             };
 
             match expr {
-                Ok(addr) => ctx.terminal_prompt.push_str(&format!("{addr:#x}\n")),
-                Err(err) => ctx.terminal_prompt.push_str(&format!("{err:?}.\n"))
+                Ok(addr) => {
+                    if let Some(ref dissasembly) = ctx.dissasembly {
+                        let mut offset = 0;
+                        let exists = dissasembly.proc.iter().find(|&(line_addr, _)| {
+                            if addr == line_addr {
+                                return true;
+                            }
+
+                            offset += 1;
+                            false
+                        });
+
+                        match exists {
+                            Some(..) => {
+                                // FIXME: correct offset calc
+                                ctx.buffers.updated_offset = Some(offset);
+                                ctx.terminal_prompt.push_str(
+                                    &format!("Moved to address '{addr:#x}'.\n")
+                                )
+                            }
+                            None => ctx.terminal_prompt.push_str(
+                                &format!("Address '{addr:#x}' is undefined.\n")
+                            )
+                        }
+                    }
+                }
+                Err(err) => ctx.terminal_prompt.push_str(&format!("{err:?}.\n")),
             }
 
             continue;

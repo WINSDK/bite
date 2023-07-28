@@ -95,7 +95,7 @@ impl<'src> Context<'src> {
         self.depth += 1;
 
         if self.depth == MAX_DEPTH {
-            self.error("reached recursion depth")
+            self.error("Reached recursion depth")
         } else {
             Ok(())
         }
@@ -133,8 +133,8 @@ impl<'src> Context<'src> {
                 self.offset += 1;
                 Ok(())
             }
-            Some(got) => self.error(&format!("expected '{chr}' got '{got}'")),
-            None => self.error(&format!("expected '{chr}' got EOF")),
+            Some(got) => self.error(&format!("Expected '{chr}' got '{got}'")),
+            None => self.error(&format!("Expected '{chr}' got EOF")),
         }
     }
 
@@ -179,21 +179,21 @@ impl<'src> Context<'src> {
             Some(digit) => {
                 int = match int.checked_add(digit as isize) {
                     Some(int) => int,
-                    None => return self.failing("integer too large"),
+                    None => return self.failing("Integer expression is too large"),
                 };
             }
-            None => return self.error("integer didn't contain any digits"),
+            None => return self.error("Integer didn't contain any digits"),
         }
 
         while let Some(digit) = self.base10() {
             int = match int.checked_mul(10) {
                 Some(int) => int,
-                None => return self.failing("integer too large"),
+                None => return self.failing("Integer expression is too large"),
             };
 
             int = match int.checked_add(digit as isize) {
                 Some(int) => int,
-                None => return self.failing("integer too large"),
+                None => return self.failing("Integer expression is too large"),
             };
         }
 
@@ -208,28 +208,28 @@ impl<'src> Context<'src> {
         self.consume('0')?;
 
         if let (Err(..), Err(..)) = (self.consume('x'), self.consume('X')) {
-            return self.error("hex prefix wasn't present");
+            return self.error("unreachable");
         }
 
         match self.base16() {
             Some(digit) => {
                 int = match int.checked_add(digit as isize) {
                     Some(int) => int,
-                    None => return self.failing("integer too large"),
+                    None => return self.failing("Integer expression is too large"),
                 };
             }
-            None => return self.error("integer didn't contain any digits"),
+            None => return self.error("Integer didn't contain any digits"),
         }
 
         while let Some(digit) = self.base16() {
             int = match int.checked_mul(16) {
                 Some(int) => int,
-                None => return self.failing("integer too large"),
+                None => return self.failing("Integer expression is too large"),
             };
 
             int = match int.checked_add(digit as isize) {
                 Some(int) => int,
-                None => return self.failing("integer too large"),
+                None => return self.failing("Integer expression is too large"),
             };
         }
 
@@ -248,7 +248,7 @@ impl<'src> Context<'src> {
         if is_neg {
             int = match int.checked_mul(-1) {
                 Some(int) => int,
-                None => return self.failing("integer too large"),
+                None => return self.failing("Integer expression is too large"),
             };
         }
 
@@ -258,7 +258,7 @@ impl<'src> Context<'src> {
     fn operator(&mut self) -> Result<Operator, Error> {
         let op = match self.peek() {
             Some(op) => op,
-            None => return self.error("trailing characters in expression"),
+            None => return self.error("Trailing characters in expression"),
         };
 
         let op = match op {
@@ -267,7 +267,7 @@ impl<'src> Context<'src> {
             '*' => Operator::Mul,
             '/' => Operator::Div,
             '%' => Operator::Mod,
-            chr => return self.error(&format!("encountered invalid operator '{chr}'")),
+            chr => return self.failing(&format!("Encountered invalid operator '{chr}'")),
         };
 
         self.offset += 1;
@@ -329,7 +329,10 @@ impl<'src> Context<'src> {
 
             let (addr, function) = match self.index.get_by_name(sym) {
                 Some(got) => got,
-                None => return self.error(&format!("function '{sym}' isn't known")),
+                None => return Err(Error {
+                    msg: format!("Function '{sym}' isn't known"),
+                    offset: None
+                })
             };
 
             if let Ok(op) = self.operator() {
@@ -367,7 +370,7 @@ impl<'src> Context<'src> {
             return Ok(expr);
         }
 
-        self.error("invalid expression")
+        self.error("Invalid expression")
     }
 
     fn expr(&mut self) -> Result<Expr, Error> {
@@ -376,7 +379,7 @@ impl<'src> Context<'src> {
         self.consume_whitespace();
 
         if !self.src().is_empty() {
-            return self.error("trailing characters in expression");
+            return self.error("Trailing characters in expression");
         }
 
         Ok(expr)
@@ -430,7 +433,7 @@ pub fn parse(index: &symbols::Index, s: &str) -> Result<usize, Error> {
     if s.is_empty() {
         return Err(Error {
             offset: None,
-            msg: "empty expression".to_string(),
+            msg: "Empty expression".to_string(),
         });
     }
 
@@ -442,7 +445,7 @@ pub fn parse(index: &symbols::Index, s: &str) -> Result<usize, Error> {
             Some(val) => Ok(val as usize),
             None => Err(Error {
                 offset: None,
-                msg: "expression overflowed".to_string(),
+                msg: "Expression overflowed".to_string(),
             }),
         },
     }

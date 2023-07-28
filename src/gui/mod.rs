@@ -83,7 +83,7 @@ impl fmt::Debug for Error {
 
 pub struct RenderContext {
     panels: Tree<Title>,
-    buffers: Buffers,
+    pub buffers: Buffers,
 
     style: style::Style,
     window: Arc<winit::window::Window>,
@@ -134,9 +134,11 @@ enum TabKind {
     Functions,
 }
 
-struct Buffers {
+pub struct Buffers {
     mapping: HashMap<Title, TabKind>,
     dissasembly: Option<Arc<Disassembly>>,
+
+    pub updated_offset: Option<usize>,
 
     cached_diss_range: std::ops::Range<usize>,
     cached_diss: Vec<Token>,
@@ -150,6 +152,7 @@ impl Buffers {
         Self {
             mapping,
             dissasembly: None,
+            updated_offset: None,
             cached_diss_range: std::ops::Range { start: 0, end: 0 },
             cached_diss: Vec::new(),
             cached_funcs_range: std::ops::Range { start: 0, end: 0 },
@@ -166,8 +169,16 @@ impl Buffers {
         let text_style = egui::TextStyle::Body;
         let row_height = ui.text_style_height(&text_style);
         let total_rows = dissasembly.proc.instruction_count();
-        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
         let font_id = text_style.resolve(STYLE.egui());
+
+        let area = egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false);
+
+        let area = match std::mem::take(&mut self.updated_offset) {
+            Some(offset) => area.scroll_offset(egui::vec2(0.0, offset as f32 * row_height)),
+            None => area
+        };
 
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
             if row_range != self.cached_diss_range {

@@ -45,9 +45,6 @@ impl fmt::Debug for DecodeError {
 }
 
 pub struct Disassembly {
-    /// Where the cursor is currently.
-    pub current_addr: usize,
-
     /// Processor which holds information related to each instruction.
     pub proc: Box<dyn InspectProcessor + Send>,
 
@@ -147,7 +144,6 @@ impl Disassembly {
 
         println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
         Ok(Self {
-            current_addr: 0,
             proc,
             symbols,
         })
