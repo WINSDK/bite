@@ -2,6 +2,7 @@
 //! Use `begin_frame()` and `end_frame()` to start drawing the egui UI.
 
 use std::collections::HashMap;
+use std::io::Write;
 
 use copypasta::{ClipboardContext, ClipboardProvider};
 use egui::emath::{pos2, vec2};
@@ -104,6 +105,19 @@ impl Platform {
             ..Default::default()
         };
 
+        let commands = match Self::read_command_history() {
+            Ok(mut cmds) => {
+                cmds.push(String::new());
+                cmds
+            }
+            Err(err) => {
+                crate::warning!("Failed in reading command history: '{err:?}'");
+                vec![String::new()]
+            }
+        };
+
+        let command_position = commands.len() - 1;
+
         Self {
             scale_factor: descriptor.scale_factor,
             raw_keys: Vec::new(),
@@ -117,9 +131,9 @@ impl Platform {
             next_device_index: 1,
             dragging: false,
             winit: descriptor.winit,
-            commands: vec![String::new()],
+            commands,
             commands_unprocessed: 0,
-            command_position: 0,
+            command_position,
             cursor_position: 0,
         }
     }
@@ -401,12 +415,69 @@ impl Platform {
         );
     }
 
-    /// Consumes terminal commands recorded since last frame.
+    /// Terminal commands recorded since last frame.
     pub fn commands(&mut self) -> &[String] {
+        let ncmds = self.commands_unprocessed;
+        &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
+    }
+
+    /// Consumes terminal commands recorded since last frame.
+    pub fn take_commands(&mut self) -> &[String] {
         let ncmds = self.commands_unprocessed;
         self.commands_unprocessed = 0;
         &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
     }
+
+    fn command_history_path() -> std::io::Result<std::path::PathBuf> {
+        let mut path = match dirs::data_dir() {
+            Some(dir) => dir,
+            None => crate::error!("You must have a home directory set."),
+        };
+
+        path.push("bite");
+
+        if !path.is_dir() {
+            std::fs::create_dir(&path)?;
+        }
+
+        path.push("bite_history");
+
+        if !path.is_file() {
+            std::fs::File::create(&path)?;
+        }
+
+        Ok(path)
+    }
+
+    fn read_command_history() -> std::io::Result<Vec<String>> {
+        let path = Self::command_history_path()?;
+        let data = std::fs::read_to_string(path)?;
+        let mut read_cmds = Vec::new();
+
+        for line in data.lines() {
+            read_cmds.push(line.to_string());
+        }
+
+        Ok(read_cmds)
+    }
+
+    /// Appends newly recorded command's to `DATA_DIR/bite_history`.
+    pub fn save_command_history(&mut self) -> std::io::Result<()> {
+        let cmds = self.commands();
+
+        if cmds.is_empty() {
+            return Ok(());
+        }
+
+        let path = Self::command_history_path()?;
+        let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+
+        file.write(b"\n")?;
+        file.write(cmds.join("\n").as_bytes())?;
+
+        Ok(())
+    }
+
 
     /// Process all character having been entered.
     fn record_terminal_input(&mut self) {

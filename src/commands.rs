@@ -57,6 +57,7 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
     for cmd in commands {
         ctx.terminal_prompt.push_str(&format!("(bite) {cmd}\n"));
 
+
         let mut args = cmd.split_whitespace();
         let cmd_name = match args.next() {
             Some(cmd) => cmd,
@@ -117,40 +118,39 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
         }
 
         if cmd_name == "goto" || cmd_name == "g" {
-            let expr = cmd.strip_prefix("goto").or(cmd.strip_prefix("g")).unwrap_or(cmd);
-            let expr = match ctx.dissasembly {
-                Some(ref dissasembly) => crate::expr::parse(&dissasembly.symbols, expr),
+            let dissasembly = match ctx.dissasembly {
+                Some(ref dissasembly) => dissasembly,
                 None => {
-                    let index = symbols::Index::new();
-                    crate::expr::parse(&index, expr)
+                    ctx.terminal_prompt.push_str("There are no targets to inspect.\n");
+                    continue;
                 }
             };
 
-            match expr {
+            let expr = cmd.strip_prefix("goto").or(cmd.strip_prefix("g")).unwrap_or(cmd);
+
+            match crate::expr::parse(&dissasembly.symbols, expr) {
                 Ok(addr) => {
-                    if let Some(ref dissasembly) = ctx.dissasembly {
-                        let mut offset = 0;
-                        let exists = dissasembly.proc.iter().find(|&(line_addr, _)| {
-                            if addr == line_addr {
-                                return true;
-                            }
+                    let mut offset = 0;
+                    let exists = dissasembly.proc.iter().find(|&(line_addr, _)| {
+                        if addr == line_addr {
+                            return true;
+                        }
 
-                            offset += 1;
-                            false
-                        });
+                        offset += 1;
+                        false
+                    });
 
-                        match exists {
-                            Some(..) => {
-                                // FIXME: correct offset calc
-                                ctx.buffers.updated_offset = Some(offset);
-                                ctx.terminal_prompt.push_str(
-                                    &format!("Moved to address '{addr:#x}'.\n")
-                                )
-                            }
-                            None => ctx.terminal_prompt.push_str(
-                                &format!("Address '{addr:#x}' is undefined.\n")
+                    match exists {
+                        Some(..) => {
+                            // FIXME: correct offset calc
+                            ctx.buffers.updated_offset = Some(offset);
+                            ctx.terminal_prompt.push_str(
+                                &format!("Jumped to address '{addr:#X}'.\n")
                             )
                         }
+                        None => ctx.terminal_prompt.push_str(
+                            &format!("Address '{addr:#X}' is undefined.\n")
+                        )
                     }
                 }
                 Err(err) => ctx.terminal_prompt.push_str(&format!("{err:?}.\n")),

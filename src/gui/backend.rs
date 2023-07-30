@@ -199,8 +199,11 @@ impl Backend {
         // begin to draw the UI frame
         platform.begin_frame();
 
+        // store new commands recorded
+        let _ = platform.save_command_history();
+
         // process terminal commands
-        crate::commands::process_commands(ctx, platform.commands());
+        crate::commands::process_commands(ctx, platform.take_commands());
 
         egui::TopBottomPanel::top("top bar").show(&platform.context(), |ui| {
             // generic keyboard inputs
