@@ -23,7 +23,7 @@ impl Tracee for Debugger {
         todo!("detach");
     }
 
-    fn kill(self) {
+    fn kill(&self) {
         todo!("kill");
     }
 

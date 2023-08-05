@@ -283,8 +283,6 @@ impl<'src> Context<'src> {
                 Some('+' | '-' | '*' | '/' | '%') => break,
                 // brackets are ambiguous
                 Some('(' | ')') => break,
-                // numbers are ambiguous
-                Some('0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9') => break,
                 // whitespace is ambiguous
                 Some('\u{0020}' | '\u{000a}' | '\u{000d}' | '\u{0009}') => break,
                 // EOF means there we must be at the end of a symbol
