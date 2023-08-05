@@ -13,7 +13,7 @@ impl Process for Debugger {
         todo!("spawn");
     }
 
-    fn attach(pid: Pid) -> Result<Self, Error> {
+    fn attach(_: Pid) -> Result<Self, Error> {
         todo!("attach");
     }
 }
@@ -23,23 +23,23 @@ impl Tracee for Debugger {
         todo!("detach");
     }
 
-    fn kill(self) {
+    fn kill(&self) {
         todo!("kill");
     }
 
-    fn pause(&self, pid: Pid) {
+    fn pause(&self, _: Pid) {
         todo!("pause");
     }
 
-    fn kontinue(&mut self, pid: Pid) {
+    fn kontinue(&mut self, _: Pid) {
         todo!("kontinue");
     }
 
-    fn read_process_memory(&self, base_addr: usize, len: usize) -> Result<Vec<u8>, Error> {
+    fn read_process_memory(&self, _: usize, _: usize) -> Result<Vec<u8>, Error> {
         todo!("read_process_memory");
     }
 
-    fn write_process_memory(&mut self, base_addr: usize, data: &[u8]) -> Result<(), Error> {
+    fn write_process_memory(&mut self, _: usize, _: &[u8]) -> Result<(), Error> {
         todo!("write_process_memory");
     }
 }
