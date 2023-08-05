@@ -118,9 +118,18 @@ impl RenderContext {
 
     pub fn start_debugging(
         &mut self,
-        _path: impl AsRef<std::path::Path> + 'static + Send,
-        _args: &[&str],
+        path: impl AsRef<std::path::Path> + 'static + Send,
+        args: &[&str],
     ) {
+        use debugger::Process;
+
+        let mut session = debugger::Debugger::spawn(path, args).unwrap();
+
+        #[cfg(target_os = "linux")]
+        std::thread::spawn(move || {
+            session.run_to_end().unwrap();
+        });
+
         if let Some(debugger) = std::mem::take(&mut self.debugger) {
             debugger.kill();
         }

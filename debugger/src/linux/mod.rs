@@ -87,9 +87,9 @@ fn poll_pid(pid: Pid) -> Result<Option<wait::WaitStatus>, Error> {
 // }
 
 impl Debugger {
-    fn local(parent: Pid) -> Self {
+    fn local(root: Pid) -> Self {
         let mut pids = Tree::new();
-        pids.push_root(parent, State::WaitingForInit);
+        pids.push_root(root, State::WaitingForInit);
 
         Debugger {
             pids,
@@ -100,8 +100,8 @@ impl Debugger {
         }
     }
 
-    fn remote(parent: Pid) -> Self {
-        let mut this = Debugger::local(parent);
+    fn remote(root: Pid) -> Self {
+        let mut this = Debugger::local(root);
         this.remote = true;
         this
     }
@@ -141,46 +141,51 @@ impl Debugger {
             let status = wait::waitid(
                 wait::Id::All,
                 wait::WaitPidFlag::WEXITED
-                    | wait::WaitPidFlag::WNOWAIT
+                    // | wait::WaitPidFlag::WNOWAIT
                     | wait::WaitPidFlag::WSTOPPED,
             )
             .map_err(Error::Kernel)?;
 
-            let mut pid = status.pid().unwrap();
+            let pid = status.pid().unwrap();
 
-            // check whether the pid is known, if so wait on it
-            let status = if self.pids.find(&pid).is_some() {
-                Some(poll_pid(pid)?.expect("???"))
-            } else {
-                // go through each tracee and see if they have an event which
-                // would spawn this new pid
-                let mut status = None;
-                for (new_pid, _) in self.pids.iter() {
-                    if let Some(new_status) = poll_pid(*new_pid)? {
-                        status = Some(new_status);
-                        pid = *new_pid;
-                    }
-                }
+            if self.pids.find(&pid).is_none() {
+                self.pids.push_child(&self.pids.root(), pid, State::WaitingForInit);
+            }
 
-                status
-            };
+            // if we aren't tracing this pid
+            // if self.pids.find(&pid).is_none() {
+            //     let mut known_event = false;
+            //     for (new_pid, _) in self.pids.iter() {
+            //         if poll_pid(*new_pid)?.is_some() {
+            //             known_event = true;
+            //             break;
+            //         }
+            //     }
 
-            let status = match status {
-                Some(status) => status,
-                None => {
-                    println!("unknown pid send a message, forced to add it");
-                    self.pids.push_child(&self.pids.root(), pid, State::WaitingForInit);
-                    continue;
-                }
-            };
+            //     if !known_event {
+            //         continue;
+            //     }
+            // }
 
             let state = self.pids.find(&pid).unwrap();
 
+            if *state == State::WaitingForInit {
+                assert!(
+                    matches!(
+                        status,
+                        WaitStatus::PtraceEvent(_, Signal::SIGTRAP, _),
+                    ),
+                    "got '{status:?}' expected 'WaitStatus::Stopped(..)'"
+                );
+            }
+
+            dbg!((&state, &status));
             match state {
                 State::WaitingForInit => {
                     *state = State::Running;
-                    self.set_options(pid)?;
+                    dbg!(&self.pids, &pid);
                     self.kontinue(pid);
+                    self.set_options(pid)?;
                 }
                 State::Running => self.process_event(status)?,
             }
@@ -318,13 +323,17 @@ impl Process for Debugger {
 
 impl Tracee for Debugger {
     fn detach(self) {
-        // ignore the result since detaching can't fail
-        let _ = ptrace::detach(self.pids.root(), None);
+        for (&pid, _) in self.pids.iter() {
+            // ignore the result since detaching can't fail
+            let _ = ptrace::detach(pid, None);
+        }
     }
 
-    fn kill(self) {
-        // ignore the result since killing a process can't fail
-        let _ = kill(self.pids.root(), Signal::SIGKILL);
+    fn kill(&self) {
+        for (&pid, _) in self.pids.iter() {
+            // ignore the result since killing a process can't fail
+            let _ = kill(pid, Signal::SIGKILL);
+        }
     }
 
     fn pause(&self, pid: Pid) {
@@ -385,6 +394,12 @@ impl Tracee for Debugger {
         }
 
         Ok(())
+    }
+}
+
+impl Drop for Debugger {
+    fn drop(&mut self) {
+        self.kill();
     }
 }
 

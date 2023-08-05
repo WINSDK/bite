@@ -36,7 +36,7 @@ pub trait Tracee {
     fn detach(self);
 
     /// Remove debugger's hooks from process, killing it in the process.
-    fn kill(self);
+    fn kill(&self);
 
     fn pause(&self, pid: Pid);
 

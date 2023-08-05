@@ -12,6 +12,7 @@
 * w/watch expr|variable (set watchpoint on expr)
 * d/detach
 * q/quit
+* s/stop
 
 ## Small details
 

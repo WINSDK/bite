@@ -1,7 +1,7 @@
 use std::path::Path;
 use crate::gui::RenderContext;
 
-const CMDS: &[&str] = &["exec", "pwd", "cd", "quit"];
+const CMDS: &[&str] = &["exec", "pwd", "cd", "quit", "run", "goto"];
 
 fn possible_command(unknown: &str) -> Option<&str> {
     let mut distance = u32::MAX;
