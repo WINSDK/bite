@@ -274,25 +274,48 @@ impl<'src> Context<'src> {
         Ok(op)
     }
 
-    fn symbol(&mut self) -> &'src str {
+    fn symbol(&mut self) -> Result<&'src str, Error> {
         let start = self.offset;
+        let mut depth = 0isize;
 
         loop {
             match self.peek() {
                 // operators are ambiguous
-                Some('+' | '-' | '*' | '/' | '%') => break,
+                Some('+' | '-' | '*' | '/' | '%') if depth == 0 => break,
                 // brackets are ambiguous
-                Some('(' | ')') => break,
+                Some('(' | ')') if depth == 0 => break,
                 // whitespace is ambiguous
-                Some('\u{0020}' | '\u{000a}' | '\u{000d}' | '\u{0009}') => break,
+                Some('\u{0020}' | '\u{000a}' | '\u{000d}' | '\u{0009}') if depth == 0 => break,
                 // EOF means there we must be at the end of a symbol
                 None => break,
+                // entering a generic
+                Some('<') => depth += 1,
+                // existing a generic
+                Some('>') => depth -= 1,
                 // any other character should be part of a valid symbol
-                Some(..) => self.offset += 1,
+                Some(..) => {}
             }
+
+            self.offset += 1;
         }
 
-        &self.src[start..self.offset]
+        // generic is missing a opening bracket
+        if depth < 0 {
+            return Err(Error {
+                offset: Some(self.src.find(">").unwrap()),
+                msg: "Mismatching brackets".to_string(),
+            });
+        }
+
+        // generic is missing a closing bracket
+        if depth > 0 {
+            return Err(Error {
+                offset: Some(self.src.rfind("<").unwrap()),
+                msg: "Mismatching brackets".to_string(),
+            });
+        }
+
+        Ok(&self.src[start..self.offset])
     }
 
     fn expr_inner(&mut self) -> Result<Expr, Error> {
@@ -321,22 +344,24 @@ impl<'src> Context<'src> {
             Err(..) => {}
         }
 
-        let sym = self.symbol();
+        let sym = self.symbol()?;
         if !sym.is_empty() {
             self.consume_whitespace();
 
             let (addr, function) = match self.index.get_by_name(sym) {
                 Some(got) => got,
-                None => return Err(Error {
-                    msg: format!("Function '{sym}' isn't known"),
-                    offset: None
-                })
+                None => {
+                    return Err(Error {
+                        msg: format!("Function '{sym}' isn't known"),
+                        offset: None,
+                    })
+                }
             };
 
             if let Ok(op) = self.operator() {
                 self.consume_whitespace();
 
-                    self.ascent();
+                self.ascent();
                 return Ok(Expr::Compound {
                     lhs: Box::new(Expr::Symbol { addr, function }),
                     op,
@@ -582,6 +607,44 @@ mod tests {
                 }),
                 op: Operator::Div,
                 rhs: Box::new(Expr::Number(12))
+            }
+        );
+    }
+
+    #[test]
+    fn generic() {
+        eval_eq!(
+            ["abc::f<dyn Debug + Clone>"; 0x100],
+            "abc::f<dyn Debug + Clone>",
+            0x100
+        );
+        ast_eq!(
+            ["abc::f<dyn Debug + Clone>"; 0x100],
+            "abc::f<dyn Debug + Clone>",
+            Expr::Symbol {
+                addr: 0x100,
+                function: Function::new(TokenStream::simple("abc::f<dyn Debug + Clone>"), None)
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn mismatched_generic() {
+        ast_eq!(
+            ["abc::f<dyn Debug>"; 0x100],
+            "abc::f<dyn Debug> + Clone>",
+            Expr::Symbol {
+                addr: 0x100,
+                function: Function::new(TokenStream::simple("abc::f<dyn Debug + Clone>"), None)
+            }
+        );
+        ast_eq!(
+            ["abc::f<dyn Debug>"; 0x100],
+            "abc::f<dyn Debug< + Clone>",
+            Expr::Symbol {
+                addr: 0x100,
+                function: Function::new(TokenStream::simple("abc::f<dyn Debug + Clone>"), None)
             }
         );
     }

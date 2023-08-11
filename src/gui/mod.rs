@@ -17,7 +17,7 @@ use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
 use crate::disassembly::Disassembly;
 use backend::Backend;
-use debugger::{Tracee, Debugger};
+use debugger::{Process, Debugger};
 use egui::{Button, RichText};
 use egui_backend::Pipeline;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
@@ -41,7 +41,6 @@ const FUNCS_TITLE: &str = crate::icon!(LIGATURE, " Functions");
 
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
-type DebugThread = JoinHandle<Result<Debugger, debugger::Error>>;
 
 pub enum Error {
     DrawText(String),
@@ -98,9 +97,6 @@ pub struct RenderContext {
     #[cfg(target_family = "windows")]
     unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 
-    debugger: Option<debugger::Debugger>,
-    debugger_thread: Option<DebugThread>,
-
     pub process_path: Option<std::path::PathBuf>,
     pub terminal_prompt: String,
 }
@@ -121,18 +117,12 @@ impl RenderContext {
         path: impl AsRef<std::path::Path> + 'static + Send,
         args: &[&str],
     ) {
-        use debugger::Process;
-
-        let mut session = debugger::Debugger::spawn(path, args).unwrap();
+        let mut session = Debugger::spawn(path, args).unwrap();
 
         #[cfg(target_os = "linux")]
         std::thread::spawn(move || {
             session.run_to_end().unwrap();
         });
-
-        if let Some(debugger) = std::mem::take(&mut self.debugger) {
-            debugger.kill();
-        }
     }
 }
 
@@ -452,8 +442,6 @@ pub fn init() -> Result<(), Error> {
         #[cfg(target_family = "windows")]
         unwindowed_pos: window.outer_position().unwrap_or_default(),
         process_path: None,
-        debugger: None,
-        debugger_thread: None,
         terminal_prompt: String::new(),
     };
 
