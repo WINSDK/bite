@@ -7,7 +7,7 @@ use nix::sys::{signal, stat};
 use std::ffi::{c_int, CString};
 use std::fmt;
 use std::mem::size_of;
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::AsRawFd;
 use std::ptr;
 
 #[cfg(target_arch = "x86_64")]
@@ -48,18 +48,6 @@ macro_rules! format_flags {
 }
 
 #[repr(transparent)]
-struct PollFd(nix::poll::PollFd<'static>);
-
-impl fmt::Debug for PollFd {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let fd = format_fd(self.0.as_fd().as_raw_fd() as u64);
-
-        f.write_fmt(format_args!("{{fd: {fd}, ",))?;
-        f.write_fmt(format_args!("events: {:?}}}", self.0.events()))
-    }
-}
-
-#[repr(transparent)]
 struct IoVec(libc::iovec);
 
 impl fmt::Debug for IoVec {
@@ -77,6 +65,20 @@ struct Fd(c_int);
 impl fmt::Debug for Fd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&format_fd(self.0 as u64))
+    }
+}
+
+#[repr(transparent)]
+struct PollFd(libc::pollfd);
+
+impl fmt::Debug for PollFd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{{fd: {:?}, ", Fd(self.0.fd)))?;
+
+        match nix::poll::PollFlags::from_bits(self.0.events) {
+            Some(events) => f.write_fmt(format_args!("events: {events:?}}}")),
+            None => f.write_fmt(format_args!("events: {}}}", self.0.events)),
+        }
     }
 }
 
@@ -673,7 +675,7 @@ impl super::Debugger {
             Sysno::poll => print_delimited![
                 func,
                 format_array::<PollFd>(self, args[0], args[1]),
-                (args[1] as c_int).to_string(),
+                args[1].to_string(),
                 (args[2] as c_int).to_string()
             ],
             Sysno::lseek => print_delimited![

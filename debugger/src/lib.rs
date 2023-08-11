@@ -33,10 +33,10 @@ where
 /// Common behaviour shared amongst debugging sessions.
 pub trait Tracee {
     /// Remove debugger's hooks from process, releasing it's control.
-    fn detach(self);
+    fn detach(&mut self);
 
     /// Remove debugger's hooks from process, killing it in the process.
-    fn kill(&self);
+    fn kill(&mut self);
 
     fn pause(&self, pid: Pid);
 

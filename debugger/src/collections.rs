@@ -102,13 +102,18 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
         self.nodes.is_empty()
     }
 
-    #[allow(dead_code)]
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.nodes.iter().map(|(key, node)| (key, &node.value))
     }
 
-    #[allow(dead_code)]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
         self.nodes.iter_mut().map(|(key, node)| (key, &mut node.value))
+    }
+
+    pub fn into_iter(&mut self) -> impl Iterator<Item = (K, V)> {
+        let nodes = std::mem::take(&mut self.nodes);
+        self.root = None;
+
+        nodes.into_iter().map(|(key, node)| (key, node.value))
     }
 }

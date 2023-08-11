@@ -19,11 +19,11 @@ impl Process for Debugger {
 }
 
 impl Tracee for Debugger {
-    fn detach(self) {
+    fn detach(&mut self) {
         todo!("detach");
     }
 
-    fn kill(&self) {
+    fn kill(&mut self) {
         todo!("kill");
     }
 

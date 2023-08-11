@@ -114,11 +114,6 @@ impl Debugger {
             options |= ptrace::Options::PTRACE_O_TRACESYSGOOD;
         }
 
-        if !self.remote {
-            // kill process when we exit
-            options |= ptrace::Options::PTRACE_O_EXITKILL;
-        }
-
         // break on common syscalls
         let options = options
             // new thread
@@ -138,54 +133,34 @@ impl Debugger {
     pub fn run_to_end(&mut self) -> Result<(), Error> {
         loop {
             // wait for child to give send a message
-            let status = wait::waitid(
-                wait::Id::All,
-                wait::WaitPidFlag::WEXITED
-                    // | wait::WaitPidFlag::WNOWAIT
-                    | wait::WaitPidFlag::WSTOPPED,
+            let status = wait::waitpid(
+                self.pids.root(),
+                Some(wait::WaitPidFlag::WSTOPPED | wait::WaitPidFlag::WCONTINUED),
             )
             .map_err(Error::Kernel)?;
 
             let pid = status.pid().unwrap();
 
-            if self.pids.find(&pid).is_none() {
-                self.pids.push_child(&self.pids.root(), pid, State::WaitingForInit);
-            }
-
-            // if we aren't tracing this pid
-            // if self.pids.find(&pid).is_none() {
-            //     let mut known_event = false;
-            //     for (new_pid, _) in self.pids.iter() {
-            //         if poll_pid(*new_pid)?.is_some() {
-            //             known_event = true;
-            //             break;
-            //         }
-            //     }
-
-            //     if !known_event {
-            //         continue;
-            //     }
-            // }
-
-            let state = self.pids.find(&pid).unwrap();
-
-            if *state == State::WaitingForInit {
-                assert!(
-                    matches!(
-                        status,
-                        WaitStatus::PtraceEvent(_, Signal::SIGTRAP, _),
-                    ),
-                    "got '{status:?}' expected 'WaitStatus::Stopped(..)'"
-                );
-            }
+            let state = match self.pids.find(&pid) {
+                Some(state) => state,
+                // if a pid isn't being tracked, don't handle to it's event
+                None => continue,
+            };
 
             dbg!((&state, &status));
             match state {
                 State::WaitingForInit => {
+                    assert!(
+                        matches!(
+                            status,
+                            WaitStatus::Stopped(_, Signal::SIGSTOP)
+                        ),
+                        "got '{status:?}' expected a SIGSTOP"
+                    );
+
                     *state = State::Running;
-                    dbg!(&self.pids, &pid);
-                    self.kontinue(pid);
                     self.set_options(pid)?;
+                    self.kontinue(pid);
                 }
                 State::Running => self.process_event(status)?,
             }
@@ -295,22 +270,25 @@ impl Process for Debugger {
             c_args.push(arg);
         }
 
+        let child_actions = || {
+            // disable ASLR
+            personality::set(personality::Persona::ADDR_NO_RANDOMIZE)?;
+
+            // signal child process to be traced
+            ptrace::traceme()?;
+
+            // stop child
+            nix::sys::signal::raise(Signal::SIGSTOP)?;
+
+            // execute program
+            execvp(&c_path, &c_args)
+        };
+
         match unsafe { fork().map_err(Error::Kernel)? } {
             ForkResult::Parent { child } => Ok(Debugger::local(child)),
-            ForkResult::Child => {
-                // disable ASLR
-                personality::set(personality::Persona::ADDR_NO_RANDOMIZE).map_err(Error::Kernel)?;
-
-                // signal child process to be traced
-                ptrace::traceme().map_err(Error::Kernel)?;
-
-                // execute program
-                execvp(&c_path, &c_args).map_err(Error::Kernel)?;
-
-                let _ = kill(nix::unistd::Pid::this(), Signal::SIGSTOP);
-
-                // `execvp` can't exit successfully, this shouldn't be run
-                unsafe { nix::libc::_exit(1) }
+            ForkResult::Child => match child_actions() {
+                Err(err) => panic!("{err:?}"),
+                Ok(..) => unsafe { nix::libc::_exit(1) }
             }
         }
     }
@@ -322,15 +300,15 @@ impl Process for Debugger {
 }
 
 impl Tracee for Debugger {
-    fn detach(self) {
-        for (&pid, _) in self.pids.iter() {
+    fn detach(&mut self) {
+        for (pid, _) in self.pids.into_iter() {
             // ignore the result since detaching can't fail
             let _ = ptrace::detach(pid, None);
         }
     }
 
-    fn kill(&self) {
-        for (&pid, _) in self.pids.iter() {
+    fn kill(&mut self) {
+        for (pid, _) in self.pids.into_iter() {
             // ignore the result since killing a process can't fail
             let _ = kill(pid, Signal::SIGKILL);
         }
@@ -399,7 +377,9 @@ impl Tracee for Debugger {
 
 impl Drop for Debugger {
     fn drop(&mut self) {
-        self.kill();
+        if !self.remote {
+            self.kill();
+        }
     }
 }
 
@@ -409,8 +389,8 @@ mod test {
 
     #[test]
     fn spawn() {
-        // let mut session = Debugger::spawn("sh", &["-c", "echo 10"]).unwrap();
-        let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
+        let mut session = Debugger::spawn("sh", &["-c", "echo 10"]).unwrap();
+        // let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
         session.trace_syscalls(true);
         session.run_to_end().unwrap();
     }
