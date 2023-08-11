@@ -1,4 +1,4 @@
-//! You need to create a [`RenderPass`] and feed it with the output data provided by egui.
+//! You need to create a [`Pipeline`] and feed it with the output data provided by egui.
 
 use crate::gui::Error;
 

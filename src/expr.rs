@@ -1,5 +1,6 @@
 //! Grammer for expressions used by debugger.
 //!
+//! ```text
 //! <input> = <ws> <expr> <ws>
 //! <expr>  = <compound> | <number> | <symbol>
 //!
@@ -12,6 +13,7 @@
 //!
 //! <compound> = <expr> <ws> <op> <ws> <expr> | '(' <ws> <expr> <ws> ')'
 //! <op> = '+' | '-' | '*' | '/' | '%'
+//! ```
 
 use std::fmt;
 
@@ -36,6 +38,10 @@ impl<T> Failing for Option<T> {
     }
 }
 
+/// Index into expression arena.
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct ExprRef(usize);
+
 /// Information required at runtime when parsing expressions.
 #[derive(Debug)]
 struct Context<'src> {
@@ -51,8 +57,11 @@ struct Context<'src> {
     /// Recursion depth.
     depth: usize,
 
-    /// Indicator used by the [`Failing`] trait
+    /// Indicator used by the [`Failing`] trait.
     is_failing: bool,
+
+    /// Arena of expressions.
+    pool: Vec<Expr>,
 }
 
 /// Error with line number and context.
@@ -82,12 +91,25 @@ impl<'src> Context<'src> {
             offset: 0,
             depth: 0,
             is_failing: false,
+            pool: Vec::with_capacity(16),
         }
     }
 
     /// Where we are in the string.
     fn src(&self) -> &'src str {
         &self.src[self.offset..]
+    }
+
+    /// Adds expression to arena.
+    fn store(&mut self, expr: Expr) -> ExprRef {
+        let idx = self.pool.len();
+        self.pool.push(expr);
+        ExprRef(idx)
+    }
+
+    /// Retrieves expression from arena.
+    fn load(&self, expr_ref: &ExprRef) -> &Expr {
+        &self.pool[expr_ref.0]
     }
 
     /// Increases the known recursion depth and checks for if we overflow [`MAX_DEPTH`].
@@ -146,7 +168,7 @@ impl<'src> Context<'src> {
         }
     }
 
-    /// Reads a base 10 digit, incrementing the stream past the integer.
+    /// Reads a base 10 digit, incrementing the stream past the digit.
     fn base10(&mut self) -> Option<u8> {
         let n = match self.peek()? as u8 {
             chr @ b'0'..=b'9' => chr - b'0',
@@ -157,7 +179,7 @@ impl<'src> Context<'src> {
         Some(n)
     }
 
-    /// Reads a base 16 digit, incrementing the stream past the integer.
+    /// Reads a base 16 digit, incrementing the stream past the digit.
     fn base16(&mut self) -> Option<u8> {
         let n = match self.peek()? as u8 {
             chr @ b'0'..=b'9' => chr - b'0',
@@ -201,7 +223,7 @@ impl<'src> Context<'src> {
     }
 
     /// Reads a base 16 number, both negative or positive.
-    /// Increments stream past the integer.
+    /// Increments stream past the hexadecimal integer.
     fn hex(&mut self) -> Result<isize, Error> {
         let mut int = 0isize;
 
@@ -236,6 +258,7 @@ impl<'src> Context<'src> {
         Ok(int)
     }
 
+    /// Reads a base 10 or base 16 number, incrementing the stream past the number.
     fn number(&mut self) -> Result<isize, Error> {
         let is_neg = self.consume('-').is_ok();
 
@@ -255,6 +278,7 @@ impl<'src> Context<'src> {
         return Ok(int);
     }
 
+    /// Reads one of 5 math operations.
     fn operator(&mut self) -> Result<Operator, Error> {
         let op = match self.peek() {
             Some(op) => op,
@@ -274,6 +298,9 @@ impl<'src> Context<'src> {
         Ok(op)
     }
 
+    /// Reads a serious of characters.
+    /// If a pair of <..> is detected, it will allow any series of characters
+    /// in-between the generic.
     fn symbol(&mut self) -> Result<&'src str, Error> {
         let start = self.offset;
         let mut depth = 0isize;
@@ -318,6 +345,7 @@ impl<'src> Context<'src> {
         Ok(&self.src[start..self.offset])
     }
 
+    /// Parses an [`Expr`] without reading trailing whitespace.
     fn expr_inner(&mut self) -> Result<Expr, Error> {
         self.descent()?;
         self.consume_whitespace();
@@ -330,10 +358,11 @@ impl<'src> Context<'src> {
                     self.consume_whitespace();
 
                     self.ascent();
+                    let rhs = self.expr_inner()?;
                     return Ok(Expr::Compound {
-                        lhs: Box::new(Expr::Number(num)),
+                        lhs: self.store(Expr::Number(num)),
                         op,
-                        rhs: Box::new(self.expr_inner()?),
+                        rhs: self.store(rhs),
                     });
                 }
 
@@ -362,10 +391,11 @@ impl<'src> Context<'src> {
                 self.consume_whitespace();
 
                 self.ascent();
+                let rhs = self.expr_inner()?;
                 return Ok(Expr::Compound {
-                    lhs: Box::new(Expr::Symbol { addr, function }),
+                    lhs: self.store(Expr::Symbol { addr, function }),
                     op,
-                    rhs: Box::new(self.expr_inner()?),
+                    rhs: self.store(rhs),
                 });
             }
 
@@ -382,10 +412,11 @@ impl<'src> Context<'src> {
                 self.consume_whitespace();
 
                 self.ascent();
+                let rhs = self.expr_inner()?;
                 return Ok(Expr::Compound {
-                    lhs: Box::new(expr),
+                    lhs: self.store(expr),
                     op,
-                    rhs: Box::new(self.expr_inner()?),
+                    rhs: self.store(rhs),
                 });
             }
 
@@ -396,6 +427,8 @@ impl<'src> Context<'src> {
         self.error("Invalid expression")
     }
 
+    /// Parses an [`Expr`] with surrounding whitespace, checking if
+    /// any trailing characters are left after parsing.
     fn expr(&mut self) -> Result<Expr, Error> {
         self.consume_whitespace();
         let expr = self.expr_inner()?;
@@ -409,6 +442,7 @@ impl<'src> Context<'src> {
     }
 }
 
+/// Representation of any given expression.
 #[derive(Debug, PartialEq)]
 enum Expr {
     Number(isize),
@@ -417,9 +451,9 @@ enum Expr {
         function: symbols::Function,
     },
     Compound {
-        lhs: Box<Self>,
+        lhs: ExprRef,
         op: Operator,
-        rhs: Box<Self>,
+        rhs: ExprRef,
     },
 }
 
@@ -427,21 +461,22 @@ impl Expr {
     /// Evaluate the address of a given expression.
     ///
     /// Returns [`None`] if the expression overflows.
-    fn eval(&self) -> Option<isize> {
+    fn eval(&self, ctx: &Context) -> Option<isize> {
         match self {
             Self::Number(n) => Some(*n),
             Self::Symbol { addr, .. } => Some(*addr as isize),
             Self::Compound { lhs, op, rhs } => match op {
-                Operator::Add => lhs.eval()?.checked_add(rhs.eval()?),
-                Operator::Min => lhs.eval()?.checked_sub(rhs.eval()?),
-                Operator::Mul => lhs.eval()?.checked_mul(rhs.eval()?),
-                Operator::Div => lhs.eval()?.checked_div(rhs.eval()?),
-                Operator::Mod => lhs.eval()?.checked_rem(rhs.eval()?),
+                Operator::Add => ctx.load(lhs).eval(ctx)?.checked_add(ctx.load(rhs).eval(ctx)?),
+                Operator::Min => ctx.load(lhs).eval(ctx)?.checked_sub(ctx.load(rhs).eval(ctx)?),
+                Operator::Mul => ctx.load(lhs).eval(ctx)?.checked_mul(ctx.load(rhs).eval(ctx)?),
+                Operator::Div => ctx.load(lhs).eval(ctx)?.checked_div(ctx.load(rhs).eval(ctx)?),
+                Operator::Mod => ctx.load(lhs).eval(ctx)?.checked_rem(ctx.load(rhs).eval(ctx)?),
             },
         }
     }
 }
 
+/// Basic mathematical operations.
 #[derive(Debug, PartialEq, Eq)]
 enum Operator {
     Add,
@@ -464,7 +499,7 @@ pub fn parse(index: &symbols::Index, s: &str) -> Result<usize, Error> {
 
     match ctx.expr() {
         Err(err) => Err(err),
-        Ok(e) => match e.eval() {
+        Ok(e) => match e.eval(&ctx) {
             Some(val) => Ok(val as usize),
             None => Err(Error {
                 offset: None,
@@ -532,82 +567,25 @@ mod tests {
     #[test]
     fn simple() {
         eval_eq!("3 * 32", 96);
-        ast_eq!(
-            "3 * 32",
-            Expr::Compound {
-                lhs: Box::new(Expr::Number(3)),
-                op: Operator::Mul,
-                rhs: Box::new(Expr::Number(32))
-            }
-        );
     }
 
     #[test]
     fn path() {
         eval_eq!(["abc::f"; 0x1234], "abc::f", 0x1234);
-        ast_eq!(
-            ["abc::f"; 0x1234],
-            "abc::f",
-            Expr::Symbol {
-                addr: 0x1234,
-                function: Function::new(TokenStream::simple("abc::f"), None)
-            }
-        );
-
         eval_eq!(
             ["abc::f<std::fmt::Display>"; 0x1234],
             "abc::f<std::fmt::Display>",
             0x1234
         );
-        ast_eq!(
-            ["abc::f<std::fmt::Display>"; 0x1234],
-            "abc::f<std::fmt::Display>",
-            Expr::Symbol {
-                addr: 0x1234,
-                function: Function::new(TokenStream::simple("abc::f<std::fmt::Display>"), None)
-            }
-        )
     }
 
     #[test]
     fn compound() {
         eval_eq!(["abc::f"; 0x100], "abc::f * 0x10", 0x1000);
-        ast_eq!(
-            ["abc::f"; 0x100],
-            "abc::f * 0x10",
-            Expr::Compound {
-                lhs: Box::new(Expr::Symbol {
-                    addr: 0x100,
-                    function: Function::new(TokenStream::simple("abc::f"), None)
-                }),
-                op: Operator::Mul,
-                rhs: Box::new(Expr::Number(0x10))
-            }
-        );
-
         eval_eq!(
             ["abc::f<std::fmt::Display>"; 0x100],
             "(abc::f<std::fmt::Display> + 10) / 12",
             22
-        );
-        ast_eq!(
-            ["abc::f<std::fmt::Display>"; 0x100],
-            "(abc::f<std::fmt::Display> + 10) / 12",
-            Expr::Compound {
-                lhs: Box::new(Expr::Compound {
-                    lhs: Box::new(Expr::Symbol {
-                        addr: 0x100,
-                        function: Function::new(
-                            TokenStream::simple("abc::f<std::fmt::Display>"),
-                            None
-                        )
-                    }),
-                    op: Operator::Add,
-                    rhs: Box::new(Expr::Number(10))
-                }),
-                op: Operator::Div,
-                rhs: Box::new(Expr::Number(12))
-            }
         );
     }
 

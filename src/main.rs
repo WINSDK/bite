@@ -6,12 +6,12 @@
 #[cfg(not(any(target_family = "windows", target_family = "unix")))]
 compile_error!("Bite can only be build for windows, macos and linux.");
 
-mod args;
-mod commands;
-mod expr;
-mod disassembly;
-mod gui;
-mod macros;
+pub mod args;
+pub mod commands;
+pub mod expr;
+pub mod disassembly;
+pub mod gui;
+pub mod macros;
 
 use once_cell::sync::Lazy;
 use std::fs;
