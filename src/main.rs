@@ -12,6 +12,7 @@ pub mod expr;
 pub mod disassembly;
 pub mod gui;
 pub mod macros;
+pub mod terminal;
 
 use once_cell::sync::Lazy;
 use std::fs;

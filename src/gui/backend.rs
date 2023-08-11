@@ -196,14 +196,19 @@ impl Backend {
             label: Some("bite::gui encoder"),
         });
 
+        // handle inputs before `begin_frame` consumes them
+        platform.record_terminal_input(&mut ctx.terminal);
+
+        // store new commands recorded
+        let _ = ctx.terminal.save_command_history();
+
         // begin to draw the UI frame
         platform.begin_frame();
 
-        // store new commands recorded
-        let _ = platform.save_command_history();
-
         // process terminal commands
-        crate::commands::process_commands(ctx, platform.take_commands());
+        // FIXME: remove `to_vec`
+        let cmds = ctx.terminal.take_commands().to_vec();
+        crate::commands::process_commands(ctx, &cmds);
 
         egui::TopBottomPanel::top("top bar").show(&platform.context(), |ui| {
             // generic keyboard inputs

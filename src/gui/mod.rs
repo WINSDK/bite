@@ -16,6 +16,7 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
 use crate::disassembly::Disassembly;
+use crate::terminal::Terminal;
 use backend::Backend;
 use debugger::{Process, Debugger};
 use egui::{Button, RichText};
@@ -30,7 +31,7 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
-static STYLE: Lazy<style::Style> = Lazy::new(style::Style::default);
+pub static STYLE: Lazy<style::Style> = Lazy::new(style::Style::default);
 
 const WIDTH: u32 = 1200;
 const HEIGHT: u32 = 800;
@@ -97,6 +98,8 @@ pub struct RenderContext {
     #[cfg(target_family = "windows")]
     unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
 
+    terminal: Terminal,
+
     pub process_path: Option<std::path::PathBuf>,
     pub terminal_prompt: String,
 }
@@ -106,7 +109,6 @@ impl RenderContext {
         let show_donut = Arc::clone(&self.show_donut);
 
         self.process_path = Some(path.as_ref().to_path_buf());
-        self.dissasembly = None;
         self.disassembling_thread = Some(std::thread::spawn(move || {
             Disassembly::new(path, show_donut)
         }));
@@ -380,8 +382,7 @@ fn terminal(ui: &mut egui::Ui, platform: &Platform, ctx: &mut RenderContext) {
             },
         );
 
-        platform.terminal_input(&mut output, font_id);
-
+        ctx.terminal.format(&mut output, font_id);
         ui.label(output);
     });
 
@@ -408,13 +409,6 @@ pub fn init() -> Result<(), Error> {
     WINDOW.set(Arc::clone(&window)).unwrap();
 
     let mut backend = Backend::new(&window).block_on()?;
-    let mut platform = Platform::new(PlatformDescriptor {
-        physical_width: 580,
-        physical_height: 300,
-        scale_factor: window.scale_factor() as f32,
-        style: STYLE.egui().clone(),
-        winit: event_loop.create_proxy(),
-    });
 
     let mut egui_rpass = Pipeline::new(&backend.device, backend.surface_cfg.format, 1);
     let mut panels = Tree::new(vec![DISASS_TITLE, FUNCS_TITLE]);
@@ -441,9 +435,21 @@ pub fn init() -> Result<(), Error> {
         unwindowed_size: window.outer_size(),
         #[cfg(target_family = "windows")]
         unwindowed_pos: window.outer_position().unwrap_or_default(),
+        terminal: Terminal::new(),
         process_path: None,
         terminal_prompt: String::new(),
     };
+
+    let mut platform = Platform::new(PlatformDescriptor {
+        physical_width: 580,
+        physical_height: 300,
+        scale_factor: window.scale_factor() as f32,
+        style: STYLE.egui().clone(),
+        winit: event_loop.create_proxy(),
+        goto_input_callback: Box::new(|expr_src, pos| {
+            dbg!(crate::expr::parse(&symbols::Index::new(), &expr_src));
+        }),
+    });
 
     if let Some(ref path) = crate::ARGS.path {
         ctx.start_disassembling(path);

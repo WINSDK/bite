@@ -2,12 +2,10 @@
 //! Use `begin_frame()` and `end_frame()` to start drawing the egui UI.
 
 use std::collections::HashMap;
-use std::io::Write;
 
 use copypasta::{ClipboardContext, ClipboardProvider};
 use egui::emath::{pos2, vec2};
-use egui::text::LayoutJob;
-use egui::{Context, FontData, FontDefinitions, FontFamily, FontId, Key};
+use egui::{Context, FontData, FontDefinitions, FontFamily, Key};
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceId, Event, ModifiersState, TouchPhase, VirtualKeyCode, WindowEvent};
 
@@ -27,6 +25,13 @@ pub struct PlatformDescriptor {
 
     /// Handle to winit.
     pub winit: winit::event_loop::EventLoopProxy<CustomEvent>,
+
+    /// Command prompt user input callback.
+    /// When a user inputs into the command prompt, run this closure.
+    ///
+    /// First parameter is the expression.
+    /// Second parameter is the cursor position.
+    pub goto_input_callback: Box<dyn Fn(String, usize)>
 }
 
 /// A custom event type for the winit app.
@@ -53,21 +58,18 @@ pub struct Platform {
     pointer_pos: Option<egui::Pos2>,
     clipboard: Option<ClipboardContext>,
 
-    // For emulating pointer events from touch events we merge multi-touch
-    // pointers, and ref-count the press state.
+    // for emulating pointer events from touch events we merge multi-touch
+    // pointers, and ref-count the press state
     touch_pointer_pressed: u32,
 
-    // Egui requires unique u64 device IDs for touch events but Winit's
-    // device IDs are opaque, so we have to create our own ID mapping.
+    // egui requires unique u64 device IDs for touch events but Winit's
+    // device IDs are opaque, so we have to create our own ID mapping
     device_indices: HashMap<DeviceId, u64>,
     next_device_index: u64,
 
     dragging: bool,
     winit: winit::event_loop::EventLoopProxy<CustomEvent>,
-    commands: Vec<String>,
-    commands_unprocessed: usize,
-    command_position: usize,
-    cursor_position: usize,
+    goto_input_callback: Box<dyn Fn(String, usize)>
 }
 
 impl Platform {
@@ -105,19 +107,6 @@ impl Platform {
             ..Default::default()
         };
 
-        let commands = match Self::read_command_history() {
-            Ok(mut cmds) => {
-                cmds.push(String::new());
-                cmds
-            }
-            Err(err) => {
-                crate::warning!("Failed in reading command history: '{err:?}'");
-                vec![String::new()]
-            }
-        };
-
-        let command_position = commands.len() - 1;
-
         Self {
             scale_factor: descriptor.scale_factor,
             raw_keys: Vec::new(),
@@ -131,10 +120,7 @@ impl Platform {
             next_device_index: 1,
             dragging: false,
             winit: descriptor.winit,
-            commands,
-            commands_unprocessed: 0,
-            command_position,
-            cursor_position: 0,
+            goto_input_callback: descriptor.goto_input_callback
         }
     }
 
@@ -369,234 +355,67 @@ impl Platform {
         self.raw_input.time = Some(elapsed_seconds);
     }
 
-    fn current_line(&self) -> &str {
-        &self.commands[self.command_position]
-    }
-
-    pub fn terminal_input(&self, buffer: &mut LayoutJob, font_id: FontId) {
-        let input = self.current_line();
-
-        let (left, right) = input.split_at(self.cursor_position);
-        let (select, right) = if right.is_empty() {
-            (" ", "")
-        } else {
-            right.split_at(1)
-        };
-
-        buffer.append(
-            left,
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: super::STYLE.egui().noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-
-        buffer.append(
-            select,
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: super::STYLE.egui().noninteractive().bg_fill,
-                background: super::STYLE.egui().noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-
-        buffer.append(
-            right,
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: super::STYLE.egui().noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-    }
-
-    /// Terminal commands recorded since last frame.
-    pub fn commands(&mut self) -> &[String] {
-        let ncmds = self.commands_unprocessed;
-        &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
-    }
-
-    /// Consumes terminal commands recorded since last frame.
-    pub fn take_commands(&mut self) -> &[String] {
-        let ncmds = self.commands_unprocessed;
-        self.commands_unprocessed = 0;
-        &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
-    }
-
-    fn command_history_path() -> std::io::Result<std::path::PathBuf> {
-        let mut path = match dirs::data_dir() {
-            Some(dir) => dir,
-            None => crate::error!("You must have a home directory set."),
-        };
-
-        path.push("bite");
-
-        if !path.is_dir() {
-            std::fs::create_dir(&path)?;
-        }
-
-        path.push("bite_history");
-
-        if !path.is_file() {
-            std::fs::File::create(&path)?;
-        }
-
-        Ok(path)
-    }
-
-    fn read_command_history() -> std::io::Result<Vec<String>> {
-        let path = Self::command_history_path()?;
-        let data = std::fs::read_to_string(path)?;
-        let mut read_cmds = Vec::new();
-
-        for line in data.lines() {
-            read_cmds.push(line.to_string());
-        }
-
-        Ok(read_cmds)
-    }
-
-    /// Appends newly recorded command's to `DATA_DIR/bite_history`.
-    pub fn save_command_history(&mut self) -> std::io::Result<()> {
-        let cmds = self.commands();
-
-        if cmds.is_empty() {
-            return Ok(());
-        }
-
-        let path = Self::command_history_path()?;
-        let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
-
-        file.write(b"\n")?;
-        file.write(cmds.join("\n").as_bytes())?;
-
-        Ok(())
-    }
-
-
     /// Process all character having been entered.
-    fn record_terminal_input(&mut self) {
+    pub fn record_terminal_input(&mut self, terminal: &mut crate::terminal::Terminal) {
         for event in self.raw_input.events.iter() {
             match event {
-                egui::Event::Text(received) => {
-                    self.commands[self.command_position]
-                        .insert_str(self.cursor_position, &received);
-                    self.cursor_position += received.len();
-                }
+                egui::Event::Text(received) => terminal.append(received),
                 egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => {
-                    if self.cursor_position == 0 {
-                        continue;
-                    }
-
-                    self.commands[self.command_position].remove(self.cursor_position - 1);
-                    self.cursor_position -= 1;
-                }
+                } => terminal.backspace(),
                 egui::Event::Key {
                     key: egui::Key::Enter,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => {
-                    // if we're using a command previously used, replace the top command
-                    // with the currently selected one
-                    if self.command_position != self.commands.len() - 1 {
-                        let top = self.commands.len() - 1;
-                        self.commands[top] = self.current_line().to_string();
-                    }
-
-                    self.commands.push(String::new());
-                    self.commands_unprocessed += 1;
-                    self.cursor_position = 0;
-                    self.command_position = self.commands.len() - 1;
-                }
+                } => terminal.commit(),
                 egui::Event::Key {
                     key: egui::Key::Escape,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => {
-                    self.cursor_position = 0;
-                    self.commands[self.command_position].clear();
-                }
+                } => terminal.reset_line(),
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
                     modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
-                } => {
-                    self.cursor_position = 0;
-                    self.commands[self.command_position].clear();
-                }
+                } => terminal.reset_line(),
                 egui::Event::Key {
                     key: egui::Key::A,
                     pressed: true,
                     modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
-                } => self.cursor_position = 0,
+                } => terminal.move_to_start(),
                 egui::Event::Key {
                     key: egui::Key::E,
                     pressed: true,
                     modifiers: egui::Modifiers { ctrl: true, .. },
                     ..
-                } => self.cursor_position = self.current_line().len(),
+                } => terminal.move_to_end(),
                 egui::Event::Key {
                     key: egui::Key::ArrowDown,
                     pressed: true,
                     ..
-                } => {
-                    // search through newer commands, finding one that isn't empty
-                    while self.command_position != self.commands.len() - 1 {
-                        self.command_position += 1;
-                        self.cursor_position = self.current_line().len();
-
-                        if !self.current_line().is_empty() {
-                            break;
-                        }
-                    }
-                }
+                } => terminal.scroll_to_next_cmd(),
                 egui::Event::Key {
                     key: egui::Key::ArrowUp,
                     pressed: true,
                     ..
-                } => {
-                    // search through older commands, finding one that isn't empty
-                    while self.command_position != 0 {
-                        self.command_position -= 1;
-                        self.cursor_position = self.current_line().len();
-
-                        if !self.current_line().is_empty() {
-                            break;
-                        }
-                    }
-                }
-                egui::Event::Key {
-                    key: egui::Key::ArrowRight,
-                    pressed: true,
-                    ..
-                } => {
-                    if self.cursor_position < self.current_line().len() {
-                        self.cursor_position += 1;
-                    }
-                }
+                } => terminal.scroll_to_prev_cmd(),
                 egui::Event::Key {
                     key: egui::Key::ArrowLeft,
                     pressed: true,
                     ..
-                } => {
-                    if self.cursor_position != 0 {
-                        self.cursor_position -= 1;
-                    }
-                }
+                } => terminal.move_left(),
+                egui::Event::Key {
+                    key: egui::Key::ArrowRight,
+                    pressed: true,
+                    ..
+                } => terminal.move_right(),
                 _ => {}
             }
         }
@@ -604,7 +423,6 @@ impl Platform {
 
     /// Starts a new frame by providing a new `Ui` instance to write into.
     pub fn begin_frame(&mut self) {
-        self.record_terminal_input();
         self.context.begin_frame(self.raw_input.take());
     }
 
