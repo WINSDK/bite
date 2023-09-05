@@ -1,7 +1,33 @@
-use std::io::Write;
+use std::path::PathBuf;
 
 use egui::text::LayoutJob;
 use egui::FontId;
+use once_cell::sync::Lazy;
+
+const HISTORY_PATH: Lazy<PathBuf> = Lazy::new(|| {
+    let mut path = match dirs::data_dir() {
+        Some(dir) => dir,
+        None => crate::error!("You must have a home directory set."),
+    };
+
+    path.push("bite");
+
+    if !path.is_dir() {
+        if let Err(err) = std::fs::create_dir(&path) {
+            crate::error!("{err}");
+        }
+    }
+
+    path.push("bite_history");
+
+    if !path.is_file() {
+        if let Err(err) = std::fs::File::create(&path) {
+            crate::error!("{err}");
+        }
+    }
+
+    path
+});
 
 pub struct Terminal {
     commands: Vec<String>,
@@ -18,7 +44,7 @@ impl Terminal {
                 cmds
             }
             Err(err) => {
-                crate::warning!("Failed in reading command history: '{err:?}'");
+                crate::warning!("Failed in reading command history: '{err}'.");
                 vec![String::new()]
             }
         };
@@ -170,53 +196,27 @@ impl Terminal {
         &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
     }
 
-    fn command_history_path() -> std::io::Result<std::path::PathBuf> {
-        let mut path = match dirs::data_dir() {
-            Some(dir) => dir,
-            None => crate::error!("You must have a home directory set."),
-        };
-
-        path.push("bite");
-
-        if !path.is_dir() {
-            std::fs::create_dir(&path)?;
-        }
-
-        path.push("bite_history");
-
-        if !path.is_file() {
-            std::fs::File::create(&path)?;
-        }
-
-        Ok(path)
-    }
-
     fn read_command_history() -> std::io::Result<Vec<String>> {
-        let path = Self::command_history_path()?;
-        let data = std::fs::read_to_string(path)?;
-        let mut read_cmds = Vec::new();
+        let data = std::fs::read_to_string(&*HISTORY_PATH)?;
 
-        for line in data.lines() {
-            read_cmds.push(line.to_string());
-        }
-
-        Ok(read_cmds)
+        Ok(data.lines().map(ToString::to_string).collect())
     }
 
     /// Appends newly recorded command's to `DATA_DIR/bite_history`.
     pub fn save_command_history(&mut self) -> std::io::Result<()> {
-        let cmds = self.commands();
+        let cmds: Vec<&str> = self
+            .commands
+            .iter()
+            .filter(|cmd| !cmd.is_empty())
+            .map(|cmd| cmd as &str)
+            .collect();
 
-        if cmds.is_empty() {
-            return Ok(());
+        let mut cmds = cmds[cmds.len().saturating_sub(300)..].join("\n");
+
+        if cmds.len() > 0 {
+            cmds += "\n";
         }
 
-        let path = Self::command_history_path()?;
-        let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
-
-        file.write(b"\n")?;
-        file.write(cmds.join("\n").as_bytes())?;
-
-        Ok(())
+        std::fs::write(&*HISTORY_PATH, cmds)
     }
 }

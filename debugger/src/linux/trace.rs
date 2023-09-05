@@ -559,8 +559,10 @@ fn format_msghdr(session: &mut Debugger, addr: u64) -> String {
 
     // ignore msg_flags as they don't appear to ever be set
 
-    format!("{{name: {name}, name_len: {name_len}, msg_iov: {msg_iov}, msg_iov_len: {msg_iov_len}, \
-             msg_ctrl: {msg_ctrl}, msg_ctrl_len: {msg_ctrl_len}")
+    format!(
+        "{{name: {name}, name_len: {name_len}, msg_iov: {msg_iov}, msg_iov_len: {msg_iov_len}, \
+             msg_ctrl: {msg_ctrl}, msg_ctrl_len: {msg_ctrl_len}"
+    )
 }
 
 fn format_socklevel(level: u64) -> &'static str {
@@ -571,7 +573,7 @@ fn format_socklevel(level: u64) -> &'static str {
         libc::IPPROTO_IPV6 => "IPPROTO_IPV6",
         libc::SO_TYPE => "SO_TYPE",
         libc::SOL_UDP => "SOL_UDP",
-        _ => "(unknown)"
+        _ => "(unknown)",
     }
 }
 
@@ -617,7 +619,7 @@ fn format_sockoptname(optname: u64) -> &'static str {
         libc::TCP_USER_TIMEOUT => "TCP_USER_TIMEOUT",
         libc::UDP_GRO => "UDP_GRO",
         libc::UDP_SEGMENT => "UDP_SEGMENT",
-        _ => "(unknown)"
+        _ => "(unknown)",
     }
 }
 
@@ -974,7 +976,7 @@ impl super::Debugger {
                     libc::SHUT_RD => "SHUT_READ",
                     libc::SHUT_WR => "SHUT_WRITE",
                     libc::SHUT_RDWR => "SHUT_RW",
-                    _ => "(unknown)"
+                    _ => "(unknown)",
                 }
             ],
             Sysno::bind => print_delimited![
@@ -983,11 +985,7 @@ impl super::Debugger {
                 format_sockaddr(self, args[1], Some(args[2] as u32)),
                 args[2].to_string()
             ],
-            Sysno::listen => print_delimited![
-                func,
-                format_fd(args[0]),
-                args[1].to_string()
-            ],
+            Sysno::listen => print_delimited![func, format_fd(args[0]), args[1].to_string()],
             Sysno::getsockname => print_delimited![
                 func,
                 format_fd(args[0]),
@@ -1031,7 +1029,10 @@ impl super::Debugger {
             ],
             Sysno::clone => print_delimited![
                 func,
-                format!("flags: {}", format_flags!(args[0] & !0xff => nix::sched::CloneFlags)),
+                format!(
+                    "flags: {}",
+                    format_flags!(args[0] & !0xff => nix::sched::CloneFlags)
+                ),
                 match signal::Signal::try_from((args[0] & 0xff) as c_int) {
                     Ok(s) => format!("exit_signal: {s}"),
                     Err(..) => "(unknown)".to_string(),

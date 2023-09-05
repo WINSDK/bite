@@ -197,10 +197,20 @@ impl Backend {
         });
 
         // handle inputs before `begin_frame` consumes them
-        platform.record_terminal_input(&mut ctx.terminal);
+        let events_processed = platform.record_terminal_input(&mut ctx.terminal);
 
-        // store new commands recorded
-        let _ = ctx.terminal.save_command_history();
+        if events_processed > 0 {
+            // if a goto command is being run, start performing the autocomplete
+            if let Some(("g" | "goto", arg)) = ctx.terminal.current_line().split_once(' ') {
+                dbg!(arg);
+                if let Some(ref dissasembly) = ctx.dissasembly {
+                    dbg!(crate::expr::parse(&dissasembly.symbols, arg));
+                }
+            }
+
+            // store new commands recorded
+            let _ = ctx.terminal.save_command_history();
+        }
 
         // begin to draw the UI frame
         platform.begin_frame();
@@ -243,7 +253,7 @@ impl Backend {
 
         terminal.show(&platform.context(), |ui| {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                super::terminal(ui, platform, ctx);
+                super::terminal(ui, ctx);
             })
         });
 

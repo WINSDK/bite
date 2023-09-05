@@ -143,10 +143,7 @@ impl Disassembly {
         show_donut.store(false, Ordering::Relaxed);
 
         println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
-        Ok(Self {
-            proc,
-            symbols,
-        })
+        Ok(Self { proc, symbols })
     }
 
     pub fn listing(&self, range: std::ops::Range<usize>) -> Vec<Token> {

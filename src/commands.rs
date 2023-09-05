@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::gui::RenderContext;
+use std::path::Path;
 
 const CMDS: &[&str] = &["exec", "pwd", "cd", "quit", "run", "goto"];
 
@@ -56,7 +56,6 @@ fn expand_homedir<P: AsRef<Path>>(path: P) -> std::path::PathBuf {
 pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
     for cmd in commands {
         ctx.terminal_prompt.push_str(&format!("(bite) {cmd}\n"));
-
 
         let mut args = cmd.split_whitespace();
         let cmd_name = match args.next() {
@@ -144,13 +143,12 @@ pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
                         Some(..) => {
                             // FIXME: correct offset calc
                             ctx.buffers.updated_offset = Some(offset);
-                            ctx.terminal_prompt.push_str(
-                                &format!("Jumped to address '{addr:#X}'.\n")
-                            )
+                            ctx.terminal_prompt
+                                .push_str(&format!("Jumped to address '{addr:#X}'.\n"))
                         }
-                        None => ctx.terminal_prompt.push_str(
-                            &format!("Address '{addr:#X}' is undefined.\n")
-                        )
+                        None => ctx
+                            .terminal_prompt
+                            .push_str(&format!("Address '{addr:#X}' is undefined.\n")),
                     }
                 }
                 Err(err) => ctx.terminal_prompt.push_str(&format!("{err:?}.\n")),

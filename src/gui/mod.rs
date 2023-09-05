@@ -18,7 +18,7 @@ use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use crate::disassembly::Disassembly;
 use crate::terminal::Terminal;
 use backend::Backend;
-use debugger::{Process, Debugger};
+use debugger::{Debugger, Process};
 use egui::{Button, RichText};
 use egui_backend::Pipeline;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
@@ -172,13 +172,10 @@ impl Buffers {
         let total_rows = dissasembly.proc.instruction_count();
         let font_id = text_style.resolve(STYLE.egui());
 
-        let area = egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .drag_to_scroll(false);
-
+        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
         let area = match std::mem::take(&mut self.updated_offset) {
             Some(offset) => area.scroll_offset(egui::vec2(0.0, offset as f32 * row_height)),
-            None => area
+            None => area,
         };
 
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
@@ -351,7 +348,7 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
         .show_inside(ui, &mut ctx.buffers);
 }
 
-fn terminal(ui: &mut egui::Ui, platform: &Platform, ctx: &mut RenderContext) {
+fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
     ui.style_mut().wrap = Some(true);
 
     let area = egui::ScrollArea::vertical().auto_shrink([false, false]).drag_to_scroll(false);
@@ -446,9 +443,6 @@ pub fn init() -> Result<(), Error> {
         scale_factor: window.scale_factor() as f32,
         style: STYLE.egui().clone(),
         winit: event_loop.create_proxy(),
-        goto_input_callback: Box::new(|expr_src, pos| {
-            dbg!(crate::expr::parse(&symbols::Index::new(), &expr_src));
-        }),
     });
 
     if let Some(ref path) = crate::ARGS.path {

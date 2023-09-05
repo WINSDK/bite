@@ -25,13 +25,6 @@ pub struct PlatformDescriptor {
 
     /// Handle to winit.
     pub winit: winit::event_loop::EventLoopProxy<CustomEvent>,
-
-    /// Command prompt user input callback.
-    /// When a user inputs into the command prompt, run this closure.
-    ///
-    /// First parameter is the expression.
-    /// Second parameter is the cursor position.
-    pub goto_input_callback: Box<dyn Fn(String, usize)>
 }
 
 /// A custom event type for the winit app.
@@ -69,7 +62,6 @@ pub struct Platform {
 
     dragging: bool,
     winit: winit::event_loop::EventLoopProxy<CustomEvent>,
-    goto_input_callback: Box<dyn Fn(String, usize)>
 }
 
 impl Platform {
@@ -120,7 +112,6 @@ impl Platform {
             next_device_index: 1,
             dragging: false,
             winit: descriptor.winit,
-            goto_input_callback: descriptor.goto_input_callback
         }
     }
 
@@ -356,7 +347,10 @@ impl Platform {
     }
 
     /// Process all character having been entered.
-    pub fn record_terminal_input(&mut self, terminal: &mut crate::terminal::Terminal) {
+    /// Returns how many events were processed.
+    pub fn record_terminal_input(&mut self, terminal: &mut crate::terminal::Terminal) -> usize {
+        let mut events_processed = 0;
+
         for event in self.raw_input.events.iter() {
             match event {
                 egui::Event::Text(received) => terminal.append(received),
@@ -416,9 +410,13 @@ impl Platform {
                     pressed: true,
                     ..
                 } => terminal.move_right(),
-                _ => {}
+                _ => continue,
             }
+
+            events_processed += 1;
         }
+
+        events_processed
     }
 
     /// Starts a new frame by providing a new `Ui` instance to write into.

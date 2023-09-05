@@ -151,10 +151,7 @@ impl Debugger {
             match state {
                 State::WaitingForInit => {
                     assert!(
-                        matches!(
-                            status,
-                            WaitStatus::Stopped(_, Signal::SIGSTOP)
-                        ),
+                        matches!(status, WaitStatus::Stopped(_, Signal::SIGSTOP)),
                         "got '{status:?}' expected a SIGSTOP"
                     );
 
@@ -288,8 +285,8 @@ impl Process for Debugger {
             ForkResult::Parent { child } => Ok(Debugger::local(child)),
             ForkResult::Child => match child_actions() {
                 Err(err) => panic!("{err:?}"),
-                Ok(..) => unsafe { nix::libc::_exit(1) }
-            }
+                Ok(..) => unsafe { nix::libc::_exit(1) },
+            },
         }
     }
 

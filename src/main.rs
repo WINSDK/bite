@@ -8,8 +8,8 @@ compile_error!("Bite can only be build for windows, macos and linux.");
 
 pub mod args;
 pub mod commands;
-pub mod expr;
 pub mod disassembly;
+pub mod expr;
 pub mod gui;
 pub mod macros;
 pub mod terminal;

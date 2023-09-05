@@ -15,6 +15,9 @@
 //! <op> = '+' | '-' | '*' | '/' | '%'
 //! ```
 
+// TODO: Implement binary presidence (10 + 10 * 10 == 110).
+//       This likely requires parsing in two steps where we first generate tokens.
+
 use std::fmt;
 
 const MAX_DEPTH: usize = 256;
@@ -465,13 +468,18 @@ impl Expr {
         match self {
             Self::Number(n) => Some(*n),
             Self::Symbol { addr, .. } => Some(*addr as isize),
-            Self::Compound { lhs, op, rhs } => match op {
-                Operator::Add => ctx.load(lhs).eval(ctx)?.checked_add(ctx.load(rhs).eval(ctx)?),
-                Operator::Min => ctx.load(lhs).eval(ctx)?.checked_sub(ctx.load(rhs).eval(ctx)?),
-                Operator::Mul => ctx.load(lhs).eval(ctx)?.checked_mul(ctx.load(rhs).eval(ctx)?),
-                Operator::Div => ctx.load(lhs).eval(ctx)?.checked_div(ctx.load(rhs).eval(ctx)?),
-                Operator::Mod => ctx.load(lhs).eval(ctx)?.checked_rem(ctx.load(rhs).eval(ctx)?),
-            },
+            Self::Compound { lhs, op, rhs } => {
+                let lhs = ctx.load(lhs).eval(ctx)?;
+                let rhs = ctx.load(rhs).eval(ctx)?;
+
+                match op {
+                    Operator::Mul => lhs.checked_mul(rhs),
+                    Operator::Div => lhs.checked_div(rhs),
+                    Operator::Mod => lhs.checked_rem(rhs),
+                    Operator::Add => lhs.checked_add(rhs),
+                    Operator::Min => lhs.checked_sub(rhs),
+                }
+            }
         }
     }
 }
@@ -525,6 +533,7 @@ mod tests {
         }};
 
         ([$($function:expr; $addr:expr),*], $expr:expr, $expected:expr) => {{
+            #[allow(unused_mut)]
             let mut index = symbols::Index::new();
 
             $(
@@ -550,6 +559,7 @@ mod tests {
         }};
 
         ([$($function:expr; $addr:expr),*], $expr:expr, $expected:expr) => {{
+            #[allow(unused_mut)]
             let mut index = symbols::Index::new();
 
             $(
@@ -626,4 +636,38 @@ mod tests {
             }
         );
     }
+
+    // #[test]
+    // fn operation_order() {
+    //     eval_eq!(
+    //         [],
+    //         "1 + 10 * 10",
+    //         101
+    //     );
+    //     eval_eq!(
+    //         [],
+    //         "1 + (10 + 10)",
+    //         21
+    //     );
+    //     eval_eq!(
+    //         [],
+    //         "(10 + 10) * 2",
+    //         40
+    //     );
+    //     eval_eq!(
+    //         [],
+    //         "2 * (10 + 10)",
+    //         40
+    //     );
+    //     eval_eq!(
+    //         [],
+    //         "10 * 4 / 2",
+    //         20
+    //     );
+    //     eval_eq!(
+    //         [],
+    //         "10 * 2 / 4",
+    //         5
+    //     );
+    // }
 }
