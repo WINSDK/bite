@@ -44,7 +44,6 @@ type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
 
 pub enum Error {
-    DrawText(String),
     WindowCreation,
     SurfaceCreation(wgpu::CreateSurfaceError),
     AdapterRequest,
@@ -58,7 +57,6 @@ pub enum Error {
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DrawText(msg) => f.write_str(msg),
             Self::WindowCreation => f.write_str("Failed to create a window."),
             Self::SurfaceCreation(..) => f.write_str("Failed to create a surface."),
             Self::AdapterRequest => {

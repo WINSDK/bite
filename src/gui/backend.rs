@@ -150,7 +150,7 @@ impl Backend {
                 ..wgpu_glyph::Section::default()
             });
 
-            // draw donut/fps
+            // draw donut/fps (this can't fail)
             self.glyph_brush
                 .draw_queued(
                     &self.device,
@@ -160,7 +160,7 @@ impl Backend {
                     self.size.width,
                     self.size.height,
                 )
-                .map_err(Error::DrawText)?;
+                .unwrap();
         }
 
         // submit work

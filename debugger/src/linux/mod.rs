@@ -147,7 +147,6 @@ impl Debugger {
                 None => continue,
             };
 
-            dbg!((&state, &status));
             match state {
                 State::WaitingForInit => {
                     assert!(
