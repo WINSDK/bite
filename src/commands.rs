@@ -99,10 +99,10 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
     }
 
     if cmd_name == "r" || cmd_name == "run" {
-        let mut args: Vec<&str> = Vec::new();
+        let mut args: Vec<String> = Vec::new();
 
         if let Some((_, raw_args)) = cmd.split_once("--") {
-            args = raw_args.split_whitespace().collect();
+            args = raw_args.split_whitespace().map(ToString::to_string).collect();
         }
 
         let path = match ctx.process_path {
@@ -113,7 +113,7 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
             }
         };
 
-        ctx.start_debugging(path.to_path_buf(), &args);
+        ctx.start_debugging(path.to_path_buf(), args);
         return;
     }
 

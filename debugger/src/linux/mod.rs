@@ -127,7 +127,7 @@ impl Debugger {
             // new child in same memory space
             | ptrace::Options::PTRACE_O_TRACEVFORK;
 
-        ptrace::setoptions(pid, options).map_err(Error::Kernel)
+       ptrace::setoptions(pid, options).map_err(Error::Kernel)
     }
 
     pub fn run_to_end(&mut self) -> Result<(), Error> {
@@ -251,7 +251,7 @@ impl Debugger {
 }
 
 impl Process for Debugger {
-    fn spawn<P: AsRef<std::path::Path>>(path: P, args: &[&str]) -> Result<Self, Error> {
+    fn spawn<P: AsRef<std::path::Path>>(path: P, args: Vec<String>) -> Result<Self, Error> {
         let c_path = CString::new(path.as_ref().as_os_str().as_bytes())
             .map_err(|_| Error::InvalidPathName)?;
 
@@ -262,11 +262,11 @@ impl Process for Debugger {
 
         // push arguments
         for arg in args {
-            let arg = CString::new(*arg).map_err(|_| Error::InvalidPathName)?;
+            let arg = CString::new(arg).map_err(|_| Error::InvalidPathName)?;
             c_args.push(arg);
         }
 
-        let child_actions = || {
+        let child = || {
             // disable ASLR
             personality::set(personality::Persona::ADDR_NO_RANDOMIZE)?;
 
@@ -282,7 +282,7 @@ impl Process for Debugger {
 
         match unsafe { fork().map_err(Error::Kernel)? } {
             ForkResult::Parent { child } => Ok(Debugger::local(child)),
-            ForkResult::Child => match child_actions() {
+            ForkResult::Child => match child() {
                 Err(err) => panic!("{err:?}"),
                 Ok(..) => unsafe { nix::libc::_exit(1) },
             },

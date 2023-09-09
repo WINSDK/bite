@@ -115,12 +115,15 @@ impl RenderContext {
     pub fn start_debugging(
         &mut self,
         path: impl AsRef<std::path::Path> + 'static + Send,
-        args: &[&str],
+        args: Vec<String>,
     ) {
-        let mut session = Debugger::spawn(path, args).unwrap();
-
         #[cfg(target_os = "linux")]
         std::thread::spawn(move || {
+            // the debugger must not be moved to a different thread,
+            // not sure why this is the case
+            let mut session = Debugger::spawn(path, args).unwrap();
+
+            session.trace_syscalls(true);
             session.run_to_end().unwrap();
         });
     }

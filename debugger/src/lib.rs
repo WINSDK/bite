@@ -24,7 +24,7 @@ where
     Self: Sized,
 {
     /// Creates a `Tracee`, debugging a newly launched process.
-    fn spawn<P: AsRef<std::path::Path>>(path: P, args: &[&str]) -> Result<Self, Error>;
+    fn spawn<P: AsRef<std::path::Path>>(path: P, args: Vec<String>) -> Result<Self, Error>;
 
     /// Creates a `Tracee`, debugging an existing process.
     fn attach(pid: Pid) -> Result<Self, Error>;

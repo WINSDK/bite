@@ -9,7 +9,7 @@ pub enum Error {}
 pub struct Debugger {}
 
 impl Process for Debugger {
-    fn spawn<P: AsRef<std::path::Path>>(_: P, _: &[&str]) -> Result<Self, Error> {
+    fn spawn<P: AsRef<std::path::Path>>(_: P, _: Vec<String>) -> Result<Self, Error> {
         todo!("spawn");
     }
 
