@@ -37,8 +37,9 @@ const WIDTH: u32 = 1200;
 const HEIGHT: u32 = 800;
 
 const DISASS_TITLE: &str = crate::icon!(PARAGRAPH_LEFT, " Disassembly");
-const SOURCE_TITLE: &str = crate::icon!(EMBED2, " Source");
 const FUNCS_TITLE: &str = crate::icon!(LIGATURE, " Functions");
+const SOURCE_TITLE: &str = crate::icon!(EMBED2, " Source");
+const LOG_TITLE: &str = crate::icon!(TERMINAL, " Logs");
 
 type Title = &'static str;
 type DisassThread = JoinHandle<Result<Disassembly, crate::disassembly::DecodeError>>;
@@ -108,7 +109,7 @@ impl RenderContext {
 
         self.process_path = Some(path.as_ref().to_path_buf());
         self.disassembling_thread = Some(std::thread::spawn(move || {
-            Disassembly::new(path, show_donut)
+            Disassembly::parse(path, show_donut)
         }));
     }
 
@@ -134,6 +135,7 @@ enum TabKind {
     Source,
     Listing,
     Functions,
+    Log,
 }
 
 pub struct Buffers {
@@ -215,8 +217,6 @@ impl Buffers {
 
         let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
 
-        let font_id = text_style.resolve(&STYLE.egui());
-
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
             if row_range != self.cached_funcs_range {
                 self.cached_funcs = dissasembly.functions(row_range);
@@ -230,7 +230,10 @@ impl Buffers {
                     &token.text,
                     0.0,
                     egui::TextFormat {
-                        font_id: font_id.clone(),
+                        font_id: egui::FontId {
+                            size: 12.0,
+                            family: egui::FontFamily::Monospace
+                        },
                         color: *token.color,
                         ..Default::default()
                     },
@@ -238,6 +241,18 @@ impl Buffers {
             }
 
             ui.label(job);
+        });
+    }
+
+
+    fn show_logger(&mut self, ui: &mut egui::Ui) {
+        let area = egui::ScrollArea::vertical()
+            .auto_shrink([true, true])
+            .drag_to_scroll(false)
+            .stick_to_bottom(true);
+
+        area.show(ui, |ui| {
+            ui.label(log::LOGGER.lock().unwrap().format())
         });
     }
 }
@@ -253,6 +268,9 @@ impl egui_dock::TabViewer for Buffers {
                 }
                 Some(TabKind::Functions) => self.show_functions(ui),
                 Some(TabKind::Listing) => self.show_listing(ui),
+                Some(TabKind::Log) => {
+                    self.show_logger(ui)
+                }
                 None => return,
             };
         });
@@ -295,6 +313,11 @@ fn top_bar(ui: &mut egui::Ui, ctx: &mut RenderContext, platform: &mut Platform) 
 
             if ui.button(FUNCS_TITLE).clicked() {
                 goto_window(FUNCS_TITLE);
+                ui.close_menu();
+            }
+
+            if ui.button(LOG_TITLE).clicked() {
+                goto_window(LOG_TITLE);
                 ui.close_menu();
             }
         });
@@ -409,7 +432,7 @@ pub fn init() -> Result<(), Error> {
     let mut backend = Backend::new(&window).block_on()?;
 
     let mut egui_rpass = Pipeline::new(&backend.device, backend.surface_cfg.format, 1);
-    let mut panels = Tree::new(vec![DISASS_TITLE, FUNCS_TITLE]);
+    let mut panels = Tree::new(vec![DISASS_TITLE, FUNCS_TITLE, LOG_TITLE]);
 
     panels.set_focused_node(egui_dock::NodeIndex::root());
 
@@ -417,6 +440,7 @@ pub fn init() -> Result<(), Error> {
         (DISASS_TITLE, TabKind::Listing),
         (FUNCS_TITLE, TabKind::Functions),
         (SOURCE_TITLE, TabKind::Source),
+        (LOG_TITLE, TabKind::Log),
     ]);
 
     let mut ctx = RenderContext {

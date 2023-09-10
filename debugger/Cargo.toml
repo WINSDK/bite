@@ -3,6 +3,9 @@ name = "debugger"
 version = "0.0.0"
 edition = "2021"
 
+[dependencies]
+log = { path = "../log" }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # fork that includes `getsyscallinfo`
 nix = { git = "https://github.com/mbyzhang/nix" }

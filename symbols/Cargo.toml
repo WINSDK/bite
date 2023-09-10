@@ -4,7 +4,8 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+log = { path = "../log" }
 tokenizing = { path = "../tokenizing" }
 bitflags = "2"
-object = "0.30"
+object = "0.32"
 pdb = "0.8"

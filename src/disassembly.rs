@@ -53,7 +53,7 @@ pub struct Disassembly {
 }
 
 impl Disassembly {
-    pub fn new<P: AsRef<std::path::Path>>(
+    pub fn parse<P: AsRef<std::path::Path>>(
         path: P,
         show_donut: Arc<AtomicBool>,
     ) -> Result<Self, DecodeError> {
@@ -71,6 +71,8 @@ impl Disassembly {
         // TODO: refactor disassembly process to not just work on executables
         //       and handle all text sections of any object
         let entrypoint = obj.entry();
+        log::green!("[disassembly::parse] entrypoint {entrypoint:#X}");
+
         let section = obj
             .sections()
             .filter(|s| s.kind() == SectionKind::Text)
@@ -142,7 +144,12 @@ impl Disassembly {
 
         show_donut.store(false, Ordering::Relaxed);
 
-        println!("took {:#?} to parse {:?}", now.elapsed(), path.as_ref());
+        log::green!(
+            "[disassembly::parse] took {:#?} to parse {:?}.",
+            now.elapsed(),
+            path.as_ref()
+        );
+
         Ok(Self { proc, symbols })
     }
 

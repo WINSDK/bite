@@ -3,7 +3,5 @@ name = "tokenizing"
 version = "0.0.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 egui = { version = "0.22.0", features = ["bytemuck"] }

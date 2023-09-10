@@ -3,7 +3,7 @@ use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 
 use nix::sys::signal::{kill, Signal};
-use nix::sys::wait::{self, WaitPidFlag, WaitStatus};
+use nix::sys::wait::{self, WaitStatus};
 use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
 
@@ -49,17 +49,7 @@ pub struct Debugger {
     remote: bool,
     unprocessed_signal: Option<Signal>,
     last_syscall: ptrace::SyscallInfoOp,
-}
-
-fn poll_pid(pid: Pid) -> Result<Option<wait::WaitStatus>, Error> {
-    let status = wait::waitpid(pid, Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED))
-        .map_err(Error::Kernel)?;
-
-    if status == WaitStatus::StillAlive {
-        Ok(None)
-    } else {
-        Ok(Some(status))
-    }
+    print_buf: String,
 }
 
 // fn set_empty_signal_handler(signal: Signal) -> Result<(), Error> {
@@ -97,6 +87,7 @@ impl Debugger {
             remote: false,
             unprocessed_signal: None,
             last_syscall: ptrace::SyscallInfoOp::None,
+            print_buf: String::new(),
         }
     }
 
@@ -127,7 +118,7 @@ impl Debugger {
             // new child in same memory space
             | ptrace::Options::PTRACE_O_TRACEVFORK;
 
-       ptrace::setoptions(pid, options).map_err(Error::Kernel)
+        ptrace::setoptions(pid, options).map_err(Error::Kernel)
     }
 
     pub fn run_to_end(&mut self) -> Result<(), Error> {
@@ -176,12 +167,12 @@ impl Debugger {
             WaitStatus::Signaled(pid, signal, ..) => {
                 self.pids.remove(&pid);
                 self.kontinue(pid);
-                println!("child exited by signal: {signal:?}");
+                log::gray!("[debugger::event] child exited by signal: {signal:?}.");
             }
             WaitStatus::Exited(pid, code) => {
                 self.pids.remove(&pid);
                 self.kontinue(pid);
-                println!("child '{pid}' exited with code '{code}'");
+                log::gray!("[debugger::event] child '{pid}' exited with code '{code}'.");
             }
             WaitStatus::PtraceSyscall(pid) => {
                 let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
@@ -191,17 +182,12 @@ impl Debugger {
                         let sysno = trace::Sysno::from(nr as i32);
                         let func = self.display(sysno, args);
 
-                        if sysno == trace::Sysno::exit_group {
-                            println!("{func}");
-                        } else {
-                            print!("{func}");
-                        }
-
+                        //if sysno == trace::Sysno::exit_group {
+                        self.print_buf += &func;
                         self.last_syscall = syscall.op;
                     }
                     ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
                         const EXIT: u64 = trace::Sysno::exit_group as u64;
-                        let mut ret = String::new();
 
                         // `exit_group` syscall doesn't have a return value
                         if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = self.last_syscall {
@@ -209,17 +195,18 @@ impl Debugger {
                             return Ok(());
                         }
 
-                        ret += " -> ";
-                        ret += &ret_val.to_string();
+                        self.print_buf += " -> ";
+                        self.print_buf += &ret_val.to_string();
 
                         if is_error == 1 {
                             let err = nix::Error::from_i32(-ret_val as i32);
 
-                            ret += " ";
-                            ret += &err.to_string();
+                            self.print_buf += " ";
+                            self.print_buf += &err.to_string();
                         }
 
-                        println!("{ret}");
+                        log::gray!("[debugger::syscall] {}", self.print_buf);
+                        self.print_buf.clear();
                     }
                     _ => {}
                 }
@@ -385,7 +372,8 @@ mod test {
 
     #[test]
     fn spawn() {
-        let mut session = Debugger::spawn("sh", &["-c", "echo 10"]).unwrap();
+        let mut session =
+            Debugger::spawn("sh", vec!["-c".to_string(), "echo 10".to_string()]).unwrap();
         // let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
         session.trace_syscalls(true);
         session.run_to_end().unwrap();

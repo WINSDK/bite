@@ -147,8 +147,6 @@ impl Index {
 
         // insert entrypoint into known symbols
         let entrypoint = obj.entry() as usize;
-        println!("entrypoint {entrypoint:#x}");
-
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
         // insert entrypoint and override it if it's got a defined name
@@ -159,6 +157,8 @@ impl Index {
             let func = Function::new(parser(symbol), None);
             self.tree.insert(addr, func);
         }
+
+        log::green!("[index::parse_debug] found {} symbols.", self.tree.len());
 
         Ok(())
     }
