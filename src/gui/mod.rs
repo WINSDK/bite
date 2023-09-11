@@ -246,14 +246,18 @@ impl Buffers {
 
 
     fn show_logger(&mut self, ui: &mut egui::Ui) {
+        ui.style_mut().wrap = Some(true);
+
         let area = egui::ScrollArea::vertical()
-            .auto_shrink([true, true])
+            .auto_shrink([false, false])
             .drag_to_scroll(false)
             .stick_to_bottom(true);
 
         area.show(ui, |ui| {
             ui.label(log::LOGGER.lock().unwrap().format())
         });
+
+        ui.style_mut().wrap = Some(false);
     }
 }
 

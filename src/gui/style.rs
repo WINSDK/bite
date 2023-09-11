@@ -18,7 +18,8 @@ pub struct Style {
     pub tab_rounding: Rounding,
     pub active_text_color: Color32,
     pub text_color: Color32,
-    pub separator: Color32,
+    pub separator_color: Color32,
+    pub interactive_color: Color32,
     egui: egui::Style,
     dock: egui_dock::Style,
 }
@@ -36,7 +37,8 @@ impl Default for Style {
             tab_rounding: Rounding::none(),
             active_text_color: colors::WHITE,
             text_color: colors::GRAYAA,
-            separator: colors::GRAY20,
+            separator_color: colors::GRAY20,
+            interactive_color: Color32::LIGHT_GRAY,
             egui: egui::Style::default(),
             dock: egui_dock::Style::default(),
         };
@@ -63,7 +65,7 @@ impl Default for Style {
                         expansion: 0.0,
                     },
                     inactive: WidgetVisuals {
-                        bg_fill: this.tab_color,
+                        bg_fill: this.interactive_color,
                         weak_bg_fill: Color32::TRANSPARENT,
                         rounding: this.tab_rounding,
                         bg_stroke: Stroke {
@@ -77,7 +79,7 @@ impl Default for Style {
                         expansion: 0.0,
                     },
                     hovered: WidgetVisuals {
-                        bg_fill: this.tab_color,
+                        bg_fill: this.interactive_color,
                         weak_bg_fill: Color32::TRANSPARENT,
                         rounding: this.tab_rounding,
                         bg_stroke: Stroke {
@@ -91,7 +93,7 @@ impl Default for Style {
                         expansion: 0.0,
                     },
                     active: WidgetVisuals {
-                        bg_fill: this.tab_color,
+                        bg_fill: this.interactive_color.linear_multiply(0.5),
                         weak_bg_fill: Color32::TRANSPARENT,
                         rounding: this.tab_rounding,
                         bg_stroke: Stroke::NONE,
@@ -165,17 +167,17 @@ impl Default for Style {
             },
             separator: egui_dock::SeparatorStyle {
                 width: this.separator_width,
-                color_idle: this.separator,
-                color_hovered: this.separator,
-                color_dragged: this.separator,
+                color_idle: this.separator_color,
+                color_hovered: this.separator_color,
+                color_dragged: this.separator_color,
                 ..Default::default()
             },
             tab_bar: egui_dock::TabBarStyle {
-                bg_fill: this.separator,
+                bg_fill: this.separator_color,
                 height: 24.0,
                 show_scroll_bar_on_overflow: true,
                 rounding: this.tab_rounding,
-                hline_color: this.separator,
+                hline_color: this.separator_color,
             },
             tabs: egui_dock::TabStyle {
                 bg_fill: this.tab_color,
