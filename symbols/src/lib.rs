@@ -1,6 +1,5 @@
 //! Symbol demangler for common mangling schemes.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
@@ -90,7 +89,7 @@ impl Function {
 #[derive(Debug)]
 pub struct Index {
     /// Mapping from address starting at the header base to functions.
-    tree: BTreeMap<usize, Function>,
+    tree: Vec<(usize, Function)>,
 
     /// Number of named compiler artifacts.
     named_len: usize,
@@ -99,7 +98,7 @@ pub struct Index {
 impl Index {
     pub fn new() -> Self {
         Self {
-            tree: BTreeMap::new(),
+            tree: Vec::new(),
             named_len: 0,
         }
     }
@@ -150,16 +149,17 @@ impl Index {
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
         // insert entrypoint and override it if it's got a defined name
-        self.tree.insert(entrypoint, entry_func);
+        self.insert(entrypoint, entry_func);
 
         // insert defined symbols
         for (addr, symbol) in symbols {
             let func = Function::new(parser(symbol), None);
-            self.tree.insert(addr, func);
+            self.insert(addr, func);
         }
 
-        log::green!("[index::parse_debug] found {} symbols.", self.tree.len());
+        log::notify!("[index::parse_debug] found {} symbols.", self.tree.len());
 
+        self.tree.sort_unstable_by_key(|k| k.0);
         Ok(())
     }
 
@@ -167,43 +167,46 @@ impl Index {
         match obj.format() {
             BinaryFormat::Pe => {
                 if obj.is_64() {
-                    self.parse_pe_imports::<object::pe::ImageNtHeaders64>(binary)
+                    self.parse_pe_imports::<object::pe::ImageNtHeaders64>(binary)?
                 } else {
-                    self.parse_pe_imports::<object::pe::ImageNtHeaders32>(binary)
+                    self.parse_pe_imports::<object::pe::ImageNtHeaders32>(binary)?
                 }
             }
             BinaryFormat::Elf => {
                 if obj.is_64() {
                     if obj.is_little_endian() {
-                        self.parse_elf_imports::<object::elf::FileHeader64<LE>>(binary)
+                        self.parse_elf_imports::<object::elf::FileHeader64<LE>>(binary)?
                     } else {
-                        self.parse_elf_imports::<object::elf::FileHeader64<BE>>(binary)
+                        self.parse_elf_imports::<object::elf::FileHeader64<BE>>(binary)?
                     }
                 } else {
                     if obj.is_little_endian() {
-                        self.parse_elf_imports::<object::elf::FileHeader32<LE>>(binary)
+                        self.parse_elf_imports::<object::elf::FileHeader32<LE>>(binary)?
                     } else {
-                        self.parse_elf_imports::<object::elf::FileHeader32<BE>>(binary)
+                        self.parse_elf_imports::<object::elf::FileHeader32<BE>>(binary)?
                     }
                 }
             }
             BinaryFormat::MachO => {
                 if obj.is_64() {
                     if obj.is_little_endian() {
-                        self.parse_macho_imports::<object::macho::MachHeader64<LE>>(binary)
+                        self.parse_macho_imports::<object::macho::MachHeader64<LE>>(binary)?
                     } else {
-                        self.parse_macho_imports::<object::macho::MachHeader64<BE>>(binary)
+                        self.parse_macho_imports::<object::macho::MachHeader64<BE>>(binary)?
                     }
                 } else {
                     if obj.is_little_endian() {
-                        self.parse_macho_imports::<object::macho::MachHeader32<LE>>(binary)
+                        self.parse_macho_imports::<object::macho::MachHeader32<LE>>(binary)?
                     } else {
-                        self.parse_macho_imports::<object::macho::MachHeader32<BE>>(binary)
+                        self.parse_macho_imports::<object::macho::MachHeader32<BE>>(binary)?
                     }
                 }
             }
-            _ => Ok(()),
-        }
+            _ => {}
+        };
+
+        self.tree.sort_unstable_by_key(|k| k.0);
+        Ok(())
     }
 
     fn parse_pe_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> object::Result<()> {
@@ -255,10 +258,10 @@ impl Index {
 
                         let module = String::from_utf8_lossy(module);
                         let module = module.strip_prefix(".dll").unwrap_or(&module).to_owned();
-                        let module = Token::from_string(module, &Colors::root());
+                        let module = Token::from_string(module, Colors::root());
                         let func = Function::new(parser(name), Some(module));
 
-                        self.tree.insert(phys_addr as usize, func);
+                        self.insert(phys_addr as usize, func);
                     }
 
                     // skip over an entry
@@ -328,7 +331,7 @@ impl Index {
 
                     // TODO: find modules
                     let func = Function::new(parser(name), None);
-                    self.tree.insert(phys_addr, func);
+                    self.insert(phys_addr, func);
                 }
             }
         }
@@ -342,7 +345,7 @@ impl Index {
 
     /// Generate metadata based on the symbol name.
     pub fn label(&mut self) {
-        for symbol in self.tree.values_mut() {
+        for (_, symbol) in self.tree.iter_mut() {
             let name = symbol.name.inner();
 
             if name.is_empty() {
@@ -375,8 +378,8 @@ impl Index {
         }
     }
 
-    pub fn symbols(&self) -> std::collections::btree_map::Values<usize, Function> {
-        self.tree.values()
+    pub fn symbols(&self) -> impl Iterator<Item = &Function> {
+        self.tree.iter().map(|x| &x.1)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -391,12 +394,17 @@ impl Index {
         self.named_len
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&usize, &Function)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(usize, Function)> {
         self.tree.iter()
     }
 
     pub fn get_by_addr(&self, addr: usize) -> Option<Function> {
-        self.tree.get(&addr).cloned()
+        let search = self.tree.binary_search_by(|x| x.0.cmp(&addr));
+
+        match search {
+            Ok(idx) => Some(self.tree[idx].1.clone()),
+            Err(..) => None
+        }
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<(usize, Function)> {
@@ -407,7 +415,7 @@ impl Index {
     }
 
     pub fn insert(&mut self, addr: usize, function: Function) {
-        self.tree.insert(addr, function);
+        self.tree.push((addr, function));
     }
 }
 
@@ -453,12 +461,12 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn push(&mut self, text: &'static str, color: &'static Color) {
+    pub fn push(&mut self, text: &'static str, color: Color) {
         self.tokens.push(Token::from_str(text, color));
     }
 
     #[inline]
-    pub fn push_string(&mut self, text: String, color: &'static Color) {
+    pub fn push_string(&mut self, text: String, color: Color) {
         self.tokens.push(Token::from_string(text, color));
     }
 

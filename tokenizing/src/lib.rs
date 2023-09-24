@@ -8,96 +8,96 @@ pub use egui::Color32 as Color;
 pub type Colors = IBM;
 
 pub trait ColorScheme {
-    fn brackets() -> &'static Color;
-    fn delimiter() -> &'static Color;
-    fn comment() -> &'static Color;
-    fn item() -> &'static Color;
+    fn brackets() -> Color;
+    fn delimiter() -> Color;
+    fn comment() -> Color;
+    fn item() -> Color;
 
-    fn spacing() -> &'static Color {
-        &colors::WHITE
+    fn spacing() -> Color {
+        colors::WHITE
     }
 
-    fn known() -> &'static Color {
+    fn known() -> Color {
         Self::item()
     }
 
-    fn root() -> &'static Color {
+    fn root() -> Color {
         Self::item()
     }
 
-    fn annotation() -> &'static Color {
+    fn annotation() -> Color {
         Self::item()
     }
 
-    fn special() -> &'static Color {
+    fn special() -> Color {
         Self::item()
     }
 
-    fn expr() -> &'static Color;
-    fn opcode() -> &'static Color;
-    fn register() -> &'static Color;
-    fn immediate() -> &'static Color;
-    fn attribute() -> &'static Color;
-    fn segment() -> &'static Color;
+    fn expr() -> Color;
+    fn opcode() -> Color;
+    fn register() -> Color;
+    fn immediate() -> Color;
+    fn attribute() -> Color;
+    fn segment() -> Color;
 }
 
 pub struct IBM;
 
 impl ColorScheme for IBM {
-    fn brackets() -> &'static Color {
-        &colors::GRAY60
+    fn brackets() -> Color {
+        colors::GRAY60
     }
 
-    fn delimiter() -> &'static Color {
-        &colors::GRAY40
+    fn delimiter() -> Color {
+        colors::GRAY40
     }
 
-    fn comment() -> &'static Color {
-        &colors::GRAY20
+    fn comment() -> Color {
+        colors::GRAY20
     }
 
-    fn item() -> &'static Color {
-        &colors::MAGENTA
+    fn item() -> Color {
+        colors::MAGENTA
     }
 
-    fn known() -> &'static Color {
-        &colors::PURPLE
+    fn known() -> Color {
+        colors::PURPLE
     }
 
-    fn root() -> &'static Color {
-        &colors::PURPLE
+    fn root() -> Color {
+        colors::PURPLE
     }
 
-    fn annotation() -> &'static Color {
-        &colors::BLUE
+    fn annotation() -> Color {
+        colors::BLUE
     }
 
-    fn special() -> &'static Color {
-        &colors::RED
+    fn special() -> Color {
+        colors::RED
     }
 
-    fn expr() -> &'static Color {
-        &colors::GRAY99
+    fn expr() -> Color {
+        colors::GRAY99
     }
 
-    fn opcode() -> &'static Color {
-        &colors::WHITE
+    fn opcode() -> Color {
+        colors::WHITE
     }
 
-    fn register() -> &'static Color {
-        &colors::MAGENTA
+    fn register() -> Color {
+        colors::MAGENTA
     }
 
-    fn immediate() -> &'static Color {
-        &colors::BLUE
+    fn immediate() -> Color {
+        colors::BLUE
     }
 
-    fn attribute() -> &'static Color {
-        &colors::GRAY40
+    fn attribute() -> Color {
+        colors::GRAY40
     }
 
-    fn segment() -> &'static Color {
-        &colors::GREEN
+    fn segment() -> Color {
+        colors::GREEN
     }
 }
 
@@ -149,12 +149,12 @@ impl Deref for MaybeStatic {
 #[derive(Debug, Clone)]
 pub struct Token {
     pub text: MaybeStatic,
-    pub color: &'static Color,
+    pub color: Color,
 }
 
 impl Token {
     #[inline]
-    pub fn from_str(text: &'static str, color: &'static Color) -> Self {
+    pub fn from_str(text: &'static str, color: Color) -> Self {
         Self {
             text: MaybeStatic::Static(text),
             color,
@@ -162,7 +162,7 @@ impl Token {
     }
 
     #[inline]
-    pub fn from_string(text: String, color: &'static Color) -> Self {
+    pub fn from_string(text: String, color: Color) -> Self {
         Self {
             text: MaybeStatic::Dynamic(Arc::from(text)),
             color,

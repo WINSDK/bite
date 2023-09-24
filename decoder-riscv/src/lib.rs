@@ -5,30 +5,7 @@ mod tests;
 use once_cell::sync::Lazy;
 use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
-
-#[derive(Debug, Clone, Copy)]
-pub enum Error {
-    /// Register in instruction is impossible/unknown.
-    UnknownRegister,
-
-    /// Opcode in instruction is impossible/unknown.
-    UnknownOpcode,
-
-    /// There are no more bytes left to consume.
-    Exhausted,
-}
-
-impl decoder::Failed for Error {
-    #[inline]
-    fn is_complete(&self) -> bool {
-        !matches!(self, Error::Exhausted)
-    }
-
-    #[inline]
-    fn incomplete_width(&self) -> usize {
-        2
-    }
-}
+use decoder::{ErrorKind, Error};
 
 macro_rules! operands {
     [] => {([$crate::Operand::Nothing; 3], 0)};
@@ -84,30 +61,30 @@ impl Register {
 
 impl Register {
     #[inline]
-    fn get(num: u32) -> Result<Self, Error> {
+    fn get(num: u32) -> Result<Self, ErrorKind> {
         // if the num isn't one of the 64 variants, fail
         if num >= 64 {
-            return Err(Error::UnknownRegister);
+            return Err(ErrorKind::InvalidRegister);
         }
 
         Ok(unsafe { std::mem::transmute(num) })
     }
 
     #[inline]
-    fn get_int(num: u16) -> Result<Self, Error> {
+    fn get_int(num: u16) -> Result<Self, ErrorKind> {
         // if the num isn't between $s0 and $a5
         if num >= 8 {
-            return Err(Error::UnknownRegister);
+            return Err(ErrorKind::InvalidRegister);
         }
 
         Ok(unsafe { std::mem::transmute(num as u32 + 8) })
     }
 
     #[inline]
-    fn get_fp(num: u16) -> Result<Self, Error> {
+    fn get_fp(num: u16) -> Result<Self, ErrorKind> {
         // if the num isn't between $fs0 and Ffa5
         if num >= 8 {
-            return Err(Error::UnknownRegister);
+            return Err(ErrorKind::InvalidRegister);
         }
 
         Ok(unsafe { std::mem::transmute(num as u32 + 40) })
@@ -737,7 +714,7 @@ impl Operand {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Instruction {
     opcode: Opcode,
     operands: [Operand; 3],
@@ -757,187 +734,191 @@ pub struct Decoder {
 
 impl decoder::Decodable for Decoder {
     type Instruction = Instruction;
-    type Error = Error;
-    type Operand = std::borrow::Cow<'static, str>;
 
-    fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Self::Error> {
-        use Opcode::*;
-
-        let mut word1 = [0u8; 2];
-        reader.next_n(&mut word1).ok_or(Error::Exhausted)?;
-        // check if the instruction is compressed
-        if word1[0] & 0b11 != 0b11 {
-            let bytes = u16::from_le_bytes(word1);
-            let opcode = bytes & 0b11;
-            let jump3 = bytes >> 13 & 0b111;
-
-            let decoded_inst = match opcode {
-                0b00 => match jump3 {
-                    0b000 => decode_addi4spn(bytes),
-                    0b001 => decode_comp_fsld(C_FLD, bytes),
-                    0b010 => decode_comp_slw(C_LW, bytes),
-                    0b011 if !self.is_64 => decode_comp_fslw(C_FLW, bytes),
-                    0b011 if self.is_64 => decode_comp_sld(C_LD, bytes),
-                    0b101 => decode_comp_fsld(C_FSD, bytes),
-                    0b110 => decode_comp_slw(C_SW, bytes),
-                    0b111 if !self.is_64 => decode_comp_fslw(C_FSW, bytes),
-                    0b111 if self.is_64 => decode_comp_sld(C_SD, bytes),
-                    _ => Err(Error::UnknownOpcode),
-                },
-                0b01 => match jump3 {
-                    0b000 if bytes >> 7 & 0b11111 == 0 => decode_comp_unique(C_NOP),
-                    0b000 if bytes >> 7 & 0b11111 != 0 => decode_comp_addi(C_ADDI, bytes),
-                    0b001 if !self.is_64 => decode_comp_jump(C_JAL, bytes),
-                    0b001 if self.is_64 => decode_comp_addi(C_ADDIW, bytes),
-                    0b010 => decode_comp_li(C_LI, bytes),
-                    0b011 if bytes >> 7 & 0b11111 == 2 => decode_addi16sp(bytes),
-                    0b011 if bytes >> 7 & 0b11111 != 2 => decode_comp_li(C_LUI, bytes),
-                    0b100 => match bytes >> 10 & 0b11 {
-                        0b00 => decode_comp_shift(C_SRLI, bytes),
-                        0b01 => decode_comp_shift(C_SRAI, bytes),
-                        0b11 => match (bytes >> 5 & 0b11, bytes >> 12 & 0b1) {
-                            (0b00, 0b0) if !self.is_64 => decode_comp_arith(C_SUB, bytes),
-                            (0b01, 0b0) => decode_comp_arith(C_XOR, bytes),
-                            (0b10, 0b0) => decode_comp_arith(C_OR, bytes),
-                            (0b11, 0b0) => decode_comp_arith(C_AND, bytes),
-                            (0b00, 0b1) if self.is_64 => decode_comp_arith(C_SUBW, bytes),
-                            (0b01, 0b1) if self.is_64 => decode_comp_arith(C_ADDW, bytes),
-                            _ => Err(Error::UnknownOpcode),
-                        },
-                        _ => Err(Error::UnknownOpcode),
-                    },
-                    0b101 => decode_comp_jump(C_J, bytes),
-                    0b110 => decode_comp_branch(C_BEQZ, bytes),
-                    0b111 => decode_comp_branch(C_BNEZ, bytes),
-                    _ => Err(Error::UnknownOpcode),
-                },
-                0b10 => match jump3 {
-                    0b000 => decode_comp_shift(C_SLLI, bytes),
-                    0b001 => decode_comp_ldsp(C_FLDSP, bytes),
-                    0b010 => decode_comp_lwsp(C_LWSP, bytes),
-                    0b011 if !self.is_64 => decode_comp_lwsp(C_FLWSP, bytes),
-                    0b011 if self.is_64 => decode_comp_ldsp(C_LDSP, bytes),
-                    0b100 => match (bytes >> 12 & 0b1, bytes >> 2 & 0b11111) {
-                        (0b0, 0b0) => decode_comp_jumpr(bytes),
-                        (0b0, _) => decode_comp_mv(bytes),
-                        (0b1, 0b0) => decode_comp_unique(C_EBREAK),
-                        (0b1, _) => decode_comp_add(bytes),
-                        _ => Err(Error::UnknownOpcode),
-                    },
-                    0b101 => decode_comp_sdsp(C_FSDSP, bytes),
-                    0b110 => decode_comp_swsp(C_SWSP, bytes),
-                    0b111 if !self.is_64 => decode_comp_swsp(C_FSWSP, bytes),
-                    0b111 if self.is_64 => decode_comp_sdsp(C_SDSP, bytes),
-                    _ => Err(Error::UnknownOpcode),
-                },
-                _ => Err(Error::UnknownOpcode),
-            };
-
-            return decoded_inst.map(map_to_psuedo);
-        }
-
-        let mut word2 = [0u8; 2];
-        reader.next_n(&mut word2).ok_or(Error::Exhausted)?;
-        let dword = u32::from_le_bytes([word1[0], word1[1], word2[0], word2[1]]);
-        let opcode = word1[0] & 0b1111111;
-
-        let decoded_inst = match opcode {
-            _ if dword == 0b000000000000_00000_000_00000_1110011 => decode_unique(ECALL),
-            _ if dword == 0b000000000001_00000_000_00000_1110011 => decode_unique(EBREAK),
-            0b0001111 => decode_unique(FENCE),
-            0b0110111 => decode_double(LUI, dword),
-            0b0010111 => decode_double(AUIPC, dword),
-            0b1101111 => decode_jump(dword),
-            0b1100111 => decode_jumpr(dword),
-            0b1100011 => match dword >> 12 & 0b111 {
-                0b000 => decode_branch(BEQ, dword),
-                0b001 => decode_branch(BNE, dword),
-                0b100 => decode_branch(BLT, dword),
-                0b101 => decode_branch(BGE, dword),
-                0b110 => decode_branch(BLTU, dword),
-                0b111 => decode_branch(BGEU, dword),
-                _ => Err(Error::UnknownOpcode),
-            },
-            0b0000011 => match dword >> 12 & 0b111 {
-                0b000 => decode_immediate(LB, dword),
-                0b001 => decode_immediate(LH, dword),
-                0b010 => decode_immediate(LW, dword),
-                0b011 if self.is_64 => decode_immediate(LD, dword),
-                0b100 => decode_immediate(LBU, dword),
-                0b101 => decode_immediate(LHU, dword),
-                0b110 if self.is_64 => decode_immediate(LWU, dword),
-                _ => Err(Error::UnknownOpcode),
-            },
-            0b0100011 => match dword >> 12 & 0b111 {
-                0b000 => decode_store(SB, dword),
-                0b001 => decode_store(SH, dword),
-                0b010 => decode_store(SW, dword),
-                0b011 if self.is_64 => decode_store(SD, dword),
-                _ => Err(Error::UnknownOpcode),
-            },
-            0b0010011 => match dword >> 12 & 0b111 {
-                0b000 => decode_immediate(ADDI, dword),
-                0b010 => decode_immediate(SLTI, dword),
-                0b011 => decode_immediate(SLTIU, dword),
-                0b100 => decode_immediate(XORI, dword),
-                0b110 => decode_immediate(ORI, dword),
-                0b111 => decode_immediate(ANDI, dword),
-                0b001 => decode_arith(SLLI, dword, self),
-                0b101 if dword >> 26 == 0b0000001 => decode_arith(SRAI, dword, self),
-                0b101 if dword >> 26 == 0b0000000 => decode_arith(SRLI, dword, self),
-                _ => Err(Error::UnknownOpcode),
-            },
-            0b0011011 => match dword >> 12 & 0b111 {
-                _ if !self.is_64 => Err(Error::UnknownOpcode),
-                0b000 => decode_immediate(ADDIW, dword),
-                0b001 => decode_arith(SLLIW, dword, self),
-                0b101 if dword >> 25 == 0b0000000 => decode_arith(SRLIW, dword, self),
-                0b101 if dword >> 25 == 0b0100000 => decode_arith(SRAIW, dword, self),
-                _ => Err(Error::UnknownOpcode),
-            },
-            0b0110011 => match dword >> 25 {
-                0b0000000 => match dword >> 12 & 0b111 {
-                    0b000 => decode_triplet(ADD, dword),
-                    0b001 => decode_triplet(SLL, dword),
-                    0b010 => decode_triplet(SLT, dword),
-                    0b011 => decode_triplet(SLTU, dword),
-                    0b100 => decode_triplet(XOR, dword),
-                    0b101 => decode_triplet(SRL, dword),
-                    0b110 => decode_triplet(OR, dword),
-                    0b111 => decode_triplet(AND, dword),
-                    _ => Err(Error::UnknownOpcode),
-                },
-                0b0100000 => match dword >> 12 & 0b111 {
-                    0b000 => decode_triplet(SUB, dword),
-                    0b101 => decode_triplet(SRA, dword),
-                    _ => Err(Error::UnknownOpcode),
-                },
-                _ => Err(Error::UnknownOpcode),
-            },
-            0b0111011 => match dword >> 25 {
-                _ if !self.is_64 => Err(Error::UnknownOpcode),
-                0b0000000 => match dword >> 12 & 0b111 {
-                    0b000 => decode_triplet(ADDW, dword),
-                    0b001 => decode_triplet(SLLW, dword),
-                    0b101 => decode_triplet(SRLW, dword),
-                    _ => Err(Error::UnknownOpcode),
-                },
-                0b0100000 => match dword >> 12 & 0b111 {
-                    0b000 => decode_triplet(SUBW, dword),
-                    0b101 => decode_triplet(SRAW, dword),
-                    _ => Err(Error::UnknownOpcode),
-                },
-                _ => Err(Error::UnknownOpcode),
-            },
-            _ => Err(Error::UnknownOpcode),
-        };
-
-        decoded_inst.map(map_to_psuedo)
+    fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Error> {
+        decode(reader, self).map_err(|err| Error::new(err, 4))
     }
 
     fn max_width(&self) -> usize {
         4
     }
+}
+
+fn decode(reader: &mut decoder::Reader, decoder: &Decoder) -> Result<Instruction, ErrorKind> {
+    use Opcode::*;
+
+    let is_64 = decoder.is_64;
+    let mut word1 = [0u8; 2];
+    reader.next_n(&mut word1).ok_or(ErrorKind::ExhaustedInput)?;
+
+    // check if the instruction is compressed
+    if word1[0] & 0b11 != 0b11 {
+        let bytes = u16::from_le_bytes(word1);
+        let opcode = bytes & 0b11;
+        let jump3 = bytes >> 13 & 0b111;
+
+        let decoded_inst = match opcode {
+            0b00 => match jump3 {
+                0b000 => decode_addi4spn(bytes),
+                0b001 => decode_comp_fsld(C_FLD, bytes),
+                0b010 => decode_comp_slw(C_LW, bytes),
+                0b011 if !is_64 => decode_comp_fslw(C_FLW, bytes),
+                0b011 if is_64 => decode_comp_sld(C_LD, bytes),
+                0b101 => decode_comp_fsld(C_FSD, bytes),
+                0b110 => decode_comp_slw(C_SW, bytes),
+                0b111 if !is_64 => decode_comp_fslw(C_FSW, bytes),
+                0b111 if is_64 => decode_comp_sld(C_SD, bytes),
+                _ => Err(ErrorKind::InvalidOpcode),
+            },
+            0b01 => match jump3 {
+                0b000 if bytes >> 7 & 0b11111 == 0 => decode_comp_unique(C_NOP),
+                0b000 if bytes >> 7 & 0b11111 != 0 => decode_comp_addi(C_ADDI, bytes),
+                0b001 if !is_64 => decode_comp_jump(C_JAL, bytes),
+                0b001 if is_64 => decode_comp_addi(C_ADDIW, bytes),
+                0b010 => decode_comp_li(C_LI, bytes),
+                0b011 if bytes >> 7 & 0b11111 == 2 => decode_addi16sp(bytes),
+                0b011 if bytes >> 7 & 0b11111 != 2 => decode_comp_li(C_LUI, bytes),
+                0b100 => match bytes >> 10 & 0b11 {
+                    0b00 => decode_comp_shift(C_SRLI, bytes),
+                    0b01 => decode_comp_shift(C_SRAI, bytes),
+                    0b11 => match (bytes >> 5 & 0b11, bytes >> 12 & 0b1) {
+                        (0b00, 0b0) if !is_64 => decode_comp_arith(C_SUB, bytes),
+                        (0b01, 0b0) => decode_comp_arith(C_XOR, bytes),
+                        (0b10, 0b0) => decode_comp_arith(C_OR, bytes),
+                        (0b11, 0b0) => decode_comp_arith(C_AND, bytes),
+                        (0b00, 0b1) if is_64 => decode_comp_arith(C_SUBW, bytes),
+                        (0b01, 0b1) if is_64 => decode_comp_arith(C_ADDW, bytes),
+                        _ => Err(ErrorKind::InvalidOpcode),
+                    },
+                    _ => Err(ErrorKind::InvalidOpcode),
+                },
+                0b101 => decode_comp_jump(C_J, bytes),
+                0b110 => decode_comp_branch(C_BEQZ, bytes),
+                0b111 => decode_comp_branch(C_BNEZ, bytes),
+                _ => Err(ErrorKind::InvalidOpcode),
+            },
+            0b10 => match jump3 {
+                0b000 => decode_comp_shift(C_SLLI, bytes),
+                0b001 => decode_comp_ldsp(C_FLDSP, bytes),
+                0b010 => decode_comp_lwsp(C_LWSP, bytes),
+                0b011 if !is_64 => decode_comp_lwsp(C_FLWSP, bytes),
+                0b011 if is_64 => decode_comp_ldsp(C_LDSP, bytes),
+                0b100 => match (bytes >> 12 & 0b1, bytes >> 2 & 0b11111) {
+                    (0b0, 0b0) => decode_comp_jumpr(bytes),
+                    (0b0, _) => decode_comp_mv(bytes),
+                    (0b1, 0b0) => decode_comp_unique(C_EBREAK),
+                    (0b1, _) => decode_comp_add(bytes),
+                    _ => Err(ErrorKind::InvalidOpcode),
+                },
+                0b101 => decode_comp_sdsp(C_FSDSP, bytes),
+                0b110 => decode_comp_swsp(C_SWSP, bytes),
+                0b111 if !is_64 => decode_comp_swsp(C_FSWSP, bytes),
+                0b111 if is_64 => decode_comp_sdsp(C_SDSP, bytes),
+                _ => Err(ErrorKind::InvalidOpcode),
+            },
+            _ => Err(ErrorKind::InvalidOpcode),
+        };
+
+        return decoded_inst.map(map_to_psuedo);
+    }
+
+    let mut word2 = [0u8; 2];
+    reader.next_n(&mut word2).ok_or(ErrorKind::ExhaustedInput)?;
+    let dword = u32::from_le_bytes([word1[0], word1[1], word2[0], word2[1]]);
+    let opcode = word1[0] & 0b1111111;
+
+    let decoded_inst = match opcode {
+        _ if dword == 0b000000000000_00000_000_00000_1110011 => decode_unique(ECALL),
+        _ if dword == 0b000000000001_00000_000_00000_1110011 => decode_unique(EBREAK),
+        0b0001111 => decode_unique(FENCE),
+        0b0110111 => decode_double(LUI, dword),
+        0b0010111 => decode_double(AUIPC, dword),
+        0b1101111 => decode_jump(dword),
+        0b1100111 => decode_jumpr(dword),
+        0b1100011 => match dword >> 12 & 0b111 {
+            0b000 => decode_branch(BEQ, dword),
+            0b001 => decode_branch(BNE, dword),
+            0b100 => decode_branch(BLT, dword),
+            0b101 => decode_branch(BGE, dword),
+            0b110 => decode_branch(BLTU, dword),
+            0b111 => decode_branch(BGEU, dword),
+            _ => Err(ErrorKind::InvalidOpcode),
+        },
+        0b0000011 => match dword >> 12 & 0b111 {
+            0b000 => decode_immediate(LB, dword),
+            0b001 => decode_immediate(LH, dword),
+            0b010 => decode_immediate(LW, dword),
+            0b011 if is_64 => decode_immediate(LD, dword),
+            0b100 => decode_immediate(LBU, dword),
+            0b101 => decode_immediate(LHU, dword),
+            0b110 if is_64 => decode_immediate(LWU, dword),
+            _ => Err(ErrorKind::InvalidOpcode),
+        },
+        0b0100011 => match dword >> 12 & 0b111 {
+            0b000 => decode_store(SB, dword),
+            0b001 => decode_store(SH, dword),
+            0b010 => decode_store(SW, dword),
+            0b011 if is_64 => decode_store(SD, dword),
+            _ => Err(ErrorKind::InvalidOpcode),
+        },
+        0b0010011 => match dword >> 12 & 0b111 {
+            0b000 => decode_immediate(ADDI, dword),
+            0b010 => decode_immediate(SLTI, dword),
+            0b011 => decode_immediate(SLTIU, dword),
+            0b100 => decode_immediate(XORI, dword),
+            0b110 => decode_immediate(ORI, dword),
+            0b111 => decode_immediate(ANDI, dword),
+            0b001 => decode_arith(SLLI, dword, decoder),
+            0b101 if dword >> 26 == 0b0000001 => decode_arith(SRAI, dword, decoder),
+            0b101 if dword >> 26 == 0b0000000 => decode_arith(SRLI, dword, decoder),
+            _ => Err(ErrorKind::InvalidOpcode),
+        },
+        0b0011011 => match dword >> 12 & 0b111 {
+            _ if !is_64 => Err(ErrorKind::InvalidOpcode),
+            0b000 => decode_immediate(ADDIW, dword),
+            0b001 => decode_arith(SLLIW, dword, decoder),
+            0b101 if dword >> 25 == 0b0000000 => decode_arith(SRLIW, dword, decoder),
+            0b101 if dword >> 25 == 0b0100000 => decode_arith(SRAIW, dword, decoder),
+            _ => Err(ErrorKind::InvalidOpcode),
+        },
+        0b0110011 => match dword >> 25 {
+            0b0000000 => match dword >> 12 & 0b111 {
+                0b000 => decode_triplet(ADD, dword),
+                0b001 => decode_triplet(SLL, dword),
+                0b010 => decode_triplet(SLT, dword),
+                0b011 => decode_triplet(SLTU, dword),
+                0b100 => decode_triplet(XOR, dword),
+                0b101 => decode_triplet(SRL, dword),
+                0b110 => decode_triplet(OR, dword),
+                0b111 => decode_triplet(AND, dword),
+                _ => Err(ErrorKind::InvalidOpcode),
+            },
+            0b0100000 => match dword >> 12 & 0b111 {
+                0b000 => decode_triplet(SUB, dword),
+                0b101 => decode_triplet(SRA, dword),
+                _ => Err(ErrorKind::InvalidOpcode),
+            },
+            _ => Err(ErrorKind::InvalidOpcode),
+        },
+        0b0111011 => match dword >> 25 {
+            _ if !is_64 => Err(ErrorKind::InvalidOpcode),
+            0b0000000 => match dword >> 12 & 0b111 {
+                0b000 => decode_triplet(ADDW, dword),
+                0b001 => decode_triplet(SLLW, dword),
+                0b101 => decode_triplet(SRLW, dword),
+                _ => Err(ErrorKind::InvalidOpcode),
+            },
+            0b0100000 => match dword >> 12 & 0b111 {
+                0b000 => decode_triplet(SUBW, dword),
+                0b101 => decode_triplet(SRAW, dword),
+                _ => Err(ErrorKind::InvalidOpcode),
+            },
+            _ => Err(ErrorKind::InvalidOpcode),
+        },
+        _ => Err(ErrorKind::InvalidOpcode),
+    };
+
+    decoded_inst.map(map_to_psuedo)
 }
 
 impl decoder::ToTokens for Instruction {
@@ -1541,7 +1522,7 @@ fn map_to_psuedo(mut inst: Instruction) -> Instruction {
 }
 
 /// Decode's beqz and bnez instructions.
-fn decode_comp_branch(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_branch(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rs = Register::get_int(word >> 7 & 0b111)?;
     let mut imm = 0;
 
@@ -1573,7 +1554,7 @@ fn decode_comp_branch(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's beqz and bnez instructions.
-fn decode_comp_jump(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_jump(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let mut imm = 0;
 
     imm |= word >> 1 & 0b100000000000;
@@ -1603,7 +1584,7 @@ fn decode_comp_jump(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's j and jal instructions.
-fn decode_comp_jumpr(word: u16) -> Result<Instruction, Error> {
+fn decode_comp_jumpr(word: u16) -> Result<Instruction, ErrorKind> {
     let rs = Register::get((word >> 7 & 0b11111) as u32)?;
 
     let (operands, operand_count) = operands![
@@ -1621,7 +1602,7 @@ fn decode_comp_jumpr(word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's sub, or, xor, and, subw and addw instructions.
-fn decode_comp_arith(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_arith(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get_int(word >> 7 & 0b111)?;
     let rs = Register::get_int(word >> 2 & 0b111)?;
 
@@ -1640,7 +1621,7 @@ fn decode_comp_arith(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's srli, srai and slli instructions.
-fn decode_comp_shift(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_shift(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get_int(word >> 7 & 0b111)?;
     let shamt = (word >> 7 & 0b100000) | (word >> 2 & 0b11111);
 
@@ -1659,7 +1640,7 @@ fn decode_comp_shift(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's addi and addiw instructions.
-fn decode_comp_addi(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_addi(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get((word >> 7 & 0b11111) as u32)?;
     let mut imm = (((word >> 7) & 0b100000) | ((word >> 2) & 0b11111)) as i16;
 
@@ -1682,7 +1663,7 @@ fn decode_comp_addi(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's addi16sp instruction also represented as addi sp, sp, imm*16.
-fn decode_addi16sp(word: u16) -> Result<Instruction, Error> {
+fn decode_addi16sp(word: u16) -> Result<Instruction, ErrorKind> {
     let mut imm = 0;
 
     imm |= word >> 3 & 0b1000000000;
@@ -1708,7 +1689,7 @@ fn decode_addi16sp(word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's addi14spn instruction also represented as addi sp, rs, imm*4.
-fn decode_addi4spn(word: u16) -> Result<Instruction, Error> {
+fn decode_addi4spn(word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get_int(word >> 2 & 0b111)?;
     let mut imm = 0;
 
@@ -1729,7 +1710,7 @@ fn decode_addi4spn(word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's add instruction.
-fn decode_comp_add(word: u16) -> Result<Instruction, Error> {
+fn decode_comp_add(word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get((word >> 7 & 0b11111) as u32)?;
     let rs = Register::get((word >> 2 & 0b11111) as u32)?;
 
@@ -1748,7 +1729,7 @@ fn decode_comp_add(word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's li and lui instructions.
-fn decode_comp_li(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_li(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let mut imm = (((word >> 7) & 0b100000) | ((word >> 2) & 0b11111)) as i16;
     let rs = Register::get((word >> 7 & 0b11111) as u32)?;
 
@@ -1768,7 +1749,7 @@ fn decode_comp_li(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's store word relative to sp instruction for both integers and floats.
-fn decode_comp_swsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_swsp(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get((word >> 2 & 0b11111) as u32)?;
     let imm = (word >> 1 & 0b11000000) | (word >> 7 & 0b111100);
 
@@ -1784,7 +1765,7 @@ fn decode_comp_swsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's store double relative to sp instruction for both integers and floats.
-fn decode_comp_sdsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_sdsp(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get((word >> 2 & 0b11111) as u32)?;
     let imm = (word >> 1 & 0b111000000) | (word >> 7 & 0b111000);
 
@@ -1800,7 +1781,7 @@ fn decode_comp_sdsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's load word relative to sp instruction for both integers and floats.
-fn decode_comp_lwsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_lwsp(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get((word >> 7 & 0b11111) as u32)?;
     let imm = (word << 4 & 0b11000000) | (word >> 7 & 0b100000) | (word >> 2 & 0b11100);
 
@@ -1816,7 +1797,7 @@ fn decode_comp_lwsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's load double relative to sp instruction for both integers and floats.
-fn decode_comp_ldsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_ldsp(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rd = Register::get((word >> 7 & 0b11111) as u32)?;
     let imm = (word << 4 & 0b111000000) | (word >> 7 & 0b100000) | (word >> 2 & 0b11000);
 
@@ -1832,7 +1813,7 @@ fn decode_comp_ldsp(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's load word instruction for integers.
-fn decode_comp_slw(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_slw(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rs1 = Register::get_int(word >> 2 & 0b111)?;
     let rs2 = Register::get_int(word >> 7 & 0b111)?;
     let imm = (word << 1 & 0b1000000) | (word >> 7 & 0b111000) | (word >> 4 & 0b100);
@@ -1852,7 +1833,7 @@ fn decode_comp_slw(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's load double instruction for integers.
-fn decode_comp_sld(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_sld(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rs1 = Register::get_int(word >> 2 & 0b111)?;
     let rs2 = Register::get_int(word >> 7 & 0b111)?;
     let imm = (word << 1 & 0b11000000) | (word >> 7 & 0b111000);
@@ -1872,7 +1853,7 @@ fn decode_comp_sld(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's load word instruction for floats.
-fn decode_comp_fslw(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_fslw(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rs1 = Register::get_fp(word >> 2 & 0b111)?;
     let rs2 = Register::get_fp(word >> 7 & 0b111)?;
     let imm = (word << 1 & 0b1000000) | (word >> 7 & 0b111000) | (word >> 4 & 0b100);
@@ -1892,7 +1873,7 @@ fn decode_comp_fslw(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's load double instruction for floats.
-fn decode_comp_fsld(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
+fn decode_comp_fsld(opcode: Opcode, word: u16) -> Result<Instruction, ErrorKind> {
     let rs1 = Register::get_fp(word >> 2 & 0b111)?;
     let rs2 = Register::get_fp(word >> 7 & 0b111)?;
     let imm = (word << 1 & 0b11000000) | (word >> 7 & 0b111000);
@@ -1912,7 +1893,7 @@ fn decode_comp_fsld(opcode: Opcode, word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's move instruction.
-fn decode_comp_mv(word: u16) -> Result<Instruction, Error> {
+fn decode_comp_mv(word: u16) -> Result<Instruction, ErrorKind> {
     let rs = Register::get((word >> 2 & 0b11111) as u32)?;
     let rd = Register::get((word >> 7 & 0b11111) as u32)?;
 
@@ -1927,7 +1908,7 @@ fn decode_comp_mv(word: u16) -> Result<Instruction, Error> {
 }
 
 /// Decode's instructions with weird formatting that aren't yet handled.
-fn decode_comp_unique(opcode: Opcode) -> Result<Instruction, Error> {
+fn decode_comp_unique(opcode: Opcode) -> Result<Instruction, ErrorKind> {
     let (operands, operand_count) = operands![];
 
     Ok(Instruction {
@@ -1939,7 +1920,7 @@ fn decode_comp_unique(opcode: Opcode) -> Result<Instruction, Error> {
 }
 
 /// Decode's instructions with weird formatting that aren't yet handled.
-fn decode_unique(opcode: Opcode) -> Result<Instruction, Error> {
+fn decode_unique(opcode: Opcode) -> Result<Instruction, ErrorKind> {
     let (operands, operand_count) = operands![];
 
     Ok(Instruction {
@@ -1951,7 +1932,7 @@ fn decode_unique(opcode: Opcode) -> Result<Instruction, Error> {
 }
 
 /// Decode's sb, sh, sw and sd store instructions.
-fn decode_store(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
+fn decode_store(opcode: Opcode, dword: u32) -> Result<Instruction, ErrorKind> {
     let mut imm = 0;
 
     imm |= ((dword & 0b11111110000000000000000000000000) as i32 >> 20) as u32;
@@ -1976,7 +1957,7 @@ fn decode_store(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
 }
 
 /// Decode's beq, bne, blt, bge, bltu and bgeu branch instructions.
-fn decode_branch(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
+fn decode_branch(opcode: Opcode, dword: u32) -> Result<Instruction, ErrorKind> {
     let rs1 = Register::get(dword >> 15 & 0b11111)?;
     let rs2 = Register::get(dword >> 20 & 0b11111)?;
 
@@ -2003,7 +1984,7 @@ fn decode_branch(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
 }
 
 /// Decode's jump instruction.
-fn decode_jump(dword: u32) -> Result<Instruction, Error> {
+fn decode_jump(dword: u32) -> Result<Instruction, ErrorKind> {
     let mut imm = 0;
     let rd = Register::get(dword >> 7 & 0b11111)?;
 
@@ -2025,7 +2006,7 @@ fn decode_jump(dword: u32) -> Result<Instruction, Error> {
 }
 
 /// Decode's ret instruction.
-fn decode_jumpr(bytes: u32) -> Result<Instruction, Error> {
+fn decode_jumpr(bytes: u32) -> Result<Instruction, ErrorKind> {
     let imm = bytes as i32 >> 20;
     let rd = Register::get(bytes >> 7 & 0b11111)?;
     let (operands, operand_count) = operands![Operand::Register(rd), Operand::Immediate(imm)];
@@ -2039,7 +2020,7 @@ fn decode_jumpr(bytes: u32) -> Result<Instruction, Error> {
 }
 
 /// Decode's instructions that have two registers and an immediate.
-fn decode_immediate(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
+fn decode_immediate(opcode: Opcode, dword: u32) -> Result<Instruction, ErrorKind> {
     let rd = Register::get(dword >> 7 & 0b11111)?;
     let rs = Register::get(dword >> 15 & 0b11111)?;
     let imm = dword as i32 >> 20;
@@ -2059,7 +2040,7 @@ fn decode_immediate(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
 }
 
 /// Decode's slli, srai, srli, slliw, sraiw and srliw  instruction's.
-fn decode_arith(opcode: Opcode, dword: u32, opts: &Decoder) -> Result<Instruction, Error> {
+fn decode_arith(opcode: Opcode, dword: u32, opts: &Decoder) -> Result<Instruction, ErrorKind> {
     let rd = Register::get(dword >> 7 & 0b11111)?;
     let rs = Register::get(dword >> 15 & 0b11111)?;
 
@@ -2084,7 +2065,7 @@ fn decode_arith(opcode: Opcode, dword: u32, opts: &Decoder) -> Result<Instructio
 }
 
 /// Decode's instructions that have three registers.
-fn decode_triplet(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
+fn decode_triplet(opcode: Opcode, dword: u32) -> Result<Instruction, ErrorKind> {
     let rd = Register::get(dword >> 7 & 0b11111)?;
     let rs1 = Register::get(dword >> 15 & 0b11111)?;
     let rs2 = Register::get(dword >> 20 & 0b11111)?;
@@ -2104,7 +2085,7 @@ fn decode_triplet(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
 }
 
 /// Decode's instructions that have have a registers and an immediate.
-fn decode_double(opcode: Opcode, dword: u32) -> Result<Instruction, Error> {
+fn decode_double(opcode: Opcode, dword: u32) -> Result<Instruction, ErrorKind> {
     let imm = dword >> 12;
     let rd = Register::get(dword >> 7 & 0b11111)?;
 

@@ -3,6 +3,52 @@
 use std::fmt::Debug;
 use tokenizing::{Color, Token};
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub struct Error {
+    /// What kind of error happened in decoding an instruction.
+    pub kind: ErrorKind,
+
+    /// How many bytes in the stream did the invalid instruction consume.
+    size: u8,
+}
+
+impl Error {
+    pub fn new(kind: ErrorKind, size: usize) -> Self {
+        Self {
+            kind,
+            size: size as u8
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        self.size as usize
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum ErrorKind {
+    /// Opcode in instruction is impossible/unknown.
+    InvalidOpcode,
+
+    /// Operand in instruction is impossible/unknown.
+    InvalidOperand,
+
+    /// Prefix in instruction is impossible/unknown.
+    InvalidPrefixes,
+
+    /// Register in instruction is impossible/unknown.
+    InvalidRegister,
+
+    /// There weren't any bytes left in the stream to decode.
+    ExhaustedInput,
+
+    /// Impossibly long instruction (x86/64 specific).
+    TooLong,
+
+    /// Some unknown variation of errors happened.
+    IncompleteDecoder,
+}
+
 pub trait ToTokens {
     fn tokenize(&self, stream: &mut TokenStream);
 }
@@ -17,17 +63,10 @@ pub trait Decoded: ToTokens {
     fn find_xrefs(&mut self, _addr: usize, _symbols: &symbols::Index) {}
 }
 
-pub trait Failed: Debug {
-    fn is_complete(&self) -> bool;
-    fn incomplete_width(&self) -> usize;
-}
-
 pub trait Decodable {
     type Instruction: Decoded;
-    type Error: Failed;
-    type Operand;
 
-    fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Self::Error>;
+    fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Error>;
     fn max_width(&self) -> usize;
 }
 
@@ -53,11 +92,11 @@ impl TokenStream {
         self.inner.push(token);
     }
 
-    pub fn push(&mut self, text: &'static str, color: &'static Color) {
+    pub fn push(&mut self, text: &'static str, color: Color) {
         self.push_token(Token::from_str(text, color));
     }
 
-    pub fn push_owned(&mut self, text: String, color: &'static Color) {
+    pub fn push_owned(&mut self, text: String, color: Color) {
         self.push_token(Token::from_string(text, color));
     }
 

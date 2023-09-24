@@ -30,7 +30,7 @@ libc = "0.2.147"
 
 [profile.release]
 # strip = true
-debug = true
+# debug = true
 # lto = "thin"
 
 [target.'cfg(windows)'.build-dependencies]

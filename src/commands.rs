@@ -147,27 +147,13 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
 
         match crate::expr::parse(&dissasembly.symbols, expr) {
             Ok(addr) => {
-                let mut offset = 0;
-                let exists = dissasembly.proc.iter().find(|&(line_addr, _)| {
-                    if addr == line_addr {
-                        return true;
-                    }
-
-                    offset += 1;
-                    false
-                });
-
-                match exists {
-                    Some(..) => {
-                        // FIXME: correct offset calc
-                        ctx.buffers.updated_offset = Some(offset);
-                        ctx.terminal_prompt
-                            .push_str(&format!("Jumped to address '{addr:#X}'.\n"))
-                    }
-                    None => ctx
-                        .terminal_prompt
-                        .push_str(&format!("Address '{addr:#X}' is undefined.\n")),
+                if dissasembly.jump(addr) {
+                    ctx.terminal_prompt.push_str(&format!("Jumped to address '{addr:#X}'.\n"));
+                } else {
+                    ctx.terminal_prompt.push_str(&format!("Address '{addr:#X}' is undefined.\n"));
                 }
+
+                ctx.buffers.update_listing();
             }
             Err(err) => ctx.terminal_prompt.push_str(&format!("{err:?}.\n")),
         }

@@ -142,8 +142,6 @@ pub struct Buffers {
     mapping: HashMap<Title, TabKind>,
     dissasembly: Option<Arc<Disassembly>>,
 
-    pub updated_offset: Option<usize>,
-
     cached_diss_range: std::ops::Range<usize>,
     cached_diss: Vec<Token>,
 
@@ -156,12 +154,21 @@ impl Buffers {
         Self {
             mapping,
             dissasembly: None,
-            updated_offset: None,
             cached_diss_range: std::ops::Range { start: 0, end: 0 },
             cached_diss: Vec::new(),
             cached_funcs_range: std::ops::Range { start: 0, end: 0 },
             cached_funcs: Vec::new(),
         }
+    }
+
+    pub fn update_listing(&mut self) {
+        let dissasembly = match self.dissasembly {
+            Some(ref dissasembly) => dissasembly,
+            None => return,
+        };
+
+        let row_count = self.cached_diss_range.end - self.cached_diss_range.start; 
+        self.cached_diss = dissasembly.listing(row_count);
     }
 
     fn show_listing(&mut self, ui: &mut egui::Ui) {
@@ -170,20 +177,49 @@ impl Buffers {
             None => return,
         };
 
-        let text_style = egui::TextStyle::Body;
-        let row_height = ui.text_style_height(&text_style);
-        let total_rows = dissasembly.proc.instruction_count();
-        let font_id = text_style.resolve(STYLE.egui());
+        let text = dissasembly.section();
+        let max_width = ui.available_width();
+        let size = egui::vec2(9.0 * text.len() as f32, 25.0);
+        let offset = egui::pos2(20.0, 60.0);
+        let rect = egui::Rect::from_two_pos(
+            egui::pos2(max_width - offset.x, offset.y),
+            egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
+        );
 
+        ui.painter().rect(
+            rect.expand2(egui::vec2(5.0, 0.0)),
+            0.0,
+            tokenizing::colors::GRAY35,
+            egui::Stroke::new(2.5, egui::Color32::BLACK),
+        );
+
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            text,
+            egui::FontId::new(14.0, egui::FontFamily::Monospace),
+            egui::Color32::WHITE,
+        );
+
+        let total_rows = 1_000_000;
+        let row_height = 14.0;
+        let font_id = egui::FontId::new(row_height, egui::FontFamily::Monospace);
         let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
-        let area = match std::mem::take(&mut self.updated_offset) {
-            Some(offset) => area.scroll_offset(egui::vec2(0.0, offset as f32 * row_height)),
-            None => area,
-        };
 
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+            let row_count = row_range.end - row_range.start;
+
             if row_range != self.cached_diss_range {
-                self.cached_diss = dissasembly.listing(row_range);
+                if row_range.start > self.cached_diss_range.start {
+                    let count = row_range.start - self.cached_diss_range.start;
+                    dissasembly.scroll_down(count);
+                } else {
+                    let count = self.cached_diss_range.start - row_range.start;
+                    dissasembly.scroll_up(count);
+                }
+
+                self.cached_diss = dissasembly.listing(row_count);
+                self.cached_diss_range = row_range;
             }
 
             let tokens = &self.cached_diss[..];
@@ -195,7 +231,7 @@ impl Buffers {
                     0.0,
                     egui::TextFormat {
                         font_id: font_id.clone(),
-                        color: *token.color,
+                        color: token.color,
                         ..Default::default()
                     },
                 );
@@ -232,9 +268,9 @@ impl Buffers {
                     egui::TextFormat {
                         font_id: egui::FontId {
                             size: 12.0,
-                            family: egui::FontFamily::Monospace
+                            family: egui::FontFamily::Monospace,
                         },
-                        color: *token.color,
+                        color: token.color,
                         ..Default::default()
                     },
                 );
@@ -244,7 +280,6 @@ impl Buffers {
         });
     }
 
-
     fn show_logger(&mut self, ui: &mut egui::Ui) {
         ui.style_mut().wrap = Some(true);
 
@@ -253,9 +288,7 @@ impl Buffers {
             .drag_to_scroll(false)
             .stick_to_bottom(true);
 
-        area.show(ui, |ui| {
-            ui.label(log::LOGGER.lock().unwrap().format())
-        });
+        area.show(ui, |ui| ui.label(log::LOGGER.lock().unwrap().format()));
 
         ui.style_mut().wrap = Some(false);
     }
@@ -272,9 +305,7 @@ impl egui_dock::TabViewer for Buffers {
                 }
                 Some(TabKind::Functions) => self.show_functions(ui),
                 Some(TabKind::Listing) => self.show_listing(ui),
-                Some(TabKind::Log) => {
-                    self.show_logger(ui)
-                }
+                Some(TabKind::Log) => self.show_logger(ui),
                 None => return,
             };
         });

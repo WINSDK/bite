@@ -147,7 +147,7 @@ impl<'src> Parser {
     }
 
     #[inline]
-    fn push(&mut self, text: &'static str, color: &'static Color) {
+    fn push(&mut self, text: &'static str, color: Color) {
         if self.printing {
             self.stream.push(text, color);
         }

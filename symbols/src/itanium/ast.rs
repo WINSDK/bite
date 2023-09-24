@@ -411,12 +411,12 @@ impl<'a> DemangleContext<'a> {
         }
     }
 
-    fn push_owned(&mut self, text: String, color: &'static Color) {
+    fn push_owned(&mut self, text: String, color: Color) {
         self.last_char_written = text.chars().last();
         self.stream.push_string(text, color);
     }
 
-    fn push(&mut self, text: &'static str, color: &'static Color) {
+    fn push(&mut self, text: &'static str, color: Color) {
         self.last_char_written = text.chars().last();
         self.stream.push(text, color);
     }

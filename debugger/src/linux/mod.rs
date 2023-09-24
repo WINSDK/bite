@@ -167,12 +167,12 @@ impl Debugger {
             WaitStatus::Signaled(pid, signal, ..) => {
                 self.pids.remove(&pid);
                 self.kontinue(pid);
-                log::gray!("[debugger::event] child exited by signal: {signal:?}.");
+                log::trace!("[debugger::event] child exited by signal: {signal:?}.");
             }
             WaitStatus::Exited(pid, code) => {
                 self.pids.remove(&pid);
                 self.kontinue(pid);
-                log::gray!("[debugger::event] child '{pid}' exited with code '{code}'.");
+                log::trace!("[debugger::event] child '{pid}' exited with code '{code}'.");
             }
             WaitStatus::PtraceSyscall(pid) => {
                 let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
@@ -205,7 +205,7 @@ impl Debugger {
                             self.print_buf += &err.to_string();
                         }
 
-                        log::gray!("[debugger::syscall] {}", self.print_buf);
+                        log::trace!("[debugger::syscall] {}", self.print_buf);
                         self.print_buf.clear();
                     }
                     _ => {}

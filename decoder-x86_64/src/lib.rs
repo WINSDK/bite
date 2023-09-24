@@ -86,25 +86,3 @@ impl MemoryAccessSize {
         MEM_SIZE_STRINGS[self.size as usize - 1]
     }
 }
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum Error {
-    InvalidOpcode,
-    InvalidOperand,
-    InvalidPrefixes,
-    TooLong,
-    ExhaustedInput,
-    IncompleteDecoder,
-}
-
-impl decoder::Failed for Error {
-    #[inline]
-    fn is_complete(&self) -> bool {
-        !matches!(self, Error::ExhaustedInput | Error::IncompleteDecoder)
-    }
-
-    #[inline]
-    fn incomplete_width(&self) -> usize {
-        1
-    }
-}

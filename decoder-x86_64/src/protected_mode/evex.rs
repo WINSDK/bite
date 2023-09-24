@@ -1,7 +1,6 @@
 use crate::protected_mode::{read_E_vex, read_imm_unsigned, read_modrm};
 use crate::protected_mode::{Instruction, Opcode, OperandSpec, RegSpec, RegisterBank};
-use crate::Error;
-use decoder::Reader;
+use decoder::{ErrorKind, Reader};
 
 const DEFAULT_EVEX_REGISTER_SIZE: RegisterBank = RegisterBank::D;
 const DEFAULT_EVEX_REGISTER_WIDTH: u8 = 4;
@@ -5127,26 +5126,26 @@ pub(crate) fn read_evex(
     words: &mut Reader,
     instruction: &mut Instruction,
     evex_byte_one: Option<u8>,
-) -> Result<(), Error> {
+) -> Result<(), ErrorKind> {
     let evex_byte_one = if let Some(b) = evex_byte_one {
         b
     } else {
-        words.next().ok_or(Error::ExhaustedInput)?
+        words.next().ok_or(ErrorKind::ExhaustedInput)?
     };
-    let evex_byte_two = words.next().ok_or(Error::ExhaustedInput)?;
-    let evex_byte_three = words.next().ok_or(Error::ExhaustedInput)?;
+    let evex_byte_two = words.next().ok_or(ErrorKind::ExhaustedInput)?;
+    let evex_byte_three = words.next().ok_or(ErrorKind::ExhaustedInput)?;
     let p = evex_byte_two & 0x03;
     if evex_byte_one & 0x0c != 0 {
         // the two bits above `m` are reserved and must be 0
-        return Err(Error::InvalidOpcode);
+        return Err(ErrorKind::InvalidOpcode);
     }
     if evex_byte_two & 0x04 == 0 {
         // the one bit above `p` is reserved and must be 1
-        return Err(Error::InvalidOpcode);
+        return Err(ErrorKind::InvalidOpcode);
     }
     let m = evex_byte_one & 0x03;
     if m == 0 {
-        return Err(Error::InvalidOpcode);
+        return Err(ErrorKind::InvalidOpcode);
     }
     let m = m - 1;
     // instead of enums for the lookup bits, these are used to select a TABLES entry in the first
@@ -5176,11 +5175,11 @@ pub(crate) fn read_evex(
 
     instruction.prefixes.evex_from(evex_byte_one, evex_byte_two, evex_byte_three);
 
-    let opc = words.next().ok_or(Error::ExhaustedInput)?;
+    let opc = words.next().ok_or(ErrorKind::ExhaustedInput)?;
     let table_idx = ((m << 2) | p) as usize;
     let table = generated::TABLES[table_idx];
     if std::ptr::eq(table, &generated::DUMMY[..]) {
-        return Err(Error::InvalidOpcode);
+        return Err(ErrorKind::InvalidOpcode);
     }
     let mut index_lower = 0;
     if instruction.prefixes.evex_unchecked().vex().l() {
@@ -5197,7 +5196,7 @@ pub(crate) fn read_evex(
             instruction.regs[0].num |= 0b10000;
             let banks = [RegisterBank::X, RegisterBank::Y, RegisterBank::Z];
             if !banks.contains(&instruction.regs[0].bank) {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         if instruction.prefixes.evex_unchecked().vex().x()
@@ -5206,7 +5205,7 @@ pub(crate) fn read_evex(
             instruction.regs[1].num |= 0b10000;
             let banks = [RegisterBank::X, RegisterBank::Y, RegisterBank::Z];
             if !banks.contains(&instruction.regs[1].bank) {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         if instruction.prefixes.evex_unchecked().vex().compressed_disp() {
@@ -5233,61 +5232,61 @@ pub(crate) fn read_evex(
             instruction.prefixes.apply_compressed_disp(false);
         }
         if instruction.opcode == Opcode::Invalid {
-            return Err(Error::InvalidOpcode);
+            return Err(ErrorKind::InvalidOpcode);
         }
         // TODO: apply rp and bp?
     } else {
-        return Err(Error::InvalidOpcode);
+        return Err(ErrorKind::InvalidOpcode);
     }
     Ok(())
 }
 
-fn deny_broadcast(inst: &Instruction) -> Result<(), Error> {
+fn deny_broadcast(inst: &Instruction) -> Result<(), ErrorKind> {
     if inst.prefixes.evex_unchecked().broadcast() {
-        Err(Error::InvalidOperand)
+        Err(ErrorKind::InvalidOperand)
     } else {
         Ok(())
     }
 }
 
-fn deny_z(inst: &Instruction) -> Result<(), Error> {
+fn deny_z(inst: &Instruction) -> Result<(), ErrorKind> {
     if inst.prefixes.evex_unchecked().merge() {
-        Err(Error::InvalidOperand)
+        Err(ErrorKind::InvalidOperand)
     } else {
         Ok(())
     }
 }
 
-fn deny_vex_reg(inst: &Instruction) -> Result<(), Error> {
+fn deny_vex_reg(inst: &Instruction) -> Result<(), ErrorKind> {
     if inst.regs[3].num != 0 {
-        Err(Error::InvalidOperand)
+        Err(ErrorKind::InvalidOperand)
     } else {
         Ok(())
     }
 }
 
 #[allow(non_snake_case)]
-fn ensure_W(inst: &Instruction, w: u8) -> Result<(), Error> {
+fn ensure_W(inst: &Instruction, w: u8) -> Result<(), ErrorKind> {
     if inst.prefixes.evex_unchecked().vex().w() ^ (w != 0) {
-        Err(Error::InvalidOpcode)
+        Err(ErrorKind::InvalidOpcode)
     } else {
         Ok(())
     }
 }
 
-fn deny_mask_reg(inst: &Instruction) -> Result<(), Error> {
+fn deny_mask_reg(inst: &Instruction) -> Result<(), ErrorKind> {
     if inst.prefixes.evex_unchecked().mask_reg() != 0 {
-        Err(Error::InvalidOperand)
+        Err(ErrorKind::InvalidOperand)
     } else {
         Ok(())
     }
 }
 
-fn check_mask_reg(inst: &Instruction) -> Result<(), Error> {
+fn check_mask_reg(inst: &Instruction) -> Result<(), ErrorKind> {
     // if an operand is to be zeroed on mask bits but mask register 0 is
     // selected, this instruction is nonsense and will #UD
     if inst.prefixes.evex_unchecked().merge() && inst.prefixes.evex_unchecked().mask_reg() == 0 {
-        Err(Error::InvalidOperand)
+        Err(ErrorKind::InvalidOperand)
     } else {
         Ok(())
     }
@@ -5337,10 +5336,10 @@ fn regs_size(inst: &Instruction) -> u8 {
     }
 }
 
-fn set_reg_sizes_from_ll(inst: &mut Instruction) -> Result<(), Error> {
+fn set_reg_sizes_from_ll(inst: &mut Instruction) -> Result<(), ErrorKind> {
     if inst.prefixes.evex_unchecked().lp() {
         if inst.prefixes.evex_unchecked().vex().l() {
-            return Err(Error::InvalidOperand);
+            return Err(ErrorKind::InvalidOperand);
         }
         set_reg_sizes(inst, RegisterBank::Z);
     } else if inst.prefixes.evex_unchecked().vex().l() {
@@ -5355,7 +5354,7 @@ pub(crate) fn read_evex_operands(
     words: &mut Reader,
     instruction: &mut Instruction,
     operand_code: generated::EVEXOperandCode,
-) -> Result<(), Error> {
+) -> Result<(), ErrorKind> {
     match operand_code {
         generated::EVEXOperandCode::Gm_V_E_LL_imm8_sae_bcast => {
             check_mask_reg(instruction)?;
@@ -5412,7 +5411,7 @@ pub(crate) fn read_evex_operands(
         generated::EVEXOperandCode::Gm_V_Ed_xmm => {
             check_mask_reg(instruction)?;
             if instruction.prefixes.evex_unchecked().broadcast() {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
 
             let modrm = read_modrm(words)?;
@@ -5459,7 +5458,7 @@ pub(crate) fn read_evex_operands(
                 instruction.mem_size = 0;
             } else {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 instruction.mem_size = 8;
             }
@@ -5542,7 +5541,7 @@ pub(crate) fn read_evex_operands(
                 }
             } else {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
 
                 if instruction.prefixes.evex_unchecked().vex().w() {
@@ -5739,7 +5738,7 @@ pub(crate) fn read_evex_operands(
             set_rrr(instruction, modrm);
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands[0] = mem_oper;
             instruction.operands[1] = OperandSpec::RegRRR;
@@ -5793,7 +5792,7 @@ pub(crate) fn read_evex_operands(
                 if mem_oper == OperandSpec::RegMMM {
                     instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae;
                 } else {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
             } else {
                 instruction.operands[0] = OperandSpec::RegRRR;
@@ -5863,7 +5862,7 @@ pub(crate) fn read_evex_operands(
             set_rrr(instruction, modrm);
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands[0] = OperandSpec::RegRRR;
             instruction.operands[1] = OperandSpec::RegVex;
@@ -5901,7 +5900,7 @@ pub(crate) fn read_evex_operands(
             set_rrr(instruction, modrm);
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y)?;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands[0] = mem_oper;
             instruction.operands[1] = OperandSpec::RegRRR;
@@ -5920,7 +5919,7 @@ pub(crate) fn read_evex_operands(
             set_rrr(instruction, modrm);
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::Y)?;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands[0] = mem_oper;
             instruction.operands[1] = OperandSpec::RegRRR;
@@ -6023,7 +6022,7 @@ pub(crate) fn read_evex_operands(
             } else if instruction.prefixes.evex_unchecked().lp()
                 && instruction.prefixes.evex_unchecked().vex().l()
             {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             let modrm = read_modrm(words)?;
@@ -6087,7 +6086,7 @@ pub(crate) fn read_evex_operands(
             }
             instruction.regs[0].bank = RegisterBank::K;
             if instruction.regs[0].num > 7 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         generated::EVEXOperandCode::Gm_E_LL_sae_bcast_W0 => {
@@ -6171,7 +6170,7 @@ pub(crate) fn read_evex_operands(
 
             if mem_oper == OperandSpec::RegMMM {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 } else {
                     instruction.mem_size = 0;
                 }
@@ -6198,7 +6197,7 @@ pub(crate) fn read_evex_operands(
 
             if mem_oper == OperandSpec::RegMMM {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 } else {
                     instruction.mem_size = 0;
                 }
@@ -6212,7 +6211,7 @@ pub(crate) fn read_evex_operands(
             ensure_W(instruction, 0)?;
 
             if instruction.prefixes.evex_unchecked().broadcast() {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
 
             let sz = regs_size(instruction);
@@ -6238,7 +6237,7 @@ pub(crate) fn read_evex_operands(
             ensure_W(instruction, 1)?;
 
             if instruction.prefixes.evex_unchecked().broadcast() {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
 
             let sz = regs_size(instruction);
@@ -6494,7 +6493,7 @@ pub(crate) fn read_evex_operands(
                 if instruction.prefixes.evex_unchecked().lp()
                     && instruction.prefixes.evex_unchecked().vex().l()
                 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
                 instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
                 set_reg_sizes_from_ll(instruction)?;
@@ -6528,7 +6527,7 @@ pub(crate) fn read_evex_operands(
                 if instruction.prefixes.evex_unchecked().lp()
                     && instruction.prefixes.evex_unchecked().vex().l()
                 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
                 instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
                 set_reg_sizes_from_ll(instruction)?;
@@ -6547,7 +6546,7 @@ pub(crate) fn read_evex_operands(
                 if instruction.prefixes.evex_unchecked().lp()
                     && instruction.prefixes.evex_unchecked().vex().l()
                 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
                 instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
             }
@@ -6582,7 +6581,7 @@ pub(crate) fn read_evex_operands(
                 if instruction.prefixes.evex_unchecked().lp()
                     && instruction.prefixes.evex_unchecked().vex().l()
                 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
                 instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
             }
@@ -6616,7 +6615,7 @@ pub(crate) fn read_evex_operands(
                 if instruction.prefixes.evex_unchecked().lp()
                     && instruction.prefixes.evex_unchecked().vex().l()
                 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
                 instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
             }
@@ -6652,7 +6651,7 @@ pub(crate) fn read_evex_operands(
                     instruction.operands[0] = OperandSpec::RegMMM_maskmerge;
                 }
             } else if instruction.prefixes.evex_unchecked().broadcast() {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 8;
                 instruction.regs[0].bank = RegisterBank::X;
@@ -6683,7 +6682,7 @@ pub(crate) fn read_evex_operands(
                     instruction.operands[0] = OperandSpec::RegMMM_maskmerge;
                 }
             } else if instruction.prefixes.evex_unchecked().broadcast() {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::Y;
                 instruction.operands[0] = mem_oper.masked();
@@ -6710,7 +6709,7 @@ pub(crate) fn read_evex_operands(
                     instruction.operands[0] = OperandSpec::RegMMM_maskmerge;
                 }
             } else if instruction.prefixes.evex_unchecked().broadcast() {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.operands[0] = mem_oper.masked();
             }
@@ -7231,7 +7230,7 @@ pub(crate) fn read_evex_operands(
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             instruction.regs[0].bank = RegisterBank::Z;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 32;
             }
@@ -7257,7 +7256,7 @@ pub(crate) fn read_evex_operands(
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             instruction.regs[0].bank = RegisterBank::Z;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 16;
             }
@@ -7283,7 +7282,7 @@ pub(crate) fn read_evex_operands(
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             instruction.regs[0].bank = RegisterBank::Y;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 16;
             }
@@ -7471,7 +7470,7 @@ pub(crate) fn read_evex_operands(
             if mem_oper == OperandSpec::RegMMM {
                 instruction.regs[1].bank = RegisterBank::X;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.operands[0] = OperandSpec::RegRRR;
@@ -7653,7 +7652,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -7679,7 +7678,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -7705,7 +7704,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -7776,7 +7775,7 @@ pub(crate) fn read_evex_operands(
                 instruction.mem_size = 0;
                 instruction.regs[0].bank = RegisterBank::K;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         generated::EVEXOperandCode::G_LL_Mask => {
@@ -7808,7 +7807,7 @@ pub(crate) fn read_evex_operands(
                 instruction.mem_size = 0;
                 instruction.regs[1].bank = RegisterBank::K;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         generated::EVEXOperandCode::G_LL_Mask_W1 => {
@@ -7833,7 +7832,7 @@ pub(crate) fn read_evex_operands(
                 instruction.mem_size = 0;
                 instruction.regs[1].bank = RegisterBank::K;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         generated::EVEXOperandCode::G_LL_Mask_W0 => {
@@ -7858,7 +7857,7 @@ pub(crate) fn read_evex_operands(
                 instruction.mem_size = 0;
                 instruction.regs[1].bank = RegisterBank::K;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         generated::EVEXOperandCode::G_E_LL_W0 => {
@@ -7940,7 +7939,7 @@ pub(crate) fn read_evex_operands(
                 instruction.prefixes.evex_unchecked().vex().l(),
             ) {
                 (true, true) => {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 (true, false) => (RegisterBank::Y, RegisterBank::Z, 64),
                 (false, true) => (RegisterBank::X, RegisterBank::Y, 32),
@@ -7977,7 +7976,7 @@ pub(crate) fn read_evex_operands(
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             if mem_oper == OperandSpec::RegMMM {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 instruction.mem_size = 0;
             } else if instruction.prefixes.evex_unchecked().vex().w() {
@@ -8003,7 +8002,7 @@ pub(crate) fn read_evex_operands(
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             if mem_oper == OperandSpec::RegMMM {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 instruction.mem_size = 0;
             } else {
@@ -8027,7 +8026,7 @@ pub(crate) fn read_evex_operands(
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             if mem_oper == OperandSpec::RegMMM {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 instruction.mem_size = 0;
             } else {
@@ -8070,7 +8069,7 @@ pub(crate) fn read_evex_operands(
                     instruction.regs[1].bank = RegisterBank::D;
                 }
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         generated::EVEXOperandCode::Gm_LL_Ud_W0 => {
@@ -8094,7 +8093,7 @@ pub(crate) fn read_evex_operands(
                 instruction.mem_size = 0;
                 instruction.regs[1].bank = RegisterBank::D;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         generated::EVEXOperandCode::Gm_LL_Eq_xmm => {
@@ -8283,12 +8282,12 @@ pub(crate) fn read_evex_operands(
                         instruction.operands[0] = OperandSpec::RegRRR_maskmerge_sae_noround;
                     }
                 } else {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
             } else if instruction.prefixes.evex_unchecked().lp()
                 && instruction.prefixes.evex_unchecked().vex().l()
             {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             if mem_oper == OperandSpec::RegMMM {
@@ -8508,7 +8507,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8542,7 +8541,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8574,7 +8573,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes(instruction, RegisterBank::X);
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8606,7 +8605,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes(instruction, RegisterBank::X);
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8641,7 +8640,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8678,7 +8677,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes(instruction, RegisterBank::X);
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8721,7 +8720,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8766,7 +8765,7 @@ pub(crate) fn read_evex_operands(
                 set_reg_sizes_from_ll(instruction)?;
             }
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8810,7 +8809,7 @@ pub(crate) fn read_evex_operands(
 
             set_reg_sizes_from_ll(instruction)?;
             if instruction.regs[0].num >= 8 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.regs[0].bank = RegisterBank::K;
             }
@@ -8827,12 +8826,12 @@ pub(crate) fn read_evex_operands(
                 instruction.opcode = [
                     Ok(Opcode::VPRORQ),
                     Ok(Opcode::VPROLQ),
-                    Err(Error::InvalidOpcode),
-                    Err(Error::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
                     Ok(Opcode::VPSRAQ),
-                    Err(Error::InvalidOpcode),
-                    Err(Error::InvalidOpcode),
-                    Err(Error::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
                 ][rrr as usize]?;
                 8
             } else {
@@ -8840,11 +8839,11 @@ pub(crate) fn read_evex_operands(
                     Ok(Opcode::VPRORD),
                     Ok(Opcode::VPROLD),
                     Ok(Opcode::VPSRLD),
-                    Err(Error::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
                     Ok(Opcode::VPSRAD),
                     Ok(Opcode::VPSLLD),
-                    Err(Error::InvalidOpcode),
-                    Err(Error::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
+                    Err(ErrorKind::InvalidOpcode),
                 ][rrr as usize]?;
                 4
             };
@@ -9166,14 +9165,14 @@ pub(crate) fn read_evex_operands(
                             Ok((RegisterBank::X, RegisterBank::X)),
                             Ok((RegisterBank::Y, RegisterBank::Y)),
                             Ok((RegisterBank::Z, RegisterBank::Z)),
-                            Err(Error::InvalidOperand),
+                            Err(ErrorKind::InvalidOperand),
                         ][lp]?
                     } else {
                         [
                             Ok((RegisterBank::X, RegisterBank::X)),
                             Ok((RegisterBank::Y, RegisterBank::X)),
                             Ok((RegisterBank::Z, RegisterBank::Y)),
-                            Err(Error::InvalidOperand),
+                            Err(ErrorKind::InvalidOperand),
                         ][lp]?
                     };
                     instruction.regs[0].bank = r_sz;
@@ -9185,14 +9184,14 @@ pub(crate) fn read_evex_operands(
                         Ok((RegisterBank::X, 16)),
                         Ok((RegisterBank::Y, 32)),
                         Ok((RegisterBank::Z, 64)),
-                        Err(Error::InvalidOperand),
+                        Err(ErrorKind::InvalidOperand),
                     ][lp]?
                 } else {
                     [
                         Ok((RegisterBank::X, 8)),
                         Ok((RegisterBank::Y, 16)),
                         Ok((RegisterBank::Z, 32)),
-                        Err(Error::InvalidOperand),
+                        Err(ErrorKind::InvalidOperand),
                     ][lp]?
                 };
                 instruction.regs[0].bank = r_sz;
@@ -9209,7 +9208,7 @@ pub(crate) fn read_evex_operands(
 
             if instruction.opcode == Opcode::VCVTPS2PD {
                 if instruction.prefixes.evex_unchecked().vex().w() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             } else if instruction.opcode == Opcode::VCVTTPS2UQQ {
                 instruction.opcode = Opcode::VCVTTPD2UQQ;
@@ -9238,7 +9237,7 @@ pub(crate) fn read_evex_operands(
                         instruction.prefixes.evex_unchecked().lp(),
                     ) {
                         (true, true) => {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                         (false, true) => (RegisterBank::Z, RegisterBank::Y),
                         (true, false) => (RegisterBank::Y, RegisterBank::X),
@@ -9253,7 +9252,7 @@ pub(crate) fn read_evex_operands(
                     instruction.prefixes.evex_unchecked().lp(),
                 ) {
                     (true, true) => {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     (true, false) => (RegisterBank::Y, 16),
                     (false, true) => (RegisterBank::Z, 32),
@@ -9310,14 +9309,14 @@ pub(crate) fn read_evex_operands(
                             Ok((RegisterBank::X, RegisterBank::X)),
                             Ok((RegisterBank::X, RegisterBank::Y)),
                             Ok((RegisterBank::Y, RegisterBank::Z)),
-                            Err(Error::InvalidOperand),
+                            Err(ErrorKind::InvalidOperand),
                         ][lp]?
                     } else {
                         [
                             Ok((RegisterBank::X, RegisterBank::X)),
                             Ok((RegisterBank::Y, RegisterBank::Y)),
                             Ok((RegisterBank::Z, RegisterBank::Z)),
-                            Err(Error::InvalidOperand),
+                            Err(ErrorKind::InvalidOperand),
                         ][lp]?
                     };
                     instruction.regs[0].bank = r_sz;
@@ -9329,14 +9328,14 @@ pub(crate) fn read_evex_operands(
                         Ok((RegisterBank::X, 16, 8)),
                         Ok((RegisterBank::X, 32, 8)),
                         Ok((RegisterBank::Y, 64, 8)),
-                        Err(Error::InvalidOperand),
+                        Err(ErrorKind::InvalidOperand),
                     ][lp]?
                 } else {
                     [
                         Ok((RegisterBank::X, 16, 4)),
                         Ok((RegisterBank::Y, 32, 4)),
                         Ok((RegisterBank::Z, 64, 4)),
-                        Err(Error::InvalidOperand),
+                        Err(ErrorKind::InvalidOperand),
                     ][lp]?
                 };
                 instruction.regs[0].bank = r_sz;
@@ -9384,7 +9383,7 @@ pub(crate) fn read_evex_operands(
                         instruction.prefixes.evex_unchecked().lp(),
                     ) {
                         (true, true) => {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                         (false, true) => (
                             if instruction.prefixes.evex_unchecked().vex().w() {
@@ -9413,7 +9412,7 @@ pub(crate) fn read_evex_operands(
                     instruction.prefixes.evex_unchecked().lp(),
                 ) {
                     (true, true) => {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     //          (true, false) => (RegisterBank::Y, 32),
                     (true, false) => (
@@ -9489,7 +9488,7 @@ pub(crate) fn read_evex_operands(
                         instruction.prefixes.evex_unchecked().lp(),
                     ) {
                         (true, true) => {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                         (false, true) => (RegisterBank::Y, RegisterBank::Z),
                         (true, false) => (RegisterBank::X, RegisterBank::Y),
@@ -9504,7 +9503,7 @@ pub(crate) fn read_evex_operands(
                     instruction.prefixes.evex_unchecked().lp(),
                 ) {
                     (true, true) => {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     (true, false) => (RegisterBank::X, 32),
                     (false, true) => (RegisterBank::Y, 64),
@@ -9536,7 +9535,7 @@ pub(crate) fn read_evex_operands(
             }
             instruction.operands[1] = mem_oper;
             if mem_oper != OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operand_count = 2;
         }
@@ -9628,7 +9627,7 @@ pub(crate) fn read_evex_operands(
                 } else {
                     let sz = regs_size(instruction);
                     if sz < 64 {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
                     set_reg_sizes_from_ll(instruction)?;
@@ -9637,7 +9636,7 @@ pub(crate) fn read_evex_operands(
                 instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
                 let sz = regs_size(instruction);
                 if sz < 64 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
 
                 if instruction.prefixes.evex_unchecked().vex().w() {
@@ -9708,12 +9707,12 @@ pub(crate) fn read_evex_operands(
                     } else if instruction.prefixes.evex_unchecked().lp()
                         || !instruction.prefixes.evex_unchecked().vex().l()
                     {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
             } else {
                 if instruction.prefixes.evex_unchecked().broadcast() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 if instruction.prefixes.evex_unchecked().vex().w() {
                     instruction.mem_size = DEFAULT_EVEX_REGISTER_WIDTH;
@@ -9792,7 +9791,7 @@ pub(crate) fn read_evex_operands(
 
             let item_size = if instruction.prefixes.evex_unchecked().vex().w() {
                 if instruction.opcode == Opcode::VRNDSCALESS {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 } else if instruction.opcode == Opcode::VRANGESS {
                     instruction.opcode = Opcode::VRANGESD;
                     8
@@ -9866,7 +9865,7 @@ pub(crate) fn read_evex_operands(
             instruction.regs[3].bank = RegisterBank::Z;
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             if let OperandSpec::RegMMM = mem_oper {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 16;
             }
@@ -9884,7 +9883,7 @@ pub(crate) fn read_evex_operands(
             set_rrr(instruction, modrm);
             let mem_oper = read_E_vex(words, instruction, modrm, RegisterBank::X)?;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands[0] = OperandSpec::RegRRR_maskmerge;
             instruction.operands[1] = OperandSpec::RegVex;
@@ -10144,7 +10143,7 @@ pub(crate) fn read_evex_operands(
             set_reg_sizes(instruction, RegisterBank::X);
 
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 8;
             }
@@ -10155,7 +10154,7 @@ pub(crate) fn read_evex_operands(
 
             // we can't just `deny_vex_reg` because vp is used as bit 5 for the index register
             if instruction.regs[3].num & 0b1111 != 0 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             let modrm = read_modrm(words)?;
@@ -10170,12 +10169,12 @@ pub(crate) fn read_evex_operands(
             instruction.operand_count = 2;
 
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             if instruction.prefixes.evex_unchecked().lp() {
                 if instruction.prefixes.evex_unchecked().vex().l() {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
                 instruction.regs[0].bank = RegisterBank::Z;
                 instruction.regs[2].bank = RegisterBank::Z;

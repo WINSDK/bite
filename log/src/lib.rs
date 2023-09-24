@@ -7,11 +7,11 @@ pub enum Color {
     Green,
     Red,
     Gold,
-    Gray
+    Gray,
 }
 
 #[macro_export]
-macro_rules! green {
+macro_rules! notify {
     () => {};
 
     ($($arg:tt)*) => {{
@@ -27,7 +27,7 @@ macro_rules! green {
 }
 
 #[macro_export]
-macro_rules! red {
+macro_rules! strong {
     () => {};
 
     ($($arg:tt)*) => {{
@@ -43,7 +43,7 @@ macro_rules! red {
 }
 
 #[macro_export]
-macro_rules! gold {
+macro_rules! warn {
     () => {};
 
     ($($arg:tt)*) => {{
@@ -59,7 +59,7 @@ macro_rules! gold {
 }
 
 #[macro_export]
-macro_rules! gray {
+macro_rules! trace {
     () => {};
 
     ($($arg:tt)*) => {{
@@ -87,7 +87,7 @@ impl<const N: usize> Logger<N> {
         Self {
             lines: std::array::from_fn(|_| (String::new(), Color::Gray)),
             head: 0,
-            len: 0
+            len: 0,
         }
     }
 
@@ -123,7 +123,7 @@ impl<const N: usize> Logger<N> {
                 egui::TextFormat {
                     font_id: egui::FontId {
                         size: 12.0,
-                        family: egui::FontFamily::Monospace
+                        family: egui::FontFamily::Monospace,
                     },
                     color: match color {
                         Color::Green => egui::Color32::LIGHT_GREEN,

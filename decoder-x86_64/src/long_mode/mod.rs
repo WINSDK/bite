@@ -9,11 +9,9 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
-use crate::Error;
 pub use crate::MemoryAccessSize;
 
-use decoder::Xref;
-use decoder::{Decodable, Reader, ToTokens};
+use decoder::{Decodable, Reader, ToTokens, Xref, Error, ErrorKind};
 use tokenizing::{ColorScheme, Colors};
 
 /// an `x86_64` register, including its number and type. if `fmt` is enabled, name too.
@@ -2696,20 +2694,18 @@ impl decoder::Decoded for Instruction {
 
 impl decoder::Decodable for Decoder {
     type Instruction = Instruction;
-    type Error = Error;
-    type Operand = Operand;
 
-    fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Self::Error> {
+    fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Error> {
         let mut inst = Instruction::invalid();
-        read(self, reader, &mut inst)?;
+        read(self, reader, &mut inst).map_err(|err| Error::new(err, 1))?;
 
         inst.length = reader.offset() as u8;
         if reader.offset() > 15 {
-            return Err(Error::TooLong);
+            return Err(Error::new(ErrorKind::TooLong, reader.offset()));
         }
 
         if *self != Decoder::default() {
-            self.revise_instruction(&mut inst)?;
+            self.revise_instruction(&mut inst).map_err(|err| Error::new(err, 1))?;
         }
 
         Ok(inst)
@@ -3519,10 +3515,10 @@ impl Decoder {
 
     /// optionally reject or reinterpret instruction according to the decoder's
     /// declared extensions.
-    fn revise_instruction(&self, inst: &mut Instruction) -> Result<(), Error> {
+    fn revise_instruction(&self, inst: &mut Instruction) -> Result<(), ErrorKind> {
         if inst.prefixes.evex().is_some() {
             if !self.avx512() {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             } else {
                 return Ok(());
             }
@@ -3549,7 +3545,7 @@ impl Decoder {
             Opcode::MWAIT => {
                 // via Intel section 5.7, SSE3 Instructions
                 if !self.sse3() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::PHADDW |
@@ -3570,7 +3566,7 @@ impl Decoder {
             Opcode::PALIGNR => {
                 // via Intel section 5.8, SSSE3 Instructions
                 if !self.ssse3() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::PMULLD |
@@ -3625,7 +3621,7 @@ impl Decoder {
             Opcode::PACKUSDW => {
                 // via Intel section 5.10, SSE4.1 Instructions
                 if !self.sse4_1() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::EXTRQ |
@@ -3633,7 +3629,7 @@ impl Decoder {
             Opcode::MOVNTSS |
             Opcode::MOVNTSD => {
                 if !self.sse4a() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::CRC32 |
@@ -3644,7 +3640,7 @@ impl Decoder {
             Opcode::PCMPGTQ => {
                 // via Intel section 5.11, SSE4.2 Instructions
                 if !self.sse4_2() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::AESDEC |
@@ -3655,13 +3651,13 @@ impl Decoder {
             Opcode::AESKEYGENASSIST => {
                 // via Intel section 5.12. AESNI AND PCLMULQDQ
                 if !self.aesni() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::PCLMULQDQ => {
                 // via Intel section 5.12. AESNI AND PCLMULQDQ
                 if !self.pclmulqdq() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::XABORT |
@@ -3669,7 +3665,7 @@ impl Decoder {
             Opcode::XEND |
             Opcode::XTEST => {
                 if !self.tsx() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::SHA1MSG1 |
@@ -3680,14 +3676,14 @@ impl Decoder {
             Opcode::SHA256MSG2 |
             Opcode::SHA256RNDS2 => {
                 if !self.sha() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::ENCLV |
             Opcode::ENCLS |
             Opcode::ENCLU => {
                 if !self.sgx() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             // AVX...
@@ -4035,7 +4031,7 @@ impl Decoder {
             Opcode::VSTMXCSR => {
                 // TODO: check a table for these
                 if !self.avx() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::VAESDEC |
@@ -4046,12 +4042,12 @@ impl Decoder {
             Opcode::VAESKEYGENASSIST => {
                 // TODO: check a table for these
                 if !self.avx() || !self.aesni() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::MOVBE => {
                 if !self.movbe() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::POPCNT => {
@@ -4073,7 +4069,7 @@ impl Decoder {
                      * the less quirky default, so `intel_quirks` is considered the outlier, and
                      * before this default.
                      * */
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::LZCNT => {
@@ -4090,12 +4086,12 @@ impl Decoder {
                  *
                  * so that's considered the less-quirky (default) case here.
                  * */
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
             Opcode::ADCX |
             Opcode::ADOX => {
                 if !self.adx() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::VMRUN |
@@ -4105,19 +4101,19 @@ impl Decoder {
             Opcode::VMMCALL |
             Opcode::INVLPGA => {
                 if !self.svm() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::STGI |
             Opcode::SKINIT => {
                 if !self.svm() || !self.skinit() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::LAHF |
             Opcode::SAHF => {
                 if !self.lahfsahf() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::VCVTPS2PH |
@@ -4138,31 +4134,31 @@ impl Decoder {
                  * EVEX.512-coded.
                  */
                 if !self.avx() || !self.f16c() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::RDRAND => {
                 if !self.rdrand() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::RDSEED => {
                 if !self.rdseed() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             Opcode::MONITORX | Opcode::MWAITX | // these are gated on the `monitorx` and `mwaitx` cpuid bits, but are AMD-only.
             Opcode::CLZERO | Opcode::RDPRU => { // again, gated on specific cpuid bits, but AMD-only.
                 if !self.amd_quirks() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
             other => {
                 if !self.bmi1() && BMI1.contains(&other) {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 if !self.bmi2() && BMI2.contains(&other) {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
         }
@@ -6033,7 +6029,7 @@ pub(self) fn read_E(
     instr: &mut Instruction,
     modrm: u8,
     width: u8,
-) -> Result<OperandSpec, Error> {
+) -> Result<OperandSpec, ErrorKind> {
     if modrm >= 0b11000000 {
         let bank = width_to_gp_reg_bank(width, instr.prefixes.rex_unchecked().present());
         read_modrm_reg(instr, modrm, bank)
@@ -6047,7 +6043,7 @@ pub(self) fn read_E_mm(
     words: &mut Reader,
     instr: &mut Instruction,
     modrm: u8,
-) -> Result<OperandSpec, Error> {
+) -> Result<OperandSpec, ErrorKind> {
     if modrm >= 0b11000000 {
         instr.regs[1] = RegSpec {
             bank: RegisterBank::MM,
@@ -6064,7 +6060,7 @@ pub(self) fn read_E_st(
     words: &mut Reader,
     instr: &mut Instruction,
     modrm: u8,
-) -> Result<OperandSpec, Error> {
+) -> Result<OperandSpec, ErrorKind> {
     if modrm >= 0b11000000 {
         instr.regs[1] = RegSpec {
             bank: RegisterBank::ST,
@@ -6081,7 +6077,7 @@ pub(self) fn read_E_xmm(
     words: &mut Reader,
     instr: &mut Instruction,
     modrm: u8,
-) -> Result<OperandSpec, Error> {
+) -> Result<OperandSpec, ErrorKind> {
     if modrm >= 0b11000000 {
         read_modrm_reg(instr, modrm, RegisterBank::X)
     } else {
@@ -6094,7 +6090,7 @@ pub(self) fn read_E_ymm(
     words: &mut Reader,
     instr: &mut Instruction,
     modrm: u8,
-) -> Result<OperandSpec, Error> {
+) -> Result<OperandSpec, ErrorKind> {
     if modrm >= 0b11000000 {
         read_modrm_reg(instr, modrm, RegisterBank::Y)
     } else {
@@ -6108,7 +6104,7 @@ pub(self) fn read_E_vex(
     instr: &mut Instruction,
     modrm: u8,
     bank: RegisterBank,
-) -> Result<OperandSpec, Error> {
+) -> Result<OperandSpec, ErrorKind> {
     if modrm >= 0b11000000 {
         read_modrm_reg(instr, modrm, bank)
     } else {
@@ -6126,13 +6122,13 @@ fn read_modrm_reg(
     instr: &mut Instruction,
     modrm: u8,
     reg_bank: RegisterBank,
-) -> Result<OperandSpec, Error> {
+) -> Result<OperandSpec, ErrorKind> {
     instr.regs[1] = RegSpec::from_parts(modrm & 7, instr.prefixes.rex_unchecked().b(), reg_bank);
     Ok(OperandSpec::RegMMM)
 }
 
 #[inline(always)]
-fn read_sib_disp(words: &mut Reader, modbits: u8, sibbyte: u8) -> Result<i32, Error> {
+fn read_sib_disp(words: &mut Reader, modbits: u8, sibbyte: u8) -> Result<i32, ErrorKind> {
     let disp = if modbits == 0b00 {
         if (sibbyte & 7) == 0b101 {
             read_num(words, 4)? as i32
@@ -6150,9 +6146,9 @@ fn read_sib_disp(words: &mut Reader, modbits: u8, sibbyte: u8) -> Result<i32, Er
 
 #[allow(non_snake_case)]
 #[inline(always)]
-fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, Error> {
+fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, ErrorKind> {
     let modbits = modrm >> 6;
-    let sibbyte = words.next().ok_or(Error::ExhaustedInput)?;
+    let sibbyte = words.next().ok_or(ErrorKind::ExhaustedInput)?;
     instr.regs[1].num |= sibbyte & 7;
     instr.regs[2].num |= (sibbyte >> 3) & 7;
 
@@ -6208,7 +6204,7 @@ fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<Op
 
 #[allow(non_snake_case)]
 #[inline(always)]
-fn read_M(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, Error> {
+fn read_M(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, ErrorKind> {
     let modbits = modrm >> 6;
     let mmm = modrm & 7;
     let op_spec = if mmm == 4 {
@@ -6913,13 +6909,13 @@ fn read_opc_hotpath(
     next_rec: &mut OpcodeRecord,
     words: &mut Reader,
     instruction: &mut Instruction,
-) -> Result<Option<OperandCode>, Error> {
+) -> Result<Option<OperandCode>, ErrorKind> {
     if (0x40..0x50).contains(&b) {
         instruction.prefixes.rex_from(b);
-        b = words.next().ok_or(Error::ExhaustedInput)?;
+        b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
         record = unsafe { std::ptr::read_volatile(&OPCODES[b as usize]) };
     } else if b == 0x66 {
-        b = words.next().ok_or(Error::ExhaustedInput)?;
+        b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
         record = unsafe { std::ptr::read_volatile(&OPCODES[b as usize]) };
         instruction.prefixes.set_operand_size();
     }
@@ -6930,14 +6926,14 @@ fn read_opc_hotpath(
         instruction.opcode = opc;
         Ok(Some(record.1))
     } else if b == 0x0f {
-        let b = words.next().ok_or(Error::ExhaustedInput)?;
+        let b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
         instruction.mem_size = 0;
         instruction.operand_count = 2;
         let record = if b == 0x38 {
-            let b = words.next().ok_or(Error::ExhaustedInput)?;
+            let b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
             read_0f38_opcode(b, &mut instruction.prefixes)
         } else if b == 0x3a {
-            let b = words.next().ok_or(Error::ExhaustedInput)?;
+            let b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
             read_0f3a_opcode(b, &mut instruction.prefixes)
         } else {
             read_0f_opcode(b, &mut instruction.prefixes)
@@ -6958,9 +6954,9 @@ fn read_opc_hotpath(
 }
 
 #[inline(always)]
-fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) -> Result<(), Error> {
+fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) -> Result<(), ErrorKind> {
     words.mark();
-    let mut nextb = words.next().ok_or(Error::ExhaustedInput)?;
+    let mut nextb = words.next().ok_or(ErrorKind::ExhaustedInput)?;
     let mut next_rec = OPCODES[nextb as usize];
     instruction.prefixes = Prefixes::new(0);
 
@@ -6984,7 +6980,7 @@ fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) ->
             let record = next_rec;
             if (0x40..0x50).contains(&nextb) {
                 let b = nextb;
-                nextb = words.next().ok_or(Error::ExhaustedInput)?;
+                nextb = words.next().ok_or(ErrorKind::ExhaustedInput)?;
                 next_rec = unsafe { std::ptr::read_volatile(&OPCODES[nextb as usize]) };
                 prefixes.rex_from(b);
             } else if let Interpretation::Instruction(..) = record.0 {
@@ -6994,14 +6990,14 @@ fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) ->
             } else {
                 let b = nextb;
                 if b == 0x0f {
-                    let b = words.next().ok_or(Error::ExhaustedInput)?;
+                    let b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
                     instruction.mem_size = 0;
                     instruction.operand_count = 2;
                     if b == 0x38 {
-                        let b = words.next().ok_or(Error::ExhaustedInput)?;
+                        let b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
                         break read_0f38_opcode(b, prefixes);
                     } else if b == 0x3a {
-                        let b = words.next().ok_or(Error::ExhaustedInput)?;
+                        let b = words.next().ok_or(ErrorKind::ExhaustedInput)?;
                         break read_0f3a_opcode(b, prefixes);
                     } else {
                         break read_0f_opcode(b, prefixes);
@@ -7026,12 +7022,12 @@ fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) ->
                         _ => return read_avx_prefixed(b, words, instruction),
                     }
                 }
-                nextb = words.next().ok_or(Error::ExhaustedInput)?;
+                nextb = words.next().ok_or(ErrorKind::ExhaustedInput)?;
                 next_rec = unsafe { std::ptr::read_volatile(&OPCODES[nextb as usize]) };
                 prefixes.rex_from(0);
             }
             if words.offset() >= 15 {
-                return Err(Error::TooLong);
+                return Err(ErrorKind::TooLong);
             }
         };
 
@@ -7051,7 +7047,7 @@ fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) ->
         && (!LOCKABLE_INSTRUCTIONS.contains(&instruction.opcode)
             || !instruction.operands[0].is_memory())
     {
-        return Err(Error::InvalidPrefixes);
+        return Err(ErrorKind::InvalidPrefixes);
     }
 
     Ok(())
@@ -7062,7 +7058,7 @@ fn read_avx_prefixed(
     b: u8,
     words: &mut Reader,
     instruction: &mut Instruction,
-) -> Result<(), Error> {
+) -> Result<(), ErrorKind> {
     if instruction.prefixes.rex_unchecked().present()
         || instruction.prefixes.lock()
         || instruction.prefixes.operand_size()
@@ -7070,7 +7066,7 @@ fn read_avx_prefixed(
         || instruction.prefixes.repnz()
     {
         // rex and then vex is invalid! reject it.
-        return Err(Error::InvalidPrefixes);
+        return Err(ErrorKind::InvalidPrefixes);
     }
     instruction.mem_size = 0;
     instruction.operand_count = 2;
@@ -7141,7 +7137,7 @@ fn read_operands(
     words: &mut Reader,
     instruction: &mut Instruction,
     operand_code: OperandCode,
-) -> Result<(), Error> {
+) -> Result<(), ErrorKind> {
     let operand_code = OperandCodeBuilder::from_bits(operand_code as u16);
 
     if operand_code.is_only_modrm_operands() {
@@ -7179,7 +7175,7 @@ fn read_operands(
             // `unlikely_operands`. TODO: maybe this could just be a bit in `operand_code` for
             // "memory-only mmm"?
             if operand_code.bits() == (OperandCode::Gv_M as u16) {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             read_modrm_reg(instruction, modrm, bank)?
         } else {
@@ -7379,7 +7375,7 @@ fn read_operands(
             }
             if (modrm & 0b00111000) != 0 {
                 // Err("Invalid modr/m for opcode 0xc7".to_string());
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.operands[0] = mem_oper;
@@ -7439,7 +7435,7 @@ fn read_operands(
             instruction.operands[0] = mem_oper;
             let r = (modrm >> 3) & 7;
             if r >= 2 {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
             instruction.opcode = [Opcode::INC, Opcode::DEC][r as usize];
             instruction.operand_count = 1;
@@ -7448,7 +7444,7 @@ fn read_operands(
             instruction.operands[0] = mem_oper;
             let r = (modrm >> 3) & 7;
             if r == 7 {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
             const TABLE: [Opcode; 7] = [
                 Opcode::INC,
@@ -7473,7 +7469,7 @@ fn read_operands(
                         instruction.mem_size = 8;
                     }
                 } else if opcode == Opcode::CALLF || opcode == Opcode::JMPF {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
             } else if opcode == Opcode::CALL || opcode == Opcode::JMP {
                 instruction.mem_size = 8;
@@ -7534,7 +7530,7 @@ fn read_operands(
             instruction.regs[0].bank = RegisterBank::X;
             if instruction.operands[1] == OperandSpec::RegMMM {
                 if op == 20 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 } else {
                     // fix the register to XMM
                     instruction.regs[1].bank = RegisterBank::X;
@@ -7606,7 +7602,7 @@ fn read_operands(
         }
         6 => {
             if instruction.opcode == Opcode::Invalid {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
             if instruction.opcode == Opcode::RETURN {
                 instruction.mem_size = 8;
@@ -7635,7 +7631,7 @@ fn read_operands(
             let r = (modrm >> 3) & 7;
             if r >= 1 {
                 // TODO: this is where XOP decoding would occur
-                return Err(Error::IncompleteDecoder);
+                return Err(ErrorKind::IncompleteDecoder);
             }
             instruction.opcode = [Opcode::POP][r as usize];
             if mem_oper != OperandSpec::RegMMM {
@@ -7674,7 +7670,7 @@ fn unlikely_operands(
     instruction: &mut Instruction,
     operand_code: OperandCode,
     mem_oper: OperandSpec,
-) -> Result<(), Error> {
+) -> Result<(), ErrorKind> {
     match operand_code {
         OperandCode::G_E_mm_Ib => {
             let modrm = read_modrm(words)?;
@@ -7734,7 +7730,7 @@ fn unlikely_operands(
                 || instruction.opcode == Opcode::MOVHPD
                 || instruction.opcode == Opcode::MOVHPS
             {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         OperandCode::PMOVX_G_E_xmm => {
@@ -7758,13 +7754,13 @@ fn unlikely_operands(
                     instruction.mem_size = 8;
                 }
             } else if instruction.opcode == Opcode::MOVLPD || instruction.opcode == Opcode::MOVHPD {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         OperandCode::INV_Gv_M => {
             let modrm = read_modrm(words)?;
             if modrm >= 0xc0 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.regs[0] = RegSpec::from_parts(
@@ -7791,7 +7787,7 @@ fn unlikely_operands(
 
             instruction.operands[1] = read_E_xmm(words, instruction, modrm)?;
             if instruction.operands[1] != OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.regs[0] = RegSpec::from_parts(
                 (modrm >> 3) & 7,
@@ -7808,7 +7804,7 @@ fn unlikely_operands(
             let modrm = read_modrm(words)?;
 
             if modrm < 0b11_000_000 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.operands[0] = OperandSpec::RegRRR;
@@ -7835,11 +7831,11 @@ fn unlikely_operands(
             let modrm = read_modrm(words)?;
 
             if modrm < 0b11_000_000 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             if modrm >= 0b11_001_000 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.operands[0] = OperandSpec::RegMMM;
@@ -7913,7 +7909,7 @@ fn unlikely_operands(
         OperandCode::Md_Gd => {
             instruction.regs[0].bank = RegisterBank::D;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands[1] = instruction.operands[0];
             instruction.operands[0] = mem_oper;
@@ -7938,7 +7934,7 @@ fn unlikely_operands(
         OperandCode::G_U_xmm => {
             instruction.regs[0].bank = RegisterBank::X;
             if mem_oper != OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.regs[1].bank = RegisterBank::X;
         }
@@ -8003,7 +7999,7 @@ fn unlikely_operands(
         OperandCode::G_U_mm => {
             instruction.regs[0].bank = RegisterBank::D;
             if mem_oper != OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.regs[1].bank = RegisterBank::MM;
             instruction.regs[1].num &= 0b111;
@@ -8143,7 +8139,7 @@ fn unlikely_operands(
             instruction.operands[1] = instruction.operands[0];
             instruction.operands[0] = read_E(words, instruction, modrm, opwidth)?;
             if instruction.operands[0] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = opwidth;
             }
@@ -8158,7 +8154,7 @@ fn unlikely_operands(
         OperandCode::G_mm_U_mm => {
             instruction.regs[0].bank = RegisterBank::MM;
             if mem_oper != OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.regs[1].bank = RegisterBank::MM;
             instruction.regs[1].num &= 0b111;
@@ -8167,7 +8163,7 @@ fn unlikely_operands(
         }
         OperandCode::E_G_q => {
             if instruction.prefixes.operand_size() {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
 
             let modrm = read_modrm(words)?;
@@ -8186,7 +8182,7 @@ fn unlikely_operands(
         }
         OperandCode::G_E_q => {
             if instruction.prefixes.operand_size() {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
             }
 
             let modrm = read_modrm(words)?;
@@ -8208,7 +8204,7 @@ fn unlikely_operands(
             instruction.operands[0] = mem_oper;
             instruction.regs[0].bank = RegisterBank::MM;
             if mem_oper == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 8;
             }
@@ -8356,7 +8352,7 @@ fn unlikely_operands(
                     instruction.opcode = Opcode::PAVGUSB;
                 }
                 _ => {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
         }
@@ -8369,7 +8365,7 @@ fn unlikely_operands(
                 match r {
                     1 => {
                         if is_reg {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         } else {
                             if instruction.prefixes.rex_unchecked().w() {
                                 instruction.opcode = Opcode::CMPXCHG16B;
@@ -8386,7 +8382,7 @@ fn unlikely_operands(
                         return Ok(());
                     }
                     _ => {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                 }
             }
@@ -8399,7 +8395,7 @@ fn unlikely_operands(
                 match r {
                     1 => {
                         if is_reg {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         } else {
                             if instruction.prefixes.rex_unchecked().w() {
                                 instruction.opcode = Opcode::CMPXCHG16B;
@@ -8445,13 +8441,13 @@ fn unlikely_operands(
                             };
                             instruction.opcode = Opcode::RDSEED;
                         } else {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                         instruction.operand_count = 1;
                         return Ok(());
                     }
                     _ => {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
             }
@@ -8465,7 +8461,7 @@ fn unlikely_operands(
                 match r {
                     1 => {
                         if is_reg {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         } else {
                             if instruction.prefixes.rex_unchecked().w() {
                                 instruction.opcode = Opcode::CMPXCHG16B;
@@ -8497,12 +8493,12 @@ fn unlikely_operands(
                         instruction.opcode = Opcode::RDPID;
                         instruction.operands[0] = read_E(words, instruction, modrm, opwidth)?;
                         if instruction.operands[0] != OperandSpec::RegMMM {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                         instruction.operand_count = 1;
                     }
                     _ => {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
                 return Ok(());
@@ -8516,7 +8512,7 @@ fn unlikely_operands(
             let opcode = match r {
                 0b001 => {
                     if is_reg {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     } else if instruction.prefixes.rex_unchecked().w() {
                         instruction.mem_size = 16;
                         Opcode::CMPXCHG16B
@@ -8527,7 +8523,7 @@ fn unlikely_operands(
                 }
                 0b011 => {
                     if is_reg {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     } else {
                         instruction.mem_size = 63;
                         if instruction.prefixes.rex_unchecked().w() {
@@ -8539,7 +8535,7 @@ fn unlikely_operands(
                 }
                 0b100 => {
                     if is_reg {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     } else {
                         instruction.mem_size = 63;
                         if instruction.prefixes.rex_unchecked().w() {
@@ -8551,7 +8547,7 @@ fn unlikely_operands(
                 }
                 0b101 => {
                     if is_reg {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     } else {
                         instruction.mem_size = 63;
                         if instruction.prefixes.rex_unchecked().w() {
@@ -8578,7 +8574,7 @@ fn unlikely_operands(
                     }
                 }
                 _ => {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
             };
 
@@ -8589,14 +8585,14 @@ fn unlikely_operands(
         }
         OperandCode::ModRM_0x0f71 => {
             if instruction.prefixes.rep() || instruction.prefixes.repnz() {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.operand_count = 2;
 
             let modrm = read_modrm(words)?;
             if modrm & 0xc0 != 0xc0 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             let r = (modrm >> 3) & 7;
@@ -8611,7 +8607,7 @@ fn unlikely_operands(
                     instruction.opcode = Opcode::PSLLW;
                 }
                 _ => {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
 
@@ -8632,14 +8628,14 @@ fn unlikely_operands(
         }
         OperandCode::ModRM_0x0f72 => {
             if instruction.prefixes.rep() || instruction.prefixes.repnz() {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.operand_count = 2;
 
             let modrm = read_modrm(words)?;
             if modrm & 0xc0 != 0xc0 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             let r = (modrm >> 3) & 7;
@@ -8654,7 +8650,7 @@ fn unlikely_operands(
                     instruction.opcode = Opcode::PSLLD;
                 }
                 _ => {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
 
@@ -8675,14 +8671,14 @@ fn unlikely_operands(
         }
         OperandCode::ModRM_0x0f73 => {
             if instruction.prefixes.rep() || instruction.prefixes.repnz() {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.operand_count = 2;
 
             let modrm = read_modrm(words)?;
             if modrm & 0xc0 != 0xc0 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             let r = (modrm >> 3) & 7;
@@ -8692,7 +8688,7 @@ fn unlikely_operands(
                 }
                 3 => {
                     if !instruction.prefixes.operand_size() {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     instruction.opcode = Opcode::PSRLDQ;
                 }
@@ -8701,12 +8697,12 @@ fn unlikely_operands(
                 }
                 7 => {
                     if !instruction.prefixes.operand_size() {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     instruction.opcode = Opcode::PSLLDQ;
                 }
                 _ => {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
 
@@ -8731,7 +8727,7 @@ fn unlikely_operands(
             match r {
                 0b000 => {
                     if modrm >= 0b11_000_000 {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     instruction.mem_size = 48;
                     instruction.opcode = Opcode::AESENCWIDE128KL;
@@ -8740,7 +8736,7 @@ fn unlikely_operands(
                 }
                 0b001 => {
                     if modrm >= 0b11_000_000 {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     instruction.mem_size = 48;
                     instruction.opcode = Opcode::AESDECWIDE128KL;
@@ -8749,7 +8745,7 @@ fn unlikely_operands(
                 }
                 0b010 => {
                     if modrm >= 0b11_000_000 {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     instruction.mem_size = 64;
                     instruction.opcode = Opcode::AESENCWIDE256KL;
@@ -8758,7 +8754,7 @@ fn unlikely_operands(
                 }
                 0b011 => {
                     if modrm >= 0b11_000_000 {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     instruction.mem_size = 64;
                     instruction.opcode = Opcode::AESDECWIDE256KL;
@@ -8766,7 +8762,7 @@ fn unlikely_operands(
                     return Ok(());
                 }
                 _ => {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
             }
         }
@@ -8782,7 +8778,7 @@ fn unlikely_operands(
         OperandCode::ModRM_0xf30f38dd => {
             read_operands(decoder, words, instruction, OperandCode::G_E_xmm)?;
             if let OperandSpec::RegMMM = instruction.operands[1] {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 48;
                 instruction.opcode = Opcode::AESDEC128KL;
@@ -8791,7 +8787,7 @@ fn unlikely_operands(
         OperandCode::ModRM_0xf30f38de => {
             read_operands(decoder, words, instruction, OperandCode::G_E_xmm)?;
             if let OperandSpec::RegMMM = instruction.operands[1] {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 64;
                 instruction.opcode = Opcode::AESENC256KL;
@@ -8800,7 +8796,7 @@ fn unlikely_operands(
         OperandCode::ModRM_0xf30f38df => {
             read_operands(decoder, words, instruction, OperandCode::G_E_xmm)?;
             if let OperandSpec::RegMMM = instruction.operands[1] {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 instruction.mem_size = 64;
                 instruction.opcode = Opcode::AESDEC256KL;
@@ -8819,9 +8815,9 @@ fn unlikely_operands(
             instruction.regs[1].bank = RegisterBank::D;
         }
         OperandCode::ModRM_0xf30f3af0 => {
-            let modrm = words.next().ok_or(Error::ExhaustedInput)?;
+            let modrm = words.next().ok_or(ErrorKind::ExhaustedInput)?;
             if modrm & 0xc0 != 0xc0 {
-                return Err(Error::InvalidOpcode);
+                return Err(ErrorKind::InvalidOpcode);
                 // invalid
             }
             instruction.opcode = Opcode::HRESET;
@@ -8941,7 +8937,7 @@ fn unlikely_operands(
                 instruction.regs[1].bank = RegisterBank::MM;
                 instruction.regs[1].num &= 0b111;
             } else if op == OperandCode::G_xmm_U_mm {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else if instruction.prefixes.rex_unchecked().w() {
                 instruction.mem_size = 8;
             } else {
@@ -8957,7 +8953,7 @@ fn unlikely_operands(
                 instruction.regs[1].bank = RegisterBank::MM;
                 instruction.regs[1].num &= 0b111;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         OperandCode::U_mm_G_xmm => {
@@ -8966,7 +8962,7 @@ fn unlikely_operands(
                 instruction.regs[0].bank = RegisterBank::MM;
                 instruction.regs[0].num &= 0b111;
             } else {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
         }
         // sure hope these aren't backwards huh
@@ -9058,7 +9054,7 @@ fn unlikely_operands(
             instruction.operands[1] = mem_oper;
             if instruction.operands[1] == OperandSpec::RegMMM {
                 if instruction.prefixes.operand_size() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 instruction.regs[1].bank = RegisterBank::X;
                 instruction.opcode = Opcode::MOVHLPS;
@@ -9077,7 +9073,7 @@ fn unlikely_operands(
             if instruction.operands[1] == OperandSpec::RegMMM {
                 instruction.regs[1].bank = RegisterBank::X;
                 if instruction.prefixes.operand_size() {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 instruction.opcode = Opcode::MOVLHPS;
             } else {
@@ -9111,7 +9107,7 @@ fn unlikely_operands(
         }
         OperandCode::Gd_U_xmm => {
             if instruction.operands[1] != OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.regs[0].bank = RegisterBank::D;
             instruction.regs[1].bank = RegisterBank::X;
@@ -9127,7 +9123,7 @@ fn unlikely_operands(
             instruction.operands[1] = instruction.operands[0];
             instruction.operands[0] = mem_oper;
             if instruction.operands[0] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else if instruction.opcode == Opcode::MOVNTSS {
                 instruction.mem_size = 4;
             } else if instruction.opcode == Opcode::MOVNTPD
@@ -9147,7 +9143,7 @@ fn unlikely_operands(
             // check r
             if ((modrm >> 3) & 7) > 5 {
                 // return Err(()); //Err("Invalid r".to_owned());
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.regs[0] = RegSpec {
@@ -9175,7 +9171,7 @@ fn unlikely_operands(
             // check r
             if ((modrm >> 3) & 7) > 5 {
                 // return Err(()); // Err("Invalid r".to_owned());
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
 
             instruction.regs[0] = RegSpec {
@@ -9190,7 +9186,7 @@ fn unlikely_operands(
             // JMP, CALL, or RET instruction.
             // ```
             if instruction.regs[0].num == 1 {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands[0] = OperandSpec::RegRRR;
             instruction.operand_count = 2;
@@ -9266,7 +9262,7 @@ fn unlikely_operands(
             } else if r == 6 || r == 7 {
                 instruction.operands[0] = OperandSpec::Nothing;
                 instruction.operand_count = 0;
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             } else {
                 unreachable!("r <= 8");
             }
@@ -9287,7 +9283,7 @@ fn unlikely_operands(
                         || instruction.prefixes.repnz()
                         || instruction.prefixes.operand_size()
                     {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
 
                     instruction.operands[0] = OperandSpec::Nothing;
@@ -9312,7 +9308,7 @@ fn unlikely_operands(
                             instruction.opcode = Opcode::PCONFIG;
                         }
                         _ => {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                 } else {
@@ -9328,7 +9324,7 @@ fn unlikely_operands(
                     instruction.operands[0] = OperandSpec::Nothing;
                     instruction.operand_count = 0;
                     if instruction.prefixes.rep() || instruction.prefixes.repnz() {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                     if instruction.prefixes.operand_size() {
                         match m {
@@ -9345,7 +9341,7 @@ fn unlikely_operands(
                                 instruction.opcode = Opcode::SEAMCALL;
                             }
                             _ => {
-                                return Err(Error::InvalidOpcode);
+                                return Err(ErrorKind::InvalidOpcode);
                             }
                         }
                     } else {
@@ -9366,7 +9362,7 @@ fn unlikely_operands(
                                 instruction.opcode = Opcode::ENCLS;
                             }
                             _ => {
-                                return Err(Error::InvalidOpcode);
+                                return Err(ErrorKind::InvalidOpcode);
                             }
                         }
                     }
@@ -9384,7 +9380,7 @@ fn unlikely_operands(
                         || instruction.prefixes.repnz()
                         || instruction.prefixes.operand_size()
                     {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
 
                     instruction.operands[0] = OperandSpec::Nothing;
@@ -9409,7 +9405,7 @@ fn unlikely_operands(
                             instruction.opcode = Opcode::ENCLU;
                         }
                         _ => {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                 } else {
@@ -9473,7 +9469,7 @@ fn unlikely_operands(
                         _ => {
                             instruction.operands[0] = OperandSpec::Nothing;
                             instruction.operand_count = 0;
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                     }
                 } else {
@@ -9493,7 +9489,7 @@ fn unlikely_operands(
                 let mod_bits = modrm >> 6;
                 if mod_bits != 0b11 {
                     if !instruction.prefixes.rep() {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                     instruction.opcode = Opcode::RSTORSSP;
                     instruction.operands[0] = read_E(words, instruction, modrm, 8)?;
@@ -9512,7 +9508,7 @@ fn unlikely_operands(
                             return Ok(());
                         }
                         if !instruction.prefixes.rep() || instruction.prefixes.repnz() {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                         instruction.opcode = Opcode::SETSSBSY;
                         instruction.operands[0] = OperandSpec::Nothing;
@@ -9527,12 +9523,12 @@ fn unlikely_operands(
                         } else {
                             instruction.operands[0] = OperandSpec::Nothing;
                             instruction.operand_count = 0;
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                     0b010 => {
                         if !instruction.prefixes.rep() || instruction.prefixes.repnz() {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                         instruction.opcode = Opcode::SAVEPREVSSP;
                         instruction.operands[0] = OperandSpec::Nothing;
@@ -9546,7 +9542,7 @@ fn unlikely_operands(
                         } else {
                             instruction.operands[0] = OperandSpec::Nothing;
                             instruction.operand_count = 0;
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                     0b101 => {
@@ -9557,7 +9553,7 @@ fn unlikely_operands(
                         } else {
                             instruction.operands[0] = OperandSpec::Nothing;
                             instruction.operand_count = 0;
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                     0b110 => {
@@ -9569,7 +9565,7 @@ fn unlikely_operands(
                         } else if instruction.prefixes.operand_size()
                             || instruction.prefixes.repnz()
                         {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                         instruction.opcode = Opcode::RDPKRU;
                         instruction.operands[0] = OperandSpec::Nothing;
@@ -9584,7 +9580,7 @@ fn unlikely_operands(
                         } else if instruction.prefixes.operand_size()
                             || instruction.prefixes.repnz()
                         {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                         instruction.opcode = Opcode::WRPKRU;
                         instruction.operands[0] = OperandSpec::Nothing;
@@ -9593,7 +9589,7 @@ fn unlikely_operands(
                     _ => {
                         instruction.operands[0] = OperandSpec::Nothing;
                         instruction.operand_count = 0;
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
             } else if r == 6 {
@@ -9633,20 +9629,20 @@ fn unlikely_operands(
                     } else if m == 6 {
                         if instruction.prefixes.rep() {
                             if instruction.prefixes.repnz() || instruction.prefixes.operand_size() {
-                                return Err(Error::InvalidOperand);
+                                return Err(ErrorKind::InvalidOperand);
                             }
                             instruction.opcode = Opcode::RMPADJUST;
                             instruction.operand_count = 0;
                             return Ok(());
                         } else if instruction.prefixes.repnz() {
                             if instruction.prefixes.rep() || instruction.prefixes.operand_size() {
-                                return Err(Error::InvalidOperand);
+                                return Err(ErrorKind::InvalidOperand);
                             }
                             instruction.opcode = Opcode::RMPUPDATE;
                             instruction.operand_count = 0;
                             return Ok(());
                         } else if instruction.prefixes.operand_size() {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
 
                         instruction.opcode = Opcode::INVLPGB;
@@ -9660,26 +9656,26 @@ fn unlikely_operands(
                     } else if m == 7 {
                         if instruction.prefixes.rep() {
                             if instruction.prefixes.repnz() || instruction.prefixes.operand_size() {
-                                return Err(Error::InvalidOperand);
+                                return Err(ErrorKind::InvalidOperand);
                             }
                             instruction.opcode = Opcode::PSMASH;
                             instruction.operand_count = 0;
                             return Ok(());
                         } else if instruction.prefixes.repnz() {
                             if instruction.prefixes.rep() || instruction.prefixes.operand_size() {
-                                return Err(Error::InvalidOperand);
+                                return Err(ErrorKind::InvalidOperand);
                             }
                             instruction.opcode = Opcode::PVALIDATE;
                             instruction.operand_count = 0;
                             return Ok(());
                         } else if instruction.prefixes.operand_size() {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
 
                         instruction.opcode = Opcode::TLBSYNC;
                         instruction.operand_count = 0;
                     } else {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 } else {
                     instruction.opcode = Opcode::INVLPG;
@@ -9705,7 +9701,7 @@ fn unlikely_operands(
                         6 => Opcode::CLWB,
                         7 => Opcode::CLFLUSHOPT,
                         _ => {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     };
                     instruction.operands[0] =
@@ -9716,7 +9712,7 @@ fn unlikely_operands(
                     instruction.opcode = match (modrm >> 3) & 7 {
                         6 => Opcode::TPAUSE,
                         _ => {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     };
                     let opwidth = if instruction.prefixes.rex_unchecked().w() {
@@ -9751,7 +9747,7 @@ fn unlikely_operands(
                         instruction.operand_count = 1;
                     }
                     _ => {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
                 return Ok(());
@@ -9762,7 +9758,7 @@ fn unlikely_operands(
                     if instruction.prefixes.operand_size() {
                         // xed specifically rejects this. seeems out of line since rep takes
                         // precedence elsewhere, but ok i guess
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                     instruction.opcode = Opcode::PTWRITE;
                     let opwidth = if instruction.prefixes.rex_unchecked().w() {
@@ -9865,7 +9861,7 @@ fn unlikely_operands(
                             instruction.operand_count = 1;
                         }
                         _ => {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                     return Ok(());
@@ -9879,7 +9875,7 @@ fn unlikely_operands(
                             return Ok(());
                         }
                         _ => {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                     }
                 }
@@ -9894,14 +9890,14 @@ fn unlikely_operands(
                 match r {
                     // invalid rrr for 0x0fae, mod: 11
                     0 | 1 | 2 | 3 | 4 => {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                     5 => {
                         instruction.opcode = Opcode::LFENCE;
                         // Intel's manual accepts m != 0, AMD supports m != 0 though the manual
                         // doesn't say (tested on threadripper)
                         if !decoder.amd_quirks() && !decoder.intel_quirks() && m != 0 {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                     }
                     6 => {
@@ -9909,7 +9905,7 @@ fn unlikely_operands(
                         // Intel's manual accepts m != 0, AMD supports m != 0 though the manual
                         // doesn't say (tested on threadripper)
                         if !decoder.amd_quirks() && !decoder.intel_quirks() && m != 0 {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                     }
                     7 => {
@@ -9917,7 +9913,7 @@ fn unlikely_operands(
                         // Intel's manual accepts m != 0, AMD supports m != 0 though the manual
                         // doesn't say (tested on threadripper)
                         if !decoder.amd_quirks() && !decoder.intel_quirks() && m != 0 {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                     }
                     _ => {
@@ -9930,7 +9926,7 @@ fn unlikely_operands(
                     || instruction.prefixes.rep()
                     || instruction.prefixes.repnz()
                 {
-                    return Err(Error::InvalidOperand);
+                    return Err(ErrorKind::InvalidOperand);
                 }
                 instruction.operand_count = 1;
                 let (opcode, mem_size) = [
@@ -9954,7 +9950,7 @@ fn unlikely_operands(
             let r = (modrm >> 3) & 7;
             match r {
                 0 | 1 | 2 | 3 => {
-                    return Err(Error::InvalidOpcode);
+                    return Err(ErrorKind::InvalidOpcode);
                 }
                 4 => {
                     instruction.opcode = Opcode::BT;
@@ -9999,13 +9995,13 @@ fn unlikely_operands(
             let bank = match op {
                 OperandCode::Rq_Cq_0 | OperandCode::Cq_Rq_0 => {
                     if r != 0 && r != 2 && r != 3 && r != 4 && r != 8 {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     RegisterBank::CR
                 }
                 OperandCode::Rq_Dq_0 | OperandCode::Dq_Rq_0 => {
                     if r > 7 {
-                        return Err(Error::InvalidOperand);
+                        return Err(ErrorKind::InvalidOperand);
                     }
                     RegisterBank::DR
                 }
@@ -10168,7 +10164,7 @@ fn unlikely_operands(
             // other than movs to have two memory operands, the first operand has to be sized by
             // address-size, not operand-size.
             if let OperandSpec::RegMMM = instruction.operands[1] {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 64;
             if instruction.prefixes.address_size() {
@@ -10182,7 +10178,7 @@ fn unlikely_operands(
             // leaves `M_Gv` to test memory-ness of the `mmm` operand directly. also, swap
             // operands.
             if let OperandSpec::RegMMM = instruction.operands[1] {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.operands.swap(0, 1);
         }
@@ -10195,7 +10191,7 @@ fn unlikely_operands(
             // entries anyway, so no extra space for the dead arms.
             instruction.operands[0] = OperandSpec::Nothing;
             instruction.operand_count = 0;
-            return Err(Error::InvalidOperand);
+            return Err(ErrorKind::InvalidOperand);
         }
     };
     Ok(())
@@ -10205,7 +10201,7 @@ fn decode_x87(
     words: &mut Reader,
     instruction: &mut Instruction,
     operand_code: OperandCode,
-) -> Result<(), Error> {
+) -> Result<(), ErrorKind> {
     #[allow(non_camel_case_types)]
     enum OperandCodeX87 {
         Est,
@@ -10255,7 +10251,7 @@ fn decode_x87(
                     if modrm >= 0xc0 {
                         (Opcode::FXCH, OperandCodeX87::St_Est)
                     } else {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
                 2 => {
@@ -10263,7 +10259,7 @@ fn decode_x87(
                         if modrm == 0xd0 {
                             (Opcode::FNOP, OperandCodeX87::Nothing)
                         } else {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     } else {
                         (Opcode::FST, OperandCodeX87::Ed_St)
@@ -10282,18 +10278,18 @@ fn decode_x87(
                             0xe0 => (Opcode::FCHS, OperandCodeX87::Nothing),
                             0xe1 => (Opcode::FABS, OperandCodeX87::Nothing),
                             0xe2 => {
-                                return Err(Error::InvalidOpcode);
+                                return Err(ErrorKind::InvalidOpcode);
                             }
                             0xe3 => {
-                                return Err(Error::InvalidOpcode);
+                                return Err(ErrorKind::InvalidOpcode);
                             }
                             0xe4 => (Opcode::FTST, OperandCodeX87::Nothing),
                             0xe5 => (Opcode::FXAM, OperandCodeX87::Nothing),
                             0xe6 => {
-                                return Err(Error::InvalidOpcode);
+                                return Err(ErrorKind::InvalidOpcode);
                             }
                             0xe7 => {
-                                return Err(Error::InvalidOpcode);
+                                return Err(ErrorKind::InvalidOpcode);
                             }
                             _ => {
                                 unreachable!("invalid modrm");
@@ -10376,7 +10372,7 @@ fn decode_x87(
                         if modrm == 0xe9 {
                             (Opcode::FUCOMPP, OperandCodeX87::Nothing)
                         } else {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                 }
@@ -10410,13 +10406,13 @@ fn decode_x87(
                         0xe3 => (Opcode::FNINIT, OperandCodeX87::Nothing),
                         0xe4 => (Opcode::FSETPM287_NOP, OperandCodeX87::Nothing),
                         _ => {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     },
                     5 => (Opcode::FUCOMI, OperandCodeX87::St_Est),
                     6 => (Opcode::FCOMI, OperandCodeX87::St_Est),
                     _ => {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
             } else {
@@ -10428,7 +10424,7 @@ fn decode_x87(
                     5 => (Opcode::FLD, OperandCodeX87::St_Mm), // 80bit
                     7 => (Opcode::FSTP, OperandCodeX87::Mm_St), // 80bit
                     _ => {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                 }
             }
@@ -10508,7 +10504,7 @@ fn decode_x87(
                         if modrm == 0xd9 {
                             (Opcode::FCOMPP, OperandCodeX87::Nothing)
                         } else {
-                            return Err(Error::InvalidOperand);
+                            return Err(ErrorKind::InvalidOperand);
                         }
                     }
                     4 => (Opcode::FSUBRP, OperandCodeX87::Est_St),
@@ -10546,13 +10542,13 @@ fn decode_x87(
                         if modrm == 0xe0 {
                             (Opcode::FNSTSW, OperandCodeX87::Ew)
                         } else {
-                            return Err(Error::InvalidOpcode);
+                            return Err(ErrorKind::InvalidOpcode);
                         }
                     }
                     5 => (Opcode::FUCOMIP, OperandCodeX87::St_Est),
                     6 => (Opcode::FCOMIP, OperandCodeX87::St_Est),
                     7 => {
-                        return Err(Error::InvalidOpcode);
+                        return Err(ErrorKind::InvalidOpcode);
                     }
                     _ => {
                         unreachable!("impossible r");
@@ -10580,7 +10576,7 @@ fn decode_x87(
     };
     instruction.opcode = opcode;
     if instruction.opcode == Opcode::Invalid {
-        return Err(Error::InvalidOpcode);
+        return Err(ErrorKind::InvalidOpcode);
     }
 
     match x87_operands {
@@ -10626,7 +10622,7 @@ fn decode_x87(
             instruction.regs[0] = RegSpec::st(0);
             instruction.operands[1] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[1] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 10;
             instruction.operand_count = 2;
@@ -10636,7 +10632,7 @@ fn decode_x87(
             instruction.regs[0] = RegSpec::st(0);
             instruction.operands[1] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[1] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 8;
             instruction.operand_count = 2;
@@ -10646,7 +10642,7 @@ fn decode_x87(
             instruction.regs[0] = RegSpec::st(0);
             instruction.operands[1] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[1] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 4;
             instruction.operand_count = 2;
@@ -10656,7 +10652,7 @@ fn decode_x87(
             instruction.regs[0] = RegSpec::st(0);
             instruction.operands[1] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[1] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 2;
             instruction.operand_count = 2;
@@ -10704,7 +10700,7 @@ fn decode_x87(
         OperandCodeX87::Mm_St => {
             instruction.operands[0] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[0] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 10;
             instruction.operands[1] = OperandSpec::RegRRR;
@@ -10714,7 +10710,7 @@ fn decode_x87(
         OperandCodeX87::Mq_St => {
             instruction.operands[0] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[0] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 8;
             instruction.operands[1] = OperandSpec::RegRRR;
@@ -10724,7 +10720,7 @@ fn decode_x87(
         OperandCodeX87::Md_St => {
             instruction.operands[0] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[0] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 4;
             instruction.operands[1] = OperandSpec::RegRRR;
@@ -10734,7 +10730,7 @@ fn decode_x87(
         OperandCodeX87::Mw_St => {
             instruction.operands[0] = read_E(words, instruction, modrm, 4)?;
             if instruction.operands[0] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 2;
             instruction.operands[1] = OperandSpec::RegRRR;
@@ -10745,7 +10741,7 @@ fn decode_x87(
             instruction.operands[0] = read_E(words, instruction, modrm, 4)?;
             instruction.operand_count = 1;
             if instruction.operands[0] == OperandSpec::RegMMM {
-                return Err(Error::InvalidOperand);
+                return Err(ErrorKind::InvalidOperand);
             }
             instruction.mem_size = 63;
         }
@@ -10758,22 +10754,22 @@ fn decode_x87(
 }
 
 #[inline]
-fn read_num(bytes: &mut Reader, width: u8) -> Result<u64, Error> {
+fn read_num(bytes: &mut Reader, width: u8) -> Result<u64, ErrorKind> {
     match width {
-        1 => bytes.next().ok_or(Error::ExhaustedInput).map(|x| x as u64),
+        1 => bytes.next().ok_or(ErrorKind::ExhaustedInput).map(|x| x as u64),
         2 => {
             let mut buf = [0u8; 2];
-            bytes.next_n(&mut buf).ok_or(Error::ExhaustedInput)?;
+            bytes.next_n(&mut buf).ok_or(ErrorKind::ExhaustedInput)?;
             Ok(u16::from_le_bytes(buf) as u64)
         }
         4 => {
             let mut buf = [0u8; 4];
-            bytes.next_n(&mut buf).ok_or(Error::ExhaustedInput)?;
+            bytes.next_n(&mut buf).ok_or(ErrorKind::ExhaustedInput)?;
             Ok(u32::from_le_bytes(buf) as u64)
         }
         8 => {
             let mut buf = [0u8; 8];
-            bytes.next_n(&mut buf).ok_or(Error::ExhaustedInput)?;
+            bytes.next_n(&mut buf).ok_or(ErrorKind::ExhaustedInput)?;
             Ok(u64::from_le_bytes(buf))
         }
         _ => unsafe {
@@ -10783,7 +10779,7 @@ fn read_num(bytes: &mut Reader, width: u8) -> Result<u64, Error> {
 }
 
 #[inline]
-fn read_imm_ivq(bytes: &mut Reader, width: u8) -> Result<u64, Error> {
+fn read_imm_ivq(bytes: &mut Reader, width: u8) -> Result<u64, ErrorKind> {
     match width {
         2 => Ok(read_num(bytes, 2)? as u16 as u64),
         4 => Ok(read_num(bytes, 4)? as u32 as u64),
@@ -10795,7 +10791,7 @@ fn read_imm_ivq(bytes: &mut Reader, width: u8) -> Result<u64, Error> {
 }
 
 #[inline(always)]
-fn read_imm_signed(bytes: &mut Reader, num_width: u8) -> Result<i64, Error> {
+fn read_imm_signed(bytes: &mut Reader, num_width: u8) -> Result<i64, ErrorKind> {
     if num_width == 1 {
         Ok(read_num(bytes, 1)? as i8 as i64)
     } else if num_width == 2 {
@@ -10807,7 +10803,7 @@ fn read_imm_signed(bytes: &mut Reader, num_width: u8) -> Result<i64, Error> {
 }
 
 #[inline]
-fn read_imm_unsigned(bytes: &mut Reader, width: u8) -> Result<u64, Error> {
+fn read_imm_unsigned(bytes: &mut Reader, width: u8) -> Result<u64, ErrorKind> {
     read_num(bytes, width)
 }
 
@@ -10842,8 +10838,8 @@ fn imm_width_from_prefixes_64(interpretation: SizeCode, prefixes: Prefixes) -> u
 }
 
 #[inline]
-fn read_modrm(words: &mut Reader) -> Result<u8, Error> {
-    words.next().ok_or(Error::ExhaustedInput)
+fn read_modrm(words: &mut Reader) -> Result<u8, ErrorKind> {
+    words.next().ok_or(ErrorKind::ExhaustedInput)
 }
 
 #[rustfmt::skip]

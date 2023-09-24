@@ -2,35 +2,9 @@
 
 mod tests;
 
+use decoder::{Error, ErrorKind};
 use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
-
-#[derive(Debug, Clone, Copy)]
-pub enum Error {
-    /// Register in instruction is impossible/unknown.
-    UnknownRegister,
-
-    /// Opcode in instruction is impossible/unknown.
-    UnknownOpcode,
-
-    /// Instruction has a valid register and opcode yet is still invalid.
-    InvalidInstruction,
-
-    /// There are no more bytes left to consume.
-    Exhausted,
-}
-
-impl decoder::Failed for Error {
-    #[inline]
-    fn is_complete(&self) -> bool {
-        !matches!(self, Error::Exhausted)
-    }
-
-    #[inline]
-    fn incomplete_width(&self) -> usize {
-        4
-    }
-}
 
 macro_rules! operands {
     [] => {([$crate::EMPTY_OPERAND; 3], 0)};
@@ -89,7 +63,7 @@ struct TableInstruction {
     format: &'static [usize],
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Instruction {
     mnemomic: &'static str,
     operands: [std::borrow::Cow<'static, str>; 3],
@@ -108,151 +82,162 @@ pub struct Decoder;
 
 impl decoder::Decodable for Decoder {
     type Instruction = Instruction;
-    type Error = Error;
-    type Operand = std::borrow::Cow<'static, str>;
 
-    fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Self::Error> {
-        let mut bytes = [0u8; 4];
-        reader.next_n(&mut bytes).ok_or(Error::Exhausted)?;
-        let dword = u32::from_be_bytes(bytes) as usize;
-
-        // nop instruction isn't included in any MIPS spec
-        if dword == 0b00000000_00000000_00000000_00000000 {
-            let (operands, operand_count) = operands![];
-            return Ok(Instruction {
-                mnemomic: "nop",
-                operands,
-                operand_count,
-            });
-        }
-
-        // break instruction has a unique instruction format
-        if dword & 0b111111 == 0b001101 {
-            let (operands, operand_count) = operands![];
-            return Ok(Instruction {
-                mnemomic: "break",
-                operands,
-                operand_count,
-            });
-        }
-
-        let mut operands = [EMPTY_OPERAND; 3];
-        let opcode = dword >> 26;
-        let funct = dword & 0b111111;
-
-        let (format, inst) = match opcode {
-            0 => (Format::R, R_TYPES.get(funct).ok_or(Error::UnknownOpcode)?),
-            2 | 3 => (Format::J, J_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
-            _ => (Format::I, I_TYPES.get(opcode).ok_or(Error::UnknownOpcode)?),
-        };
-
-        let rs = dword >> 21 & 0b11111;
-        let rt = dword >> 16 & 0b11111;
-        let rd = dword >> 11 & 0b11111;
-
-        if inst.mnemomic.is_empty() {
-            return Err(Error::InvalidInstruction);
-        }
-
-        match format {
-            Format::R => {
-                match (REGISTERS.get(rs), REGISTERS.get(rt), REGISTERS.get(rd)) {
-                    (Some(_), Some(_), Some(_)) => {}
-                    _ => return Err(Error::UnknownRegister),
-                }
-
-                let shamt = dword >> 6 & 0b11111;
-
-                for idx in 0..inst.format.len() {
-                    // index into next operand
-                    let mask = inst.format[idx];
-
-                    // operand specified by the bitmask
-                    let operand = match mask {
-                        0 => rd,
-                        1 => rt,
-                        2 => rs,
-                        3 => shamt,
-                        _ => unsafe { core::hint::unreachable_unchecked() },
-                    };
-
-                    if operand == shamt {
-                        operands[idx] = Cow::Owned(format!("0x{shamt:x}"));
-                    } else {
-                        operands[idx] = Cow::Borrowed(REGISTERS[operand]);
-                    }
-                }
-
-                Ok(Instruction {
-                    mnemomic: inst.mnemomic,
-                    operands,
-                    operand_count: inst.format.len(),
-                })
-            }
-            Format::I => {
-                match (REGISTERS.get(rs), REGISTERS.get(rt)) {
-                    (Some(_), Some(_)) => {}
-                    _ => return Err(Error::UnknownRegister),
-                }
-
-                let immediate = dword & 0b11111111_11111111;
-
-                // check if the instruction uses an offset (load/store instructions)
-                if inst.format == [1, 3, 2] {
-                    let (operands, operand_count) = operands![
-                        Cow::Borrowed(REGISTERS[rt]),
-                        Cow::Borrowed(REGISTERS[rs]),
-                        Cow::Owned(format!("{immediate:#x}")),
-                    ];
-
-                    return Ok(Instruction {
-                        mnemomic: inst.mnemomic,
-                        operands,
-                        operand_count,
-                    });
-                }
-
-                for idx in 0..inst.format.len() {
-                    // index into next operand
-                    let mask = inst.format[idx];
-
-                    // operand specified by the bitmask
-                    let operand = match mask {
-                        0 => rd,
-                        1 => rt,
-                        2 => rs,
-                        3 => immediate,
-                        _ => unsafe { core::hint::unreachable_unchecked() },
-                    };
-
-                    if operand == immediate {
-                        operands[idx] = Cow::Owned(format!("0x{immediate:x}"));
-                    } else {
-                        operands[idx] = Cow::Borrowed(REGISTERS[operand]);
-                    }
-                }
-
-                Ok(Instruction {
-                    mnemomic: inst.mnemomic,
-                    operands,
-                    operand_count: inst.format.len(),
-                })
-            }
-            Format::J => {
-                let immediate = dword & 0b11111111_11111111_11111111;
-                let (operands, operand_count) = operands![Cow::Owned(format!("0x{immediate:x}"))];
-
-                Ok(Instruction {
-                    mnemomic: inst.mnemomic,
-                    operands,
-                    operand_count,
-                })
-            }
-        }
+    fn decode(&self, reader: &mut decoder::Reader) -> Result<Self::Instruction, Error> {
+        decode(reader).map_err(|err| Error::new(err, 4))
     }
 
     fn max_width(&self) -> usize {
         4
+    }
+}
+
+fn decode(reader: &mut decoder::Reader) -> Result<Instruction, ErrorKind> {
+    let mut bytes = [0u8; 4];
+    reader.next_n(&mut bytes).ok_or(ErrorKind::ExhaustedInput)?;
+    let dword = u32::from_be_bytes(bytes) as usize;
+
+    // nop instruction isn't included in any MIPS spec
+    if dword == 0b00000000_00000000_00000000_00000000 {
+        let (operands, operand_count) = operands![];
+        return Ok(Instruction {
+            mnemomic: "nop",
+            operands,
+            operand_count,
+        });
+    }
+
+    // break instruction has a unique instruction format
+    if dword & 0b111111 == 0b001101 {
+        let (operands, operand_count) = operands![];
+        return Ok(Instruction {
+            mnemomic: "break",
+            operands,
+            operand_count,
+        });
+    }
+
+    let mut operands = [EMPTY_OPERAND; 3];
+    let opcode = dword >> 26;
+    let funct = dword & 0b111111;
+
+    let (format, inst) = match opcode {
+        0 => (
+            Format::R,
+            R_TYPES.get(funct).ok_or(ErrorKind::InvalidOpcode)?,
+        ),
+        2 | 3 => (
+            Format::J,
+            J_TYPES.get(opcode).ok_or(ErrorKind::InvalidOpcode)?,
+        ),
+        _ => (
+            Format::I,
+            I_TYPES.get(opcode).ok_or(ErrorKind::InvalidOpcode)?,
+        ),
+    };
+
+    let rs = dword >> 21 & 0b11111;
+    let rt = dword >> 16 & 0b11111;
+    let rd = dword >> 11 & 0b11111;
+
+    if inst.mnemomic.is_empty() {
+        return Err(ErrorKind::IncompleteDecoder);
+    }
+
+    match format {
+        Format::R => {
+            match (REGISTERS.get(rs), REGISTERS.get(rt), REGISTERS.get(rd)) {
+                (Some(_), Some(_), Some(_)) => {}
+                _ => return Err(ErrorKind::InvalidRegister),
+            }
+
+            let shamt = dword >> 6 & 0b11111;
+
+            for idx in 0..inst.format.len() {
+                // index into next operand
+                let mask = inst.format[idx];
+
+                // operand specified by the bitmask
+                let operand = match mask {
+                    0 => rd,
+                    1 => rt,
+                    2 => rs,
+                    3 => shamt,
+                    _ => unsafe { core::hint::unreachable_unchecked() },
+                };
+
+                if operand == shamt {
+                    operands[idx] = Cow::Owned(format!("0x{shamt:x}"));
+                } else {
+                    operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+                }
+            }
+
+            Ok(Instruction {
+                mnemomic: inst.mnemomic,
+                operands,
+                operand_count: inst.format.len(),
+            })
+        }
+        Format::I => {
+            match (REGISTERS.get(rs), REGISTERS.get(rt)) {
+                (Some(_), Some(_)) => {}
+                _ => return Err(ErrorKind::InvalidRegister),
+            }
+
+            let immediate = dword & 0b11111111_11111111;
+
+            // check if the instruction uses an offset (load/store instructions)
+            if inst.format == [1, 3, 2] {
+                let (operands, operand_count) = operands![
+                    Cow::Borrowed(REGISTERS[rt]),
+                    Cow::Borrowed(REGISTERS[rs]),
+                    Cow::Owned(format!("{immediate:#x}")),
+                ];
+
+                return Ok(Instruction {
+                    mnemomic: inst.mnemomic,
+                    operands,
+                    operand_count,
+                });
+            }
+
+            for idx in 0..inst.format.len() {
+                // index into next operand
+                let mask = inst.format[idx];
+
+                // operand specified by the bitmask
+                let operand = match mask {
+                    0 => rd,
+                    1 => rt,
+                    2 => rs,
+                    3 => immediate,
+                    _ => unsafe { core::hint::unreachable_unchecked() },
+                };
+
+                if operand == immediate {
+                    operands[idx] = Cow::Owned(format!("0x{immediate:x}"));
+                } else {
+                    operands[idx] = Cow::Borrowed(REGISTERS[operand]);
+                }
+            }
+
+            Ok(Instruction {
+                mnemomic: inst.mnemomic,
+                operands,
+                operand_count: inst.format.len(),
+            })
+        }
+        Format::J => {
+            let immediate = dword & 0b11111111_11111111_11111111;
+            let (operands, operand_count) = operands![Cow::Owned(format!("0x{immediate:x}"))];
+
+            Ok(Instruction {
+                mnemomic: inst.mnemomic,
+                operands,
+                operand_count,
+            })
+        }
     }
 }
 

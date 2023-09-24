@@ -1,14 +1,11 @@
-use decoder::encode_hex_bytes_truncated;
-use decoder::{Decodable, Decoded, Failed};
-use object::{Object, ObjectSection, SectionKind};
+use object::Object;
 use tokenizing::{colors, ColorScheme, Colors, Token};
 
-use std::collections::BTreeMap;
-use std::collections::VecDeque;
 use std::fmt;
-use std::ops::Bound;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+
+type Addr = usize;
 
 pub enum DecodeError {
     IO(std::io::Error),
@@ -45,14 +42,272 @@ impl fmt::Debug for DecodeError {
 }
 
 pub struct Disassembly {
-    /// Processor which holds information related to each instruction.
-    pub proc: Box<dyn InspectProcessor + Send>,
+    /// Where execution start.
+    pub entrypoint: Addr,
+
+    /// Address lookup for instructions.
+    pub processor: disassembler::Processor,
 
     /// Symbol lookup by absolute address.
     pub symbols: symbols::Index,
+
+    current_addr: AtomicUsize,
+
+    /// Line offset at current address (one address may produce many lines).
+    line_offset: AtomicUsize,
 }
 
 impl Disassembly {
+    /// Jump to address, returning whether it succeeded.
+    ///
+    /// Try an address range of +- 32 bytes.
+    pub fn jump(&self, addr: Addr) -> bool {
+        for offset in 0..16 {
+            let addr = addr.saturating_add_signed(offset);
+
+            if let Some(_) = self.processor.error_by_addr(addr) {
+                self.current_addr.store(addr, Ordering::SeqCst);
+                return true;
+            }
+
+            if let Some(_) = self.processor.instruction_by_addr(addr) {
+                self.current_addr.store(addr, Ordering::SeqCst);
+                return true;
+            }
+        }
+
+        for offset in (-16..0).rev() {
+            let addr = addr.saturating_add_signed(offset);
+
+            if let Some(_) = self.processor.error_by_addr(addr) {
+                self.current_addr.store(addr, Ordering::SeqCst);
+                return true;
+            }
+
+            if let Some(_) = self.processor.instruction_by_addr(addr) {
+                self.current_addr.store(addr, Ordering::SeqCst);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn scroll_up(&self, lines_to_scroll: usize) {
+        let mut addr = self.current_addr.load(Ordering::Acquire);
+        let mut lines_scrolled = 0;
+
+        if lines_scrolled == lines_to_scroll {
+            return;
+        }
+
+        loop {
+            if let Some(_) = self.symbols.get_by_addr(addr) {
+                self.line_offset.store(0, Ordering::SeqCst);
+                lines_scrolled += 2;
+
+                if lines_scrolled >= lines_to_scroll {
+                    break;
+                }
+            }
+
+            if let Some(err) = self.processor.error_by_addr(addr) {
+                addr -= err.size();
+                lines_scrolled += 1;
+
+                if lines_scrolled >= lines_to_scroll {
+                    break;
+                }
+
+                continue;
+            }
+
+            if let Some(instruction) = self.processor.instruction_by_addr(addr) {
+                addr -= self.processor.instruction_width(&instruction);
+                lines_scrolled += 1;
+
+                if lines_scrolled >= lines_to_scroll {
+                    break;
+                }
+            }
+        }
+
+        self.current_addr.store(addr, Ordering::Release);
+    }
+
+    pub fn scroll_down(&self, lines_to_scroll: usize) {
+        let mut addr = self.current_addr.load(Ordering::Acquire);
+        let mut lines_scrolled = 0;
+
+        if lines_scrolled == lines_to_scroll {
+            return;
+        }
+
+        loop {
+            if let Some(_) = self.symbols.get_by_addr(addr) {
+                self.line_offset.store(2, Ordering::SeqCst);
+                lines_scrolled += 2;
+
+                if lines_scrolled >= lines_to_scroll {
+                    break;
+                }
+            }
+
+            if let Some(err) = self.processor.error_by_addr(addr) {
+                addr += err.size();
+                lines_scrolled += 1;
+
+                if lines_scrolled >= lines_to_scroll {
+                    break;
+                }
+
+                continue;
+            }
+
+            if let Some(instruction) = self.processor.instruction_by_addr(addr) {
+                addr += self.processor.instruction_width(&instruction);
+                lines_scrolled += 1;
+
+                if lines_scrolled >= lines_to_scroll {
+                    break;
+                }
+            }
+        }
+
+        self.current_addr.store(addr, Ordering::Release);
+    }
+
+    // fn create_line(&self, lines: &mut Vec<Token>, line: Token) {
+    // }
+
+    pub fn listing(&self, row_count: usize) -> Vec<Token> {
+        let mut addr = self.addr();
+        let mut text: Vec<Token> = Vec::new();
+        let mut row_count = row_count as isize + 1;
+        let mut lines_to_skip = self.line_offset.load(Ordering::SeqCst) as isize;
+
+        while row_count > 0 {
+            if let Some(label) = self.symbols.get_by_addr(addr) {
+                text.push(Token::from_str("\n<", colors::BLUE));
+                for token in label.name() {
+                    text.push(token.clone());
+                }
+                text.push(Token::from_str(">:\n", colors::BLUE));
+
+                row_count -= 2;
+            }
+
+            text.push(Token::from_string(
+                format!("{addr:0>10X}  "),
+                colors::GRAY40,
+            ));
+
+            if let Some(err) = self.processor.error_by_addr(addr) {
+                text.push(Token::from_string(
+                    self.processor.format_bytes(addr, err.size()),
+                    colors::GREEN,
+                ));
+
+                text.push(Token::from_str("<", colors::GRAY40));
+                text.push(Token::from_string(format!("{:?}", err.kind), colors::RED));
+                text.push(Token::from_str(">\n", colors::GRAY40));
+
+                addr += err.size();
+                row_count -= 1;
+                continue;
+            }
+
+            if let Some(instruction) = self.processor.instruction_by_addr(addr) {
+                let width = self.processor.instruction_width(&instruction);
+                let stream = self.processor.instruction_stream(&instruction);
+
+                text.push(Token::from_string(
+                    self.processor.format_bytes(addr, width),
+                    colors::GREEN,
+                ));
+
+                for token in stream.tokens() {
+                    text.push(token.clone());
+                }
+
+                text.push(Token::from_str("\n", colors::WHITE));
+
+                addr += width;
+                row_count -= 1;
+            }
+        }
+
+        if lines_to_skip == 0 {
+            return text;
+        }
+
+        'tokens: for idx in 0..text.len() {
+            // go through each line (token's can include multiple newline's)
+            for jdx in 0..text[idx].text.len() {
+                if text[idx].text.as_bytes()[jdx] == b'\n' {
+                    lines_to_skip -= 1;
+
+                    if lines_to_skip == 0 {
+                        let first = Token::from_string(
+                            text[idx].text[jdx..].to_string(),
+                            text[idx].color
+                        );
+
+                        text = text[idx + 1..].to_vec();
+                        text.insert(0, first);
+                        break 'tokens;
+                    }
+                }
+            }
+        }
+
+        text
+    }
+
+    pub fn section(&self) -> &str {
+        self.processor
+            .sections
+            .iter()
+            .find(|s| (s.start..=s.end).contains(&self.addr()))
+            .map(|s| &s.name as &str)
+            .unwrap()
+    }
+
+    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
+        let mut text: Vec<Token> = Vec::new();
+
+        let lines_to_read = range.end - range.start;
+        let lines = self
+            .symbols
+            .iter()
+            .filter(|(_, func)| !func.intrinsic())
+            .skip(range.start)
+            .take(lines_to_read + 10);
+
+        // for each instruction
+        for (addr, symbol) in lines {
+            text.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
+            text.push(Token::from_str(" | ", colors::WHITE));
+
+            if let Some(module) = symbol.module() {
+                text.push(module);
+                text.push(Token::from_str("!", Colors::brackets()));
+            }
+
+            for token in symbol.name() {
+                text.push(token.clone());
+            }
+
+            text.push(Token::from_str("\n", colors::WHITE));
+        }
+
+        text
+    }
+
+    pub fn addr(&self) -> Addr {
+        self.current_addr.load(Ordering::Relaxed)
+    }
+
     pub fn parse<P: AsRef<std::path::Path>>(
         path: P,
         show_donut: Arc<AtomicBool>,
@@ -71,322 +326,34 @@ impl Disassembly {
         // TODO: refactor disassembly process to not just work on executables
         //       and handle all text sections of any object
         let entrypoint = obj.entry();
-        log::green!("[disassembly::parse] entrypoint {entrypoint:#X}");
+        log::notify!("[disassembly::parse] entrypoint {entrypoint:#X}.");
 
-        let section = obj
-            .sections()
-            .filter(|s| s.kind() == SectionKind::Text)
-            .find(|s| (s.address()..s.address() + s.size()).contains(&entrypoint))
-            .unwrap_or_else(|| crate::exit!("All objects have an entrypoint."));
+        let mut index = symbols::Index::new();
 
-        let raw = section
-            .uncompressed_data()
-            .map_err(DecodeError::DecompressionFailed)?
-            .into_owned();
-
-        let section_base = section.address() as usize;
-        let mut symbols = symbols::Index::new();
-
-        symbols.parse_debug(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
-        symbols
+        index.parse_debug(&obj).map_err(DecodeError::IncompleteSymbolTable)?;
+        index
             .parse_imports(&binary[..], &obj)
             .map_err(DecodeError::IncompleteImportTable)?;
-        symbols.label();
+        index.label();
 
-        let proc: Box<dyn InspectProcessor + Send> = match obj.architecture() {
-            object::Architecture::Riscv32 => {
-                let decoder = disassembler::riscv::Decoder { is_64: false };
+        let mut processor = disassembler::Processor::new(obj.sections(), obj.architecture())
+            .map_err(DecodeError::UnknownArchitecture)?;
 
-                let mut proc: Processor<disassembler::riscv::Decoder> =
-                    Processor::new(raw, section_base, obj.entry() as usize, decoder);
-
-                proc.recurse(&symbols);
-                Box::new(proc)
-            }
-            object::Architecture::Riscv64 => {
-                let decoder = disassembler::riscv::Decoder { is_64: true };
-
-                let mut proc: Processor<disassembler::riscv::Decoder> =
-                    Processor::new(raw, section_base, obj.entry() as usize, decoder);
-
-                proc.recurse(&symbols);
-                Box::new(proc)
-            }
-            object::Architecture::Mips | object::Architecture::Mips64 => {
-                let decoder = disassembler::mips::Decoder::default();
-
-                let mut proc: Processor<disassembler::mips::Decoder> =
-                    Processor::new(raw, section_base, obj.entry() as usize, decoder);
-
-                proc.recurse(&symbols);
-                Box::new(proc)
-            }
-            object::Architecture::X86_64_X32 | object::Architecture::I386 => {
-                let decoder = disassembler::x86::Decoder::default();
-
-                let mut proc: Processor<disassembler::x86::Decoder> =
-                    Processor::new(raw, section_base, obj.entry() as usize, decoder);
-
-                proc.recurse(&symbols);
-                Box::new(proc)
-            }
-            object::Architecture::X86_64 => {
-                let decoder = disassembler::x64::Decoder::default();
-
-                let mut proc: Processor<disassembler::x64::Decoder> =
-                    Processor::new(raw, section_base, obj.entry() as usize, decoder);
-
-                proc.recurse(&symbols);
-                Box::new(proc)
-            }
-            arch => return Err(DecodeError::UnknownArchitecture(arch)),
-        };
-
+        processor.recurse(&index);
         show_donut.store(false, Ordering::Relaxed);
 
-        log::green!(
+        log::notify!(
             "[disassembly::parse] took {:#?} to parse {:?}.",
             now.elapsed(),
             path.as_ref()
         );
 
-        Ok(Self { proc, symbols })
-    }
-
-    pub fn listing(&self, range: std::ops::Range<usize>) -> Vec<Token> {
-        let mut text: Vec<Token> = Vec::new();
-        let symbols = &self.symbols;
-        let lines = self.proc.iter().skip(range.start);
-        let mut lines_to_read = (range.end - range.start) as isize;
-
-        // prevent underflow, scuffed solution and should be done differently
-        lines_to_read += 10;
-
-        // for each instruction
-        for (addr, inst) in lines {
-            if lines_to_read <= 0 {
-                break;
-            }
-
-            // if the address matches a symbol, print it
-            if let Some(label) = symbols.get_by_addr(addr) {
-                text.push(Token::from_str("\n<", &colors::BLUE));
-                for token in label.name() {
-                    text.push(token.clone());
-                }
-                text.push(Token::from_str(">:\n", &colors::BLUE));
-
-                lines_to_read -= 2;
-            }
-
-            // memory address
-            text.push(Token::from_string(
-                format!("{addr:0>10X}  "),
-                &colors::GRAY40,
-            ));
-
-            // instruction's bytes
-            text.push(Token::from_string(
-                self.proc.bytes(inst, addr),
-                &colors::GREEN,
-            ));
-
-            match inst {
-                Ok(inst) => {
-                    for token in inst.stream().tokens() {
-                        text.push(token.clone());
-                    }
-                }
-                Err(err) => {
-                    text.push(Token::from_str("<", &colors::GRAY40));
-                    text.push(Token::from_string(format!("{err:?}"), &colors::RED));
-                    text.push(Token::from_str(">", &colors::GRAY40));
-                }
-            }
-
-            text.push(Token::from_str("\n", &colors::WHITE));
-            lines_to_read -= 1;
-        }
-
-        return text;
-    }
-
-    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
-        let mut text: Vec<Token> = Vec::new();
-
-        let lines_to_read = range.end - range.start;
-        let lines = self
-            .symbols
-            .iter()
-            .filter(|(_, func)| !func.intrinsic())
-            .skip(range.start)
-            .take(lines_to_read + 10);
-
-        // for each instruction
-        for (addr, symbol) in lines {
-            text.push(Token::from_string(format!("{addr:0>10X}"), &colors::WHITE));
-            text.push(Token::from_str(" | ", &colors::WHITE));
-
-            if let Some(module) = symbol.module() {
-                text.push(module);
-                text.push(Token::from_str("!", &Colors::brackets()));
-            }
-
-            for token in symbol.name() {
-                text.push(token.clone());
-            }
-
-            text.push(Token::from_str("\n", &colors::WHITE));
-        }
-
-        return text;
-    }
-}
-
-/// Recursive decent disassembler that inspect one given section.
-/// It currently has the limitation of only being able to inspect the section
-/// where a given binaries entrypoint is.
-#[derive(Debug)]
-pub struct Processor<D: decoder::Decodable> {
-    pub section: Vec<u8>,
-    pub entrypoint: usize,
-    pub base_addr: usize,
-    pub decoder: D,
-    pub parsed: BTreeMap<usize, Result<D::Instruction, D::Error>>,
-}
-
-impl<D: Decodable> Processor<D> {
-    pub fn new(section: Vec<u8>, base_addr: usize, entrypoint: usize, decoder: D) -> Self {
-        Self {
-            section,
-            entrypoint,
-            base_addr,
-            decoder,
-            parsed: BTreeMap::new(),
-        }
-    }
-
-    pub fn recurse(&mut self, symbols: &symbols::Index) {
-        let mut unexplored_data = VecDeque::with_capacity(1024);
-        let mut raw_instructions = VecDeque::with_capacity(1024);
-
-        // TODO: recurse starting from entrypoint, following jumps
-        // unexplored_data.push_back(self.entrypoint);
-        unexplored_data.push_back(self.base_addr);
-
-        match self.entrypoint.checked_sub(self.base_addr) {
-            Some(entrypoint) => unexplored_data.push_back(entrypoint),
-            None => {
-                eprintln!("failed to calculate entrypoint, defaulting to 0x1000");
-                unexplored_data.push_back(self.base_addr + 0x1000);
-            }
-        }
-
-        while let Some(addr) = unexplored_data.pop_front() {
-            // don't visit addresses that are already decoded
-            if self.parsed.contains_key(&addr) {
-                continue;
-            }
-
-            // don't visit addresses that are outside of the section
-            let bytes = match self.bytes_by_addr(addr) {
-                Some(bytes) => bytes,
-                None => continue,
-            };
-
-            let mut reader = decoder::Reader::new(bytes);
-            let instruction = self.decoder.decode(&mut reader);
-            let width = match instruction {
-                Ok(inst) => {
-                    let width = inst.width();
-                    raw_instructions.push_back((addr, inst));
-                    width
-                }
-                Err(err) if !err.is_complete() => continue,
-                Err(err) => {
-                    let width = err.incomplete_width();
-                    self.parsed.insert(addr, Err(err));
-                    width
-                }
-            };
-
-            unexplored_data.push_back(addr + width);
-        }
-
-        while let Some((addr, mut instruction)) = raw_instructions.pop_front() {
-            instruction.find_xrefs(addr, &symbols);
-            self.parsed.insert(addr, Ok(instruction));
-        }
-    }
-
-    fn bytes_by_addr<'a>(&'a self, addr: usize) -> Option<&'a [u8]> {
-        addr.checked_sub(self.base_addr).and_then(|addr| self.section.get(addr..))
-    }
-}
-
-pub type MaybeInstruction<'a> = Result<&'a dyn Decoded, &'a dyn Failed>;
-
-pub trait InspectProcessor {
-    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_>;
-    fn in_range(
-        &self,
-        start: Bound<usize>,
-        end: Bound<usize>,
-    ) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_>;
-    fn instruction_count(&self) -> usize;
-    fn base_addr(&self) -> usize;
-    fn section(&self) -> &[u8];
-    fn bytes(&self, instruction: MaybeInstruction, addr: usize) -> String;
-}
-
-impl<D: Decodable> InspectProcessor for Processor<D> {
-    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_> {
-        Box::new(self.parsed.iter().map(|(addr, inst)| {
-            (
-                *addr,
-                match inst {
-                    Ok(ref val) => Ok(val as &dyn Decoded),
-                    Err(ref err) => Err(err as &dyn Failed),
-                },
-            )
-        }))
-    }
-
-    fn in_range(
-        &self,
-        start: Bound<usize>,
-        end: Bound<usize>,
-    ) -> Box<dyn DoubleEndedIterator<Item = (usize, MaybeInstruction)> + '_> {
-        Box::new(self.parsed.range((start, end)).map(|(addr, inst)| {
-            (
-                *addr,
-                match inst {
-                    Ok(ref val) => Ok(val as &dyn Decoded),
-                    Err(ref err) => Err(err as &dyn Failed),
-                },
-            )
-        }))
-    }
-
-    fn instruction_count(&self) -> usize {
-        self.parsed.len()
-    }
-
-    fn base_addr(&self) -> usize {
-        self.base_addr
-    }
-
-    fn section(&self) -> &[u8] {
-        &self.section[..]
-    }
-
-    fn bytes(&self, instruction: MaybeInstruction, addr: usize) -> String {
-        let rva = addr - self.base_addr;
-        let bytes = match instruction {
-            Ok(instruction) => &self.section[rva..][..instruction.width()],
-            Err(err) => &self.section[rva..][..err.incomplete_width()],
-        };
-
-        encode_hex_bytes_truncated(bytes, self.decoder.max_width() * 3 + 1)
+        Ok(Self {
+            entrypoint: obj.entry() as usize,
+            processor,
+            symbols: index,
+            current_addr: AtomicUsize::new(obj.entry() as usize),
+            line_offset: AtomicUsize::new(0),
+        })
     }
 }

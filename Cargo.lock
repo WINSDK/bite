@@ -484,8 +484,11 @@ version = "0.0.0"
 dependencies = [
  "arm",
  "decoder",
+ "log 0.0.0",
  "mips",
+ "object 0.32.1",
  "riscv",
+ "symbols",
  "tokenizing",
  "x86_64",
 ]

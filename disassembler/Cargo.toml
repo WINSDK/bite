@@ -4,6 +4,9 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+object = "0.32"
+log = { path = "../log" }
+symbols = { path = "../symbols" }
 decoder = { path = "../decoder" }
 tokenizing = { path = "../tokenizing" }
 arm = { path = "../decoder-arm" }
