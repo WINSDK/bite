@@ -4,7 +4,6 @@ use crate::gui::Error;
 use crate::gui::RenderContext;
 
 use std::sync::atomic::Ordering;
-use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
 pub struct Backend {
@@ -18,8 +17,6 @@ pub struct Backend {
     pub surface: wgpu::Surface,
     pub surface_cfg: wgpu::SurfaceConfiguration,
     pub staging_belt: wgpu::util::StagingBelt,
-
-    pub glyph_brush: GlyphBrush<()>,
 }
 
 impl Backend {
@@ -88,9 +85,6 @@ impl Backend {
         surface.configure(&device, &surface_cfg);
 
         let staging_belt = wgpu::util::StagingBelt::new(1024);
-        let font = include_bytes!("../../assets/LigaSFMonoNerdFont-Regular.otf");
-        let font = ab_glyph::FontArc::try_from_slice(font).unwrap();
-        let glyph_brush = GlyphBrushBuilder::using_font(font).build(&device, surface_format);
 
         Ok(Self {
             size,
@@ -101,79 +95,7 @@ impl Backend {
             surface,
             surface_cfg,
             staging_belt,
-            glyph_brush,
         })
-    }
-
-    fn draw_donut(
-        &mut self,
-        ctx: &mut RenderContext,
-        platform: &mut Platform,
-    ) -> Result<(), Error> {
-        let frame = match self.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(..) => return Ok(()),
-        };
-
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("bite::donut encoder"),
-        });
-
-        let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("bite::donut render pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(egui_backend::CLEAR_COLOR),
-                    store: true,
-                },
-            })],
-            depth_stencil_attachment: None,
-        });
-
-        drop(rpass);
-
-        if ctx.show_donut.load(Ordering::Relaxed) {
-            let text = wgpu_glyph::Text::new(&ctx.donut.frame)
-                .with_color([1.0, 1.0, 1.0, 1.0])
-                .with_scale(platform.scale_factor() * 10.0);
-
-            // queue donut text
-            self.glyph_brush.queue(wgpu_glyph::Section {
-                screen_position: (self.size.width as f32 / 2.0, self.size.height as f32 / 2.0),
-                layout: wgpu_glyph::Layout::default()
-                    .h_align(wgpu_glyph::HorizontalAlign::Center)
-                    .v_align(wgpu_glyph::VerticalAlign::Center),
-                text: vec![text],
-                ..wgpu_glyph::Section::default()
-            });
-
-            // draw donut/fps (this can't fail)
-            self.glyph_brush
-                .draw_queued(
-                    &self.device,
-                    &mut self.staging_belt,
-                    &mut encoder,
-                    &view,
-                    self.size.width,
-                    self.size.height,
-                )
-                .unwrap();
-        }
-
-        // submit work
-        self.staging_belt.finish();
-        self.queue.submit(Some(encoder.finish()));
-
-        // schedule texture to be renderer on surface
-        frame.present();
-
-        // recall unused staging buffers
-        self.staging_belt.recall();
-
-        Ok(())
     }
 
     pub fn redraw(
@@ -182,10 +104,6 @@ impl Backend {
         platform: &mut Platform,
         render_pass: &mut egui_backend::Pipeline,
     ) -> Result<(), Error> {
-        if ctx.show_donut.load(Ordering::Relaxed) {
-            return self.draw_donut(ctx, platform);
-        }
-
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(..) => return Ok(()),
@@ -270,7 +188,16 @@ impl Backend {
                 })
             })
             .show(&platform.context(), |ui| {
-                super::tabbed_panel(ui, ctx);
+                if ctx.show_donut.load(Ordering::Relaxed) {
+                    let layout = egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
+
+                    ui.with_layout(layout, |ui| {
+                        let text = egui::RichText::new(&ctx.donut.frame).size(10.0);
+                        ui.label(text);
+                    });
+                } else {
+                    super::tabbed_panel(ui, ctx);
+                }
             });
 
         // end the UI frame. We could now handle the output and draw the UI with the backend
