@@ -4,7 +4,6 @@ use crate::gui::Error;
 use crate::gui::RenderContext;
 
 use std::sync::atomic::Ordering;
-use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder};
 use winit::dpi::PhysicalSize;
 
 pub struct Backend {
@@ -18,8 +17,6 @@ pub struct Backend {
     pub surface: wgpu::Surface,
     pub surface_cfg: wgpu::SurfaceConfiguration,
     pub staging_belt: wgpu::util::StagingBelt,
-
-    pub glyph_brush: GlyphBrush<()>,
 }
 
 impl Backend {
@@ -88,9 +85,6 @@ impl Backend {
         surface.configure(&device, &surface_cfg);
 
         let staging_belt = wgpu::util::StagingBelt::new(1024);
-        let font = include_bytes!("../../assets/LigaSFMonoNerdFont-Regular.otf");
-        let font = ab_glyph::FontArc::try_from_slice(font).unwrap();
-        let glyph_brush = GlyphBrushBuilder::using_font(font).build(&device, surface_format);
 
         Ok(Self {
             size,
@@ -101,7 +95,6 @@ impl Backend {
             surface,
             surface_cfg,
             staging_belt,
-            glyph_brush,
         })
     }
 
