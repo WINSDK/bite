@@ -189,10 +189,11 @@ impl Backend {
             })
             .show(&platform.context(), |ui| {
                 if ctx.show_donut.load(Ordering::Relaxed) {
-                    let donut_frame = ctx.donut.frame.clone();
                     let layout = egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
+
                     ui.with_layout(layout, |ui| {
-                        ui.label(donut_frame);
+                        let text = egui::RichText::new(&ctx.donut.frame).size(10.0);
+                        ui.label(text);
                     });
                 } else {
                     super::tabbed_panel(ui, ctx);
