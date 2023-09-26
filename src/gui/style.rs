@@ -143,16 +143,19 @@ impl Default for Style {
                 styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Monospace));
                 styles
             },
-            // debug: egui::style::DebugOptions {
-            //     debug_on_hover: true,
-            //     show_expand_width: true,
-            //     show_expand_height: true,
-            //     show_resize: true,
-            //     show_interactive_widgets: true,
-            //     show_blocking_widget: true
-            // },
             ..Default::default()
         };
+
+        if crate::ARGS.debug {
+            this.egui.debug = egui::style::DebugOptions {
+                debug_on_hover: true,
+                show_expand_width: true,
+                show_expand_height: true,
+                show_resize: true,
+                show_interactive_widgets: true,
+                show_blocking_widget: true
+            };
+        }
 
         this.dock = egui_dock::Style {
             dock_area_padding: None,

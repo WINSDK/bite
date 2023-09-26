@@ -12,9 +12,10 @@ OPTIONS:
   -N, --names         Print all symbols exposed by object
   -S, --simplify      Replace common types with shortened paths
   -D, --disassemble   Path to object you're disassembling
-  -C, --config        Path to config used for disassembling";
+  -C, --config        Path to config used for disassembling
+  -B, --debug         Enable extra debug information";
 
-const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C"];
+const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C", "-B"];
 const NAMES: &[&str] = &[
     "--help",
     "--libs",
@@ -22,6 +23,7 @@ const NAMES: &[&str] = &[
     "--simplify",
     "--disassemble",
     "--config",
+    "--debug",
 ];
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,9 @@ pub struct Cli {
     /// Disassemble object into `readable` assembly,
     pub disassemble: bool,
 
+    /// Show egui debug overlay.
+    pub debug: bool,
+
     /// Path to symbol being disassembled.
     pub path: Option<PathBuf>,
 
@@ -52,6 +57,7 @@ impl Cli {
             names: false,
             simplify: false,
             disassemble: false,
+            debug: false,
             config: None,
             path: None,
         };
@@ -95,16 +101,7 @@ impl Cli {
                         }
                     }
                 }
-                "-C" | "--config" => {
-                    if let Some(path) = args.next().as_deref() {
-                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
-                            cli.config = Some(PathBuf::from(path));
-                            continue;
-                        }
-                    }
-
-                    exit!("Missing path to a config.");
-                }
+                "-B" | "--debug" => cli.debug = true,
                 unknown => {
                     let mut distance = u32::MAX;
                     let mut best_guess = "";
