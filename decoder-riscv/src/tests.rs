@@ -73,8 +73,13 @@ macro_rules! decode_instructions {
                     decoded.push(line.to_string());
                     line = decoder::TokenStream::new();
                 }
-                Err($crate::Error::Exhausted) => break,
-                Err(err) => decoded.push(format!("{err:?}")),
+                Err(err) => {
+                    if err.kind == decoder::ErrorKind::ExhaustedInput {
+                        break;
+                    }
+
+                    decoded.push(format!("{err:?}"));
+                }
             }
         }
 
