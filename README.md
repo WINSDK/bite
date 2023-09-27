@@ -33,7 +33,7 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
 - [ ] Debugging back-end
   - [ ] Initial MacOS support
   - [ ] Initial Windows support
-  - [ ] Initial Linux support
+  - [x] Initial Linux support
 - [x] X86-64 support
 - [ ] AArch64/AArch32 support
 - [x] Riscv64gc/Riscv32gc support
