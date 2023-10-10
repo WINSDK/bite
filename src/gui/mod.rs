@@ -15,7 +15,7 @@ use tokenizing::Token;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
-use crate::disassembly::Disassembly;
+use crate::disassembly::{Disassembly, DisassemblyView};
 use crate::terminal::Terminal;
 use backend::Backend;
 use debugger::{Debugger, Process};
@@ -140,7 +140,8 @@ enum TabKind {
 
 pub struct Buffers {
     mapping: HashMap<Title, TabKind>,
-    dissasembly: Option<Arc<Disassembly>>,
+    disassembly: Option<Arc<Disassembly>>,
+    pub disassembly_view: DisassemblyView,
 
     cached_diss_range: std::ops::Range<usize>,
     cached_diss: Vec<Token>,
@@ -153,7 +154,8 @@ impl Buffers {
     fn new(mapping: HashMap<Title, TabKind>) -> Self {
         Self {
             mapping,
-            dissasembly: None,
+            disassembly: None,
+            disassembly_view: DisassemblyView::new(),
             cached_diss_range: std::ops::Range { start: 0, end: 0 },
             cached_diss: Vec::new(),
             cached_funcs_range: std::ops::Range { start: 0, end: 0 },
@@ -161,45 +163,41 @@ impl Buffers {
         }
     }
 
-    pub fn update_listing(&mut self) {
-        let dissasembly = match self.dissasembly {
-            Some(ref dissasembly) => dissasembly,
-            None => return,
-        };
-
-        let row_count = self.cached_diss_range.end - self.cached_diss_range.start; 
-        self.cached_diss = dissasembly.listing(row_count);
-    }
-
     fn show_listing(&mut self, ui: &mut egui::Ui) {
-        let dissasembly = match self.dissasembly {
+        let disassembly = match self.disassembly {
             Some(ref dissasembly) => dissasembly,
             None => return,
         };
 
-        let text = dissasembly.section();
-        let max_width = ui.available_width();
-        let size = egui::vec2(9.0 * text.len() as f32, 25.0);
-        let offset = egui::pos2(20.0, 60.0);
-        let rect = egui::Rect::from_two_pos(
-            egui::pos2(max_width - offset.x, offset.y),
-            egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
-        );
+        // this is wrong
+        if !self.disassembly_view.initialized() {
+            self.disassembly_view.jump(disassembly, disassembly.entrypoint);
+        }
 
-        ui.painter().rect(
-            rect.expand2(egui::vec2(5.0, 0.0)),
-            0.0,
-            tokenizing::colors::GRAY35,
-            egui::Stroke::new(2.5, egui::Color32::BLACK),
-        );
+        if let Some(text) = disassembly.section(self.disassembly_view.addr) {
+            let max_width = ui.available_width();
+            let size = egui::vec2(9.0 * text.len() as f32, 25.0);
+            let offset = egui::pos2(20.0, 60.0);
+            let rect = egui::Rect::from_two_pos(
+                egui::pos2(max_width - offset.x, offset.y),
+                egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
+            );
 
-        ui.painter().text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            text,
-            egui::FontId::new(14.0, egui::FontFamily::Monospace),
-            egui::Color32::WHITE,
-        );
+            ui.painter().rect(
+                rect.expand2(egui::vec2(5.0, 0.0)),
+                0.0,
+                tokenizing::colors::GRAY35,
+                egui::Stroke::new(2.5, egui::Color32::BLACK),
+            );
+
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                text,
+                egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                egui::Color32::WHITE,
+            );
+        }
 
         let total_rows = 1_000_000;
         let row_height = 14.0;
@@ -212,13 +210,15 @@ impl Buffers {
             if row_range != self.cached_diss_range {
                 if row_range.start > self.cached_diss_range.start {
                     let count = row_range.start - self.cached_diss_range.start;
-                    dissasembly.scroll_down(count);
-                } else {
-                    let count = self.cached_diss_range.start - row_range.start;
-                    dissasembly.scroll_up(count);
+                    self.disassembly_view.scroll_down(count);
                 }
 
-                self.cached_diss = dissasembly.listing(row_count);
+                if row_range.start < self.cached_diss_range.start {
+                    let count = self.cached_diss_range.start - row_range.start;
+                    self.disassembly_view.scroll_up(count);
+                }
+
+                self.cached_diss = self.disassembly_view.to_tokens(row_count);
                 self.cached_diss_range = row_range;
             }
 
@@ -242,7 +242,7 @@ impl Buffers {
     }
 
     fn show_functions(&mut self, ui: &mut egui::Ui) {
-        let dissasembly = match self.dissasembly {
+        let dissasembly = match self.disassembly {
             Some(ref dissasembly) => dissasembly,
             None => return,
         };
@@ -567,7 +567,7 @@ fn handle_post_render(ctx: &mut RenderContext) {
                     let dissasembly = Arc::new(val);
 
                     ctx.dissasembly = Some(Arc::clone(&dissasembly));
-                    ctx.buffers.dissasembly = Some(Arc::clone(&dissasembly));
+                    ctx.buffers.disassembly = Some(Arc::clone(&dissasembly));
                 }
             }
 
