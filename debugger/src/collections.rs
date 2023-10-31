@@ -112,7 +112,7 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
         self.nodes.iter_mut().map(|(key, node)| (key, &mut node.value))
     }
 
-    pub fn into_iter(&mut self) -> impl Iterator<Item = (K, V)> {
+    pub fn consuming_iter(&mut self) -> impl Iterator<Item = (K, V)> {
         let nodes = std::mem::take(&mut self.nodes);
         self.root = None;
 

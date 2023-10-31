@@ -1,6 +1,7 @@
 //! Consumes decoder crates and provides an interface to interact with the decoders.
 
-pub use decoder::{Decodable, Decoded, ToTokens, TokenStream};
+use decoder::{Decodable, Decoded};
+use tokenizing::Token;
 
 use object::{Architecture, ObjectSection, SectionIterator, SectionKind};
 use x86_64::long_mode as x64;
@@ -25,11 +26,14 @@ macro_rules! impl_recursion {
             let mut reader = decoder::Reader::new(&section.bytes);
             let mut addr = section.start;
 
-            log::notify!(
-                "[processor::recurse] analyzing section {} <{:x}..{:x}>.",
-                section.name,
-                section.start,
-                section.end
+            log::complex!(
+                w "[processor::recurse] analyzing section ",
+                b &section.name,
+                w " <",
+                g format!("{:x}", section.start),
+                w "..",
+                g format!("{:x}", section.end),
+                w ">.",
             );
 
             loop {
@@ -74,7 +78,7 @@ pub struct Processor {
     errors: Vec<(Addr, decoder::Error)>,
     instructions: Vec<(Addr, Instruction)>,
     max_instruction_width: usize,
-    instruction_stream: fn(&Instruction) -> decoder::TokenStream,
+    instruction_tokens: fn(&Instruction) -> Vec<Token>,
     instruction_width: fn(&Instruction) -> usize,
     arch: Architecture,
 }
@@ -82,6 +86,7 @@ pub struct Processor {
 impl Processor {
     pub fn new(sections: SectionIterator, arch: Architecture) -> Result<Self, Architecture> {
         let mut found_sections: Vec<Section> = Vec::new();
+        let mut has_text_section = false;
 
         for section in sections {
             let name = section.name().unwrap_or("unknown").to_string();
@@ -89,7 +94,11 @@ impl Processor {
             let bytes = match section.uncompressed_data() {
                 Ok(uncompressed) => uncompressed,
                 Err(..) => {
-                    log::warn!("[processor::new] failed to decompress section {name}.");
+                    log::complex!(
+                        w "[processor::new] ",
+                        y format!("failed to decompress section {name}.")
+                    );
+
                     continue;
                 }
             };
@@ -102,28 +111,37 @@ impl Processor {
                 end: (section.address() + section.size()) as Addr,
             };
 
+            if section.kind == SectionKind::Text {
+                has_text_section = true;
+            }
+
             found_sections.push(section);
+        }
+
+        if !has_text_section {
+            // FIXME
+            std::process::exit(1);
         }
 
         // sort sections by their address
         found_sections.sort_unstable_by_key(|s| s.start);
 
-        let (instruction_stream, instruction_width) = unsafe {
+        let (instruction_tokens, instruction_width) = unsafe {
             match arch {
                 Architecture::Riscv32 | Architecture::Riscv64 => (
-                    std::mem::transmute(<riscv::Instruction as Decoded>::stream as usize),
+                    std::mem::transmute(<riscv::Instruction as Decoded>::tokens as usize),
                     std::mem::transmute(<riscv::Instruction as Decoded>::width as usize),
                 ),
                 Architecture::Mips | Architecture::Mips64 => (
-                    std::mem::transmute(<mips::Instruction as Decoded>::stream as usize),
+                    std::mem::transmute(<mips::Instruction as Decoded>::tokens as usize),
                     std::mem::transmute(<mips::Instruction as Decoded>::width as usize),
                 ),
                 Architecture::X86_64_X32 | Architecture::I386 => (
-                    std::mem::transmute(<x86::Instruction as Decoded>::stream as usize),
+                    std::mem::transmute(<x86::Instruction as Decoded>::tokens as usize),
                     std::mem::transmute(<x86::Instruction as Decoded>::width as usize),
                 ),
                 Architecture::X86_64 => (
-                    std::mem::transmute(<x64::Instruction as Decoded>::stream as usize),
+                    std::mem::transmute(<x64::Instruction as Decoded>::tokens as usize),
                     std::mem::transmute(<x64::Instruction as Decoded>::width as usize),
                 ),
                 arch => return Err(arch),
@@ -135,7 +153,7 @@ impl Processor {
             errors: Vec::new(),
             instructions: Vec::new(),
             max_instruction_width: 0,
-            instruction_stream,
+            instruction_tokens,
             instruction_width,
             arch,
         })
@@ -182,8 +200,8 @@ impl Processor {
         decoder::encode_hex_bytes_truncated(bytes, self.max_instruction_width * 3 + 1)
     }
 
-    pub fn instruction_stream(&self, instruction: &Instruction) -> decoder::TokenStream {
-        (self.instruction_stream)(&instruction)
+    pub fn instruction_tokens(&self, instruction: &Instruction) -> Vec<Token> {
+        (self.instruction_tokens)(&instruction)
     }
 
     pub fn instruction_width(&self, instruction: &Instruction) -> usize {

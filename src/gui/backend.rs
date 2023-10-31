@@ -136,7 +136,10 @@ impl Backend {
         // process terminal commands
         // FIXME: remove `to_vec`
         let cmds = ctx.terminal.take_commands().to_vec();
-        crate::commands::process_commands(ctx, &cmds);
+
+        if !crate::commands::process_commands(ctx, &cmds) {
+            return Err(Error::Exit);
+        }
 
         egui::TopBottomPanel::top("top bar").show(&platform.context(), |ui| {
             // generic keyboard inputs

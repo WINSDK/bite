@@ -111,7 +111,7 @@ fn format_fdset(session: &mut Debugger, addr: u64) -> String {
 
             format!("{set:?}")
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -135,7 +135,7 @@ fn format_bytes_u8(session: &mut Debugger, addr: u64, len: u64) -> String {
 
             data
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -177,7 +177,7 @@ fn format_str(session: &mut Debugger, addr: u64, len: u64) -> String {
 
             format!("\"{data}\"")
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -201,7 +201,7 @@ fn format_c_str(session: &mut Debugger, addr: u64) -> String {
 
             let data = match CString::from_vec_with_nul(data.clone()) {
                 Ok(data) => data.to_string_lossy().into_owned(),
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             let mut data = data.escape_default().to_string();
@@ -212,7 +212,7 @@ fn format_c_str(session: &mut Debugger, addr: u64) -> String {
 
             format!("\"{data}\"")
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -227,18 +227,18 @@ fn format_sigset(session: &mut Debugger, addr: u64) -> String {
             let set = unsafe { ptr::read(data.as_ptr() as *const signal::SigSet) };
 
             if set == signal::SigSet::all() {
-                return format!("~[]");
+                return "~[]".to_string();
             }
 
             let set: Vec<signal::Signal> = set.iter().collect();
 
             // if all 31 signals are set, it must be an empty set mask
             match set.len() {
-                31 => format!("~[]"),
+                31 => "~[]".to_string(),
                 _ => format!("{set:?}"),
             }
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -257,7 +257,7 @@ fn format_sigaction(session: &mut Debugger, addr: u64) -> String {
 
             format!("{{sa_handler: {handler:?}, sa_mask: {mask:?}, sa_flags: {flags:?}}}")
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -298,7 +298,7 @@ fn format_stat(session: &mut Debugger, addr: u64) -> String {
 
             format!("{{st_mode={mode:?}, st_size={size}, ...}}")
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -335,7 +335,7 @@ fn format_timespec(session: &mut Debugger, addr: u64) -> String {
 
             format!("{duration:#?}")
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -349,7 +349,7 @@ fn format_timerval(session: &mut Debugger, addr: u64) -> String {
             let time = unsafe { ptr::read(data.as_ptr() as *const nix::sys::time::TimeVal) };
             format!("{time}")
         }
-        Err(..) => format!("???"),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -378,15 +378,15 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let raw = libc::sa_family_t::from_le_bytes(data.try_into().unwrap()) as i32;
 
             if raw == libc::AF_UNSPEC {
-                return format!("(opaque)");
+                return "(opaque)".to_string();
             }
 
             match socket::AddressFamily::from_i32(raw) {
                 Some(family) => family,
-                None => return format!("(unknown address family)"),
+                None => return "(unknown address family)".to_string(),
             }
         }
-        Err(..) => return format!("???"),
+        Err(..) => return "???".to_string(),
     };
 
     match family {
@@ -395,7 +395,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let read = session.read_process_memory(addr, size_of::<socket::sockaddr_in>());
             let sock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in) },
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             let addr = std::net::Ipv4Addr::from(sock_addr.sin_addr.s_addr);
@@ -408,7 +408,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let read = session.read_process_memory(addr, size_of::<socket::sockaddr_in6>());
             let sock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in6) },
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             let addr = std::net::Ipv6Addr::from(sock_addr.sin6_addr.s6_addr);
@@ -421,20 +421,20 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let read = session.read_process_memory(addr, size_of::<socket::sockaddr>());
             let sock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr) },
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             // SAFETY: since we pass the length, it will be validated
             let unix_addr = unsafe {
                 match socket::UnixAddr::from_raw(&sock_addr, socketlen) {
                     Some(addr) => addr,
-                    None => return format!("???"),
+                    None => return "???".to_string(),
                 }
             };
 
             match unix_addr.path() {
                 Some(path) => format!("{{path: {path:#?}}}"),
-                None => format!("???"),
+                None => "???".to_string(),
             }
         }
         // struct sockaddr_nl
@@ -442,7 +442,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let read = session.read_process_memory(addr, size_of::<socket::NetlinkAddr>());
             let netlink_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::NetlinkAddr) },
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             let pid = netlink_addr.pid();
@@ -455,7 +455,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let read = session.read_process_memory(addr, size_of::<socket::AlgAddr>());
             let alg_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::AlgAddr) },
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             let tipe = alg_addr.alg_type().to_string_lossy();
@@ -468,7 +468,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let read = session.read_process_memory(addr, size_of::<socket::LinkAddr>());
             let link_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::LinkAddr) },
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             let protocol = link_addr.protocol();
@@ -491,7 +491,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
             let read = session.read_process_memory(addr, size_of::<socket::VsockAddr>());
             let vsock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::VsockAddr) },
-                Err(..) => return format!("???"),
+                Err(..) => return "???".to_string(),
             };
 
             let cid = vsock_addr.cid();
@@ -499,7 +499,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
 
             format!("{{cid: {cid}, port: {port}}}")
         }
-        _ => format!("(unknown address family)"),
+        _ => "(unknown address family)".to_string(),
     }
 }
 
@@ -545,7 +545,7 @@ fn format_sock_protocol(protocol: u64) -> &'static str {
 fn format_msghdr(session: &mut Debugger, addr: u64) -> String {
     let msghdr = match session.read_process_memory(addr as usize, size_of::<libc::msghdr>()) {
         Ok(data) => unsafe { ptr::read(data.as_ptr() as *const libc::msghdr) },
-        Err(..) => return format!("???"),
+        Err(..) => return "???".to_string(),
     };
 
     let name = format_sockaddr(session, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
@@ -1002,11 +1002,11 @@ impl super::Debugger {
                 func,
                 match socket::AddressFamily::from_i32(args[0] as i32) {
                     Some(family) => format!("{family:?}"),
-                    None => format!("(unknown address family)"),
+                    None => "(unknown address family)".to_string(),
                 },
                 match socket::SockType::try_from(args[1] as i32) {
                     Ok(tipe) => format!("{tipe:?}"),
-                    Err(..) => format!("(unknown address family)"),
+                    Err(..) => "(unknown address family)".to_string(),
                 },
                 format_sock_protocol(args[2]),
                 format_ptr(args[3])

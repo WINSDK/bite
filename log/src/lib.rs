@@ -1,61 +1,14 @@
 use std::sync::Mutex;
 
 use egui::text::LayoutJob;
-use once_cell::sync::Lazy;
 
 pub enum Color {
-    Green,
     Red,
-    Gold,
+    Green,
+    Blue,
+    Yellow,
+    White,
     Gray,
-}
-
-#[macro_export]
-macro_rules! notify {
-    () => {};
-
-    ($($arg:tt)*) => {{
-        let mut logger = $crate::LOGGER.lock().unwrap();
-
-        logger.append(
-            format!(
-                $($arg)*
-            ),
-            $crate::Color::Green,
-        );
-    }};
-}
-
-#[macro_export]
-macro_rules! strong {
-    () => {};
-
-    ($($arg:tt)*) => {{
-        let mut logger = $crate::LOGGER.lock().unwrap();
-
-        logger.append(
-            format!(
-                $($arg)*
-            ),
-            $crate::Color::Red,
-        );
-    }};
-}
-
-#[macro_export]
-macro_rules! warn {
-    () => {};
-
-    ($($arg:tt)*) => {{
-        let mut logger = $crate::LOGGER.lock().unwrap();
-
-        logger.append(
-            format!(
-                $($arg)*
-            ),
-            $crate::Color::Gold,
-        );
-    }};
 }
 
 #[macro_export]
@@ -63,36 +16,196 @@ macro_rules! trace {
     () => {};
 
     ($($arg:tt)*) => {{
-        let mut logger = $crate::LOGGER.lock().unwrap();
-
-        logger.append(
-            format!(
-                $($arg)*
-            ),
-            $crate::Color::Gray,
+        $crate::LOGGER.lock().unwrap().append(
+            format!($($arg)*) + "\n",
+            $crate::Color::White,
         );
     }};
 }
 
-pub static LOGGER: Lazy<Mutex<Logger<300>>> = Lazy::new(|| Mutex::new(Logger::new()));
+/// Internal macro, don't use.
+#[macro_export]
+macro_rules! complex_recurse {
+    (r $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Red,
+        );
+    };
+
+    (r $arg:expr, $($args:tt)+) => {{
+        $crate::complex_recurse!(r $arg,);
+        $crate::complex_recurse!($($args)+);
+    }};
+
+    (g $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Green,
+        );
+    };
+
+    (g $arg:expr, $($args:tt)+) => {{
+        $crate::complex_recurse!(g $arg,);
+        $crate::complex_recurse!($($args)+);
+    }};
+
+    (b $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Blue,
+        );
+    };
+
+    (b $arg:expr, $($args:tt)+) => {{
+        $crate::complex_recurse!(b $arg,);
+        $crate::complex_recurse!($($args)+);
+    }};
+
+    (y $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Yellow,
+        );
+    };
+
+    (y $arg:expr, $($args:tt)+) => {{
+        $crate::complex_recurse!(y $arg,);
+        $crate::complex_recurse!($($args)+);
+    }};
+
+    (w $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::White,
+        );
+    };
+
+    (w $arg:expr, $($args:tt)+) => {{
+        $crate::complex_recurse!(w $arg,);
+        $crate::complex_recurse!($($args)+);
+    }};
+}
+
+/// Multi-color logging.
+#[macro_export]
+macro_rules! complex {
+    () => {
+        $crate::LOGGER.lock().unwrap().append(
+            "\n".into(),
+            $crate::Color::White,
+        );
+    };
+
+    (r $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Red,
+        );
+    };
+
+    (r $arg:expr, $($args:tt)+) => {{
+        $crate::complex!(r $arg,);
+        $crate::complex_recurse!($($args)+);
+
+        $crate::LOGGER.lock().unwrap().append(
+            "\n",
+            $crate::Color::White,
+        );
+    }};
+
+    (g $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Green,
+        );
+    };
+
+    (g $arg:expr, $($args:tt)+) => {{
+        $crate::complex!(g $arg,);
+        $crate::complex_recurse!($($args)+);
+
+        $crate::LOGGER.lock().unwrap().append(
+            "\n",
+            $crate::Color::Green,
+        );
+    }};
+
+    (b $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Blue,
+        );
+    };
+
+    (b $arg:expr, $($args:tt)+) => {{
+        $crate::complex!(b $arg,);
+        $crate::complex_recurse!($($args)+);
+
+        $crate::LOGGER.lock().unwrap().append(
+            "\n",
+            $crate::Color::White,
+        );
+    }};
+
+    (y $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::Yellow,
+        );
+    };
+
+    (y $arg:expr, $($args:tt)+) => {{
+        $crate::complex!(y $arg,);
+        $crate::complex_recurse!($($args)+);
+
+        $crate::LOGGER.lock().unwrap().append(
+            "\n",
+            $crate::Color::White,
+        );
+    }};
+
+    (w $arg:expr $(,)?) => {
+        $crate::LOGGER.lock().unwrap().append(
+            $arg,
+            $crate::Color::White,
+        );
+    };
+
+    (w $arg:expr, $($args:tt)+) => {{
+        $crate::complex!(w $arg,);
+        $crate::complex_recurse!($($args)+);
+
+        $crate::LOGGER.lock().unwrap().append(
+            "\n",
+            $crate::Color::White,
+        );
+    }};
+}
+
+pub static LOGGER: Mutex<Logger<300>> = Mutex::new(Logger::new());
+
+type Line = (String, Color);
 
 pub struct Logger<const N: usize> {
-    lines: [(String, Color); N],
+    lines: [Line; N],
     head: usize,
     len: usize,
 }
 
 impl<const N: usize> Logger<N> {
-    fn new() -> Self {
+    const fn new() -> Self {
+        const EMPTY_LINE: Line = (String::new(), Color::White);
+
         Self {
-            lines: std::array::from_fn(|_| (String::new(), Color::Gray)),
+            lines: [EMPTY_LINE; N],
             head: 0,
             len: 0,
         }
     }
 
-    pub fn append(&mut self, line: String, color: Color) {
-        self.lines[self.head] = (line + "\n", color);
+    pub fn append(&mut self, line: impl Into<String>, color: Color) {
+        self.lines[self.head] = (line.into(), color);
         self.head = (self.head + 1) % N;
         self.len += 1;
     }
@@ -101,7 +214,7 @@ impl<const N: usize> Logger<N> {
         self.head = 0;
     }
 
-    fn lines(&self) -> (&[(String, Color)], &[(String, Color)]) {
+    fn lines(&self) -> (&[Line], &[Line]) {
         if self.len < N {
             (&self.lines[0..self.len], &[])
         } else {
@@ -118,7 +231,7 @@ impl<const N: usize> Logger<N> {
 
         for (line, color) in lines.0.iter().chain(lines.1) {
             layout.append(
-                &line,
+                line,
                 0.0,
                 egui::TextFormat {
                     font_id: egui::FontId {
@@ -128,8 +241,10 @@ impl<const N: usize> Logger<N> {
                     color: match color {
                         Color::Green => egui::Color32::LIGHT_GREEN,
                         Color::Red => egui::Color32::RED,
-                        Color::Gold => egui::Color32::GOLD,
-                        Color::Gray => egui::Color32::LIGHT_GRAY,
+                        Color::Blue => egui::Color32::from_rgb(0x3e, 0xbc, 0xe6),
+                        Color::Yellow => egui::Color32::GOLD,
+                        Color::White => egui::Color32::WHITE,
+                        Color::Gray => egui::Color32::GRAY,
                     },
                     ..Default::default()
                 },

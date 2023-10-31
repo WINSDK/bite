@@ -975,7 +975,6 @@ name = "log"
 version = "0.0.0"
 dependencies = [
  "egui",
- "once_cell",
 ]
 
 [[package]]

@@ -284,14 +284,14 @@ impl Process for Debugger {
 
 impl Tracee for Debugger {
     fn detach(&mut self) {
-        for (pid, _) in self.pids.into_iter() {
+        for (pid, _) in self.pids.consuming_iter() {
             // ignore the result since detaching can't fail
             let _ = ptrace::detach(pid, None);
         }
     }
 
     fn kill(&mut self) {
-        for (pid, _) in self.pids.into_iter() {
+        for (pid, _) in self.pids.consuming_iter() {
             // ignore the result since killing a process can't fail
             let _ = kill(pid, Signal::SIGKILL);
         }

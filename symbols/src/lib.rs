@@ -157,7 +157,11 @@ impl Index {
             self.insert(addr, func);
         }
 
-        log::notify!("[index::parse_debug] found {} symbols.", self.tree.len());
+        log::complex!(
+            w "[index::parse_debug] found ",
+            g self.tree.len().to_string(),
+            w " symbols."
+        );
 
         self.tree.sort_unstable_by_key(|k| k.0);
         Ok(())

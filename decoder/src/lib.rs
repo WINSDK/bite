@@ -55,10 +55,10 @@ pub trait ToTokens {
 
 pub trait Decoded: ToTokens {
     fn width(&self) -> usize;
-    fn stream(&self) -> TokenStream {
+    fn tokens(&self) -> Vec<Token> {
         let mut stream = TokenStream::new();
         self.tokenize(&mut stream);
-        stream
+        stream.into_tokens()
     }
     fn find_xrefs(&mut self, _addr: usize, _symbols: &symbols::Index) {}
 }
@@ -100,14 +100,14 @@ impl TokenStream {
         self.push_token(Token::from_string(text, color));
     }
 
-    pub fn tokens(&self) -> &[Token] {
-        &self.inner
+    pub fn into_tokens(self) -> Vec<Token> {
+        self.inner
     }
 }
 
 impl ToString for TokenStream {
     fn to_string(&self) -> String {
-        self.tokens().iter().map(|t| &t.text as &str).collect()
+        self.inner.iter().map(|t| &t.text as &str).collect()
     }
 }
 

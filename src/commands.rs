@@ -53,19 +53,23 @@ fn expand_homedir<P: AsRef<Path>>(path: P) -> std::path::PathBuf {
     }
 }
 
-pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) {
+pub fn process_commands(ctx: &mut RenderContext, commands: &[String]) -> bool {
     for cmd in commands {
-        process_cmd(ctx, &cmd);
+        if !process_cmd(ctx, &cmd) {
+            return false;
+        }
     }
+
+    true
 }
 
-fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
+fn process_cmd(ctx: &mut RenderContext, cmd: &str) -> bool {
     ctx.terminal_prompt.push_str(&format!("(bite) {cmd}\n"));
 
     let mut args = cmd.split_whitespace();
     let cmd_name = match args.next() {
         Some(cmd) => cmd,
-        None => return,
+        None => return true,
     };
 
     if cmd_name == "exec" || cmd_name == "e" {
@@ -74,11 +78,11 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
 
             ctx.start_disassembling(path);
             ctx.terminal_prompt.push_str(&format!("Binary '{unexpanded}' was opened.\n"));
-            return;
+            return true;
         }
 
         ctx.terminal_prompt.push_str(&format!("Command 'exec' requires a path.\n"));
-        return;
+        return true;
     }
 
     if cmd_name == "cd" {
@@ -86,16 +90,16 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
 
         if let Err(err) = std::env::set_current_dir(path) {
             ctx.terminal_prompt.push_str(&format!("Failed to change directory: '{err}'.\n"));
-            return;
+            return true;
         }
 
         print_cwd(ctx);
-        return;
+        return true;
     }
 
     if cmd_name == "pwd" {
         print_cwd(ctx);
-        return;
+        return true;
     }
 
     if cmd_name == "r" || cmd_name == "run" {
@@ -109,12 +113,12 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
             Some(ref path) => path,
             None => {
                 ctx.terminal_prompt.push_str("There are no targets to run.\n");
-                return;
+                return true;
             }
         };
 
         ctx.start_debugging(path.to_path_buf(), args);
-        return;
+        return true;
     }
 
     if cmd_name == "set" {
@@ -122,16 +126,16 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
             Some(pair) => pair,
             None => {
                 ctx.terminal_prompt.push_str("You must specify what env variable to set.\n");
-                return;
+                return true;
             }
         };
 
         std::env::set_var(var, value);
-        return;
+        return true;
     }
 
     if cmd_name == "quit" || cmd_name == "q" {
-        std::process::exit(0);
+        return false;
     }
 
     if cmd_name == "goto" || cmd_name == "g" {
@@ -139,7 +143,7 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
             Some(ref dissasembly) => dissasembly,
             None => {
                 ctx.terminal_prompt.push_str("There are no targets to inspect.\n");
-                return;
+                return true;
             }
         };
 
@@ -147,7 +151,9 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
 
         match crate::expr::parse(&dissasembly.symbols, expr) {
             Ok(addr) => {
-                if ctx.buffers.disassembly_view.jump(dissasembly, addr) {
+                let buffers = &mut ctx.buffers;
+                if buffers.disassembly_view.jump(dissasembly, addr) {
+                    buffers.cached_diss = buffers.disassembly_view.to_tokens();
                     ctx.terminal_prompt.push_str(&format!("Jumped to address '{addr:#X}'.\n"));
                 } else {
                     ctx.terminal_prompt.push_str(&format!("Address '{addr:#X}' is undefined.\n"));
@@ -156,7 +162,7 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
             Err(err) => ctx.terminal_prompt.push_str(&format!("{err:?}.\n")),
         }
 
-        return;
+        return true;
     }
 
     match possible_command(cmd_name) {
@@ -165,4 +171,6 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) {
         )),
         None => ctx.terminal_prompt.push_str(&format!("Command '{cmd_name}' is unknown.\n")),
     }
+
+    true
 }

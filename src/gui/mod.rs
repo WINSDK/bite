@@ -53,6 +53,7 @@ pub enum Error {
     PngDecode,
     PngFormat,
     NotFound(std::path::PathBuf),
+    Exit,
 }
 
 impl fmt::Debug for Error {
@@ -76,6 +77,7 @@ impl fmt::Debug for Error {
             Self::NotFound(path) => {
                 f.write_fmt(format_args!("Failed to find path: '{}'", path.display()))
             }
+            Self::Exit => Ok(())
         }
     }
 }
@@ -143,8 +145,8 @@ pub struct Buffers {
     disassembly: Option<Arc<Disassembly>>,
     pub disassembly_view: DisassemblyView,
 
-    cached_diss_range: std::ops::Range<usize>,
-    cached_diss: Vec<Token>,
+    pub cached_diss_range: std::ops::Range<usize>,
+    pub cached_diss: Vec<Token>,
 
     cached_funcs_range: std::ops::Range<usize>,
     cached_funcs: Vec<Token>,
@@ -168,11 +170,6 @@ impl Buffers {
             Some(ref dissasembly) => dissasembly,
             None => return,
         };
-
-        // this is wrong
-        if !self.disassembly_view.initialized() {
-            self.disassembly_view.jump(disassembly, disassembly.entrypoint);
-        }
 
         if let Some(text) = disassembly.section(self.disassembly_view.addr) {
             let max_width = ui.available_width();
@@ -199,33 +196,37 @@ impl Buffers {
             );
         }
 
-        let total_rows = 1_000_000;
+        let total_rows = 1_000_000_000; // arbitrary
         let row_height = 14.0;
         let font_id = egui::FontId::new(row_height, egui::FontFamily::Monospace);
-        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
+        let area = egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-            let row_count = row_range.end - row_range.start;
-
             if row_range != self.cached_diss_range {
+                let row_count = row_range.end - row_range.start;
+
+                self.disassembly_view.set_max_lines(row_count * 2, disassembly);
+
                 if row_range.start > self.cached_diss_range.start {
-                    let count = row_range.start - self.cached_diss_range.start;
-                    self.disassembly_view.scroll_down(count);
+                    let row_diff = row_range.start - self.cached_diss_range.start;
+                    self.disassembly_view.scroll_down(disassembly, row_diff);
                 }
 
                 if row_range.start < self.cached_diss_range.start {
-                    let count = self.cached_diss_range.start - row_range.start;
-                    self.disassembly_view.scroll_up(count);
+                    let row_diff = self.cached_diss_range.start - row_range.start;
+                    self.disassembly_view.scroll_up(disassembly, row_diff);
                 }
 
-                self.cached_diss = self.disassembly_view.to_tokens(row_count);
+                self.cached_diss = self.disassembly_view.to_tokens();
                 self.cached_diss_range = row_range;
             }
 
-            let tokens = &self.cached_diss[..];
             let mut job = LayoutJob::default();
 
-            for token in tokens {
+            for token in &self.cached_diss {
                 job.append(
                     &token.text,
                     0.0,
@@ -521,8 +522,10 @@ pub fn init() -> Result<(), Error> {
                 platform.update_time(start_time.elapsed().as_secs_f64());
 
                 // draw ui
-                if let Err(err) = backend.redraw(&mut ctx, &mut platform, &mut egui_rpass) {
-                    crate::warning!("{err:?}");
+                match backend.redraw(&mut ctx, &mut platform, &mut egui_rpass) {
+                    Err(Error::Exit) => *control = ControlFlow::Exit,
+                    Err(err) => crate::warning!("{err:?}"),
+                    Ok(()) => {}
                 }
             }
             Event::UserEvent(CustomEvent::CloseRequest) => *control = ControlFlow::Exit,

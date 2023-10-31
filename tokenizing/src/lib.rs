@@ -140,7 +140,7 @@ impl Deref for MaybeStatic {
     #[inline]
     fn deref(&self) -> &Self::Target {
         match self {
-            Self::Dynamic(s) => &s as &str,
+            Self::Dynamic(s) => s as &str,
             Self::Static(s) => s,
         }
     }

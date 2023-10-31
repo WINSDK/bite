@@ -1,4 +1,4 @@
-use object::Object;
+use object::{Object, SectionKind};
 use tokenizing::{colors, ColorScheme, Colors, Token};
 
 use std::fmt;
@@ -59,12 +59,12 @@ impl Block {
         }
 
         for (idx, token) in self.tokens.iter().enumerate() {
-            for jdx in 0..token.text.len() {
+            for (jdx, chr) in token.text.bytes().enumerate() {
                 if line == 0 {
                     return Some((idx, jdx));
                 }
 
-                if token.text.as_bytes()[jdx] == b'\n' {
+                if chr == b'\n' {
                     line -= 1;
                 }
             }
@@ -77,14 +77,34 @@ impl Block {
 pub struct DisassemblyView {
     pub addr: Addr,
 
-    /// +- 50 addr
     blocks: Vec<Block>,
 
     /// Block offset.
     block_offset: usize,
 
-    /// ???
+    /// Offset into block.
+    block_line_offset: usize,
+
+    /// Number of lines since start block.
     line_offset: usize,
+
+    /// Number of lines that make up all blocks.
+    line_count: usize,
+
+    max_lines: usize,
+}
+
+impl fmt::Debug for DisassemblyView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DisassemblyView")
+            .field("addr", &format_args!("{:#X}", self.addr))
+            .field("block_offset", &self.block_offset)
+            .field("block_line_offset", &self.block_line_offset)
+            .field("line_offset", &self.line_offset)
+            .field("line_count", &self.line_count)
+            .field("max_lines", &self.max_lines)
+            .finish()
+    }
 }
 
 impl DisassemblyView {
@@ -93,12 +113,15 @@ impl DisassemblyView {
             addr: 0,
             blocks: Vec::new(),
             block_offset: 0,
+            block_line_offset: 0,
             line_offset: 0,
+            line_count: 0,
+            max_lines: 0,
         }
     }
 
-    pub fn initialized(&self) -> bool {
-        !self.blocks.is_empty()
+    fn first_visable_block(&self) -> &Block {
+        &self.blocks[self.block_offset]
     }
 
     /// Jump to address, returning whether it succeeded.
@@ -112,12 +135,14 @@ impl DisassemblyView {
 
             if let Some(_) = processor.error_by_addr(addr) {
                 self.addr = addr;
+                self.block_line_offset = 0;
                 self.update(disassembly);
                 return true;
             }
 
             if let Some(_) = processor.instruction_by_addr(addr) {
                 self.addr = addr;
+                self.block_line_offset = 0;
                 self.update(disassembly);
                 return true;
             }
@@ -128,12 +153,14 @@ impl DisassemblyView {
 
             if let Some(_) = processor.error_by_addr(addr) {
                 self.addr = addr;
+                self.block_line_offset = 0;
                 self.update(disassembly);
                 return true;
             }
 
             if let Some(_) = processor.instruction_by_addr(addr) {
                 self.addr = addr;
+                self.block_line_offset = 0;
                 self.update(disassembly);
                 return true;
             }
@@ -142,20 +169,44 @@ impl DisassemblyView {
         false
     }
 
+    /// Set's and update's the number of blocks if it changed.
+    pub fn set_max_lines(&mut self, count: usize, disassembly: &Disassembly) {
+        // sometimes scrolling less than one line will still cause a shift in the `row_count`
+        // this prevents that from changing anything
+        if self.max_lines.abs_diff(count) > 1 {
+            log::complex!(
+                w "[disassembly::set_block_size] updating listing window to ",
+                g count.to_string(),
+                w " entries."
+            );
+
+            self.max_lines = count;
+            self.update(disassembly);
+        }
+    }
+
     pub fn update(&mut self, disassembly: &Disassembly) {
-        let (first_addr, last_addr) = (
-            disassembly.processor.sections[0].start,
-            disassembly.processor.sections[disassembly.processor.sections.len() - 1].end,
-        );
+        self.blocks.clear();
+        self.block_offset = 0;
+        self.line_count = 0;
 
-        let mut addr = self.addr;
-        let mut addresses_read = 0usize;
-        let mut blocks = Vec::with_capacity(100);
-        let mut failed_searches = 0;
+        // range of text sections, can be incorrect because there may be data
+        // sections between text sections
+        let (first_addr, last_addr) = {
+            let sections = &disassembly.processor.sections;
+            let start = sections.iter().find(|s| s.kind == SectionKind::Text).unwrap().start;
+            let end = sections.iter().rfind(|s| s.kind == SectionKind::Text).unwrap().end;
 
-        // try to go backwards, reading 50 things
-        while addresses_read < 50 && failed_searches < 1000 {
-            // if there are less than 50 addresses before the current instruction, break
+            (start, end)
+        };
+
+        let mut addr = self.addr.clamp(first_addr, last_addr);
+        let mut lines_read = 0;
+
+        // try to go backwards
+        while lines_read < self.max_lines / 2 {
+            // if there are less than `self.max_lines / 2` lines after
+            // the current instruction, break
             if addr < first_addr {
                 break;
             }
@@ -163,14 +214,11 @@ impl DisassemblyView {
             let mut tokens = Vec::new();
             let mut found_something = false;
             let mut line_count = 0;
+            let addr_of_block = addr;
 
             if let Some(function) = disassembly.symbols.get_by_addr(addr) {
                 tokens.push(Token::from_str("\n<", colors::BLUE));
-
-                for token in function.name() {
-                    tokens.push(token.clone());
-                }
-
+                tokens.extend_from_slice(function.name());
                 tokens.push(Token::from_str(">:\n", colors::BLUE));
 
                 line_count += 2;
@@ -198,7 +246,7 @@ impl DisassemblyView {
 
             if let Some(instruction) = disassembly.processor.instruction_by_addr(addr) {
                 let width = disassembly.processor.instruction_width(&instruction);
-                let stream = disassembly.processor.instruction_stream(&instruction);
+                let instruction = disassembly.processor.instruction_tokens(&instruction);
 
                 tokens.push(Token::from_string(
                     format!("{addr:0>10X}  "),
@@ -210,47 +258,49 @@ impl DisassemblyView {
                     colors::GREEN,
                 ));
 
-                for token in stream.tokens() {
-                    tokens.push(token.clone());
-                }
-
+                tokens.extend(instruction);
                 tokens.push(Token::from_str("\n", colors::WHITE));
 
-                addr = addr.saturating_sub(disassembly.processor.instruction_width(&instruction));
+                addr = addr.saturating_sub(width);
                 found_something = true;
                 line_count += 1;
             }
 
             if !found_something {
                 // failed to read anything, try to go back 4 bytes
-                addr = addr.saturating_sub(4);
-                failed_searches += 1;
-                continue;
+                match addr.checked_sub(4) {
+                    Some(new_addr) => {
+                        addr = new_addr;
+                        continue;
+                    }
+                    // break in case of underflow
+                    None => break,
+                };
             }
 
             // FIXME
-            blocks.insert(
+            self.blocks.insert(
                 0,
                 Block {
-                    addr,
+                    addr: addr_of_block,
                     tokens,
                     line_count,
                 },
             );
-            addresses_read += 1;
+
+            self.block_offset += 1;
+            lines_read += line_count;
         }
 
-        // the block offset is the first block read
-        self.block_offset = addresses_read.saturating_sub(1);
+        // set line offset to the lines read minus the first displayed block
+        self.line_offset = lines_read - self.blocks.last().map_or(0, |b| b.line_count);
 
-        // reset block offset
-        self.line_offset = 0;
+        // set block offset to the first block read
+        self.block_offset = self.block_offset.saturating_sub(1);
 
-        let mut failed_searches = 0;
-
-        // try to go forward, reading 50 things
-        while addresses_read < 100 && failed_searches < 1000 {
-            // if there are less than 50 addresses before the current instruction, break
+        // try to go forward
+        while lines_read < self.max_lines {
+            // if there are less than `self.max_lines` lines in total, break
             if addr > last_addr {
                 break;
             }
@@ -258,6 +308,7 @@ impl DisassemblyView {
             let mut tokens = Vec::new();
             let mut found_something = false;
             let mut line_count = 0;
+            let addr_of_block = addr;
 
             if let Some(function) = disassembly.symbols.get_by_addr(addr) {
                 tokens.push(Token::from_str("\n<", colors::BLUE));
@@ -267,7 +318,6 @@ impl DisassemblyView {
                 }
 
                 tokens.push(Token::from_str(">:\n", colors::BLUE));
-
                 line_count += 2;
             }
 
@@ -293,7 +343,7 @@ impl DisassemblyView {
 
             if let Some(instruction) = disassembly.processor.instruction_by_addr(addr) {
                 let width = disassembly.processor.instruction_width(&instruction);
-                let stream = disassembly.processor.instruction_stream(&instruction);
+                let instruction = disassembly.processor.instruction_tokens(&instruction);
 
                 tokens.push(Token::from_string(
                     format!("{addr:0>10X}  "),
@@ -305,40 +355,39 @@ impl DisassemblyView {
                     colors::GREEN,
                 ));
 
-                for token in stream.tokens() {
-                    tokens.push(token.clone());
-                }
-
+                tokens.extend(instruction);
                 tokens.push(Token::from_str("\n", colors::WHITE));
 
-                addr += disassembly.processor.instruction_width(&instruction);
+                addr += width;
                 found_something = true;
                 line_count += 1;
             }
 
             if !found_something {
-                // failed to read anything, try to go back 4 bytes
+                // failed to read anything, try to go forward 4 bytes
                 addr += 4;
-                failed_searches += 1;
                 continue;
             }
 
-            blocks.push(Block {
-                addr,
+            self.blocks.push(Block {
+                addr: addr_of_block,
                 tokens,
                 line_count,
             });
 
-            addresses_read += 1;
+            lines_read += 1;
         }
 
-        self.blocks = blocks;
+        self.line_count = lines_read;
+        self.addr = self.first_visable_block().addr;
+        dbg!(&self);
     }
 
-    pub fn scroll_up(&mut self, mut lines_to_scroll: usize) {
+    pub fn scroll_up(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
         let mut block_offset = self.block_offset;
-        let mut initial_offset = self.line_offset;
-        let initial_block_offset = block_offset;
+        let mut initial_offset = self.block_line_offset;
+
+        dbg!(&self);
 
         loop {
             let block = &self.blocks[block_offset];
@@ -346,13 +395,11 @@ impl DisassemblyView {
 
             // if our cursor fits in the block
             if lines_to_scroll < lines_left_in_block {
-                let line_offset = block.line_count - 1 - lines_to_scroll;
-
-                // if we're in the same block, just decrement the offset into the block
-                if block_offset == initial_block_offset {
-                    self.line_offset = line_offset - initial_offset;
+                if block_offset == self.block_offset {
+                    // if we're in the same block, just decrement the offset into the block
+                    self.block_line_offset -= lines_to_scroll;
                 } else {
-                    self.line_offset = line_offset;
+                    self.block_line_offset = block.line_count - 1 - lines_to_scroll;
                 }
 
                 self.block_offset = block_offset;
@@ -363,51 +410,54 @@ impl DisassemblyView {
             block_offset -= 1;
             lines_to_scroll -= lines_left_in_block;
             initial_offset = 0;
+
+            self.line_offset -= block.line_count;
         }
     }
 
-    pub fn scroll_down(&mut self, mut lines_to_scroll: usize) {
-        let mut block_offset = self.block_offset;
-        let mut initial_offset = self.line_offset;
-        let initial_block_offset = block_offset;
+    pub fn scroll_down(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
+        let block = self.first_visable_block();
+        let lines_left_in_block = block.line_count - self.block_line_offset;
+
+        if lines_to_scroll < lines_left_in_block {
+            // if we're in the same block, just increment the offset into the block
+            self.block_line_offset += lines_to_scroll;
+            dbg!(&self);
+            return;
+        }
 
         loop {
-            let block = &self.blocks[block_offset];
-            let lines_left_in_block = block.line_count - initial_offset;
+            let block = self.first_visable_block();
+            let lines_left_in_block = block.line_count - self.block_line_offset;
 
             // if our cursor fits in the block
             if lines_to_scroll < lines_left_in_block {
-                // if we're in the same block, just increment the offset into the block
-                if block_offset == initial_block_offset {
-                    self.line_offset = initial_offset + lines_to_scroll;
-                } else {
-                    self.line_offset = lines_to_scroll;
-                }
-
-                self.block_offset = block_offset;
                 self.addr = block.addr;
+                self.block_line_offset = lines_to_scroll;
+                dbg!(&self);
                 return;
             }
 
-            block_offset += 1;
             lines_to_scroll -= lines_left_in_block;
-            initial_offset = 0;
+
+            self.line_offset += block.line_count;
+            self.block_line_offset = 0;
         }
     }
 
-    pub fn to_tokens(&self, row_count: usize) -> Vec<Token> {
+    pub fn to_tokens(&self) -> Vec<Token> {
         let mut tokens = Vec::new();
-        let mut rows_to_add = row_count;
+        let mut rows_to_add = self.max_lines / 2;
 
-        let block = &self.blocks[self.block_offset];
-        let (token_offset, char_offset) = block.with_offset(self.line_offset).unwrap();
+        let block = self.first_visable_block();
+        let (token_offset, char_offset) = block.with_offset(self.block_line_offset).unwrap();
 
         tokens.push(Token::from_string(
             block.tokens[token_offset].text[char_offset..].to_string(),
             block.tokens[token_offset].color,
         ));
 
-        for token in block.tokens.iter().skip(token_offset + 1) {
+        for token in block.tokens[token_offset + 1..].iter() {
             tokens.push(token.clone());
         }
 
@@ -417,41 +467,10 @@ impl DisassemblyView {
                     return tokens;
                 }
 
+                tokens.push(token.clone());
+
                 let newlines = token.text.chars().filter(|&c| c == '\n').count();
-
-                // if there are no newlines, don't do anything special
-                if newlines == 0 {
-                    tokens.push(token.clone());
-                    continue;
-                }
-
-                // one newline is simple
-                if newlines == 1 {
-                    rows_to_add -= 1;
-                    tokens.push(token.clone());
-                    continue;
-                }
-
-                // if we aren't overflowing
-                if newlines <= rows_to_add {
-                    rows_to_add -= newlines;
-                    tokens.push(token.clone());
-                    continue;
-                }
-
-                let (idx, _) = token
-                    .text
-                    .char_indices()
-                    .filter(|&(_, c)| c == '\n')
-                    .skip(rows_to_add)
-                    .next()
-                    .unwrap();
-
-                rows_to_add = 0;
-                tokens.push(Token::from_string(
-                    token.text[..idx].to_string(),
-                    token.color,
-                ));
+                rows_to_add = rows_to_add.saturating_sub(newlines);
             }
         }
 
@@ -528,7 +547,12 @@ impl Disassembly {
         // TODO: refactor disassembly process to not just work on executables
         //       and handle all text sections of any object
         let entrypoint = obj.entry();
-        log::notify!("[disassembly::parse] entrypoint {entrypoint:#X}.");
+
+        log::complex!(
+            w "[disassembly::parse] entrypoint ",
+            g format!("{entrypoint:#X}"),
+            w ".",
+        );
 
         let mut index = symbols::Index::new();
 
@@ -544,10 +568,11 @@ impl Disassembly {
         processor.recurse(&index);
         show_donut.store(false, Ordering::Relaxed);
 
-        log::notify!(
-            "[disassembly::parse] took {:#?} to parse {:?}.",
-            now.elapsed(),
-            path.as_ref()
+        log::complex!(
+            w "[disassembly::parse] took ",
+            y format!("{:#?}", now.elapsed()),
+            w " to parse ",
+            w format!("{:?}.", path.as_ref())
         );
 
         Ok(Self {
