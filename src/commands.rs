@@ -153,7 +153,7 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) -> bool {
             Ok(addr) => {
                 let buffers = &mut ctx.buffers;
                 if buffers.disassembly_view.jump(dissasembly, addr) {
-                    buffers.cached_diss = buffers.disassembly_view.to_tokens();
+                    buffers.cached_diss = buffers.disassembly_view.format();
                     ctx.terminal_prompt.push_str(&format!("Jumped to address '{addr:#X}'.\n"));
                 } else {
                     ctx.terminal_prompt.push_str(&format!("Address '{addr:#X}' is undefined.\n"));

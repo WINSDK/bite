@@ -214,22 +214,21 @@ impl<const N: usize> Logger<N> {
         self.head = 0;
     }
 
-    fn lines(&self) -> (&[Line], &[Line]) {
-        if self.len < N {
-            (&self.lines[0..self.len], &[])
+    fn lines(&self) -> impl Iterator<Item = &Line> {
+        let (a, b) = if self.len < N {
+            (Default::default(), &self.lines[..self.len])
         } else {
             // wrapped around, so we need to return two slices
-            let (a, b) = self.lines.split_at(self.head);
+            self.lines.split_at(self.head)
+        };
 
-            (b, a)
-        }
+        b.iter().chain(a)
     }
 
     pub fn format(&self) -> LayoutJob {
         let mut layout = LayoutJob::default();
-        let lines = self.lines();
 
-        for (line, color) in lines.0.iter().chain(lines.1) {
+        for (line, color) in self.lines() {
             layout.append(
                 line,
                 0.0,

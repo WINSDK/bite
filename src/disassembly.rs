@@ -1,5 +1,8 @@
+use egui::text::LayoutJob;
 use object::{Object, SectionKind};
 use tokenizing::{colors, ColorScheme, Colors, Token};
+
+use crate::gui::tokens_to_layoutjob;
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -91,6 +94,7 @@ pub struct DisassemblyView {
     /// Number of lines that make up all blocks.
     line_count: usize,
 
+    /// Line's being displayed * 2.
     max_lines: usize,
 }
 
@@ -120,7 +124,7 @@ impl DisassemblyView {
         }
     }
 
-    fn first_visable_block(&self) -> &Block {
+    fn first_visible_block(&self) -> &Block {
         &self.blocks[self.block_offset]
     }
 
@@ -173,7 +177,7 @@ impl DisassemblyView {
     pub fn set_max_lines(&mut self, count: usize, disassembly: &Disassembly) {
         // sometimes scrolling less than one line will still cause a shift in the `row_count`
         // this prevents that from changing anything
-        if self.max_lines.abs_diff(count) > 1 {
+        if self.max_lines.abs_diff(count) > 2 {
             log::complex!(
                 w "[disassembly::set_block_size] updating listing window to ",
                 g count.to_string(),
@@ -379,77 +383,80 @@ impl DisassemblyView {
         }
 
         self.line_count = lines_read;
-        self.addr = self.first_visable_block().addr;
+        self.addr = self.first_visible_block().addr;
         dbg!(&self);
     }
 
     pub fn scroll_up(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        let mut block_offset = self.block_offset;
-        let mut initial_offset = self.block_line_offset;
-
-        dbg!(&self);
-
-        loop {
-            let block = &self.blocks[block_offset];
-            let lines_left_in_block = block.line_count - initial_offset;
-
-            // if our cursor fits in the block
-            if lines_to_scroll < lines_left_in_block {
-                if block_offset == self.block_offset {
-                    // if we're in the same block, just decrement the offset into the block
-                    self.block_line_offset -= lines_to_scroll;
-                } else {
-                    self.block_line_offset = block.line_count - 1 - lines_to_scroll;
-                }
-
-                self.block_offset = block_offset;
-                self.addr = block.addr;
-                return;
-            }
-
-            block_offset -= 1;
-            lines_to_scroll -= lines_left_in_block;
-            initial_offset = 0;
-
-            self.line_offset -= block.line_count;
-        }
-    }
-
-    pub fn scroll_down(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        let block = self.first_visable_block();
+        let block = self.first_visible_block();
         let lines_left_in_block = block.line_count - self.block_line_offset;
 
         if lines_to_scroll < lines_left_in_block {
             // if we're in the same block, just increment the offset into the block
-            self.block_line_offset += lines_to_scroll;
+            self.block_line_offset -= lines_to_scroll;
+            self.line_offset = self.line_offset.saturating_sub(lines_to_scroll);
             dbg!(&self);
             return;
         }
 
         loop {
-            let block = self.first_visable_block();
+            let block = self.first_visible_block();
             let lines_left_in_block = block.line_count - self.block_line_offset;
+            let block_line_offset = block.line_count.saturating_sub(lines_to_scroll);
 
             // if our cursor fits in the block
             if lines_to_scroll < lines_left_in_block {
                 self.addr = block.addr;
-                self.block_line_offset = lines_to_scroll;
+                self.block_line_offset = block_line_offset;
                 dbg!(&self);
                 return;
             }
 
             lines_to_scroll -= lines_left_in_block;
 
-            self.line_offset += block.line_count;
+            self.line_offset = self.line_offset.saturating_sub(lines_left_in_block);
+            self.block_offset = self.block_offset.saturating_sub(1);
             self.block_line_offset = 0;
         }
     }
 
-    pub fn to_tokens(&self) -> Vec<Token> {
+    pub fn scroll_down(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
+        let block = self.first_visible_block();
+        let lines_left_in_block = block.line_count - self.block_line_offset;
+
+        if lines_to_scroll < lines_left_in_block {
+            // if we're in the same block, just increment the offset into the block
+            self.block_line_offset += lines_to_scroll;
+            self.line_offset += lines_to_scroll;
+            dbg!(&self);
+            return;
+        }
+
+        loop {
+            let block = self.first_visible_block();
+            let lines_left_in_block = block.line_count - self.block_line_offset;
+
+            // if our cursor fits in the block
+            if lines_to_scroll < lines_left_in_block {
+                self.addr = block.addr;
+                self.block_line_offset = self.block_line_offset + lines_to_scroll;
+                dbg!(&self);
+                return;
+            }
+
+            lines_to_scroll -= lines_left_in_block;
+
+            self.line_offset += lines_left_in_block;
+            self.block_offset += 1;
+            self.block_line_offset = 0;
+        }
+    }
+
+    pub fn format(&self) -> LayoutJob {
         let mut tokens = Vec::new();
         let mut rows_to_add = self.max_lines / 2;
 
-        let block = self.first_visable_block();
+        let block = self.first_visible_block();
         let (token_offset, char_offset) = block.with_offset(self.block_line_offset).unwrap();
 
         tokens.push(Token::from_string(
@@ -464,7 +471,7 @@ impl DisassemblyView {
         for block in self.blocks.iter().skip(self.block_offset + 1) {
             for token in block.tokens.iter() {
                 if rows_to_add == 0 {
-                    return tokens;
+                    break;
                 }
 
                 tokens.push(token.clone());
@@ -474,7 +481,7 @@ impl DisassemblyView {
             }
         }
 
-        tokens
+        tokens_to_layoutjob(tokens)
     }
 }
 
@@ -498,8 +505,8 @@ impl Disassembly {
             .map(|s| &s.name as &str)
     }
 
-    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
-        let mut text: Vec<Token> = Vec::new();
+    pub fn functions(&self, range: std::ops::Range<usize>) -> LayoutJob {
+        let mut tokens: Vec<Token> = Vec::new();
 
         let lines_to_read = range.end - range.start;
         let lines = self
@@ -511,22 +518,22 @@ impl Disassembly {
 
         // for each instruction
         for (addr, symbol) in lines {
-            text.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
-            text.push(Token::from_str(" | ", colors::WHITE));
+            tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
+            tokens.push(Token::from_str(" | ", colors::WHITE));
 
             if let Some(module) = symbol.module() {
-                text.push(module);
-                text.push(Token::from_str("!", Colors::brackets()));
+                tokens.push(module);
+                tokens.push(Token::from_str("!", Colors::brackets()));
             }
 
             for token in symbol.name() {
-                text.push(token.clone());
+                tokens.push(token.clone());
             }
 
-            text.push(Token::from_str("\n", colors::WHITE));
+            tokens.push(Token::from_str("\n", colors::WHITE));
         }
 
-        text
+        tokens_to_layoutjob(tokens)
     }
 
     pub fn parse<P: AsRef<std::path::Path>>(

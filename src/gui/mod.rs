@@ -19,7 +19,7 @@ use crate::disassembly::{Disassembly, DisassemblyView};
 use crate::terminal::Terminal;
 use backend::Backend;
 use debugger::{Debugger, Process};
-use egui::{Button, RichText};
+use egui::{Button, RichText, FontId};
 use egui_backend::Pipeline;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
 
@@ -32,6 +32,8 @@ use std::time::Instant;
 
 pub static WINDOW: OnceCell<Arc<winit::window::Window>> = OnceCell::new();
 pub static STYLE: Lazy<style::Style> = Lazy::new(style::Style::default);
+
+const LIST_FONT: FontId = egui::FontId::new(14.0, egui::FontFamily::Monospace);
 
 const WIDTH: u32 = 1200;
 const HEIGHT: u32 = 800;
@@ -80,6 +82,24 @@ impl fmt::Debug for Error {
             Self::Exit => Ok(())
         }
     }
+}
+
+pub fn tokens_to_layoutjob(tokens: Vec<Token>) -> LayoutJob {
+    let mut job = LayoutJob::default();
+
+    for token in tokens {
+        job.append(
+            &token.text,
+            0.0,
+            egui::TextFormat {
+                font_id: LIST_FONT,
+                color: token.color,
+                ..Default::default()
+            },
+        );
+    }
+
+    job
 }
 
 pub struct RenderContext {
@@ -146,10 +166,10 @@ pub struct Buffers {
     pub disassembly_view: DisassemblyView,
 
     pub cached_diss_range: std::ops::Range<usize>,
-    pub cached_diss: Vec<Token>,
+    pub cached_diss: LayoutJob,
 
     cached_funcs_range: std::ops::Range<usize>,
-    cached_funcs: Vec<Token>,
+    cached_funcs: LayoutJob,
 }
 
 impl Buffers {
@@ -159,9 +179,9 @@ impl Buffers {
             disassembly: None,
             disassembly_view: DisassemblyView::new(),
             cached_diss_range: std::ops::Range { start: 0, end: 0 },
-            cached_diss: Vec::new(),
+            cached_diss: LayoutJob::default(),
             cached_funcs_range: std::ops::Range { start: 0, end: 0 },
-            cached_funcs: Vec::new(),
+            cached_funcs: LayoutJob::default(),
         }
     }
 
@@ -191,54 +211,59 @@ impl Buffers {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 text,
-                egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                LIST_FONT,
                 egui::Color32::WHITE,
             );
         }
 
-        let total_rows = 1_000_000_000; // arbitrary
-        let row_height = 14.0;
-        let font_id = egui::FontId::new(row_height, egui::FontFamily::Monospace);
+        let spacing = ui.spacing().item_spacing;
+        let row_height_with_spacing = LIST_FONT.size + spacing.y;
+
         let area = egui::ScrollArea::both()
             .auto_shrink([false, false])
             .drag_to_scroll(false)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
-        area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-            if row_range != self.cached_diss_range {
-                let row_count = row_range.end - row_range.start;
+        area.show_viewport(ui, |ui, viewport| {
+            let min_row = (viewport.min.y / row_height_with_spacing).floor() as usize;
+            let max_row = (viewport.max.y / row_height_with_spacing).ceil() as usize + 1;
 
-                self.disassembly_view.set_max_lines(row_count * 2, disassembly);
+            let y_min = ui.max_rect().top() + min_row as f32 * row_height_with_spacing;
+            let y_max = ui.max_rect().top() + max_row as f32 * row_height_with_spacing;
 
-                if row_range.start > self.cached_diss_range.start {
-                    let row_diff = row_range.start - self.cached_diss_range.start;
-                    self.disassembly_view.scroll_down(disassembly, row_diff);
+            let rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+
+            ui.allocate_ui_at_rect(rect, |ui| {
+                ui.skip_ahead_auto_ids(min_row);
+
+                if (min_row..max_row) != self.cached_diss_range {
+                    let row_count = max_row - min_row;
+                    self.disassembly_view.set_max_lines(row_count * 2, disassembly);
+
+                    // initial rendering of listing
+                    if min_row == 0 {
+                        self.cached_diss = self.disassembly_view.format();
+                        self.cached_diss_range = min_row..max_row;
+                    }
                 }
 
-                if row_range.start < self.cached_diss_range.start {
-                    let row_diff = self.cached_diss_range.start - row_range.start;
-                    self.disassembly_view.scroll_up(disassembly, row_diff);
+                if min_row != self.cached_diss_range.start {
+                    if min_row > self.cached_diss_range.start {
+                        let row_diff = min_row - self.cached_diss_range.start;
+                        self.disassembly_view.scroll_down(disassembly, row_diff);
+                    }
+
+                    if min_row < self.cached_diss_range.start {
+                        let row_diff = self.cached_diss_range.start - min_row;
+                        self.disassembly_view.scroll_up(disassembly, row_diff);
+                    }
+
+                    self.cached_diss = self.disassembly_view.format();
+                    self.cached_diss_range = min_row..max_row;
                 }
 
-                self.cached_diss = self.disassembly_view.to_tokens();
-                self.cached_diss_range = row_range;
-            }
-
-            let mut job = LayoutJob::default();
-
-            for token in &self.cached_diss {
-                job.append(
-                    &token.text,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: font_id.clone(),
-                        color: token.color,
-                        ..Default::default()
-                    },
-                );
-            }
-
-            ui.label(job);
+                ui.label(self.cached_diss.clone());
+            });
         });
     }
 
@@ -259,25 +284,7 @@ impl Buffers {
                 self.cached_funcs = dissasembly.functions(row_range);
             }
 
-            let tokens = &self.cached_funcs[..];
-            let mut job = LayoutJob::default();
-
-            for token in tokens {
-                job.append(
-                    &token.text,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: egui::FontId {
-                            size: 12.0,
-                            family: egui::FontFamily::Monospace,
-                        },
-                        color: token.color,
-                        ..Default::default()
-                    },
-                );
-            }
-
-            ui.label(job);
+            ui.label(self.cached_funcs.clone());
         });
     }
 
