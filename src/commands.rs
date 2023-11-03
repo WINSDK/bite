@@ -151,9 +151,7 @@ fn process_cmd(ctx: &mut RenderContext, cmd: &str) -> bool {
 
         match crate::expr::parse(&dissasembly.symbols, expr) {
             Ok(addr) => {
-                let buffers = &mut ctx.buffers;
-                if buffers.disassembly_view.jump(dissasembly, addr) {
-                    buffers.cached_diss = buffers.disassembly_view.format();
+                if ctx.buffers.listing_jump(addr) {
                     ctx.terminal_prompt.push_str(&format!("Jumped to address '{addr:#X}'.\n"));
                 } else {
                     ctx.terminal_prompt.push_str(&format!("Address '{addr:#X}' is undefined.\n"));

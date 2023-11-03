@@ -124,10 +124,6 @@ impl DisassemblyView {
         }
     }
 
-    fn first_visible_block(&self) -> &Block {
-        &self.blocks[self.block_offset]
-    }
-
     /// Jump to address, returning whether it succeeded.
     ///
     /// Try an address range of +- 32 bytes.
@@ -383,80 +379,74 @@ impl DisassemblyView {
         }
 
         self.line_count = lines_read;
-        self.addr = self.first_visible_block().addr;
-        dbg!(&self);
+        self.addr = self.blocks[self.block_offset].addr;
     }
 
     pub fn scroll_up(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        let block = self.first_visible_block();
-        let lines_left_in_block = block.line_count - self.block_line_offset;
-
-        if lines_to_scroll < lines_left_in_block {
-            // if we're in the same block, just increment the offset into the block
-            self.block_line_offset -= lines_to_scroll;
-            self.line_offset = self.line_offset.saturating_sub(lines_to_scroll);
-            dbg!(&self);
+        // check if there are any lines left to scroll up
+        if lines_to_scroll > self.line_offset {
             return;
         }
 
-        loop {
-            let block = self.first_visible_block();
-            let lines_left_in_block = block.line_count - self.block_line_offset;
-            let block_line_offset = block.line_count.saturating_sub(lines_to_scroll);
+        while lines_to_scroll > 0 {
+            let remaining_lines = self.block_line_offset + 1;
 
-            // if our cursor fits in the block
-            if lines_to_scroll < lines_left_in_block {
-                self.addr = block.addr;
-                self.block_line_offset = block_line_offset;
-                dbg!(&self);
-                return;
+            // check if we're at the final block (first line)
+            if lines_to_scroll < remaining_lines {
+                self.block_line_offset -= lines_to_scroll;
+                self.line_offset -= lines_to_scroll;
+                break;
             }
 
-            lines_to_scroll -= lines_left_in_block;
+            lines_to_scroll -= remaining_lines;
 
-            self.line_offset = self.line_offset.saturating_sub(lines_left_in_block);
-            self.block_offset = self.block_offset.saturating_sub(1);
-            self.block_line_offset = 0;
+            if self.block_offset > 0 {
+                self.block_offset -= 1;
+                self.block_line_offset = self.blocks[self.block_offset].line_count - 1;
+            } else {
+                self.block_line_offset = 0;
+            }
+
+            self.line_offset -= remaining_lines;
         }
+
+        self.addr = self.blocks[self.block_offset].addr;
+        dbg!(&self);
     }
 
     pub fn scroll_down(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        let block = self.first_visible_block();
-        let lines_left_in_block = block.line_count - self.block_line_offset;
-
-        if lines_to_scroll < lines_left_in_block {
-            // if we're in the same block, just increment the offset into the block
-            self.block_line_offset += lines_to_scroll;
-            self.line_offset += lines_to_scroll;
-            dbg!(&self);
+        // check if there are any lines left to scroll
+        if self.line_offset + lines_to_scroll > self.line_count {
             return;
         }
 
-        loop {
-            let block = self.first_visible_block();
-            let lines_left_in_block = block.line_count - self.block_line_offset;
+        while lines_to_scroll > 0 {
+            let block = &self.blocks[self.block_offset];
+            let remaining_lines = block.line_count - self.block_line_offset;
 
-            // if our cursor fits in the block
-            if lines_to_scroll < lines_left_in_block {
-                self.addr = block.addr;
-                self.block_line_offset = self.block_line_offset + lines_to_scroll;
-                dbg!(&self);
-                return;
+            // check if we're at the final block (first line)
+            if lines_to_scroll < remaining_lines {
+                self.block_line_offset += lines_to_scroll;
+                self.line_offset += lines_to_scroll;
+                break;
             }
 
-            lines_to_scroll -= lines_left_in_block;
+            lines_to_scroll -= remaining_lines;
 
-            self.line_offset += lines_left_in_block;
             self.block_offset += 1;
             self.block_line_offset = 0;
+            self.line_offset += remaining_lines;
         }
+
+        self.addr = self.blocks[self.block_offset].addr;
+        dbg!(&self);
     }
 
     pub fn format(&self) -> LayoutJob {
         let mut tokens = Vec::new();
         let mut rows_to_add = self.max_lines / 2;
 
-        let block = self.first_visible_block();
+        let block = &self.blocks[self.block_offset];
         let (token_offset, char_offset) = block.with_offset(self.block_line_offset).unwrap();
 
         tokens.push(Token::from_string(

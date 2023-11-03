@@ -163,13 +163,15 @@ enum TabKind {
 pub struct Buffers {
     mapping: HashMap<Title, TabKind>,
     disassembly: Option<Arc<Disassembly>>,
-    pub disassembly_view: DisassemblyView,
+    disassembly_view: DisassemblyView,
 
-    pub cached_diss_range: std::ops::Range<usize>,
-    pub cached_diss: LayoutJob,
+    diss_text: LayoutJob,
+    diss_min_row: usize,
+    diss_max_row: usize,
 
-    cached_funcs_range: std::ops::Range<usize>,
-    cached_funcs: LayoutJob,
+    funcs_text: LayoutJob,
+    funcs_min_row: usize,
+    funcs_max_row: usize,
 }
 
 impl Buffers {
@@ -178,11 +180,27 @@ impl Buffers {
             mapping,
             disassembly: None,
             disassembly_view: DisassemblyView::new(),
-            cached_diss_range: std::ops::Range { start: 0, end: 0 },
-            cached_diss: LayoutJob::default(),
-            cached_funcs_range: std::ops::Range { start: 0, end: 0 },
-            cached_funcs: LayoutJob::default(),
+            diss_text: LayoutJob::default(),
+            diss_min_row: 0,
+            diss_max_row: 0,
+            funcs_text: LayoutJob::default(),
+            funcs_min_row: 0,
+            funcs_max_row: 0,
         }
+    }
+
+    pub fn listing_jump(&mut self, addr: usize) -> bool {
+        let disassembly = match self.disassembly {
+            Some(ref dissasembly) => dissasembly,
+            None => return false,
+        };
+
+        if !self.disassembly_view.jump(disassembly, addr) {
+            return false;
+        }
+
+        self.diss_text = self.disassembly_view.format();
+        true
     }
 
     fn show_listing(&mut self, ui: &mut egui::Ui) {
@@ -236,33 +254,35 @@ impl Buffers {
             ui.allocate_ui_at_rect(rect, |ui| {
                 ui.skip_ahead_auto_ids(min_row);
 
-                if (min_row..max_row) != self.cached_diss_range {
+                if (min_row..max_row) != (self.diss_min_row..self.diss_min_row) {
                     let row_count = max_row - min_row;
                     self.disassembly_view.set_max_lines(row_count * 2, disassembly);
 
                     // initial rendering of listing
                     if min_row == 0 {
-                        self.cached_diss = self.disassembly_view.format();
-                        self.cached_diss_range = min_row..max_row;
+                        self.diss_text = self.disassembly_view.format();
+                        self.diss_min_row = min_row;
+                        self.diss_max_row = max_row;
                     }
                 }
 
-                if min_row != self.cached_diss_range.start {
-                    if min_row > self.cached_diss_range.start {
-                        let row_diff = min_row - self.cached_diss_range.start;
+                if min_row != self.diss_min_row {
+                    if min_row > self.diss_min_row {
+                        let row_diff = min_row - self.diss_min_row;
                         self.disassembly_view.scroll_down(disassembly, row_diff);
                     }
 
-                    if min_row < self.cached_diss_range.start {
-                        let row_diff = self.cached_diss_range.start - min_row;
+                    if min_row < self.diss_min_row {
+                        let row_diff = self.diss_min_row - min_row;
                         self.disassembly_view.scroll_up(disassembly, row_diff);
                     }
 
-                    self.cached_diss = self.disassembly_view.format();
-                    self.cached_diss_range = min_row..max_row;
+                    self.diss_text = self.disassembly_view.format();
+                    self.diss_min_row = min_row;
+                    self.diss_max_row = max_row;
                 }
 
-                ui.label(self.cached_diss.clone());
+                ui.label(self.diss_text.clone());
             });
         });
     }
@@ -280,11 +300,11 @@ impl Buffers {
         let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
 
         area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-            if row_range != self.cached_funcs_range {
-                self.cached_funcs = dissasembly.functions(row_range);
+            if row_range != (self.funcs_min_row..self.funcs_max_row) {
+                self.funcs_text = dissasembly.functions(row_range);
             }
 
-            ui.label(self.cached_funcs.clone());
+            ui.label(self.funcs_text.clone());
         });
     }
 
