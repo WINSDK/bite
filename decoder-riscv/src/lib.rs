@@ -2,10 +2,10 @@
 
 mod tests;
 
+use decoder::{Error, ErrorKind};
 use once_cell::sync::Lazy;
 use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
-use decoder::{ErrorKind, Error};
 
 macro_rules! operands {
     [] => {([$crate::Operand::Nothing; 3], 0)};

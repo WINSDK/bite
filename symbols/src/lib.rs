@@ -407,7 +407,7 @@ impl Index {
 
         match search {
             Ok(idx) => Some(self.tree[idx].1.clone()),
-            Err(..) => None
+            Err(..) => None,
         }
     }
 

@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 pub use crate::MemoryAccessSize;
 
-use decoder::{Decodable, Reader, ToTokens, Xref, Error, ErrorKind};
+use decoder::{Decodable, Error, ErrorKind, Reader, ToTokens, Xref};
 use tokenizing::{ColorScheme, Colors};
 
 /// an `x86_64` register, including its number and type. if `fmt` is enabled, name too.
@@ -6146,7 +6146,11 @@ fn read_sib_disp(words: &mut Reader, modbits: u8, sibbyte: u8) -> Result<i32, Er
 
 #[allow(non_snake_case)]
 #[inline(always)]
-fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, ErrorKind> {
+fn read_sib(
+    words: &mut Reader,
+    instr: &mut Instruction,
+    modrm: u8,
+) -> Result<OperandSpec, ErrorKind> {
     let modbits = modrm >> 6;
     let sibbyte = words.next().ok_or(ErrorKind::ExhaustedInput)?;
     instr.regs[1].num |= sibbyte & 7;
@@ -6204,7 +6208,11 @@ fn read_sib(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<Op
 
 #[allow(non_snake_case)]
 #[inline(always)]
-fn read_M(words: &mut Reader, instr: &mut Instruction, modrm: u8) -> Result<OperandSpec, ErrorKind> {
+fn read_M(
+    words: &mut Reader,
+    instr: &mut Instruction,
+    modrm: u8,
+) -> Result<OperandSpec, ErrorKind> {
     let modbits = modrm >> 6;
     let mmm = modrm & 7;
     let op_spec = if mmm == 4 {
@@ -6954,7 +6962,11 @@ fn read_opc_hotpath(
 }
 
 #[inline(always)]
-fn read(decoder: &Decoder, words: &mut Reader, instruction: &mut Instruction) -> Result<(), ErrorKind> {
+fn read(
+    decoder: &Decoder,
+    words: &mut Reader,
+    instruction: &mut Instruction,
+) -> Result<(), ErrorKind> {
     words.mark();
     let mut nextb = words.next().ok_or(ErrorKind::ExhaustedInput)?;
     let mut next_rec = OPCODES[nextb as usize];

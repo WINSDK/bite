@@ -19,7 +19,7 @@ use crate::disassembly::{Disassembly, DisassemblyView};
 use crate::terminal::Terminal;
 use backend::Backend;
 use debugger::{Debugger, Process};
-use egui::{Button, RichText, FontId};
+use egui::{Button, FontId, RichText};
 use egui_backend::Pipeline;
 use winit_backend::{CustomEvent, Platform, PlatformDescriptor};
 
@@ -79,7 +79,7 @@ impl fmt::Debug for Error {
             Self::NotFound(path) => {
                 f.write_fmt(format_args!("Failed to find path: '{}'", path.display()))
             }
-            Self::Exit => Ok(())
+            Self::Exit => Ok(()),
         }
     }
 }
@@ -236,7 +236,6 @@ impl Buffers {
 
         let spacing = ui.spacing().item_spacing;
         let row_height_with_spacing = LIST_FONT.size + spacing.y;
-
         let area = egui::ScrollArea::both()
             .auto_shrink([false, false])
             .drag_to_scroll(false)
@@ -248,6 +247,10 @@ impl Buffers {
 
             let y_min = ui.max_rect().top() + min_row as f32 * row_height_with_spacing;
             let y_max = ui.max_rect().top() + max_row as f32 * row_height_with_spacing;
+
+            ui.set_height(
+                row_height_with_spacing * self.diss_text.text.lines().count() as f32 - spacing.y,
+            );
 
             let rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
 

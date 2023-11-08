@@ -120,9 +120,8 @@ impl Backend {
         if events_processed > 0 {
             // if a goto command is being run, start performing the autocomplete
             if let Some(("g" | "goto", arg)) = ctx.terminal.current_line().split_once(' ') {
-                dbg!(arg);
                 if let Some(ref dissasembly) = ctx.dissasembly {
-                    dbg!(crate::expr::parse(&dissasembly.symbols, arg));
+                    let _ = dbg!(crate::expr::parse(&dissasembly.symbols, arg));
                 }
             }
 

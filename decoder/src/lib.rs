@@ -16,7 +16,7 @@ impl Error {
     pub fn new(kind: ErrorKind, size: usize) -> Self {
         Self {
             kind,
-            size: size as u8
+            size: size as u8,
         }
     }
 

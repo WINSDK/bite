@@ -131,7 +131,10 @@ pub(crate) fn three_byte_vex(
     read_vex_instruction(m, words, instruction, p)
 }
 
-pub(crate) fn two_byte_vex(words: &mut Reader, instruction: &mut Instruction) -> Result<(), ErrorKind> {
+pub(crate) fn two_byte_vex(
+    words: &mut Reader,
+    instruction: &mut Instruction,
+) -> Result<(), ErrorKind> {
     let vex_byte = words.next().ok_or(ErrorKind::ExhaustedInput)?;
     let p = vex_byte & 0x03;
     let p = match p {

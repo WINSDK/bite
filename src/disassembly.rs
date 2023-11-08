@@ -188,7 +188,6 @@ impl DisassemblyView {
     pub fn update(&mut self, disassembly: &Disassembly) {
         self.blocks.clear();
         self.block_offset = 0;
-        self.line_count = 0;
 
         // range of text sections, can be incorrect because there may be data
         // sections between text sections
@@ -200,12 +199,12 @@ impl DisassemblyView {
             (start, end)
         };
 
-        let mut addr = self.addr.clamp(first_addr, last_addr);
+        let mut addr = self.addr;
         let mut lines_read = 0;
 
         // try to go backwards
         while lines_read < self.max_lines / 2 {
-            // if there are less than `self.max_lines / 2` lines after
+            // if there are less than `self.max_lines` lines before
             // the current instruction, break
             if addr < first_addr {
                 break;
@@ -278,25 +277,14 @@ impl DisassemblyView {
                 };
             }
 
-            // FIXME
-            self.blocks.insert(
-                0,
-                Block {
-                    addr: addr_of_block,
-                    tokens,
-                    line_count,
-                },
-            );
+            self.blocks.push(Block {
+                addr: addr_of_block,
+                tokens,
+                line_count,
+            });
 
-            self.block_offset += 1;
             lines_read += line_count;
         }
-
-        // set line offset to the lines read minus the first displayed block
-        self.line_offset = lines_read - self.blocks.last().map_or(0, |b| b.line_count);
-
-        // set block offset to the first block read
-        self.block_offset = self.block_offset.saturating_sub(1);
 
         // try to go forward
         while lines_read < self.max_lines {
@@ -375,18 +363,26 @@ impl DisassemblyView {
                 line_count,
             });
 
-            lines_read += 1;
+            lines_read += line_count;
         }
+
+        self.blocks.sort_unstable_by_key(|b| b.addr);
 
         self.line_count = lines_read;
+
+        // set block offset to the first same addr
+        self.block_offset = self.blocks.iter().position(|b| b.addr == self.addr).unwrap_or(0);
         self.addr = self.blocks[self.block_offset].addr;
+
+        // set line offset to the lines read minus the first displayed block
+        self.line_offset = self.blocks.iter().take(self.block_offset).map(|b| b.line_count).sum();
     }
 
-    pub fn scroll_up(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        // check if there are any lines left to scroll up
-        if lines_to_scroll > self.line_offset {
-            return;
-        }
+    pub fn scroll_up(&mut self, _disassembly: &Disassembly, mut lines_to_scroll: usize) {
+        // create new block's if out of bound
+        // if lines_to_scroll >= self.line_offset {
+        //     self.update(disassembly);
+        // }
 
         while lines_to_scroll > 0 {
             let remaining_lines = self.block_line_offset + 1;
@@ -411,14 +407,14 @@ impl DisassemblyView {
         }
 
         self.addr = self.blocks[self.block_offset].addr;
-        dbg!(&self);
+        // dbg!(&self);
     }
 
-    pub fn scroll_down(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        // check if there are any lines left to scroll
-        if self.line_offset + lines_to_scroll > self.line_count {
-            return;
-        }
+    pub fn scroll_down(&mut self, _disassembly: &Disassembly, mut lines_to_scroll: usize) {
+        // create new block's if out of bound
+        // if self.line_offset * 2 + lines_to_scroll >= self.line_count {
+        //     self.update(disassembly);
+        // }
 
         while lines_to_scroll > 0 {
             let block = &self.blocks[self.block_offset];
@@ -439,7 +435,7 @@ impl DisassemblyView {
         }
 
         self.addr = self.blocks[self.block_offset].addr;
-        dbg!(&self);
+        // dbg!(&self);
     }
 
     pub fn format(&self) -> LayoutJob {

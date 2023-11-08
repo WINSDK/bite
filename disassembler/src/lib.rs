@@ -211,14 +211,14 @@ impl Processor {
     pub fn error_by_addr(&self, addr: Addr) -> Option<&decoder::Error> {
         match self.errors.binary_search_by(|k| k.0.cmp(&addr)) {
             Ok(idx) => Some(&self.errors[idx].1),
-            Err(..) => None
+            Err(..) => None,
         }
     }
 
     pub fn instruction_by_addr(&self, addr: Addr) -> Option<&Instruction> {
         match self.instructions.binary_search_by(|k| k.0.cmp(&addr)) {
             Ok(idx) => Some(&self.instructions[idx].1),
-            Err(..) => None
+            Err(..) => None,
         }
     }
 }
