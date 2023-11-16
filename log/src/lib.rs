@@ -1,6 +1,88 @@
 use std::sync::Mutex;
 
 use egui::text::LayoutJob;
+pub use rfd::{MessageLevel, MessageDialog};
+
+#[macro_export]
+macro_rules! exit {
+    () => {{
+        $crate::MessageDialog::new()
+            .set_level($crate::MessageLevel::Error)
+            .show();
+
+        std::process::exit(0);
+    }};
+
+    ($($arg:tt)*) => {{
+        eprintln!($($arg)*);
+        let args: String = format!($($arg)*);
+        $crate::MessageDialog::new()
+            .set_title("Error")
+            .set_description(&args)
+            .set_level($crate::MessageLevel::Error)
+            .show();
+
+        std::process::exit(0);
+    }};
+}
+
+#[macro_export]
+macro_rules! error {
+    () => {{
+        eprintln!("Error occurred.");
+
+        let args: String = format!($($arg)*);
+            $crate:::MessageDialog::new()
+                .set_title("Error")
+                .set_description(&args)
+                .set_level($crate::MessageLevel::Error)
+                .show();
+
+        #[cfg(debug_assertion)]
+        unsafe { std::arch::asm!("int3") }
+        std::process::exit(1);
+    }};
+
+    ($($arg:tt)*) => {{
+        eprintln!($($arg)*);
+
+        let args: String = format!($($arg)*);
+        $crate::MessageDialog::new()
+            .set_title("Error")
+            .set_description(&args)
+            .set_level($crate::MessageLevel::Error)
+            .show();
+
+        #[cfg(debug_assertion)]
+        unsafe { std::arch::asm!("int3") }
+        std::process::exit(1);
+    }};
+}
+
+#[macro_export]
+macro_rules! warning {
+    () => {{
+        eprintln!("Warning occurred.");
+
+        let args: String = format!($($arg)*);
+        $crate::MessageDialog::new()
+            .set_title("Warning")
+            .set_description("Warning occurred.")
+            .set_level($crate::MessageLevel::Warning)
+            .show();
+    }};
+
+    ($($arg:tt)*) => {{
+        eprintln!($($arg)*);
+
+        let args: String = format!($($arg)*);
+        $crate::MessageDialog::new()
+            .set_title("Warning")
+            .set_description(&args)
+            .set_level($crate::MessageLevel::Warning)
+            .show();
+    }};
+}
 
 pub enum Color {
     Red,

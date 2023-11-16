@@ -16,7 +16,7 @@ pub fn set_env() {
         let user = match get_first_direntry("/run/user") {
             Some(user) => user,
             None => {
-                crate::warning!("Failed to guess wayland environmental variables.");
+                log::warning!("Failed to guess wayland environmental variables.");
                 return;
             }
         };

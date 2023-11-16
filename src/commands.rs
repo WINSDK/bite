@@ -1,4 +1,3 @@
-use crate::gui::RenderContext;
 use std::path::Path;
 
 const CMDS: &[&str] = &["exec", "pwd", "cd", "quit", "run", "goto", "set"];

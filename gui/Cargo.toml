@@ -1,0 +1,21 @@
+[package]
+name = "gui"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+rfd = "0.12"
+bytemuck = { version = "1.14", default-features = false }
+winit = { version = "0.29", features = ["rwh_05"] }
+wgpu = { version = "0.18" }
+egui = { version = "0.23", features = ["bytemuck"] }
+egui_dock = "0.8"
+copypasta = "0.10"
+once_cell = "1.1"
+png = "0.17"
+pollster = "0.3.0"
+dirs = "5"
+
+log = { path = "../log" }
+tokenizing = { path = "../tokenizing" }
+disassembler = { path = "../disassembler" }

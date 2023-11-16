@@ -7,13 +7,10 @@
 compile_error!("Bite can only be build for windows, macos and linux.");
 
 pub mod args;
-pub mod commands;
-pub mod disassembly;
 pub mod expr;
-pub mod gui;
-pub mod macros;
-pub mod terminal;
 pub mod wayland;
+// pub mod commands;
+// pub mod gui;
 
 use once_cell::sync::Lazy;
 use std::fs;
@@ -27,7 +24,13 @@ fn main() {
     }
 
     if ARGS.disassemble {
-        return gui::init().unwrap();
+        #[cfg(target_family = "windows")]
+        let ui = gui::UI::new().unwrap();
+
+        #[cfg(target_family = "unix")]
+        let ui = gui::UI::<gui::unix::Arch>::new().unwrap();
+
+        return ui.run();
     }
 
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
@@ -38,11 +41,11 @@ fn main() {
         let mut index = symbols::Index::new();
 
         if let Err(err) = index.parse_imports(&binary, &obj) {
-            exit!("Failed to parse import table ({err:?})");
+            log::error!("Failed to parse import table ({err:?})");
         }
 
         if index.is_empty() {
-            exit!("Object \"{path}\" doesn't seem to import anything.");
+            log::error!("Object \"{path}\" doesn't seem to import anything.");
         }
 
         println!("{path}:");
@@ -62,11 +65,11 @@ fn main() {
         let mut index = symbols::Index::new();
 
         if let Err(err) = index.parse_debug(&obj) {
-            exit!("Failed to parse symbol table ({err:?})");
+            log::error!("Failed to parse symbol table ({err:?})");
         }
 
         if index.is_empty() {
-            exit!("Object \"{path}\" doesn't seem to export any symbols.");
+            log::error!("Object \"{path}\" doesn't seem to export any symbols.");
         }
 
         for function in index.symbols() {

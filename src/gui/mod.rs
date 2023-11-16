@@ -103,26 +103,10 @@ pub fn tokens_to_layoutjob(tokens: Vec<Token>) -> LayoutJob {
 }
 
 pub struct RenderContext {
-    panels: Tree<Title>,
-    pub buffers: Buffers,
-
-    style: style::Style,
-    window: Arc<winit::window::Window>,
-    donut: donut::Donut,
     show_donut: Arc<AtomicBool>,
-    timer60: utils::Timer,
+
     pub dissasembly: Option<Arc<Disassembly>>,
     disassembling_thread: Option<DisassThread>,
-
-    #[cfg(target_family = "windows")]
-    unwindowed_size: winit::dpi::PhysicalSize<u32>,
-    #[cfg(target_family = "windows")]
-    unwindowed_pos: winit::dpi::PhysicalPosition<i32>,
-
-    terminal: Terminal,
-
-    pub process_path: Option<std::path::PathBuf>,
-    pub terminal_prompt: String,
 }
 
 impl RenderContext {
@@ -131,7 +115,9 @@ impl RenderContext {
 
         self.process_path = Some(path.as_ref().to_path_buf());
         self.disassembling_thread = Some(std::thread::spawn(move || {
+            // self.show_donut = true
             Disassembly::parse(path, show_donut)
+            // self.show_donut = false
         }));
     }
 
@@ -149,201 +135,6 @@ impl RenderContext {
             session.trace_syscalls(true);
             session.run_to_end().unwrap();
         });
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum TabKind {
-    Source,
-    Listing,
-    Functions,
-    Log,
-}
-
-pub struct Buffers {
-    mapping: HashMap<Title, TabKind>,
-    disassembly: Option<Arc<Disassembly>>,
-    disassembly_view: DisassemblyView,
-
-    diss_text: LayoutJob,
-    diss_min_row: usize,
-    diss_max_row: usize,
-
-    funcs_text: LayoutJob,
-    funcs_min_row: usize,
-    funcs_max_row: usize,
-}
-
-impl Buffers {
-    fn new(mapping: HashMap<Title, TabKind>) -> Self {
-        Self {
-            mapping,
-            disassembly: None,
-            disassembly_view: DisassemblyView::new(),
-            diss_text: LayoutJob::default(),
-            diss_min_row: 0,
-            diss_max_row: 0,
-            funcs_text: LayoutJob::default(),
-            funcs_min_row: 0,
-            funcs_max_row: 0,
-        }
-    }
-
-    pub fn listing_jump(&mut self, addr: usize) -> bool {
-        let disassembly = match self.disassembly {
-            Some(ref dissasembly) => dissasembly,
-            None => return false,
-        };
-
-        if !self.disassembly_view.jump(disassembly, addr) {
-            return false;
-        }
-
-        self.diss_text = self.disassembly_view.format();
-        true
-    }
-
-    fn show_listing(&mut self, ui: &mut egui::Ui) {
-        let disassembly = match self.disassembly {
-            Some(ref dissasembly) => dissasembly,
-            None => return,
-        };
-
-        if let Some(text) = disassembly.section(self.disassembly_view.addr) {
-            let max_width = ui.available_width();
-            let size = egui::vec2(9.0 * text.len() as f32, 25.0);
-            let offset = egui::pos2(20.0, 60.0);
-            let rect = egui::Rect::from_two_pos(
-                egui::pos2(max_width - offset.x, offset.y),
-                egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
-            );
-
-            ui.painter().rect(
-                rect.expand2(egui::vec2(5.0, 0.0)),
-                0.0,
-                tokenizing::colors::GRAY35,
-                egui::Stroke::new(2.5, egui::Color32::BLACK),
-            );
-
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                text,
-                LIST_FONT,
-                egui::Color32::WHITE,
-            );
-        }
-
-        let spacing = ui.spacing().item_spacing;
-        let row_height_with_spacing = LIST_FONT.size + spacing.y;
-        let area = egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .drag_to_scroll(false)
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
-
-        area.show_viewport(ui, |ui, viewport| {
-            let min_row = (viewport.min.y / row_height_with_spacing).floor() as usize;
-            let max_row = (viewport.max.y / row_height_with_spacing).ceil() as usize + 1;
-
-            let y_min = ui.max_rect().top() + min_row as f32 * row_height_with_spacing;
-            let y_max = ui.max_rect().top() + max_row as f32 * row_height_with_spacing;
-
-            ui.set_height(
-                row_height_with_spacing * self.diss_text.text.lines().count() as f32 - spacing.y,
-            );
-
-            let rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
-
-            ui.allocate_ui_at_rect(rect, |ui| {
-                ui.skip_ahead_auto_ids(min_row);
-
-                if (min_row..max_row) != (self.diss_min_row..self.diss_min_row) {
-                    let row_count = max_row - min_row;
-                    self.disassembly_view.set_max_lines(row_count * 2, disassembly);
-
-                    // initial rendering of listing
-                    if min_row == 0 {
-                        self.diss_text = self.disassembly_view.format();
-                        self.diss_min_row = min_row;
-                        self.diss_max_row = max_row;
-                    }
-                }
-
-                if min_row != self.diss_min_row {
-                    if min_row > self.diss_min_row {
-                        let row_diff = min_row - self.diss_min_row;
-                        self.disassembly_view.scroll_down(disassembly, row_diff);
-                    }
-
-                    if min_row < self.diss_min_row {
-                        let row_diff = self.diss_min_row - min_row;
-                        self.disassembly_view.scroll_up(disassembly, row_diff);
-                    }
-
-                    self.diss_text = self.disassembly_view.format();
-                    self.diss_min_row = min_row;
-                    self.diss_max_row = max_row;
-                }
-
-                ui.label(self.diss_text.clone());
-            });
-        });
-    }
-
-    fn show_functions(&mut self, ui: &mut egui::Ui) {
-        let dissasembly = match self.disassembly {
-            Some(ref dissasembly) => dissasembly,
-            None => return,
-        };
-
-        let text_style = egui::TextStyle::Small;
-        let row_height = ui.text_style_height(&text_style);
-        let total_rows = dissasembly.symbols.named_len();
-
-        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
-
-        area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-            if row_range != (self.funcs_min_row..self.funcs_max_row) {
-                self.funcs_text = dissasembly.functions(row_range);
-            }
-
-            ui.label(self.funcs_text.clone());
-        });
-    }
-
-    fn show_logger(&mut self, ui: &mut egui::Ui) {
-        ui.style_mut().wrap = Some(true);
-
-        let area = egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .drag_to_scroll(false)
-            .stick_to_bottom(true);
-
-        area.show(ui, |ui| ui.label(log::LOGGER.lock().unwrap().format()));
-
-        ui.style_mut().wrap = Some(false);
-    }
-}
-
-impl egui_dock::TabViewer for Buffers {
-    type Tab = Title;
-
-    fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
-        egui::Frame::none().outer_margin(STYLE.separator_width).show(ui, |ui| {
-            match self.mapping.get(title) {
-                Some(TabKind::Source) => {
-                    ui.label("todo");
-                }
-                Some(TabKind::Functions) => self.show_functions(ui),
-                Some(TabKind::Listing) => self.show_listing(ui),
-                Some(TabKind::Log) => self.show_logger(ui),
-                None => return,
-            };
-        });
-    }
-
-    fn title(&mut self, title: &mut Self::Tab) -> egui::WidgetText {
-        (*title).into()
     }
 }
 
@@ -436,44 +227,6 @@ fn tabbed_panel(ui: &mut egui::Ui, ctx: &mut RenderContext) {
         .style(ctx.style.dock().clone())
         .draggable_tabs(tab_count > 1)
         .show_inside(ui, &mut ctx.buffers);
-}
-
-fn terminal(ui: &mut egui::Ui, ctx: &mut RenderContext) {
-    ui.style_mut().wrap = Some(true);
-
-    let area = egui::ScrollArea::vertical().auto_shrink([false, false]).drag_to_scroll(false);
-
-    area.show(ui, |ui| {
-        let mut output = LayoutJob::default();
-
-        let text_style = egui::TextStyle::Body;
-        let font_id = text_style.resolve(STYLE.egui());
-
-        output.append(
-            &ctx.terminal_prompt,
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: STYLE.egui().noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-
-        output.append(
-            "(bite) ",
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: STYLE.egui().noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-
-        ctx.terminal.format(&mut output, font_id);
-        ui.label(output);
-    });
-
-    ui.style_mut().wrap = Some(false);
 }
 
 pub fn init() -> Result<(), Error> {
@@ -576,7 +329,7 @@ pub fn init() -> Result<(), Error> {
 
 fn handle_post_render(ctx: &mut RenderContext) {
     if ctx.show_donut.load(Ordering::Relaxed) && ctx.timer60.reached() {
-        ctx.donut.update_frame();
+        ctx.donut.step();
         ctx.timer60.reset();
     }
 

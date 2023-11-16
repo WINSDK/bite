@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use crate::{assert_exit, exit};
-
 const HELP: &str = "OVERVIEW: Decompilation tool
 
 USAGE: bite [options] <OBJECT>
@@ -72,7 +70,7 @@ impl Cli {
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "-H" | "--help" => exit!("{HELP}"),
+                "-H" | "--help" => log::error!("{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
                 "-N" | "--names" => {
                     cli.names = true;
@@ -115,9 +113,9 @@ impl Cli {
 
                     // A guess that's less than 3 `steps` away from a correct arg.
                     if distance < 4 {
-                        exit!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?");
+                        log::error!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?")
                     } else {
-                        exit!("Unknown cmd arg '{unknown}' was entered.");
+                        log::error!("Unknown cmd arg '{unknown}' was entered.");
                     }
                 }
             }
@@ -129,12 +127,13 @@ impl Cli {
 
     fn validate_args(&mut self) {
         if self.disassemble || self.libs || self.names {
-            assert_exit!(self.path.is_some(), "Missing path to an object.");
+            if self.path.is_none() {
+                log::error!("Missing path to an object.");
+            }
         }
 
-        assert_exit!(
-            self.disassemble ^ self.libs ^ self.names,
-            "Invalid combination of arguements.\n\n{HELP}"
-        );
+        if !(self.disassemble ^ self.libs ^ self.names) {
+            log::error!("Invalid combination of arguements.\n\n{HELP}");
+        }
     }
 }

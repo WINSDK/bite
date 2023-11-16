@@ -1,13 +1,37 @@
+struct Timer {
+    start: std::time::Instant,
+    ups: usize,
+}
+
+impl Timer {
+    fn new(ups: usize) -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            ups,
+        }
+    }
+
+    fn times_elapsed(&self) -> usize {
+        self.start.elapsed().as_millis() as usize * self.ups / 1000
+    }
+
+    fn reset(&mut self) {
+        self.start = std::time::Instant::now();
+    }
+}
+
 pub struct Donut {
+    timer: Timer,
     is_eaten: bool,
     a: f32,
     b: f32,
-    pub frame: String,
+    frame: String,
 }
 
 impl Donut {
     pub fn new(is_eaten: bool) -> Self {
         Self {
+            timer: Timer::new(60),
             is_eaten,
             a: 0.0,
             b: 0.0,
@@ -15,7 +39,23 @@ impl Donut {
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn frame(&self) -> &str {
+        &self.frame
+    }
+
+    fn update(&mut self) {
+        let elapsed = self.timer.times_elapsed();
+
+        for _ in 0..elapsed {
+            self.step();
+        }
+
+        if elapsed > 0 {
+            self.timer.reset();
+        }
+    }
+
+    fn step(&mut self) {
         let mut b2 = [b' '; 1408];
         let mut z = [0.0f32; 1408];
 
@@ -57,5 +97,14 @@ impl Donut {
 
         self.a += 0.04;
         self.b += 0.02;
+    }
+}
+
+impl super::Display for Donut {
+    fn show(&mut self, ui: &mut egui::Ui) {
+        self.update();
+
+        let text = egui::RichText::new(self.frame()).size(10.0);
+        ui.label(text);
     }
 }

@@ -38,7 +38,6 @@ pub struct Png {
 
 pub fn decode_png<P: AsRef<std::path::Path>>(path: P) -> Result<Png, Error> {
     let bytes = std::fs::read(&path).map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
-
     decode_png_bytes(&bytes)
 }
 
@@ -112,7 +111,7 @@ pub mod windows {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_family = "unix")]
 pub fn generate_window<T>(
     title: &str,
     icon: Option<winit::window::Icon>,
@@ -130,7 +129,7 @@ pub fn generate_window<T>(
         .map_err(|_| Error::WindowCreation)
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(target_family = "windows")]
 pub fn generate_window<T>(
     title: &str,
     icon: Option<winit::window::Icon>,
