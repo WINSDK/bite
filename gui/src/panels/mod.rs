@@ -203,6 +203,10 @@ impl Panels {
         if bar.response.interact(egui::Sense::click()).double_clicked() {
             self.proxy.send(crate::CustomEvent::Fullscreen);
         }
+
+        if bar.response.interact(egui::Sense::drag()).dragged() {
+            self.proxy.send(crate::CustomEvent::DragWindow);
+        }
     }
 
     fn input(&mut self, ctx: &mut egui::Context) {

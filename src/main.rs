@@ -25,7 +25,7 @@ fn main() {
 
     if ARGS.disassemble {
         #[cfg(target_family = "windows")]
-        let ui = gui::UI::new().unwrap();
+        let ui = gui::UI::<gui::windows::Arch>::new().unwrap();
 
         #[cfg(target_family = "unix")]
         let ui = gui::UI::<gui::unix::Arch>::new().unwrap();

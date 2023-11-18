@@ -37,8 +37,6 @@ pub struct Platform {
     // device IDs are opaque, so we have to create our own ID mapping
     device_indices: HashMap<DeviceId, u64>,
     next_device_index: u64,
-
-    dragging: bool,
     proxy: crate::Proxy,
 }
 
@@ -86,7 +84,6 @@ impl Platform {
             touch_pointer_pressed: 0,
             device_indices: HashMap::new(),
             next_device_index: 1,
-            dragging: false,
             proxy,
         }
     }
@@ -306,17 +303,6 @@ impl Platform {
             },
             _ => {}
         }
-    }
-
-    pub fn start_dragging(&mut self) {
-        if !self.dragging {
-            self.proxy.send(crate::CustomEvent::DragWindow);
-            self.dragging = true;
-        }
-    }
-
-    pub fn stop_dragging(&mut self) {
-        self.dragging = false;
     }
 
     /// Updates the internal time for egui used for animations. `elapsed_seconds` should be the

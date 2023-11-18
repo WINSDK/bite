@@ -2,29 +2,45 @@
 
 use winit::platform::windows::HMONITOR;
 use winit::platform::windows::HWND;
-use winit::platform::windows::{MonitorHandleExtWindows, WindowExtWindows, WindowBuilderExtWindows};
+use winit::platform::windows::{WindowBuilderExtWindows, MonitorHandleExtWindows};
 use winit::dpi::{PhysicalSize, PhysicalPosition};
+use winit::raw_window_handle::HasWindowHandle;
 
-use crate::Error;
+use crate::{Window, Error};
 
 pub struct ArchDescriptor {
-    initial_size: PhysicalSize<u32>,
-    initial_pos: PhysicalPosition<u32>,
+    pub initial_size: PhysicalSize<u32>,
+    pub initial_pos: PhysicalPosition<i32>,
 }
 
 pub struct Arch {
     unwindowed_size: PhysicalSize<u32>,
-    unwindowed_pos: PhysicalPosition<u32>,
+    unwindowed_pos: PhysicalPosition<i32>,
+}
+
+// this sucks but winit 0.29 doesn't provide an interface for getting an hwnd anymore :(
+fn query_hwnd(window: &Window) -> HWND {
+    match window.window_handle().unwrap().as_raw() {
+        winit::raw_window_handle::RawWindowHandle::Win32(handle) => handle.hwnd.get(),
+        _ => unsafe { std::hint::unreachable_unchecked() }
+    }
 }
 
 impl crate::Target for Arch {
+    fn new(arch_desc: ArchDescriptor) -> Self {
+        Self {
+            unwindowed_size: arch_desc.initial_size,
+            unwindowed_pos: arch_desc.initial_pos,
+        }
+    }
+
     fn create_window<T>(
         title: &str,
         width: u32,
         height: u32,
         event_loop: &winit::event_loop::EventLoop<T>,
     ) -> Result<winit::window::Window, Error> {
-        let icon = crate::icon::Data::decode("./assets/iconx256.png")?;
+        let icon = crate::icon::PngIcon::decode("./assets/iconx256.png")?;
         let icon = winit::window::Icon::from_rgba(icon.data, icon.width, icon.height).ok();
     
         let window = winit::window::WindowBuilder::new()
@@ -39,6 +55,8 @@ impl crate::Target for Arch {
     
         let PhysicalSize { width, height } =
             window.current_monitor().ok_or(Error::WindowCreation)?.size();
+
+        let hwnd = query_hwnd(&window);
     
         unsafe {
             let width = width * 2 / 5;
@@ -46,22 +64,22 @@ impl crate::Target for Arch {
     
             // set basic window attributes
             let attr = WS_THICKFRAME | WS_POPUP;
-            if SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr) == 0 {
+            if SetWindowLongPtrW(hwnd, GWL_STYLE, attr) == 0 {
                 return Err(Error::WindowCreation);
             }
     
             // set extended window attributes
-            if SetWindowLongPtrW(window.hwnd(), GWL_EXSTYLE, WS_EX_ACCEPTFILES) == 0 {
+            if SetWindowLongPtrW(hwnd, GWL_EXSTYLE, WS_EX_ACCEPTFILES) == 0 {
                 return Err(Error::WindowCreation);
             }
     
             // resize window to some reasonable dimensions, whilst applying the window attributes
-            if SetWindowPos(window.hwnd(), HWND_TOP, 0, 0, width, height, SWP_NOZORDER) == 0 {
+            if SetWindowPos(hwnd, HWND_TOP, 0, 0, width, height, SWP_NOZORDER) == 0 {
                 return Err(Error::WindowCreation);
             }
     
             // set window visibility
-            if SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr | WS_VISIBLE) == 0 {
+            if SetWindowLongPtrW(hwnd, GWL_STYLE, attr | WS_VISIBLE) == 0 {
                 return Err(Error::WindowCreation);
             }
         }
@@ -78,21 +96,27 @@ impl crate::Target for Arch {
                 flags: 0,
             };
 
-            if GetMonitorInfoW(monitor.hmonitor(), &mut info) == 0 {
+            let monitor = match window.current_monitor() {
+                Some(handle) => handle.hmonitor(),
+                None => return,
+            };
+
+            if GetMonitorInfoW(monitor, &mut info) == 0 {
                 return;
             }
 
             let PhysicalSize { width, height } = window.outer_size();
             let work_area_width = info.work_area.right - info.work_area.left;
             let work_area_height = info.work_area.bottom - info.work_area.top;
+            let hwnd = query_hwnd(&window);
 
             // check if the window is fullscreen borderless
             if width == work_area_width && height == work_area_height {
                 let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
 
-                SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
+                SetWindowLongPtrW(hwnd, GWL_STYLE, attr);
                 SetWindowPos(
-                    window.hwnd(),
+                    hwnd,
                     HWND_TOP,
                     self.unwindowed_pos.x as u32,
                     self.unwindowed_pos.y as u32,
@@ -103,12 +127,12 @@ impl crate::Target for Arch {
             } else {
                 let attr = WS_VISIBLE | WS_OVERLAPPED;
 
-                self.unwindowed_size = self.window.outer_size();
-                self.unwindowed_pos = self.window.outer_position().unwrap_or_default();
+                self.unwindowed_size = window.outer_size();
+                self.unwindowed_pos = window.outer_position().unwrap_or_default();
 
-                SetWindowLongPtrW(window.hwnd(), GWL_STYLE, attr);
+                SetWindowLongPtrW(hwnd, GWL_STYLE, attr);
                 SetWindowPos(
-                    self.window.hwnd(),
+                    hwnd,
                     HWND_TOP,
                     info.work_area.left,
                     info.work_area.top,
@@ -120,7 +144,6 @@ impl crate::Target for Arch {
         }
     }
 }
-
 
 pub const GWL_EXSTYLE: i32 = -20;
 pub const GWL_STYLE: i32 = -16;
