@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 log = { path = "../log" }
+symbols = { path = "../symbols" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # fork that includes `getsyscallinfo`

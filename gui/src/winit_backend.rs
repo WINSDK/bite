@@ -5,20 +5,13 @@ use crate::Window;
 
 use std::collections::HashMap;
 
-use copypasta::{ClipboardContext, ClipboardProvider};
+use copypasta::ClipboardProvider;
 use egui::emath::{pos2, vec2};
 use egui::{Context, FontData, FontDefinitions, FontFamily, Key};
+
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceId, Event, TouchPhase, WindowEvent};
 use winit::keyboard::{KeyCode, ModifiersState};
-
-fn handle_clipboard(output: &egui::PlatformOutput, clipboard: Option<&mut ClipboardContext>) {
-    if !output.copied_text.is_empty() {
-        if let Some(clipboard) = clipboard {
-            let _ = clipboard.set_contents(output.copied_text.clone());
-        }
-    }
-}
 
 /// Provides the integration between egui and winit.
 pub struct Platform {
@@ -27,7 +20,7 @@ pub struct Platform {
     raw_input: egui::RawInput,
     modifier_state: ModifiersState,
     pointer_pos: Option<egui::Pos2>,
-    clipboard: Option<ClipboardContext>,
+    clipboard: Box<dyn ClipboardProvider>,
 
     // for emulating pointer events from touch events we merge multi-touch
     // pointers, and ref-count the press state
@@ -37,11 +30,10 @@ pub struct Platform {
     // device IDs are opaque, so we have to create our own ID mapping
     device_indices: HashMap<DeviceId, u64>,
     next_device_index: u64,
-    proxy: crate::Proxy,
 }
 
 impl Platform {
-    pub fn new(window: &Window, proxy: crate::Proxy) -> Self {
+    pub fn new<Arch: crate::Target>(window: &Window) -> Self {
         let scale_factor = window.scale_factor() as f32;
         let context = Context::default();
         let mut fonts = FontDefinitions::default();
@@ -80,11 +72,10 @@ impl Platform {
             raw_input,
             modifier_state: ModifiersState::empty(),
             pointer_pos: Some(egui::Pos2::default()),
-            clipboard: ClipboardContext::new().ok(),
+            clipboard: Arch::clipboard(window),
             touch_pointer_pressed: 0,
             device_indices: HashMap::new(),
             next_device_index: 1,
-            proxy,
         }
     }
 
@@ -118,10 +109,8 @@ impl Platform {
                                 self.raw_input.events.push(egui::Event::Cut)
                             }
                             (true, true, KeyCode::KeyV) => {
-                                if let Some(ref mut clipboard) = self.clipboard {
-                                    if let Ok(contents) = clipboard.get_contents() {
-                                        self.raw_input.events.push(egui::Event::Text(contents))
-                                    }
+                                if let Ok(contents) = self.clipboard.get_contents() {
+                                    self.raw_input.events.push(egui::Event::Text(contents))
                                 }
                             }
                             _ => {
@@ -137,10 +126,7 @@ impl Platform {
                         }
                     }
                 }
-                WindowEvent::ScaleFactorChanged {
-                    scale_factor,
-                    inner_size_writer,
-                } => {
+                WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                     // update the window's size
                     let new_inner_size = window.inner_size();
                     let new_inner_size = PhysicalSize {
@@ -148,7 +134,7 @@ impl Platform {
                         height: new_inner_size.height * *scale_factor as u32,
                     };
 
-                    let _ = inner_size_writer.request_inner_size(new_inner_size);
+                    let _ = window.request_inner_size(new_inner_size);
 
                     self.scale_factor = *scale_factor as f32;
                     self.raw_input.pixels_per_point = Some(*scale_factor as f32);
@@ -157,8 +143,6 @@ impl Platform {
                         vec2(new_inner_size.width as f32, new_inner_size.height as f32)
                             / self.scale_factor as f32,
                     ));
-
-                    window.request_redraw();
                 }
                 WindowEvent::Resized(physical_size) => {
                     if physical_size.width == 0 && physical_size.height == 0 {
@@ -335,7 +319,11 @@ impl Platform {
             }
         }
 
-        handle_clipboard(&output.platform_output, self.clipboard.as_mut());
+        let copied_text = &output.platform_output.copied_text;
+        if !copied_text.is_empty() {
+            let _ = self.clipboard.set_contents(copied_text.clone());
+        }
+
 
         output
     }

@@ -1,5 +1,6 @@
 #![cfg(target_os = "windows")]
 
+use copypasta::{ClipboardContext, ClipboardProvider};
 use winit::platform::windows::HMONITOR;
 use winit::platform::windows::HWND;
 use winit::platform::windows::{WindowBuilderExtWindows, MonitorHandleExtWindows};
@@ -32,6 +33,12 @@ impl crate::Target for Arch {
             unwindowed_size: arch_desc.initial_size,
             unwindowed_pos: arch_desc.initial_pos,
         }
+    }
+
+    fn clipboard(window: &crate::Window) -> Box<dyn ClipboardProvider> {
+        ClipboardContext::new()
+            .map(|clip| Box::new(clip) as Box<dyn ClipboardProvider>)
+            .unwrap()
     }
 
     fn create_window<T>(

@@ -1,0 +1,8 @@
+[package]
+name = "args"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+triple_accel = "0.4"
+once_cell = "1.1"

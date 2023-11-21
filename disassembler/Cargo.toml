@@ -14,3 +14,6 @@ arm = { path = "../decoder-arm" }
 x86_64 = { path = "../decoder-x86_64" }
 riscv = { path = "../decoder-riscv" }
 mips = { path = "../decoder-mips" }
+
+[dev-dependencies]
+egui = { version = "0.23", features = ["bytemuck"] }

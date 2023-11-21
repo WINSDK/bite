@@ -1,4 +1,5 @@
 //! Consumes decoder crates and provides an interface to interact with the decoders.
+pub mod expr;
 mod fmt;
 mod processor;
 
@@ -461,45 +462,6 @@ pub struct Disassembly {
 }
 
 impl Disassembly {
-    pub fn section(&self, addr: Addr) -> Option<&str> {
-        self.processor
-            .sections
-            .iter()
-            .find(|s| (s.start..=s.end).contains(&addr))
-            .map(|s| &s.name as &str)
-    }
-
-    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
-        let mut tokens: Vec<Token> = Vec::new();
-
-        let lines_to_read = range.end - range.start;
-        let lines = self
-            .symbols
-            .iter()
-            .filter(|(_, func)| !func.intrinsic())
-            .skip(range.start)
-            .take(lines_to_read + 10);
-
-        // for each instruction
-        for (addr, symbol) in lines {
-            tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
-            tokens.push(Token::from_str(" | ", colors::WHITE));
-
-            if let Some(module) = symbol.module() {
-                tokens.push(module);
-                tokens.push(Token::from_str("!", colors::GRAY60));
-            }
-
-            for token in symbol.name() {
-                tokens.push(token.clone());
-            }
-
-            tokens.push(Token::from_str("\n", colors::WHITE));
-        }
-
-        tokens
-    }
-
     pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
         let now = std::time::Instant::now();
 
@@ -545,6 +507,45 @@ impl Disassembly {
             processor,
             symbols: index,
         })
+    }
+
+    pub fn section(&self, addr: Addr) -> Option<&str> {
+        self.processor
+            .sections
+            .iter()
+            .find(|s| (s.start..=s.end).contains(&addr))
+            .map(|s| &s.name as &str)
+    }
+
+    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
+        let mut tokens: Vec<Token> = Vec::new();
+
+        let lines_to_read = range.end - range.start;
+        let lines = self
+            .symbols
+            .iter()
+            .filter(|(_, func)| !func.intrinsic())
+            .skip(range.start)
+            .take(lines_to_read + 10);
+
+        // for each instruction
+        for (addr, symbol) in lines {
+            tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
+            tokens.push(Token::from_str(" | ", colors::WHITE));
+
+            if let Some(module) = symbol.module() {
+                tokens.push(module);
+                tokens.push(Token::from_str("!", colors::GRAY60));
+            }
+
+            for token in symbol.name() {
+                tokens.push(token.clone());
+            }
+
+            tokens.push(Token::from_str("\n", colors::WHITE));
+        }
+
+        tokens
     }
 }
 

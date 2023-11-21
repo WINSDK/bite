@@ -1,8 +1,8 @@
-use super::FONT;
+use super::common::FONT;
 
 use std::path::PathBuf;
+
 use egui::text::LayoutJob;
-use egui::FontId;
 use once_cell::sync::Lazy;
 
 const HISTORY_PATH: Lazy<PathBuf> = Lazy::new(|| {
@@ -60,10 +60,6 @@ impl Terminal {
             commands_unprocessed: 0,
             cursor_position: 0,
         }
-    }
-
-    pub fn prompt(&self) -> &str {
-        &self.prompt
     }
 
     pub fn current_line(&self) -> &str {
@@ -146,54 +142,6 @@ impl Terminal {
         self.commands_unprocessed += 1;
         self.cursor_position = 0;
         self.command_position = self.commands.len() - 1;
-    }
-
-    pub fn format(&self, buffer: &mut LayoutJob, font_id: FontId) {
-        let input = self.current_line();
-
-        let (left, right) = input.split_at(self.cursor_position);
-        let (select, right) = if right.is_empty() {
-            (" ", "")
-        } else {
-            right.split_at(1)
-        };
-
-        buffer.append(
-            left,
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: crate::style::EGUI.noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-
-        buffer.append(
-            select,
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: crate::style::EGUI.noninteractive().bg_fill,
-                background: crate::style::EGUI.noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-
-        buffer.append(
-            right,
-            0.0,
-            egui::TextFormat {
-                font_id: font_id.clone(),
-                color: crate::style::EGUI.noninteractive().fg_stroke.color,
-                ..Default::default()
-            },
-        );
-    }
-
-    /// Terminal commands recorded since last frame.
-    pub fn commands(&mut self) -> &[String] {
-        let ncmds = self.commands_unprocessed;
-        &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
     }
 
     /// Consumes terminal commands recorded since last frame.
@@ -298,6 +246,13 @@ impl Terminal {
         }
 
         events_processed
+    }
+}
+
+impl std::fmt::Write for Terminal {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.prompt.push_str(s);
+        Ok(())
     }
 }
 

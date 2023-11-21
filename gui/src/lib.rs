@@ -1,3 +1,4 @@
+mod commands;
 mod fmt;
 mod icon;
 mod panels;
@@ -9,6 +10,7 @@ mod winit_backend;
 
 use std::sync::Arc;
 
+use copypasta::ClipboardProvider;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 
@@ -42,6 +44,8 @@ pub trait Target: Sized {
     ) -> Result<Window, Error>;
 
     fn fullscreen(&mut self, window: &Window);
+
+    fn clipboard(window: &Window) -> Box<dyn ClipboardProvider>;
 }
 
 /// A custom event type for the winit app.
@@ -51,6 +55,7 @@ pub enum CustomEvent {
     Fullscreen,
     Minimize,
     BinaryRequested(std::path::PathBuf),
+    BinaryFailed(disassembler::Error),
     BinaryLoaded(Arc<disassembler::Disassembly>),
 }
 
@@ -68,14 +73,14 @@ impl Proxy {
 }
 
 pub struct UI<Arch: Target> {
-    pub arch: Arch,
-    pub window: winit::window::Window,
-    pub event_loop: Option<EventLoop<CustomEvent>>,
-    pub panels: panels::Panels,
-    pub instance: wgpu_backend::Instance,
-    pub egui_render_pass: wgpu_backend::egui::Pipeline,
-    pub platform: winit_backend::Platform,
-    pub proxy: Proxy,
+    arch: Arch,
+    window: winit::window::Window,
+    event_loop: Option<EventLoop<CustomEvent>>,
+    panels: panels::Panels,
+    instance: wgpu_backend::Instance,
+    egui_render_pass: wgpu_backend::egui::Pipeline,
+    platform: winit_backend::Platform,
+    proxy: Proxy,
 }
 
 impl<Arch: Target> UI<Arch> {
@@ -102,7 +107,7 @@ impl<Arch: Target> UI<Arch> {
         let panels = panels::Panels::new(proxy.clone());
         let instance = wgpu_backend::Instance::new(&window)?;
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
-        let platform = winit_backend::Platform::new(&window, proxy.clone());
+        let platform = winit_backend::Platform::new::<Arch>(&window);
 
         Ok(Self {
             arch,
@@ -114,6 +119,12 @@ impl<Arch: Target> UI<Arch> {
             platform,
             proxy,
         })
+    }
+
+    pub fn process_args(&mut self) {
+        if let Some(path) = args::ARGS.path.as_ref().cloned(){
+            self.proxy.send(CustomEvent::BinaryRequested(path));
+        }
     }
 
     pub fn run(mut self) {
@@ -139,7 +150,16 @@ impl<Arch: Target> UI<Arch> {
                         }
                     }
                     WindowEvent::Resized(size) => self.instance.resize(size.width, size.height),
-                    WindowEvent::DroppedFile(_file) => todo!("drop file"),
+                    WindowEvent::DroppedFile(path) => {
+                        let proxy = self.proxy.clone();
+
+                        std::thread::spawn(move || {
+                            match disassembler::Disassembly::parse(path) {
+                                Ok(diss) => proxy.send(CustomEvent::BinaryLoaded(Arc::new(diss))),
+                                Err(err) => proxy.send(CustomEvent::BinaryFailed(err)),
+                            };
+                        });
+                    }
                     WindowEvent::CloseRequested => target.exit(),
                     _ => {}
                 },
@@ -151,19 +171,23 @@ impl<Arch: Target> UI<Arch> {
                     CustomEvent::Fullscreen => self.arch.fullscreen(&self.window),
                     CustomEvent::Minimize => self.window.set_minimized(true),
                     CustomEvent::BinaryRequested(path) => {
-                        self.panels.toggle_loading();
+                        self.panels.loading = true;
                         let proxy = self.proxy.clone();
 
                         std::thread::spawn(move || {
                             match disassembler::Disassembly::parse(path) {
                                 Ok(diss) => proxy.send(CustomEvent::BinaryLoaded(Arc::new(diss))),
-                                Err(err) => log::warning!("{err:?}"),
+                                Err(err) => proxy.send(CustomEvent::BinaryFailed(err)),
                             };
                         });
                     }
+                    CustomEvent::BinaryFailed(err) => {
+                        self.panels.loading = false;
+                        log::warning!("{err:?}");
+                    }
                     CustomEvent::BinaryLoaded(disassembly) => {
-                        self.panels.toggle_loading();
-                        self.panels.load_binary(disassembly.clone());
+                        self.panels.loading = false;
+                        self.panels.load_binary(disassembly);
                     }
                 },
                 Event::AboutToWait => self.window.request_redraw(),
@@ -173,28 +197,32 @@ impl<Arch: Target> UI<Arch> {
     }
 
     fn draw(&mut self) -> Result<(), Error> {
-        let terminal = &mut self.panels.terminal();
-
-        // handle inputs before `begin_frame` consumes them
-        let events_processed = terminal.record_input(self.platform.unprocessed_events());
+        let events = self.platform.unprocessed_events();
+        let events_processed = self.panels.terminal().record_input(events);
 
         if events_processed > 0 {
             // if a goto command is being run, start performing the autocomplete
-            if let Some(("g" | "goto", _arg)) = terminal.current_line().split_once(' ') {
-                // if let Some(ref dissasembly) = ctx.dissasembly {
-                //     let _ = dbg!(crate::expr::parse(&dissasembly.symbols, arg));
-                // }
+            let split = self.panels.terminal().current_line().split_once(' ');
+            if let Some(("g" | "goto", arg)) = split {
+                let arg = arg.to_string();
+
+                if let Some(listing) = self.panels.listing() {
+                    let _ = dbg!(disassembler::expr::parse(
+                        &listing.disassembly.symbols,
+                        &arg
+                    ));
+                }
             }
 
             // store new commands recorded
-            let _ = terminal.save_command_history();
+            let _ = self.panels.terminal().save_command_history();
         }
 
-        let cmds = terminal.take_commands().to_vec();
+        let cmds = self.panels.terminal().take_commands().to_vec();
 
-        // if !crate::commands::process_commands(ctx, &cmds) {
-        //     return Err(Error::Exit);
-        // }
+        if !self.panels.process_commands(&cmds) {
+            return Err(Error::Exit);
+        }
 
         self.instance.draw(
             &self.window,

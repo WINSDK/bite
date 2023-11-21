@@ -1,36 +1,18 @@
-use super::FONT;
+use super::common::{FONT, tokens_to_layoutjob};
 
 use std::sync::Arc;
 use egui::text::LayoutJob;
 
-fn tokens_to_layoutjob(tokens: Vec<tokenizing::Token>) -> LayoutJob {
-    let mut job = LayoutJob::default();
-
-    for token in tokens {
-        job.append(
-            &token.text,
-            0.0,
-            egui::TextFormat {
-                font_id: FONT,
-                color: token.color,
-                ..Default::default()
-            },
-        );
-    }
-
-    job
-}
-
-pub struct Disassembly {
-    disassembly: Arc<disassembler::Disassembly>,
-    disassembly_view: disassembler::DisassemblyView,
+pub struct Listing {
+    pub disassembly: Arc<disassembler::Disassembly>,
+    pub disassembly_view: disassembler::DisassemblyView,
     instructions: LayoutJob,
     instruction_count: usize,
     min_row: usize,
     max_row: usize,
 }
 
-impl Disassembly {
+impl Listing {
     pub fn new(disassembly: Arc<disassembler::Disassembly>) -> Self {
         Self {
             disassembly,
@@ -41,9 +23,15 @@ impl Disassembly {
             max_row: 0
         }
     }
+
+    /// Force refresh listing.
+    pub fn update(&mut self) {
+        let instructions = self.disassembly_view.format();
+        self.instructions = tokens_to_layoutjob(instructions);
+    }
 }
 
-impl super::Display for Disassembly {
+impl super::Display for Listing {
     fn show(&mut self, ui: &mut egui::Ui) {
         if let Some(text) = self.disassembly.section(self.disassembly_view.addr()) {
             let max_width = ui.available_width();
@@ -97,8 +85,7 @@ impl super::Display for Disassembly {
 
                     // initial rendering of listing
                     if min_row == 0 {
-                        let instructions = self.disassembly_view.format();
-                        self.instructions = tokens_to_layoutjob(instructions);
+                        self.update();
                         self.min_row = min_row;
                         self.max_row = max_row;
                     }
@@ -115,52 +102,13 @@ impl super::Display for Disassembly {
                         self.disassembly_view.scroll_up(&self.disassembly, row_diff);
                     }
 
-                    let instructions = self.disassembly_view.format();
-                    self.instructions = tokens_to_layoutjob(instructions);
+                    self.update();
                     self.min_row = min_row;
                     self.max_row = max_row;
                 }
 
                 ui.label(self.instructions.clone());
             });
-        });
-    }
-}
-
-pub struct Functions {
-    disassembly: Arc<disassembler::Disassembly>,
-    functions: LayoutJob,
-    function_count: usize,
-    min_row: usize,
-    max_row: usize,
-}
-
-impl Functions {
-    pub fn new(disassembly: Arc<disassembler::Disassembly>) -> Self {
-        let function_count = disassembly.symbols.named_len();
-
-        Self {
-            disassembly,
-            functions: LayoutJob::default(),
-            function_count,
-            min_row: 0,
-            max_row: 0
-        }
-    }
-}
-
-impl super::Display for Functions {
-    fn show(&mut self, ui: &mut egui::Ui) {
-        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
-
-        area.show_rows(ui, FONT.size, self.function_count, |ui, row_range| {
-            if row_range != (self.min_row..self.max_row) {
-                let functions = self.disassembly.functions(row_range);
-                self.functions = tokens_to_layoutjob(functions);
-                self.function_count = self.disassembly.symbols.named_len();
-            }
-
-            ui.label(self.functions.clone());
         });
     }
 }

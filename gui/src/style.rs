@@ -1,4 +1,4 @@
-use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets};
+use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets, DebugOptions};
 use egui::{Color32, FontFamily, FontId, Rounding, Stroke, TextStyle};
 
 use once_cell::sync::Lazy;
@@ -31,18 +31,6 @@ pub static STYLE: Lazy<Style> = Lazy::new(|| Style {
     interactive_color: Color32::LIGHT_GRAY,
 });
 
-// FIXME:
-//
-// if crate::ARGS.debug {
-//     this.egui.debug = egui::style::DebugOptions {
-//         debug_on_hover: true,
-//         show_expand_width: true,
-//         show_expand_height: true,
-//         show_resize: true,
-//         show_interactive_widgets: true,
-//         show_blocking_widget: true
-//     };
-// }
 pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
     spacing: Spacing {
         slider_width: 10.0,
@@ -142,6 +130,19 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         styles.insert(TextStyle::Button, FontId::new(14.0, FontFamily::Monospace));
         styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Monospace));
         styles
+    },
+    debug: if args::ARGS.debug {
+        DebugOptions {
+            debug_on_hover: true,
+            show_expand_width: true,
+            show_expand_height: true,
+            show_resize: true,
+            show_interactive_widgets: true,
+            show_blocking_widget: true,
+            ..Default::default()
+        }
+    } else {
+        DebugOptions::default()
     },
     ..Default::default()
 });

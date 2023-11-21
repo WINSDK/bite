@@ -1,4 +1,12 @@
 use std::path::PathBuf;
+use once_cell::sync::Lazy;
+
+macro_rules! exit {
+    ($code:expr => $($arg:tt)*) => {{
+        eprintln!($($arg)*);
+        std::process::exit($code);
+    }};
+}
 
 const HELP: &str = "OVERVIEW: Decompilation tool
 
@@ -23,6 +31,8 @@ const NAMES: &[&str] = &[
     "--config",
     "--debug",
 ];
+
+pub static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
 
 #[derive(Debug, Clone)]
 pub struct Cli {
@@ -70,7 +80,7 @@ impl Cli {
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "-H" | "--help" => log::error!("{HELP}"),
+                "-H" | "--help" => exit!(0 => "{HELP}"),
                 "-S" | "--simplify" => cli.simplify = true,
                 "-N" | "--names" => {
                     cli.names = true;
@@ -113,9 +123,9 @@ impl Cli {
 
                     // A guess that's less than 3 `steps` away from a correct arg.
                     if distance < 4 {
-                        log::error!("Unknown cmd arg '{unknown}' did you mean '{best_guess}'?")
+                        exit!(1 => "Unknown cmd arg '{unknown}' did you mean '{best_guess}'?")
                     } else {
-                        log::error!("Unknown cmd arg '{unknown}' was entered.");
+                        exit!(1 => "Unknown cmd arg '{unknown}' was entered.");
                     }
                 }
             }
@@ -128,12 +138,12 @@ impl Cli {
     fn validate_args(&mut self) {
         if self.disassemble || self.libs || self.names {
             if self.path.is_none() {
-                log::error!("Missing path to an object.");
+                exit!(1 => "Missing path to an object.");
             }
         }
 
         if !(self.disassemble ^ self.libs ^ self.names) {
-            log::error!("Invalid combination of arguements.\n\n{HELP}");
+            exit!(1 => "Invalid combination of arguements.\n\n{HELP}");
         }
     }
 }

@@ -1,6 +1,11 @@
+mod common;
 mod donut;
 mod listing;
+mod functions;
 mod terminal;
+
+pub use terminal::Terminal;
+use common::*;
 
 use egui::{Button, RichText};
 use egui_dock::{DockArea, DockState};
@@ -8,29 +13,20 @@ use egui_dock::{DockArea, DockState};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-type Identifier = &'static str;
-
-const FONT: egui::FontId = egui::FontId::new(14.0, egui::FontFamily::Monospace);
-
-// pub const SOURCE: Identifier = crate::icon!(EMBED2, " Source");
-const DISASSEMBLY: Identifier = crate::icon!(PARAGRAPH_LEFT, " Disassembly");
-const FUNCTIONS: Identifier = crate::icon!(LIGATURE, " Functions");
-const LOGGING: Identifier = crate::icon!(TERMINAL, " Logs");
-
 pub trait Display {
     fn show(&mut self, ui: &mut egui::Ui);
 }
 
 enum PanelKind {
-    Disassembly(listing::Disassembly),
-    Functions(listing::Functions),
+    Disassembly(listing::Listing),
+    Functions(functions::Functions),
     Logging,
 }
 
-struct Tabs {
+pub struct Tabs {
     mapping: BTreeMap<Identifier, PanelKind>,
     pub terminal: terminal::Terminal,
-    donut: donut::Donut,
+    pub donut: donut::Donut,
 }
 
 impl Tabs {
@@ -76,10 +72,10 @@ impl egui_dock::TabViewer for Tabs {
 }
 
 pub struct Panels {
-    layout: DockState<Identifier>,
-    tabs: Tabs,
-    proxy: crate::Proxy,
-    is_loading: bool,
+    pub layout: DockState<Identifier>,
+    pub tabs: Tabs,
+    pub proxy: crate::Proxy,
+    pub loading: bool,
 }
 
 impl Panels {
@@ -95,40 +91,39 @@ impl Panels {
             layout,
             tabs: Tabs::new(),
             proxy,
-            is_loading: false,
+            loading: false,
         }
+    }
+
+    pub fn listing(&mut self) -> Option<&mut listing::Listing> {
+        self.tabs.mapping.get_mut(DISASSEMBLY).and_then(|kind| match kind {
+            PanelKind::Disassembly(listing) => Some(listing),
+            _ => None
+        })
     }
 
     pub fn terminal(&mut self) -> &mut terminal::Terminal {
         &mut self.tabs.terminal
     }
 
-    pub fn toggle_loading(&mut self) {
-        self.is_loading = !self.is_loading;
-    }
-
     pub fn load_binary(&mut self, disassembly: Arc<disassembler::Disassembly>) {
         self.tabs.mapping.insert(
             DISASSEMBLY,
             PanelKind::Disassembly(
-                listing::Disassembly::new(disassembly.clone())
+                listing::Listing::new(disassembly.clone())
             )
         );
 
         self.tabs.mapping.insert(
             FUNCTIONS,
             PanelKind::Functions(
-                listing::Functions::new(disassembly.clone())
+                functions::Functions::new(disassembly)
             )
         );
     }
 
     fn ask_for_binary(&self) {
-        // create dialog popup and get references to the donut and dissasembly
-        let dialog = rfd::FileDialog::new().pick_file();
-
-        // load binary
-        if let Some(path) = dialog {
+        if let Some(path) = rfd::FileDialog::new().pick_file() {
             self.proxy.send(crate::CustomEvent::BinaryRequested(path));
         }
     }
@@ -289,7 +284,7 @@ impl Panels {
                 })
             })
             .show(ctx, |ui| {
-                if self.is_loading {
+                if self.loading {
                     let layout = egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
 
                     ui.with_layout(layout, |ui| self.tabs.donut.show(ui));

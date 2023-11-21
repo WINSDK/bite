@@ -6,14 +6,13 @@ edition = "2021"
 [dependencies]
 object = "0.32"
 pdb = "0.8"
-triple_accel = "0.4"
 once_cell = "1.1"
 png = "0.17"
 rfd = "0.12"
 
+args = { path = "./args" }
 log = { path = "./log" }
 gui = { path = "./gui" }
-debugger = { path = "./debugger" }
 decoder = { path = "./decoder" }
 disassembler = { path = "./disassembler" }
 tokenizing = { path = "./tokenizing" }
@@ -32,6 +31,7 @@ winres = "0.1"
 members = [
     "log",
     "gui",
+    "args",
     "disassembler",
     "tokenizing",
     "decoder",
