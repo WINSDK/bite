@@ -62,7 +62,7 @@ macro_rules! impl_recursion {
 
 /// Architecture agnostic code analysis.
 pub struct Processor {
-    pub sections: Vec<Section>,
+    sections: Vec<Section>,
     errors: Vec<(Addr, decoder::Error)>,
     instructions: Vec<(Addr, Instruction)>,
     max_instruction_width: usize,
@@ -208,6 +208,10 @@ impl Processor {
             Ok(idx) => Some(&self.instructions[idx].1),
             Err(..) => None,
         }
+    }
+
+    pub fn sections(&self) -> impl Iterator<Item = &Section> {
+        self.sections.iter()
     }
 }
 

@@ -2609,7 +2609,7 @@ impl decoder::Decoded for Instruction {
                 _ => continue,
             };
 
-            if let Some(text) = symbols.get_by_addr(addr) {
+            if let Some(text) = symbols.get_by_addr(addr).cloned() {
                 *shadow = Some(decoder::Xref { addr, text });
             }
         }

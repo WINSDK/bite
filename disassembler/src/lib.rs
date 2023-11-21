@@ -4,8 +4,8 @@ mod fmt;
 mod processor;
 
 use object::{Object, SectionKind};
-use tokenizing::{colors, Token};
 use processor::Processor;
+use tokenizing::{colors, Token};
 
 type Addr = usize;
 
@@ -163,28 +163,23 @@ impl DisassemblyView {
         }
     }
 
-    pub fn update(&mut self, disassembly: &Disassembly) {
-        self.blocks.clear();
-        self.block_offset = 0;
+    pub fn no_code(&self) -> bool {
+        self.blocks.is_empty()
+    }
 
-        // range of text sections, can be incorrect because there may be data
-        // sections between text sections
-        let (first_addr, last_addr) = {
-            let sections = &disassembly.processor.sections;
-            let start = sections.iter().find(|s| s.kind == SectionKind::Text).unwrap().start;
-            let end = sections.iter().rfind(|s| s.kind == SectionKind::Text).unwrap().end;
-
-            (start, end)
-        };
-
+    fn read_within_section(
+        &mut self,
+        section: &Section,
+        disassembly: &Disassembly,
+        lines_read: &mut usize,
+    ) {
         let mut addr = self.addr;
-        let mut lines_read = 0;
 
         // try to go backwards
-        while lines_read < self.max_lines / 2 {
+        while *lines_read < self.max_lines / 2 {
             // if there are less than `self.max_lines` lines before
             // the current instruction, break
-            if addr < first_addr {
+            if addr < section.start {
                 break;
             }
 
@@ -203,7 +198,7 @@ impl DisassemblyView {
 
             if let Some(err) = disassembly.processor.error_by_addr(addr) {
                 tokens.push(Token::from_string(
-                    format!("{addr:0>10X}  "),
+                    format!("{:0>10X}  ", addr),
                     colors::GRAY40,
                 ));
 
@@ -226,7 +221,7 @@ impl DisassemblyView {
                 let instruction = disassembly.processor.instruction_tokens(&instruction);
 
                 tokens.push(Token::from_string(
-                    format!("{addr:0>10X}  "),
+                    format!("{:0>10X}  ", addr),
                     colors::GRAY40,
                 ));
 
@@ -261,13 +256,13 @@ impl DisassemblyView {
                 line_count,
             });
 
-            lines_read += line_count;
+            *lines_read += line_count;
         }
 
         // try to go forward
-        while lines_read < self.max_lines {
+        while *lines_read < self.max_lines {
             // if there are less than `self.max_lines` lines in total, break
-            if addr > last_addr {
+            if addr > section.end {
                 break;
             }
 
@@ -289,7 +284,7 @@ impl DisassemblyView {
 
             if let Some(err) = disassembly.processor.error_by_addr(addr) {
                 tokens.push(Token::from_string(
-                    format!("{addr:0>10X}  "),
+                    format!("{:0>10X}  ", addr),
                     colors::GRAY40,
                 ));
 
@@ -312,7 +307,7 @@ impl DisassemblyView {
                 let instruction = disassembly.processor.instruction_tokens(&instruction);
 
                 tokens.push(Token::from_string(
-                    format!("{addr:0>10X}  "),
+                    format!("{:0>10X}  ", addr),
                     colors::GRAY40,
                 ));
 
@@ -341,7 +336,29 @@ impl DisassemblyView {
                 line_count,
             });
 
-            lines_read += line_count;
+            *lines_read += line_count;
+        }
+
+        self.addr = addr;
+    }
+
+    pub fn update(&mut self, disassembly: &Disassembly) {
+        self.blocks.clear();
+        self.block_offset = 0;
+
+        let text_sections = || {
+            disassembly.processor.sections().filter(|s| s.kind == SectionKind::Text)
+        };
+
+        // check if address is unknown
+        if !text_sections().any(|s| (s.start..s.end).contains(&self.addr)) {
+            let first = disassembly.processor.sections().min_by_key(|s| s.start).unwrap();
+            self.addr = first.start;
+        }
+
+        let mut lines_read = 0;
+        for section in text_sections() {
+            self.read_within_section(section, disassembly, &mut lines_read);
         }
 
         self.blocks.sort_unstable_by_key(|b| b.addr);
@@ -350,7 +367,7 @@ impl DisassemblyView {
 
         // set block offset to the first same addr
         self.block_offset = self.blocks.iter().position(|b| b.addr == self.addr).unwrap_or(0);
-        self.addr = self.blocks[self.block_offset].addr;
+        self.addr = self.blocks.get(self.block_offset).map(|b| b.addr).unwrap_or(0);
 
         // set line offset to the lines read minus the first displayed block
         self.line_offset = self.blocks.iter().take(self.block_offset).map(|b| b.line_count).sum();
@@ -485,9 +502,7 @@ impl Disassembly {
         let mut index = symbols::Index::new();
 
         index.parse_debug(&obj).map_err(Error::IncompleteSymbolTable)?;
-        index
-            .parse_imports(&binary[..], &obj)
-            .map_err(Error::IncompleteImportTable)?;
+        index.parse_imports(&binary[..], &obj).map_err(Error::IncompleteImportTable)?;
         index.label();
 
         let mut processor = Processor::new(obj.sections(), obj.architecture())
@@ -511,8 +526,7 @@ impl Disassembly {
 
     pub fn section(&self, addr: Addr) -> Option<&str> {
         self.processor
-            .sections
-            .iter()
+            .sections()
             .find(|s| (s.start..=s.end).contains(&addr))
             .map(|s| &s.name as &str)
     }

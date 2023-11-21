@@ -35,7 +35,7 @@ impl crate::Target for Arch {
         }
     }
 
-    fn clipboard(window: &crate::Window) -> Box<dyn ClipboardProvider> {
+    fn clipboard(_: &crate::Window) -> Box<dyn ClipboardProvider> {
         ClipboardContext::new()
             .map(|clip| Box::new(clip) as Box<dyn ClipboardProvider>)
             .unwrap()

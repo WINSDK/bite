@@ -402,11 +402,11 @@ impl Index {
         self.tree.iter()
     }
 
-    pub fn get_by_addr(&self, addr: usize) -> Option<Function> {
+    pub fn get_by_addr(&self, addr: usize) -> Option<&Function> {
         let search = self.tree.binary_search_by(|x| x.0.cmp(&addr));
 
         match search {
-            Ok(idx) => Some(self.tree[idx].1.clone()),
+            Ok(idx) => Some(&self.tree[idx].1),
             Err(..) => None,
         }
     }
