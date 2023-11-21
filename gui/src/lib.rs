@@ -127,6 +127,23 @@ impl<Arch: Target> UI<Arch> {
         }
     }
 
+    fn offload_binary_processing(&mut self, path: std::path::PathBuf) {
+        // don't load multiple binaries at a time
+        if self.panels.loading {
+            return;
+        }
+
+        self.panels.loading = true;
+        let proxy = self.proxy.clone();
+
+        std::thread::spawn(move || {
+            match disassembler::Disassembly::parse(path) {
+                Ok(diss) => proxy.send(CustomEvent::BinaryLoaded(Arc::new(diss))),
+                Err(err) => proxy.send(CustomEvent::BinaryFailed(err)),
+            };
+        });
+    }
+
     pub fn run(mut self) {
         let now = std::time::Instant::now();
 
@@ -150,16 +167,7 @@ impl<Arch: Target> UI<Arch> {
                         }
                     }
                     WindowEvent::Resized(size) => self.instance.resize(size.width, size.height),
-                    WindowEvent::DroppedFile(path) => {
-                        let proxy = self.proxy.clone();
-
-                        std::thread::spawn(move || {
-                            match disassembler::Disassembly::parse(path) {
-                                Ok(diss) => proxy.send(CustomEvent::BinaryLoaded(Arc::new(diss))),
-                                Err(err) => proxy.send(CustomEvent::BinaryFailed(err)),
-                            };
-                        });
-                    }
+                    WindowEvent::DroppedFile(path) => self.offload_binary_processing(path),
                     WindowEvent::CloseRequested => target.exit(),
                     _ => {}
                 },
@@ -170,17 +178,7 @@ impl<Arch: Target> UI<Arch> {
                     }
                     CustomEvent::Fullscreen => self.arch.fullscreen(&self.window),
                     CustomEvent::Minimize => self.window.set_minimized(true),
-                    CustomEvent::BinaryRequested(path) => {
-                        self.panels.loading = true;
-                        let proxy = self.proxy.clone();
-
-                        std::thread::spawn(move || {
-                            match disassembler::Disassembly::parse(path) {
-                                Ok(diss) => proxy.send(CustomEvent::BinaryLoaded(Arc::new(diss))),
-                                Err(err) => proxy.send(CustomEvent::BinaryFailed(err)),
-                            };
-                        });
-                    }
+                    CustomEvent::BinaryRequested(path) => self.offload_binary_processing(path),
                     CustomEvent::BinaryFailed(err) => {
                         self.panels.loading = false;
                         log::warning!("{err:?}");
