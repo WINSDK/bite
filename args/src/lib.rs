@@ -72,12 +72,6 @@ impl Cli {
 
         let mut args = std::env::args().skip(1).peekable();
 
-        // when no argument is given, run the gui
-        if args.peek().is_none() {
-            cli.disassemble = true;
-            return cli;
-        }
-
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "-H" | "--help" => exit!(0 => "{HELP}"),
@@ -140,9 +134,13 @@ impl Cli {
             if self.path.is_none() {
                 exit!(1 => "Missing path to an object.");
             }
+        } else {
+            // no action arguments were given 
+            self.disassemble = true;
+            return;
         }
 
-        if !(self.disassemble ^ self.libs ^ self.names) {
+        if self.disassemble as usize + self.libs as usize + self.names as usize > 1 {
             exit!(1 => "Invalid combination of arguements.\n\n{HELP}");
         }
     }

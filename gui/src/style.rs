@@ -1,4 +1,4 @@
-use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets, DebugOptions};
+use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets};
 use egui::{Color32, FontFamily, FontId, Rounding, Stroke, TextStyle};
 
 use once_cell::sync::Lazy;
@@ -131,18 +131,20 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Monospace));
         styles
     },
+    #[cfg(debug_assertions)]
     debug: if args::ARGS.debug {
-        DebugOptions {
+        egui::style::DebugOptions {
             debug_on_hover: true,
+            debug_on_hover_with_all_modifiers: true,
+            hover_shows_next: true,
             show_expand_width: true,
             show_expand_height: true,
             show_resize: true,
             show_interactive_widgets: true,
             show_blocking_widget: true,
-            ..Default::default()
         }
     } else {
-        DebugOptions::default()
+        egui::style::DebugOptions::default()
     },
     ..Default::default()
 });
