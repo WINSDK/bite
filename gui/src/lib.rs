@@ -8,6 +8,7 @@ mod wgpu_backend;
 pub mod windows;
 mod winit_backend;
 
+use std::fmt::Write;
 use std::sync::Arc;
 
 use copypasta::ClipboardProvider;
@@ -54,6 +55,9 @@ pub enum CustomEvent {
     DragWindow,
     Fullscreen,
     Minimize,
+    DebuggerExecute(Vec<String>),
+    DebuggerFailed(debugger::Error),
+    DebuggerFinished,
     BinaryRequested(std::path::PathBuf),
     BinaryFailed(disassembler::Error),
     BinaryLoaded(Arc<disassembler::Disassembly>),
@@ -122,7 +126,7 @@ impl<Arch: Target> UI<Arch> {
     }
 
     pub fn process_args(&mut self) {
-        if let Some(path) = args::ARGS.path.as_ref().cloned(){
+        if let Some(path) = args::ARGS.path.as_ref().cloned() {
             self.proxy.send(CustomEvent::BinaryRequested(path));
         }
     }
@@ -137,10 +141,49 @@ impl<Arch: Target> UI<Arch> {
         let proxy = self.proxy.clone();
 
         std::thread::spawn(move || {
-            match disassembler::Disassembly::parse(path) {
+            match disassembler::Disassembly::parse(&path) {
                 Ok(diss) => proxy.send(CustomEvent::BinaryLoaded(Arc::new(diss))),
                 Err(err) => proxy.send(CustomEvent::BinaryFailed(err)),
             };
+        });
+    }
+
+    fn offload_debugging(&mut self, args: Vec<String>) {
+        // don't debug multiple binaries at a time
+        if self.panels.debugging {
+            print_extern!(self.panels.terminal(), "Debugger is already running.");
+            return;
+        }
+
+        let proxy = self.proxy.clone();
+        let path = match self.panels.listing() {
+            Some(listing) => listing.disassembly.path.clone(),
+            None => {
+                print_extern!(self.panels.terminal(), "Missing binary to debug.");
+                return;
+            }
+        };
+
+        self.panels.debugging = true;
+        print_extern!(self.panels.terminal(), "Running debugger.");
+
+        std::thread::spawn(move || {
+            use debugger::Process;
+
+            let mut session = match debugger::Debugger::spawn(path, args) {
+                Ok(session) => session,
+                Err(err) => {
+                    proxy.send(CustomEvent::DebuggerFailed(err));
+                    return;
+                }
+            };
+
+            session.trace_syscalls(true);
+
+            match session.run_to_end() {
+                Ok(()) => proxy.send(CustomEvent::DebuggerFinished),
+                Err(err) => proxy.send(CustomEvent::DebuggerFailed(err)),
+            }
         });
     }
 
@@ -178,6 +221,14 @@ impl<Arch: Target> UI<Arch> {
                     }
                     CustomEvent::Fullscreen => self.arch.fullscreen(&self.window),
                     CustomEvent::Minimize => self.window.set_minimized(true),
+                    CustomEvent::DebuggerExecute(args) => self.offload_debugging(args),
+                    CustomEvent::DebuggerFailed(err) => {
+                        self.panels.debugging = false;
+                        print_extern!(self.panels.terminal(), "{err:?}.");
+                    }
+                    CustomEvent::DebuggerFinished => {
+                        self.panels.debugging = false;
+                    }
                     CustomEvent::BinaryRequested(path) => self.offload_binary_processing(path),
                     CustomEvent::BinaryFailed(err) => {
                         self.panels.loading = false;

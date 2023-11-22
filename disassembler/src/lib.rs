@@ -468,6 +468,9 @@ impl DisassemblyView {
 
 /// Everything necessary to display a ASM listing.
 pub struct Disassembly {
+    /// Where the binary is located.
+    pub path: std::path::PathBuf,
+
     /// Where execution start.
     pub entrypoint: Addr,
 
@@ -518,6 +521,7 @@ impl Disassembly {
         );
 
         Ok(Self {
+            path: path.as_ref().to_path_buf(),
             entrypoint: obj.entry() as usize,
             processor,
             symbols: index,

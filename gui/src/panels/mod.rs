@@ -1,11 +1,11 @@
 mod common;
 mod donut;
-mod listing;
 mod functions;
+mod listing;
 mod terminal;
 
-pub use terminal::Terminal;
 use common::*;
+pub use terminal::Terminal;
 
 use egui::{Button, RichText};
 use egui_dock::{DockArea, DockState};
@@ -25,8 +25,8 @@ enum PanelKind {
 
 pub struct Tabs {
     mapping: BTreeMap<Identifier, PanelKind>,
-    pub terminal: terminal::Terminal,
-    pub donut: donut::Donut,
+    terminal: terminal::Terminal,
+    donut: donut::Donut,
 }
 
 impl Tabs {
@@ -76,6 +76,7 @@ pub struct Panels {
     pub tabs: Tabs,
     pub proxy: crate::Proxy,
     pub loading: bool,
+    pub debugging: bool,
 }
 
 impl Panels {
@@ -92,13 +93,14 @@ impl Panels {
             tabs: Tabs::new(),
             proxy,
             loading: false,
+            debugging: false,
         }
     }
 
     pub fn listing(&mut self) -> Option<&mut listing::Listing> {
         self.tabs.mapping.get_mut(DISASSEMBLY).and_then(|kind| match kind {
             PanelKind::Disassembly(listing) => Some(listing),
-            _ => None
+            _ => None,
         })
     }
 
@@ -109,16 +111,12 @@ impl Panels {
     pub fn load_binary(&mut self, disassembly: Arc<disassembler::Disassembly>) {
         self.tabs.mapping.insert(
             DISASSEMBLY,
-            PanelKind::Disassembly(
-                listing::Listing::new(disassembly.clone())
-            )
+            PanelKind::Disassembly(listing::Listing::new(disassembly.clone())),
         );
 
         self.tabs.mapping.insert(
             FUNCTIONS,
-            PanelKind::Functions(
-                functions::Functions::new(disassembly)
-            )
+            PanelKind::Functions(functions::Functions::new(disassembly)),
         );
     }
 
@@ -145,13 +143,13 @@ impl Panels {
             self.proxy.send(crate::CustomEvent::Fullscreen);
         }
 
-        let minimized_response = ui.add(Button::new(RichText::new(crate::icon!(MINUS)).size(height)));
+        let minimized_response =
+            ui.add(Button::new(RichText::new(crate::icon!(MINUS)).size(height)));
 
         if minimized_response.clicked() {
             self.proxy.send(crate::CustomEvent::Minimize);
         }
     }
-
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let bar = egui::menu::bar(ui, |ui| {
@@ -211,9 +209,10 @@ impl Panels {
 
         // alt-tab'ing between tabs
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
-            let (focused_surface, focused_node) = self.layout
-                .focused_leaf()
-                .unwrap_or((egui_dock::SurfaceIndex::main(), egui_dock::NodeIndex::root()));
+            let (focused_surface, focused_node) = self.layout.focused_leaf().unwrap_or((
+                egui_dock::SurfaceIndex::main(),
+                egui_dock::NodeIndex::root(),
+            ));
 
             // don't do tab'ing if there are no tabs
             if self.layout.main_surface().num_tabs() == 0 {
@@ -224,13 +223,17 @@ impl Panels {
             if let egui_dock::Node::Leaf { tabs, active, .. } = focused {
                 if active.0 != tabs.len() - 1 {
                     let tab_idx = active.0 + 1;
-                    self.layout.set_active_tab(
-                        (focused_surface, focused_node, egui_dock::TabIndex(tab_idx)),
-                    );
+                    self.layout.set_active_tab((
+                        focused_surface,
+                        focused_node,
+                        egui_dock::TabIndex(tab_idx),
+                    ));
                 } else {
-                    self.layout.set_active_tab(
-                        (focused_surface, focused_node, egui_dock::TabIndex(0)),
-                    );
+                    self.layout.set_active_tab((
+                        focused_surface,
+                        focused_node,
+                        egui_dock::TabIndex(0),
+                    ));
                 }
             }
         }

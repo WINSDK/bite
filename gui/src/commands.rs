@@ -11,6 +11,15 @@ macro_rules! print {
     }};
 }
 
+/// Print to the terminal outside of [`process_cmd`].
+#[macro_export]
+macro_rules! print_extern {
+    ($dst:expr, $($arg:tt)*) => {{
+        let _ = writeln!($dst, $($arg)*);
+    }};
+}
+
+
 fn possible_command(unknown: &str) -> Option<&str> {
     let mut distance = u32::MAX;
     let mut best_guess = "";
@@ -67,7 +76,7 @@ impl Panels {
 
     /// Runs a singular commands, returning if it succeeded.
     fn process_cmd(&mut self, cmd: &str) -> bool {
-        print!(self.tabs.terminal, "(bite) {cmd}");
+        print!(self.terminal(), "(bite) {cmd}");
 
         let mut args = cmd.split_whitespace();
         let cmd_name = match args.next() {
@@ -80,11 +89,11 @@ impl Panels {
                 let path = expand_homedir(unexpanded);
 
                 self.proxy.send(crate::CustomEvent::BinaryRequested(path));
-                print!(self.tabs.terminal, "Binary '{unexpanded}' was opened.");
+                print!(self.terminal(), "Binary '{unexpanded}' was opened.");
                 return true;
             }
 
-            print!(self.tabs.terminal, "Command 'exec' requires a path.");
+            print!(self.terminal(), "Command 'exec' requires a path.");
             return true;
         }
 
@@ -92,16 +101,16 @@ impl Panels {
             let path = expand_homedir(args.next().unwrap_or("~"));
 
             if let Err(err) = std::env::set_current_dir(path) {
-                print!(self.tabs.terminal, "Failed to change directory: '{err}'.");
+                print!(self.terminal(), "Failed to change directory: '{err}'.");
                 return true;
             }
 
-            print_cwd(&mut self.tabs.terminal);
+            print_cwd(self.terminal());
             return true;
         }
 
         if cmd_name == "pwd" {
-            print_cwd(&mut self.tabs.terminal);
+            print_cwd(self.terminal());
             return true;
         }
 
@@ -112,14 +121,15 @@ impl Panels {
                 args = raw_args.split_whitespace().map(ToString::to_string).collect();
             }
 
-            todo!("run debugger");
+            self.proxy.send(crate::CustomEvent::DebuggerExecute(args));
+            return true;
         }
 
         if cmd_name == "set" {
             let (var, value) = match cmd.split_once("=") {
                 Some(pair) => pair,
                 None => {
-                    print!(self.tabs.terminal, "You must specify what env variable to set.");
+                    print!(self.terminal(), "You must specify what env variable to set.");
                     return true;
                 }
             };
@@ -136,7 +146,7 @@ impl Panels {
             let listing = match self.listing() {
                 Some(dissasembly) => dissasembly,
                 None => {
-                    print!(self.tabs.terminal, "There are no targets to inspect.");
+                    print!(self.terminal(), "There are no targets to inspect.");
                     return true;
                 }
             };
@@ -147,12 +157,12 @@ impl Panels {
                 Ok(addr) => {
                     if listing.disassembly_view.jump(&listing.disassembly, addr) {
                         listing.update();
-                        print!(self.tabs.terminal, "Jumped to address '{addr:#X}'.");
+                        print!(self.terminal(), "Jumped to address '{addr:#X}'.");
                     } else {
-                        print!(self.tabs.terminal, "Address '{addr:#X}' is undefined.");
+                        print!(self.terminal(), "Address '{addr:#X}' is undefined.");
                     }
                 }
-                Err(err) => print!(self.tabs.terminal, "{err:?}."),
+                Err(err) => print!(self.terminal(), "{err:?}."),
             }
 
             return true;
@@ -160,10 +170,10 @@ impl Panels {
 
         match possible_command(cmd_name) {
             Some(guess) => print!(
-                self.tabs.terminal,
+                self.terminal(),
                 "Command '{cmd_name}' is unknown, did you mean '{guess}'?"
             ),
-            None => print!(self.tabs.terminal, "Command '{cmd_name}' is unknown."),
+            None => print!(self.terminal(), "Command '{cmd_name}' is unknown."),
         }
 
         true
