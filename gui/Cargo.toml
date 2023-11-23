@@ -7,11 +7,11 @@ edition = "2021"
 rfd = "0.12"
 triple_accel = "0.4"
 bytemuck = { version = "1.14", default-features = false }
-winit = { version = "0.29", features = ["rwh_05"] }
+winit = { version = "0.29", features = ["rwh_05"] } # remove this feature when gpu 0.19 comes out
 wgpu = { version = "0.18" }
 egui = { version = "0.23", features = ["bytemuck"] }
 egui_dock = "0.8"
-copypasta = { version = "0.10", features = ["wayland"] }
+copypasta = "0.10"
 once_cell = "1.1"
 png = "0.17"
 pollster = "0.3.0"

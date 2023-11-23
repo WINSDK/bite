@@ -167,6 +167,7 @@ impl<Arch: Target> UI<Arch> {
         self.panels.debugging = true;
         print_extern!(self.panels.terminal(), "Running debugger.");
 
+        #[cfg(target_os = "linux")]
         std::thread::spawn(move || {
             use debugger::Process;
 
@@ -185,6 +186,9 @@ impl<Arch: Target> UI<Arch> {
                 Err(err) => proxy.send(CustomEvent::DebuggerFailed(err)),
             }
         });
+
+        #[cfg(not(target_os = "linux"))]
+        proxy.send(CustomEvent::DebuggerFinished);
     }
 
     pub fn run(mut self) {
