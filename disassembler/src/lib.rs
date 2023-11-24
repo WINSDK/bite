@@ -167,43 +167,49 @@ impl DisassemblyView {
         self.blocks.is_empty()
     }
 
-    fn read_within_section(
-        &mut self,
-        section: &Section,
-        disassembly: &Disassembly,
-        lines_read: &mut usize,
-    ) {
-        let mut addr = self.addr;
-
+    fn read_within_section(&mut self, section: &Section, disassembly: &Disassembly) {
         // try to go backwards
-        while *lines_read < self.max_lines / 2 {
+        while self.line_count < self.max_lines / 2 {
             // if there are less than `self.max_lines` lines before
             // the current instruction, break
-            if addr < section.start {
+            if self.addr < section.start {
                 break;
             }
 
             let mut tokens = Vec::new();
-            let mut found_something = false;
             let mut line_count = 0;
-            let addr_of_block = addr;
 
-            if let Some(function) = disassembly.symbols.get_by_addr(addr) {
-                tokens.push(Token::from_str("\n<", colors::BLUE));
-                tokens.extend_from_slice(function.name());
-                tokens.push(Token::from_str(">:\n", colors::BLUE));
+            let error = disassembly.processor.error_by_addr(self.addr);
+            let instruction = disassembly.processor.instruction_by_addr(self.addr);
+            let addr_of_block = self.addr;
 
-                line_count += 2;
+            // if there is something at this address
+            if error.is_some() || instruction.is_some() {
+                if let Some(function) = disassembly.symbols.get_by_addr(self.addr) {
+                    tokens.push(Token::from_str("\n<", colors::BLUE));
+                    tokens.extend_from_slice(function.name());
+                    tokens.push(Token::from_str(">:\n", colors::BLUE));
+
+                    line_count += 2;
+                }
+            } else {
+                match disassembly.processor.prev_item(self.addr) {
+                    Some(addr) => {
+                        self.addr = addr;
+                        continue;
+                    },
+                    None => break
+                }
             }
 
-            if let Some(err) = disassembly.processor.error_by_addr(addr) {
+            if let Some(err) = error {
                 tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", addr),
+                    format!("{:0>10X}  ", self.addr),
                     colors::GRAY40,
                 ));
 
                 tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(addr, err.size()),
+                    disassembly.processor.format_bytes(self.addr, err.size()),
                     colors::GREEN,
                 ));
 
@@ -211,43 +217,30 @@ impl DisassemblyView {
                 tokens.push(Token::from_string(format!("{:?}", err.kind), colors::RED));
                 tokens.push(Token::from_str(">\n", colors::GRAY40));
 
-                addr = addr.saturating_sub(err.size());
-                found_something = true;
+                self.addr = self.addr.saturating_sub(err.size());
+
                 line_count += 1;
             }
 
-            if let Some(instruction) = disassembly.processor.instruction_by_addr(addr) {
+            if let Some(instruction) = instruction {
                 let width = disassembly.processor.instruction_width(&instruction);
                 let instruction = disassembly.processor.instruction_tokens(&instruction);
 
                 tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", addr),
+                    format!("{:0>10X}  ", self.addr),
                     colors::GRAY40,
                 ));
 
                 tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(addr, width),
+                    disassembly.processor.format_bytes(self.addr, width),
                     colors::GREEN,
                 ));
 
                 tokens.extend(instruction);
                 tokens.push(Token::from_str("\n", colors::WHITE));
 
-                addr = addr.saturating_sub(width);
-                found_something = true;
+                self.addr = self.addr.saturating_sub(width);
                 line_count += 1;
-            }
-
-            if !found_something {
-                // failed to read anything, try to go back 4 bytes
-                match addr.checked_sub(4) {
-                    Some(new_addr) => {
-                        addr = new_addr;
-                        continue;
-                    }
-                    // break in case of underflow
-                    None => break,
-                };
             }
 
             self.blocks.push(Block {
@@ -256,40 +249,50 @@ impl DisassemblyView {
                 line_count,
             });
 
-            *lines_read += line_count;
+            self.line_count += line_count;
         }
 
         // try to go forward
-        while *lines_read < self.max_lines {
+        while self.line_count < self.max_lines {
             // if there are less than `self.max_lines` lines in total, break
-            if addr > section.end {
+            if self.addr > section.end {
                 break;
             }
 
             let mut tokens = Vec::new();
-            let mut found_something = false;
             let mut line_count = 0;
-            let addr_of_block = addr;
 
-            if let Some(function) = disassembly.symbols.get_by_addr(addr) {
-                tokens.push(Token::from_str("\n<", colors::BLUE));
+            let error = disassembly.processor.error_by_addr(self.addr);
+            let instruction = disassembly.processor.instruction_by_addr(self.addr);
+            let addr_of_block = self.addr;
 
-                for token in function.name() {
-                    tokens.push(token.clone());
+            // if there is something at this address
+            if error.is_some() || instruction.is_some() {
+                if let Some(function) = disassembly.symbols.get_by_addr(self.addr) {
+                    tokens.push(Token::from_str("\n<", colors::BLUE));
+                    tokens.extend_from_slice(function.name());
+                    tokens.push(Token::from_str(">:\n", colors::BLUE));
+
+                    line_count += 2;
                 }
-
-                tokens.push(Token::from_str(">:\n", colors::BLUE));
-                line_count += 2;
+            } else {
+                match disassembly.processor.next_item(self.addr) {
+                    Some(addr) => {
+                        self.addr = addr;
+                        continue;
+                    },
+                    None => break
+                }
             }
 
-            if let Some(err) = disassembly.processor.error_by_addr(addr) {
+            if let Some(err) = error {
                 tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", addr),
+                    format!("{:0>10X}  ", self.addr),
                     colors::GRAY40,
                 ));
 
                 tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(addr, err.size()),
+                    disassembly.processor.format_bytes(self.addr, err.size()),
                     colors::GREEN,
                 ));
 
@@ -297,37 +300,29 @@ impl DisassemblyView {
                 tokens.push(Token::from_string(format!("{:?}", err.kind), colors::RED));
                 tokens.push(Token::from_str(">\n", colors::GRAY40));
 
-                addr += err.size();
-                found_something = true;
+                self.addr += err.size();
                 line_count += 1;
             }
 
-            if let Some(instruction) = disassembly.processor.instruction_by_addr(addr) {
+            if let Some(instruction) = instruction {
                 let width = disassembly.processor.instruction_width(&instruction);
                 let instruction = disassembly.processor.instruction_tokens(&instruction);
 
                 tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", addr),
+                    format!("{:0>10X}  ", self.addr),
                     colors::GRAY40,
                 ));
 
                 tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(addr, width),
+                    disassembly.processor.format_bytes(self.addr, width),
                     colors::GREEN,
                 ));
 
                 tokens.extend(instruction);
                 tokens.push(Token::from_str("\n", colors::WHITE));
 
-                addr += width;
-                found_something = true;
+                self.addr += width;
                 line_count += 1;
-            }
-
-            if !found_something {
-                // failed to read anything, try to go forward 4 bytes
-                addr += 4;
-                continue;
             }
 
             self.blocks.push(Block {
@@ -336,34 +331,28 @@ impl DisassemblyView {
                 line_count,
             });
 
-            *lines_read += line_count;
+            self.line_count += line_count;
         }
-
-        self.addr = addr;
     }
 
     pub fn update(&mut self, disassembly: &Disassembly) {
         self.blocks.clear();
         self.block_offset = 0;
+        self.line_count = 0;
 
-        let text_sections = || {
-            disassembly.processor.sections().filter(|s| s.kind == SectionKind::Text)
-        };
+        let text_sections =
+            || disassembly.processor.sections().filter(|s| s.kind == SectionKind::Text);
 
         // check if address is unknown
         if !text_sections().any(|s| (s.start..s.end).contains(&self.addr)) {
+            // self.addr = disassembly.entrypoint;
             let first = disassembly.processor.sections().min_by_key(|s| s.start).unwrap();
             self.addr = first.start;
         }
 
-        let mut lines_read = 0;
         for section in text_sections() {
-            self.read_within_section(section, disassembly, &mut lines_read);
+            self.read_within_section(section, disassembly);
         }
-
-        self.blocks.sort_unstable_by_key(|b| b.addr);
-
-        self.line_count = lines_read;
 
         // set block offset to the first same addr
         self.block_offset = self.blocks.iter().position(|b| b.addr == self.addr).unwrap_or(0);

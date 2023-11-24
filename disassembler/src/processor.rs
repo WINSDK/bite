@@ -63,8 +63,8 @@ macro_rules! impl_recursion {
 /// Architecture agnostic code analysis.
 pub struct Processor {
     sections: Vec<Section>,
-    errors: Vec<(Addr, decoder::Error)>,
-    instructions: Vec<(Addr, Instruction)>,
+    pub errors: Vec<(Addr, decoder::Error)>,
+    pub instructions: Vec<(Addr, Instruction)>,
     max_instruction_width: usize,
     instruction_tokens: fn(&Instruction) -> Vec<Token>,
     instruction_width: fn(&Instruction) -> usize,
@@ -207,6 +207,63 @@ impl Processor {
         match self.instructions.binary_search_by(|k| k.0.cmp(&addr)) {
             Ok(idx) => Some(&self.instructions[idx].1),
             Err(..) => None,
+        }
+    }
+
+    /// Find the previous item given an address.
+    pub fn prev_item(&self, addr: Addr) -> Option<Addr> {
+        let i1 = self.instructions.binary_search_by(|(a, _)| a.cmp(&addr));
+        let i2 = self.errors.binary_search_by(|(a, _)| a.cmp(&addr));
+
+        match (i1, i2) {
+            // there is an item at this addr
+            (Ok(_), _) | (_, Ok(_)) => None,
+            (Err(i1), Err(i2)) => {
+                if i1 == 0 && i2 == 0 {
+                    return None;
+                }
+
+                if i1 == 0 {
+                    return Some(self.errors[i2 - 1].0);
+                }
+
+                if i2 == 0 {
+                    return Some(self.instructions[i1 - 1].0);
+                }
+
+                let a1 = self.instructions[i1 - 1].0;
+                let a2 = self.errors[i2 - 1].0;
+
+                Some(std::cmp::max(a1, a2))
+            }
+        }
+    }
+
+    pub fn next_item(&self, addr: Addr) -> Option<Addr> {
+        let i1 = self.instructions.binary_search_by(|(a, _)| a.cmp(&addr));
+        let i2 = self.errors.binary_search_by(|(a, _)| a.cmp(&addr));
+
+        match (i1, i2) {
+            // there is an item at this addr
+            (Ok(_), _) | (_, Ok(_)) => None,
+            (Err(i1), Err(i2)) => {
+                if i1 == self.instructions.len() && i2 == self.errors.len() {
+                    return None;
+                }
+
+                if i1 == self.instructions.len() {
+                    return Some(self.errors[i2].0);
+                }
+
+                if i2 == self.errors.len() {
+                    return Some(self.instructions[i1].0);
+                }
+
+                let a1 = self.instructions[i1].0;
+                let a2 = self.errors[i2].0;
+
+                Some(std::cmp::min(a1, a2))
+            }
         }
     }
 
