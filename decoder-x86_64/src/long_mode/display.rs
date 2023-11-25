@@ -2041,15 +2041,6 @@ impl ToTokens for Instruction {
             if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
                 && RELATIVE_BRANCHES.contains(&self.opcode)
             {
-                if let Some(ref xref) = self.shadowing[0] {
-                    stream.push("[", Colors::brackets());
-                    for token in xref.text.name() {
-                        stream.push_token(token.clone());
-                    }
-                    stream.push("]", Colors::brackets());
-                    return;
-                }
-
                 return match op {
                     Operand::ImmediateI8(rel) => {
                         if rel >= 0 {

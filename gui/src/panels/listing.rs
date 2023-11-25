@@ -34,7 +34,7 @@ impl Listing {
 impl super::Display for Listing {
     fn show(&mut self, ui: &mut egui::Ui) {
         if !self.disassembly_view.no_code() {
-            if let Some(text) = self.disassembly.section(self.disassembly_view.addr()) {
+            if let Some(text) = self.disassembly.section_name(self.disassembly_view.addr()) {
                 let max_width = ui.available_width();
                 let size = egui::vec2(9.0 * text.len() as f32, 25.0);
                 let offset = egui::pos2(20.0, 60.0);

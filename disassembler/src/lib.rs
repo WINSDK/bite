@@ -21,11 +21,34 @@ pub enum Error {
 
 #[derive(Debug)]
 pub struct Section {
+    /// Section identifier.
     pub name: String,
+
+    /// What kind of data the section holds.
     pub kind: SectionKind,
+
+    /// Uncompressed data.
     pub bytes: Vec<u8>,
+
+    /// Address where section starts.
     pub start: Addr,
+
+    /// Section start + length of uncompressed data.
     pub end: Addr,
+}
+
+impl Section {
+    pub fn contains(&self, addr: Addr) -> bool {
+        (self.start..=self.end).contains(&addr)
+    }
+
+    pub fn format_bytes(&self, addr: Addr, len: usize, max_len: usize) -> Option<String> {
+        let rva = addr.checked_sub(self.start)?;
+        let bytes = self.bytes.get(rva..)?;
+        let bytes = &bytes[..std::cmp::min(bytes.len(), len)];
+
+        Some(decoder::encode_hex_bytes_truncated(bytes, max_len))
+    }
 }
 
 /// A singular address.
@@ -108,6 +131,10 @@ impl DisassemblyView {
     pub fn jump(&mut self, disassembly: &Disassembly, addr: Addr) -> bool {
         let processor = &disassembly.processor;
 
+        if !disassembly.sections().any(|s| s.contains(addr)) {
+            return false;
+        }
+
         for offset in 0..16 {
             let addr = addr.saturating_add_signed(offset);
 
@@ -144,7 +171,13 @@ impl DisassemblyView {
             }
         }
 
-        false
+
+        // if we don't find any known items near the address, just jump to it
+        // as there might be some bytes to inspect instead
+        self.addr = addr;
+        self.block_line_offset = 0;
+        self.update(disassembly);
+        true
     }
 
     /// Set's and update's the number of blocks if it changed.
@@ -167,171 +200,165 @@ impl DisassemblyView {
         self.blocks.is_empty()
     }
 
-    fn read_within_section(&mut self, section: &Section, disassembly: &Disassembly) {
-        // try to go backwards
-        while self.line_count < self.max_lines / 2 {
-            // if there are less than `self.max_lines` lines before
-            // the current instruction, break
-            if self.addr < section.start {
-                break;
-            }
+    /// Read's a [`Block`] at `addr` and also returns how many bytes were read.
+    fn read_block(&mut self, disassembly: &Disassembly, section: &Section, addr: Addr) -> usize {
+        let mut tokens = Vec::new();
+        let mut line_count = 0;
 
-            let mut tokens = Vec::new();
-            let mut line_count = 0;
+        let mut error = disassembly.processor.error_by_addr(addr);
+        let mut instruction = disassembly.processor.instruction_by_addr(addr);
+        let function = disassembly.symbols.get_by_addr(addr);
 
-            let error = disassembly.processor.error_by_addr(self.addr);
-            let instruction = disassembly.processor.instruction_by_addr(self.addr);
-            let addr_of_block = self.addr;
-
-            // if there is something at this address
-            if error.is_some() || instruction.is_some() {
-                if let Some(function) = disassembly.symbols.get_by_addr(self.addr) {
-                    tokens.push(Token::from_str("\n<", colors::BLUE));
-                    tokens.extend_from_slice(function.name());
-                    tokens.push(Token::from_str(">:\n", colors::BLUE));
-
-                    line_count += 2;
-                }
-            } else {
-                match disassembly.processor.prev_item(self.addr) {
-                    Some(addr) => {
-                        self.addr = addr;
-                        continue;
-                    },
-                    None => break
-                }
-            }
-
-            if let Some(err) = error {
-                tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", self.addr),
-                    colors::GRAY40,
-                ));
-
-                tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(self.addr, err.size()),
-                    colors::GREEN,
-                ));
-
-                tokens.push(Token::from_str("<", colors::GRAY40));
-                tokens.push(Token::from_string(format!("{:?}", err.kind), colors::RED));
-                tokens.push(Token::from_str(">\n", colors::GRAY40));
-
-                self.addr = self.addr.saturating_sub(err.size());
-
-                line_count += 1;
-            }
-
-            if let Some(instruction) = instruction {
-                let width = disassembly.processor.instruction_width(&instruction);
-                let instruction = disassembly.processor.instruction_tokens(&instruction);
-
-                tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", self.addr),
-                    colors::GRAY40,
-                ));
-
-                tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(self.addr, width),
-                    colors::GREEN,
-                ));
-
-                tokens.extend(instruction);
-                tokens.push(Token::from_str("\n", colors::WHITE));
-
-                self.addr = self.addr.saturating_sub(width);
-                line_count += 1;
-            }
-
-            self.blocks.push(Block {
-                addr: addr_of_block,
-                tokens,
-                line_count,
-            });
-
-            self.line_count += line_count;
+        // annotations require one line spacing
+        if section.start == addr || function.is_some() {
+            tokens.push(Token::from_str("\n", colors::WHITE));
+            line_count += 1;
         }
 
-        // try to go forward
-        while self.line_count < self.max_lines {
-            // if there are less than `self.max_lines` lines in total, break
-            if self.addr > section.end {
-                break;
-            }
+        if section.start == addr {
+            let text = format!("; section {}\n\n", section.name);
+            let annotation = Token::from_string(text, colors::GRAY60);
+            tokens.push(annotation);
+            line_count += 2;
+        }
 
-            let mut tokens = Vec::new();
-            let mut line_count = 0;
+        if let Some(function) = disassembly.symbols.get_by_addr(addr) {
+            tokens.push(Token::from_str("<", colors::BLUE));
+            tokens.extend_from_slice(function.name());
+            tokens.push(Token::from_str(">:\n", colors::BLUE));
+            line_count += 1;
+        }
 
-            let error = disassembly.processor.error_by_addr(self.addr);
-            let instruction = disassembly.processor.instruction_by_addr(self.addr);
-            let addr_of_block = self.addr;
+        if let Some(err) = error {
+            tokens.push(Token::from_string(
+                format!("{addr:0>10X}  "),
+                colors::GRAY40,
+            ));
 
-            // if there is something at this address
-            if error.is_some() || instruction.is_some() {
-                if let Some(function) = disassembly.symbols.get_by_addr(self.addr) {
-                    tokens.push(Token::from_str("\n<", colors::BLUE));
-                    tokens.extend_from_slice(function.name());
-                    tokens.push(Token::from_str(">:\n", colors::BLUE));
+            tokens.push(Token::from_string(
+                disassembly.processor.format_bytes(addr, err.size(), section).unwrap(),
+                colors::GREEN,
+            ));
 
-                    line_count += 2;
-                }
-            } else {
-                match disassembly.processor.next_item(self.addr) {
-                    Some(addr) => {
-                        self.addr = addr;
-                        continue;
-                    },
-                    None => break
-                }
-            }
+            tokens.push(Token::from_str("<", colors::GRAY40));
+            tokens.push(Token::from_string(format!("{:?}", err.kind), colors::RED));
+            tokens.push(Token::from_str(">\n", colors::GRAY40));
+            line_count += 1;
 
-            if let Some(err) = error {
-                tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", self.addr),
-                    colors::GRAY40,
-                ));
-
-                tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(self.addr, err.size()),
-                    colors::GREEN,
-                ));
-
-                tokens.push(Token::from_str("<", colors::GRAY40));
-                tokens.push(Token::from_string(format!("{:?}", err.kind), colors::RED));
-                tokens.push(Token::from_str(">\n", colors::GRAY40));
-
-                self.addr += err.size();
-                line_count += 1;
-            }
-
-            if let Some(instruction) = instruction {
-                let width = disassembly.processor.instruction_width(&instruction);
-                let instruction = disassembly.processor.instruction_tokens(&instruction);
-
-                tokens.push(Token::from_string(
-                    format!("{:0>10X}  ", self.addr),
-                    colors::GRAY40,
-                ));
-
-                tokens.push(Token::from_string(
-                    disassembly.processor.format_bytes(self.addr, width),
-                    colors::GREEN,
-                ));
-
-                tokens.extend(instruction);
-                tokens.push(Token::from_str("\n", colors::WHITE));
-
-                self.addr += width;
-                line_count += 1;
-            }
-
+            self.line_count += line_count;
             self.blocks.push(Block {
-                addr: addr_of_block,
+                addr,
                 tokens,
                 line_count,
             });
 
+            return err.size();
+        }
+
+        if let Some(instruction) = instruction {
+            let width = disassembly.processor.instruction_width(&instruction);
+            let instruction = disassembly.processor.instruction_tokens(&instruction);
+
+            tokens.push(Token::from_string(
+                format!("{addr:0>10X}  "),
+                colors::GRAY40,
+            ));
+
+            tokens.push(Token::from_string(
+                disassembly.processor.format_bytes(addr, width, section).unwrap(),
+                colors::GREEN,
+            ));
+
+            tokens.extend(instruction);
+            tokens.push(Token::from_str("\n", colors::WHITE));
+            line_count += 1;
+
             self.line_count += line_count;
+            self.blocks.push(Block {
+                addr,
+                tokens,
+                line_count,
+            });
+
+            return width;
+        }
+
+        let mut dx = 1;
+        loop {
+            // if we've found 6 bytes
+            if dx >= 6 {
+                break;
+            }
+
+            // if we're past the sections end
+            if addr + dx >= section.end {
+                break;
+            }
+
+            // decode at new offset
+            error = disassembly.processor.error_by_addr(addr + dx);
+            instruction = disassembly.processor.instruction_by_addr(addr + dx);
+
+            // if there is something at the current address
+            if error.is_some() || instruction.is_some() {
+                break;
+            }
+
+            dx += 1;
+        }
+
+        // if we have bytes left in the section to print
+        if let Some(bytes) = disassembly.processor.format_bytes(addr, dx, section) {
+            tokens.push(Token::from_string(
+                format!("{addr:0>10X}  "),
+                colors::GRAY40,
+            ));
+
+            tokens.push(Token::from_string(bytes, colors::GREEN));
+            tokens.push(Token::from_str("\n", colors::WHITE));
+            line_count += 1;
+        }
+
+        self.line_count += line_count;
+        self.blocks.push(Block {
+            addr,
+            tokens,
+            line_count,
+        });
+
+        dx
+    }
+
+    fn read_sections(&mut self, disassembly: &Disassembly) {
+        let mut addr = self.addr;
+        let mut sections = disassembly.sections();
+        let mut section = sections.find(|s| s.contains(addr)).unwrap();
+
+        loop {
+            // if we've read enough lines
+            if self.line_count >= self.max_lines {
+                break;
+            }
+
+            // if we've read all the section's bytes
+            if addr == section.end {
+                match sections.next() {
+                    // if there is a next section, start reading from there
+                    Some(new_section) => {
+                        addr = new_section.start;
+                        section = new_section;
+                        continue;
+                    },
+                    // else stop reading sections
+                    None => break,
+                };
+            }
+
+            let bytes_read = self.read_block(disassembly, section, addr);
+            addr = match addr.checked_add(bytes_read) {
+                Some(next_addr) => next_addr,
+                None => break,
+            };
         }
     }
 
@@ -340,19 +367,14 @@ impl DisassemblyView {
         self.block_offset = 0;
         self.line_count = 0;
 
-        let text_sections =
-            || disassembly.processor.sections().filter(|s| s.kind == SectionKind::Text);
-
         // check if address is unknown
-        if !text_sections().any(|s| (s.start..s.end).contains(&self.addr)) {
-            // self.addr = disassembly.entrypoint;
-            let first = disassembly.processor.sections().min_by_key(|s| s.start).unwrap();
-            self.addr = first.start;
+        if !disassembly.sections().any(|s| s.contains(self.addr)) {
+            // set address to the first section
+            let section = disassembly.sections().next().unwrap();
+            self.addr = section.start;
         }
 
-        for section in text_sections() {
-            self.read_within_section(section, disassembly);
-        }
+        self.read_sections(disassembly);
 
         // set block offset to the first same addr
         self.block_offset = self.blocks.iter().position(|b| b.addr == self.addr).unwrap_or(0);
@@ -517,11 +539,15 @@ impl Disassembly {
         })
     }
 
-    pub fn section(&self, addr: Addr) -> Option<&str> {
+    pub fn section_name(&self, addr: Addr) -> Option<&str> {
         self.processor
             .sections()
             .find(|s| (s.start..=s.end).contains(&addr))
             .map(|s| &s.name as &str)
+    }
+
+    fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
+        self.processor.sections()
     }
 
     pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {

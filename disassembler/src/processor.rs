@@ -62,12 +62,27 @@ macro_rules! impl_recursion {
 
 /// Architecture agnostic code analysis.
 pub struct Processor {
+    /// Object's sections sorted by address.
     sections: Vec<Section>,
+
+    /// Errors occurred in decoding instructions.
+    /// Sorted by address.
     pub errors: Vec<(Addr, decoder::Error)>,
+
+    /// Successfully decoded instructions.
+    /// Sorted by address.
     pub instructions: Vec<(Addr, Instruction)>,
+
+    /// How many bytes an instruction given the architecture.
     max_instruction_width: usize,
+
+    /// Function pointer to an [`Instruction`]'s implementation of [`Decoded::tokens`].
     instruction_tokens: fn(&Instruction) -> Vec<Token>,
+
+    /// Function pointer to an [`Instruction`]'s implementation of [`Decoded::width`].
     instruction_width: fn(&Instruction) -> usize,
+
+    /// Target's instruction set.
     arch: Architecture,
 }
 
@@ -77,7 +92,42 @@ impl Processor {
         let mut has_text_section = false;
 
         for section in sections {
+            // there appear to be sections that aren't meant to be conventionally loaded
+            // they appear to be sections meant for the debugger to load
+            if section.address() == 0 {
+                continue;
+            }
+
             let name = section.name().unwrap_or("unknown").to_string();
+
+            const DWARF_SECTIONS: [&str; 22] = [
+				".debug_abbrev",
+				".debug_addr",
+				".debug_aranges",
+				".debug_cu_index",
+				".debug_frame",
+				".eh_frame",
+				".eh_frame_hdr",
+				".debug_info",
+				".debug_line",
+				".debug_line_str",
+				".debug_loc",
+				".debug_loclists",
+				".debug_macinfo",
+				".debug_macro",
+				".debug_pubnames",
+				".debug_pubtypes",
+				".debug_ranges",
+				".debug_rnglists",
+				".debug_str",
+				".debug_str_offsets",
+				".debug_tu_index",
+				".debug_types",
+            ];
+
+            if DWARF_SECTIONS.contains(&&*name) {
+                continue;
+            }
 
             let bytes = match section.uncompressed_data() {
                 Ok(uncompressed) => uncompressed,
@@ -91,12 +141,14 @@ impl Processor {
                 }
             };
 
+            let start = section.address() as Addr;
+            let end = bytes.len() + start;
             let section = Section {
                 name,
                 kind: section.kind(),
                 bytes: bytes.into_owned(),
-                start: section.address() as Addr,
-                end: (section.address() + section.size()) as Addr,
+                start,
+                end,
             };
 
             if section.kind == SectionKind::Text {
@@ -108,7 +160,7 @@ impl Processor {
 
         if !has_text_section {
             // FIXME
-            std::process::exit(1);
+            unimplemented!("We don't handle objects that don't have an code sections.");
         }
 
         // sort sections by their address
@@ -171,21 +223,9 @@ impl Processor {
         self.errors.sort_unstable_by_key(|k| k.0);
     }
 
-    pub fn bytes_by_addr(&self, addr: usize) -> Option<&[u8]> {
-        for section in self.sections.iter() {
-            if (section.start..=section.end).contains(&addr) {
-                return addr.checked_sub(section.start).and_then(|addr| section.bytes.get(addr..));
-            }
-        }
-
-        None
-    }
-
-    pub fn format_bytes(&self, addr: Addr, len: usize) -> String {
-        let bytes = self.bytes_by_addr(addr).unwrap();
-        let bytes = &bytes[..std::cmp::min(bytes.len(), len as usize)];
-
-        decoder::encode_hex_bytes_truncated(bytes, self.max_instruction_width * 3 + 1)
+    /// Format address relative to a given section.
+    pub fn format_bytes(&self, addr: Addr, len: usize, section: &Section) -> Option<String> {
+        section.format_bytes(addr, len, self.max_instruction_width * 3 + 1)
     }
 
     pub fn instruction_tokens(&self, instruction: &Instruction) -> Vec<Token> {
@@ -267,7 +307,7 @@ impl Processor {
         }
     }
 
-    pub fn sections(&self) -> impl Iterator<Item = &Section> {
+    pub fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
         self.sections.iter()
     }
 }

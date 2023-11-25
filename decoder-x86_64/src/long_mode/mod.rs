@@ -2685,6 +2685,38 @@ impl decoder::Decoded for Instruction {
                 _ => continue,
             };
 
+            const RELATIVE_BRANCHES: [Opcode; 21] = [
+                Opcode::JMP,
+                Opcode::JRCXZ,
+                Opcode::LOOP,
+                Opcode::LOOPZ,
+                Opcode::LOOPNZ,
+                Opcode::JO,
+                Opcode::JNO,
+                Opcode::JB,
+                Opcode::JNB,
+                Opcode::JZ,
+                Opcode::JNZ,
+                Opcode::JNA,
+                Opcode::JA,
+                Opcode::JS,
+                Opcode::JNS,
+                Opcode::JP,
+                Opcode::JNP,
+                Opcode::JL,
+                Opcode::JGE,
+                Opcode::JLE,
+                Opcode::JG,
+            ];
+
+            // resolve relative jumps
+            if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
+                && RELATIVE_BRANCHES.contains(&self.opcode)
+            {
+                self.operands[0] = OperandSpec::ImmI64;
+                self.imm = addr as u64;
+            }
+
             if let Some(text) = symbols.get_by_addr(addr).cloned() {
                 *shadow = Some(decoder::Xref { addr, text });
             }
