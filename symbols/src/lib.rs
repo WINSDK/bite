@@ -148,17 +148,20 @@ impl Index {
         let entrypoint = obj.entry() as usize;
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
-        // insert entrypoint and override it if it's got a defined name
-        self.insert(entrypoint, entry_func);
-
         // insert defined symbols
         for (addr, symbol) in symbols {
             let func = Function::new(parser(symbol), None);
             self.insert(addr, func);
         }
 
+        // keep tree sorted so it can be binary searched
         self.tree.sort_unstable_by_key(|k| k.0);
-        self.tree.dedup_by_key(|k| k.0); // only keep one symbol per address
+
+        // only keep one symbol per address
+        self.tree.dedup_by_key(|k| k.0);
+
+        // insert entrypoint
+        self.insert(entrypoint, entry_func);
 
         log::complex!(
             w "[index::parse_debug] found ",

@@ -250,63 +250,6 @@ impl Processor {
         }
     }
 
-    /// Find the previous item given an address.
-    pub fn prev_item(&self, addr: Addr) -> Option<Addr> {
-        let i1 = self.instructions.binary_search_by(|(a, _)| a.cmp(&addr));
-        let i2 = self.errors.binary_search_by(|(a, _)| a.cmp(&addr));
-
-        match (i1, i2) {
-            // there is an item at this addr
-            (Ok(_), _) | (_, Ok(_)) => None,
-            (Err(i1), Err(i2)) => {
-                if i1 == 0 && i2 == 0 {
-                    return None;
-                }
-
-                if i1 == 0 {
-                    return Some(self.errors[i2 - 1].0);
-                }
-
-                if i2 == 0 {
-                    return Some(self.instructions[i1 - 1].0);
-                }
-
-                let a1 = self.instructions[i1 - 1].0;
-                let a2 = self.errors[i2 - 1].0;
-
-                Some(std::cmp::max(a1, a2))
-            }
-        }
-    }
-
-    pub fn next_item(&self, addr: Addr) -> Option<Addr> {
-        let i1 = self.instructions.binary_search_by(|(a, _)| a.cmp(&addr));
-        let i2 = self.errors.binary_search_by(|(a, _)| a.cmp(&addr));
-
-        match (i1, i2) {
-            // there is an item at this addr
-            (Ok(_), _) | (_, Ok(_)) => None,
-            (Err(i1), Err(i2)) => {
-                if i1 == self.instructions.len() && i2 == self.errors.len() {
-                    return None;
-                }
-
-                if i1 == self.instructions.len() {
-                    return Some(self.errors[i2].0);
-                }
-
-                if i2 == self.errors.len() {
-                    return Some(self.instructions[i1].0);
-                }
-
-                let a1 = self.instructions[i1].0;
-                let a2 = self.errors[i2].0;
-
-                Some(std::cmp::min(a1, a2))
-            }
-        }
-    }
-
     pub fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
         self.sections.iter()
     }
