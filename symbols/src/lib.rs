@@ -157,13 +157,15 @@ impl Index {
             self.insert(addr, func);
         }
 
+        self.tree.sort_unstable_by_key(|k| k.0);
+        self.tree.dedup_by_key(|k| k.0); // only keep one symbol per address
+
         log::complex!(
             w "[index::parse_debug] found ",
             g self.tree.len().to_string(),
             w " symbols."
         );
 
-        self.tree.sort_unstable_by_key(|k| k.0);
         Ok(())
     }
 
