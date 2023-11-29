@@ -128,9 +128,9 @@ impl Platform {
                                         modifiers: winit_to_egui_modifiers(self.modifier_state),
                                         repeat: false,
                                     });
-
-                                    self.handle_key_text(pressed, event);
                                 }
+
+                                self.handle_key_text(pressed, event);
                             }
                         }
                     }
