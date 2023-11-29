@@ -53,9 +53,9 @@ impl Platform {
 
         context.set_fonts(fonts);
         context.set_style(crate::style::EGUI.clone());
+        context.set_pixels_per_point(scale_factor * 2.0);
 
         let raw_input = egui::RawInput {
-            pixels_per_point: Some(2.0 * scale_factor),
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::default(),
                 vec2(
@@ -146,7 +146,7 @@ impl Platform {
                     let _ = window.request_inner_size(new_inner_size);
 
                     self.scale_factor = *scale_factor as f32;
-                    self.raw_input.pixels_per_point = Some(*scale_factor as f32);
+                    self.context.set_pixels_per_point(*scale_factor as f32);
                     self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                         Default::default(),
                         vec2(new_inner_size.width as f32, new_inner_size.height as f32)

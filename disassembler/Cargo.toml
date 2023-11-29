@@ -16,4 +16,4 @@ riscv = { path = "../decoder-riscv" }
 mips = { path = "../decoder-mips" }
 
 [dev-dependencies]
-egui = { version = "0.23", features = ["bytemuck"] }
+egui = { workspace = true }

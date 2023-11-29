@@ -28,6 +28,7 @@ libc = "0.2.147"
 winres = "0.1"
 
 [workspace]
+resolver = "2"
 members = [
     "log",
     "gui",
@@ -42,3 +43,6 @@ members = [
     "symbols",
     "debugger"
 ]
+
+[workspace.dependencies]
+egui = { version = "0.24", features = ["bytemuck"] }

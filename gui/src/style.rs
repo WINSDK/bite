@@ -1,4 +1,4 @@
-use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets};
+use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets, ScrollStyle};
 use egui::{Color32, FontFamily, FontId, Rounding, Stroke, TextStyle};
 
 use once_cell::sync::Lazy;
@@ -34,9 +34,12 @@ pub static STYLE: Lazy<Style> = Lazy::new(|| Style {
 pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
     spacing: Spacing {
         slider_width: 10.0,
-        scroll_bar_width: 10.0,
-        scroll_bar_inner_margin: STYLE.separator_width,
-        scroll_bar_outer_margin: STYLE.separator_width,
+        scroll: ScrollStyle {
+            bar_width: 10.0,
+            bar_inner_margin: STYLE.separator_width,
+            bar_outer_margin: STYLE.separator_width,
+            ..Default::default()
+        },
         ..Default::default()
     },
     visuals: Visuals {

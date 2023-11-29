@@ -289,16 +289,12 @@ impl Panels {
             .show(ctx, |ui| {
                 if self.loading {
                     let layout = egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
-
                     ui.with_layout(layout, |ui| self.tabs.donut.show(ui));
                 } else {
-                    let surface = self.layout.main_surface();
-                    let tab_count = surface.num_tabs();
                     let style = crate::style::DOCK.clone();
 
                     DockArea::new(&mut self.layout)
                         .style(style)
-                        .draggable_tabs(tab_count > 1)
                         .show_close_buttons(false)
                         .show_window_close_buttons(true)
                         .show_window_collapse_buttons(false)

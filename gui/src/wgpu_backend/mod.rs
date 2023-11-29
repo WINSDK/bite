@@ -137,7 +137,8 @@ impl Instance {
 
         // end the UI frame. We could now handle the output and draw the UI with the backend
         let full_output = platform.end_frame(Some(&window));
-        let paint_jobs = platform.context().tessellate(full_output.shapes);
+        let ppp = platform.context().pixels_per_point();
+        let paint_jobs = platform.context().tessellate(full_output.shapes, ppp);
 
         // upload all resources for the GPU
         let screen_descriptor = ScreenDescriptor {
