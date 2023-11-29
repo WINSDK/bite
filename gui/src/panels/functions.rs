@@ -31,9 +31,11 @@ impl super::Display for Functions {
 
         area.show_rows(ui, FONT.size, self.function_count, |ui, row_range| {
             if row_range != (self.min_row..self.max_row) {
-                let functions = self.disassembly.functions(row_range);
+                let functions = self.disassembly.functions(row_range.clone());
                 self.functions = tokens_to_layoutjob(functions);
                 self.function_count = self.disassembly.symbols.named_len();
+                self.min_row = row_range.start;
+                self.max_row = row_range.end;
             }
 
             ui.label(self.functions.clone());

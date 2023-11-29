@@ -25,7 +25,6 @@ impl fmt::Debug for Error {
                 f.write_fmt(format_args!("Failed to find path: '{}'", path.display()))
             }
             Self::DuplicateInstance => f.write_str("Can't create multiple UI's."),
-            Self::Exit => Ok(()),
         }
     }
 }

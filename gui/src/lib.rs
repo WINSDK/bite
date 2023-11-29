@@ -25,7 +25,6 @@ pub enum Error {
     PngFormat,
     NotFound(std::path::PathBuf),
     DuplicateInstance,
-    Exit,
 }
 
 type Window = winit::window::Window;
@@ -201,16 +200,48 @@ impl<Arch: Target> UI<Arch> {
             // Pass the winit events to the platform integration
             self.platform.handle_event(&self.window, &mut event);
 
+            let events = self.platform.unprocessed_events();
+            let terminal_events = self.panels.terminal().record_input(events);
+
+            if terminal_events > 0 {
+                // if a goto command is being run, start performing the autocomplete
+                let split = self.panels.terminal().current_line().split_once(' ');
+                if let Some(("g" | "goto", arg)) = split {
+                    let arg = arg.to_string();
+
+                    if let Some(listing) = self.panels.listing() {
+                        let _ = dbg!(disassembler::expr::parse(
+                            &listing.disassembly.symbols,
+                            &arg
+                        ));
+                    }
+                }
+
+                // store new commands recorded
+                let _ = self.panels.terminal().save_command_history();
+            }
+
+            let cmds = self.panels.terminal().take_commands().to_vec();
+
+            if !self.panels.process_commands(&cmds) {
+                target.exit();
+            }
+
             match event {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::RedrawRequested => {
                         // update time elapsed
                         self.platform.update_time(now.elapsed().as_secs_f64());
 
-                        match self.draw() {
-                            Err(Error::Exit) => target.exit(), // might not be needed
-                            Err(err) => log::warning!("{err:?}"),
-                            Ok(()) => {}
+                        let result = self.instance.draw(
+                            &self.window,
+                            &mut self.platform,
+                            &mut self.egui_render_pass,
+                            &mut self.panels,
+                        );
+
+                        if let Err(err) = result {
+                            log::warning!("{err:?}");
                         }
                     }
                     WindowEvent::Resized(size) => self.instance.resize(size.width, size.height),
@@ -247,41 +278,5 @@ impl<Arch: Target> UI<Arch> {
                 _ => {}
             }
         });
-    }
-
-    fn draw(&mut self) -> Result<(), Error> {
-        let events = self.platform.unprocessed_events();
-        let events_processed = self.panels.terminal().record_input(events);
-
-        if events_processed > 0 {
-            // if a goto command is being run, start performing the autocomplete
-            let split = self.panels.terminal().current_line().split_once(' ');
-            if let Some(("g" | "goto", arg)) = split {
-                let arg = arg.to_string();
-
-                if let Some(listing) = self.panels.listing() {
-                    let _ = dbg!(disassembler::expr::parse(
-                        &listing.disassembly.symbols,
-                        &arg
-                    ));
-                }
-            }
-
-            // store new commands recorded
-            let _ = self.panels.terminal().save_command_history();
-        }
-
-        let cmds = self.panels.terminal().take_commands().to_vec();
-
-        if !self.panels.process_commands(&cmds) {
-            return Err(Error::Exit);
-        }
-
-        self.instance.draw(
-            &self.window,
-            &mut self.platform,
-            &mut self.egui_render_pass,
-            &mut self.panels,
-        )
     }
 }

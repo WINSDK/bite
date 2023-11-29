@@ -177,12 +177,17 @@ impl Terminal {
 
     /// Process all character having been entered.
     /// Returns how many events were processed.
-    pub fn record_input(&mut self, events: &[egui::Event]) -> usize {
+    pub fn record_input(&mut self, events: &mut Vec<egui::Event>) -> usize {
         let mut events_processed = 0;
+        let mut prev_consumed = false;
 
-        for event in events.iter() {
+        events.retain(|event| {
             match event {
-                egui::Event::Text(received) => self.append(received),
+                egui::Event::Text(received) => {
+                    if !prev_consumed {
+                        self.append(received);
+                    }
+                }
                 egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
@@ -239,11 +244,16 @@ impl Terminal {
                     pressed: true,
                     ..
                 } => self.move_right(),
-                _ => continue,
+                _ => {
+                    prev_consumed = false;
+                    return true;
+                }
             }
 
             events_processed += 1;
-        }
+            prev_consumed = true;
+            false
+        });
 
         events_processed
     }

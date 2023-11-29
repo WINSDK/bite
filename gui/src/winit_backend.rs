@@ -10,7 +10,7 @@ use egui::emath::{pos2, vec2};
 use egui::{Context, FontData, FontDefinitions, FontFamily, Key};
 
 use winit::dpi::PhysicalSize;
-use winit::event::{DeviceId, Event, TouchPhase, WindowEvent};
+use winit::event::{DeviceId, Event, TouchPhase, WindowEvent, KeyEvent};
 use winit::keyboard::{KeyCode, ModifiersState};
 
 /// Provides the integration between egui and winit.
@@ -79,8 +79,20 @@ impl Platform {
         }
     }
 
-    pub fn unprocessed_events(&self) -> &[egui::Event] {
-        &self.raw_input.events
+    pub fn unprocessed_events(&mut self) -> &mut Vec<egui::Event> {
+        &mut self.raw_input.events
+    }
+
+    fn handle_key_text(&mut self, pressed: bool, event: &KeyEvent) {
+        if pressed {
+            if let Some(ref text) = event.text {
+                if text.chars().all(is_printable) {
+                    self.raw_input
+                        .events
+                        .push(egui::Event::Text(text.to_string()));
+                }
+            }
+        }
     }
 
     /// Handles the given winit event and updates the egui context. Should be
@@ -91,14 +103,6 @@ impl Platform {
                 WindowEvent::KeyboardInput { event, .. } => {
                     let pressed = event.state == winit::event::ElementState::Pressed;
                     let ctrl = self.modifier_state.control_key();
-
-                    if pressed {
-                        if let Some(ref text) = event.text {
-                            if text.chars().all(is_printable) {
-                                self.raw_input.events.push(egui::Event::Text(text.to_string()));
-                            }
-                        }
-                    }
 
                     if let winit::keyboard::PhysicalKey::Code(key) = event.physical_key {
                         match (pressed, ctrl, key) {
@@ -115,12 +119,17 @@ impl Platform {
                             }
                             _ => {
                                 if let Some(key) = winit_to_egui_key_code(key) {
+                                    // we must first push the key and then the value
+                                    // so the terminal can potentially get rid of a keypress
+
                                     self.raw_input.events.push(egui::Event::Key {
                                         key,
                                         pressed,
                                         modifiers: winit_to_egui_modifiers(self.modifier_state),
                                         repeat: false,
                                     });
+
+                                    self.handle_key_text(pressed, event);
                                 }
                             }
                         }
@@ -323,7 +332,6 @@ impl Platform {
         if !copied_text.is_empty() {
             let _ = self.clipboard.set_contents(copied_text.clone());
         }
-
 
         output
     }

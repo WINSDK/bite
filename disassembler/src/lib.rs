@@ -104,7 +104,7 @@ pub struct DisassemblyView {
     /// Number of lines that make up all blocks.
     line_count: usize,
 
-    /// Line's being displayed * 2.
+    /// Line's being displayed.
     max_lines: usize,
 }
 
@@ -171,7 +171,6 @@ impl DisassemblyView {
             }
         }
 
-
         // if we don't find any known items near the address, just jump to it
         // as there might be some bytes to inspect instead
         self.addr = addr;
@@ -182,18 +181,14 @@ impl DisassemblyView {
 
     /// Set's and update's the number of blocks if it changed.
     pub fn set_max_lines(&mut self, count: usize, disassembly: &Disassembly) {
-        // sometimes scrolling less than one line will still cause a shift in the `row_count`
-        // this prevents that from changing anything
-        if self.max_lines.abs_diff(count) > 2 {
-            log::complex!(
-                w "[disassembly::set_block_size] updating listing window to ",
-                g count.to_string(),
-                w " entries."
-            );
+        log::complex!(
+            w "[disassembly::set_block_size] updating listing window to ",
+            g count.to_string(),
+            w " entries."
+        );
 
-            self.max_lines = count;
-            self.update(disassembly);
-        }
+        self.max_lines = count + count / 10; // FIXME: count isn't enough to fill window
+        self.update(disassembly);
     }
 
     pub fn no_code(&self) -> bool {
@@ -348,7 +343,7 @@ impl DisassemblyView {
                         addr = new_section.start;
                         section = new_section;
                         continue;
-                    },
+                    }
                     // else stop reading sections
                     None => break,
                 };
@@ -384,69 +379,95 @@ impl DisassemblyView {
         self.line_offset = self.blocks.iter().take(self.block_offset).map(|b| b.line_count).sum();
     }
 
-    pub fn scroll_up(&mut self, _disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        // create new block's if out of bound
-        // if lines_to_scroll >= self.line_offset {
-        //     self.update(disassembly);
-        // }
-
-        while lines_to_scroll > 0 {
-            let remaining_lines = self.block_line_offset + 1;
-
-            // check if we're at the final block (first line)
-            if lines_to_scroll < remaining_lines {
-                self.block_line_offset -= lines_to_scroll;
-                self.line_offset -= lines_to_scroll;
-                break;
-            }
-
-            lines_to_scroll -= remaining_lines;
-
-            if self.block_offset > 0 {
-                self.block_offset -= 1;
-                self.block_line_offset = self.blocks[self.block_offset].line_count - 1;
-            } else {
-                self.block_line_offset = 0;
-            }
-
-            self.line_offset -= remaining_lines;
+    // NOTE: there is some bug here on cross-section boundaries
+    //       where raw bytes aren't being shown accurately
+    pub fn scroll_up(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
+        if self.blocks.is_empty() {
+            return;
         }
 
-        self.addr = self.blocks[self.block_offset].addr;
-        // dbg!(&self);
+        // we don't need to go up another item
+        if lines_to_scroll <= self.block_line_offset {
+            self.block_line_offset -= lines_to_scroll;
+            return;
+        }
+
+        fn item_exists(disassembly: &Disassembly, addr: Addr) -> bool {
+            let err = disassembly.processor.error_by_addr(addr);
+            let inst = disassembly.processor.instruction_by_addr(addr);
+            err.is_some() || inst.is_some()
+        }
+
+        while lines_to_scroll > 0 {
+            // HACK: if there is something in the last 15 bytes (intel instruction max size)
+            let mut dx = 1;
+            while dx < 15 {
+                let addr = self.addr.saturating_sub(dx);
+
+                if item_exists(disassembly, addr) {
+                    break;
+                }
+
+                dx += 1;
+            }
+
+            // nothing was found, go back only 6 bytes to display the bytes
+            if dx == 15 {
+                dx = 6;
+            }
+
+            self.addr = self.addr.saturating_sub(dx);
+            self.update(disassembly);
+
+            // if there is a next block
+            let block = &self.blocks[0];
+
+            if lines_to_scroll < block.line_count {
+                self.block_line_offset = block.line_count - lines_to_scroll;
+                self.update(disassembly);
+                break;
+            } else {
+                lines_to_scroll -= block.line_count;
+                self.block_line_offset = 0;
+                self.update(disassembly);
+            }
+        }
     }
 
-    pub fn scroll_down(&mut self, _disassembly: &Disassembly, mut lines_to_scroll: usize) {
-        // create new block's if out of bound
-        // if self.line_offset * 2 + lines_to_scroll >= self.line_count {
-        //     self.update(disassembly);
-        // }
-
-        while lines_to_scroll > 0 {
-            let block = &self.blocks[self.block_offset];
-            let remaining_lines = block.line_count - self.block_line_offset;
-
-            // check if we're at the final block (first line)
-            if lines_to_scroll < remaining_lines {
-                self.block_line_offset += lines_to_scroll;
-                self.line_offset += lines_to_scroll;
-                break;
-            }
-
-            lines_to_scroll -= remaining_lines;
-
-            self.block_offset += 1;
-            self.block_line_offset = 0;
-            self.line_offset += remaining_lines;
+    pub fn scroll_down(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
+        if self.blocks.is_empty() {
+            return;
         }
 
-        self.addr = self.blocks[self.block_offset].addr;
-        // dbg!(&self);
+        // we don't need to go down another item
+        if lines_to_scroll + self.block_line_offset < self.blocks[0].line_count {
+            self.block_line_offset += lines_to_scroll;
+            return;
+        }
+
+        while lines_to_scroll > 0 {
+            // if there is a next block
+            if let Some(block) = self.blocks.get(1) {
+                self.addr = block.addr;
+
+                if lines_to_scroll < block.line_count {
+                    self.block_line_offset = lines_to_scroll - 1;
+                    self.update(disassembly);
+                    break;
+                } else {
+                    lines_to_scroll -= block.line_count;
+                    self.block_line_offset = 0;
+                    self.update(disassembly);
+                }
+            } else {
+                break;
+            }
+        }
     }
 
     pub fn format(&self) -> Vec<Token> {
         let mut tokens = Vec::new();
-        let mut rows_to_add = self.max_lines / 2;
+        let mut rows_to_add = self.max_lines;
 
         let block = &self.blocks[self.block_offset];
         let (token_offset, char_offset) = block.with_offset(self.block_line_offset).unwrap();
