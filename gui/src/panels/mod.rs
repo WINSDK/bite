@@ -74,13 +74,14 @@ impl egui_dock::TabViewer for Tabs {
 pub struct Panels {
     pub layout: DockState<Identifier>,
     pub tabs: Tabs,
-    pub proxy: crate::Proxy,
+    pub ui_queue: crate::UIQueue,
+    pub winit_queue: crate::WinitQueue,
     pub loading: bool,
     pub debugging: bool,
 }
 
 impl Panels {
-    pub fn new(proxy: crate::Proxy) -> Self {
+    pub fn new(ui_queue: crate::UIQueue, winit_queue: crate::WinitQueue) -> Self {
         let mut layout = DockState::new(vec![DISASSEMBLY, FUNCTIONS, LOGGING]);
 
         layout.set_focused_node_and_surface((
@@ -91,7 +92,8 @@ impl Panels {
         Self {
             layout,
             tabs: Tabs::new(),
-            proxy,
+            ui_queue,
+            winit_queue,
             loading: false,
             debugging: false,
         }
@@ -122,7 +124,7 @@ impl Panels {
 
     fn ask_for_binary(&self) {
         if let Some(path) = rfd::FileDialog::new().pick_file() {
-            self.proxy.send(crate::CustomEvent::BinaryRequested(path));
+            self.ui_queue.push(crate::UIEvent::BinaryRequested(path));
         }
     }
 
@@ -132,7 +134,7 @@ impl Panels {
         let close_response = ui.add(Button::new(RichText::new(crate::icon!(CROSS)).size(height)));
 
         if close_response.clicked() {
-            self.proxy.send(crate::CustomEvent::CloseRequest);
+            self.winit_queue.push(crate::WinitEvent::CloseRequest);
         }
 
         let maximized_response = ui.add(Button::new(
@@ -140,14 +142,14 @@ impl Panels {
         ));
 
         if maximized_response.clicked() {
-            self.proxy.send(crate::CustomEvent::Fullscreen);
+            self.winit_queue.push(crate::WinitEvent::Fullscreen);
         }
 
         let minimized_response =
             ui.add(Button::new(RichText::new(crate::icon!(MINUS)).size(height)));
 
         if minimized_response.clicked() {
-            self.proxy.send(crate::CustomEvent::Minimize);
+            self.winit_queue.push(crate::WinitEvent::Minimize);
         }
     }
 
@@ -160,7 +162,7 @@ impl Panels {
                 }
 
                 if ui.button(crate::icon!(CROSS, " Exit")).clicked() {
-                    self.proxy.send(crate::CustomEvent::CloseRequest);
+                    self.winit_queue.push(crate::WinitEvent::CloseRequest);
                     ui.close_menu();
                 }
             });
@@ -194,11 +196,11 @@ impl Panels {
         });
 
         if bar.response.interact(egui::Sense::click()).double_clicked() {
-            self.proxy.send(crate::CustomEvent::Fullscreen);
+            self.winit_queue.push(crate::WinitEvent::Fullscreen);
         }
 
         if bar.response.interact(egui::Sense::drag()).dragged() {
-            self.proxy.send(crate::CustomEvent::DragWindow);
+            self.winit_queue.push(crate::WinitEvent::DragWindow);
         }
     }
 

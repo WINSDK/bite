@@ -78,6 +78,7 @@ impl Panels {
     fn process_cmd(&mut self, cmd: &str) -> bool {
         print!(self.terminal(), "(bite) {cmd}");
 
+        let cmd = cmd.trim();
         let mut args = cmd.split_whitespace();
         let cmd_name = match args.next() {
             Some(cmd) => cmd,
@@ -88,7 +89,7 @@ impl Panels {
             if let Some(unexpanded) = args.next() {
                 let path = expand_homedir(unexpanded);
 
-                self.proxy.send(crate::CustomEvent::BinaryRequested(path));
+                self.ui_queue.push(crate::UIEvent::BinaryRequested(path));
                 print!(self.terminal(), "Binary '{unexpanded}' was opened.");
                 return true;
             }
@@ -121,7 +122,7 @@ impl Panels {
                 args = raw_args.split_whitespace().map(ToString::to_string).collect();
             }
 
-            self.proxy.send(crate::CustomEvent::DebuggerExecute(args));
+            self.ui_queue.push(crate::UIEvent::DebuggerExecute(args));
             return true;
         }
 

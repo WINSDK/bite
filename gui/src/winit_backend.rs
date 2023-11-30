@@ -97,7 +97,7 @@ impl Platform {
 
     /// Handles the given winit event and updates the egui context. Should be
     // called before starting a new frame with `start_frame()`.
-    pub fn handle_event(&mut self, window: &Window, winit_event: &mut Event<crate::CustomEvent>) {
+    pub fn handle_event(&mut self, window: &Window, winit_event: &mut Event<crate::WinitEvent>) {
         match winit_event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::KeyboardInput { event, .. } => {

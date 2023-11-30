@@ -3,6 +3,27 @@ use std::sync::Mutex;
 use egui::text::LayoutJob;
 pub use rfd::{MessageLevel, MessageDialog};
 
+/// Time a given expression.
+#[macro_export]
+macro_rules! time {
+    ($e:expr) => {{
+        let now = std::time::Instant::now();
+        let result = $e;
+        $crate::complex!(
+            w "[timing] ",
+            w std::file!(),
+            w ":",
+            g std::line!().to_string(),
+            w ":",
+            g std::column!().to_string(),
+            w " took ",
+            y format!("{:?}", now.elapsed()),
+            w "."
+        );
+        result
+    }};
+}
+
 #[macro_export]
 macro_rules! exit {
     () => {{

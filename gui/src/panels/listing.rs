@@ -62,45 +62,43 @@ impl super::Display for Listing {
         }
 
         let spacing = ui.spacing().item_spacing;
-        let row_height_with_spacing = FONT.size + spacing.y;
-        let area = egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .drag_to_scroll(false)
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+        let row_height = FONT.size + spacing.y;
+
+        let area = egui::ScrollArea::vertical()
+           .auto_shrink(false)
+           .drag_to_scroll(false)
+           .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
         area.show_viewport(ui, |ui, viewport| {
-            let min_row = (viewport.min.y / row_height_with_spacing).floor() as usize;
-            let max_row = (viewport.max.y / row_height_with_spacing).ceil() as usize + 1;
+            let min_row = (viewport.min.y / row_height).floor() as usize;
+            let max_row = (viewport.max.y / row_height).ceil() as usize + 1;
 
-            let y_min = ui.max_rect().top() + min_row as f32 * row_height_with_spacing;
-            let y_max = ui.max_rect().top() + max_row as f32 * row_height_with_spacing;
+            let y_min = ui.max_rect().top() + min_row as f32 * row_height;
+            let y_max = ui.max_rect().top() + max_row as f32 * row_height;
+            let row_change = usize::abs_diff(self.max_row - self.min_row, max_row - min_row);
 
             let rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
 
             ui.allocate_ui_at_rect(rect, |ui| {
                 ui.skip_ahead_auto_ids(min_row);
-                let old_row_count = self.max_row - self.min_row;
-                let row_count = max_row - min_row;
 
-                if usize::abs_diff(row_count, old_row_count) > 1 {
-                    self.disassembly_view.set_max_lines(row_count, &self.disassembly);
+                if row_change > 1 {
+                    self.disassembly_view.set_max_lines(max_row - min_row, &self.disassembly);
+                    self.update();
                     self.min_row = min_row;
                     self.max_row = max_row;
-                    self.update();
                     return;
                 }
 
-                if (min_row..max_row) != (self.min_row..self.max_row) {
-                    if min_row > self.min_row {
-                        let row_diff = min_row - self.min_row;
-                        self.disassembly_view.scroll_down(&self.disassembly, row_diff);
-                    }
+                if min_row < self.min_row {
+                    self.disassembly_view.scroll_up(&self.disassembly, self.min_row - min_row);
+                    self.update();
+                    self.min_row = min_row;
+                    self.max_row = max_row;
+                }
 
-                    if min_row < self.min_row {
-                        let row_diff = self.min_row - min_row;
-                        self.disassembly_view.scroll_up(&self.disassembly, row_diff);
-                    }
-
+                if min_row > self.min_row {
+                    self.disassembly_view.scroll_down(&self.disassembly, min_row - self.min_row);
                     self.update();
                     self.min_row = min_row;
                     self.max_row = max_row;

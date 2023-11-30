@@ -48,12 +48,16 @@ pub trait Target: Sized {
     fn clipboard(window: &Window) -> Box<dyn ClipboardProvider>;
 }
 
-/// A custom event type for the winit app.
-pub enum CustomEvent {
+/// A custom event type for the winit backend.
+pub enum WinitEvent {
     CloseRequest,
     DragWindow,
     Fullscreen,
     Minimize,
+}
+
+/// Global UI events.
+pub enum UIEvent {
     DebuggerExecute(Vec<String>),
     DebuggerFailed(debugger::Error),
     DebuggerFinished,
@@ -63,36 +67,49 @@ pub enum CustomEvent {
 }
 
 #[derive(Clone)]
-pub struct Proxy {
-    sender: winit::event_loop::EventLoopProxy<CustomEvent>,
+pub struct WinitQueue {
+    inner: winit::event_loop::EventLoopProxy<WinitEvent>,
 }
 
-impl Proxy {
-    pub fn send(&self, custom_event: CustomEvent) {
-        if let Err(..) = self.sender.send_event(custom_event) {
+impl WinitQueue {
+    pub fn push(&self, event: WinitEvent) {
+        if let Err(..) = self.inner.send_event(event) {
             panic!("missing an event loop to handle event");
         }
     }
 }
 
+#[derive(Clone)]
+pub struct UIQueue {
+    inner: Arc<crossbeam_queue::ArrayQueue<UIEvent>>,
+    window: Arc<Window>,
+}
+
+impl UIQueue {
+    pub fn push(&self, event: UIEvent) {
+        let _ = self.inner.push(event);
+        self.window.request_redraw();
+    }
+}
+
 pub struct UI<Arch: Target> {
     arch: Arch,
-    window: winit::window::Window,
-    event_loop: Option<EventLoop<CustomEvent>>,
+    window: Arc<Window>,
+    event_loop: Option<EventLoop<WinitEvent>>,
     panels: panels::Panels,
     instance: wgpu_backend::Instance,
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
-    proxy: Proxy,
+    ui_queue: UIQueue,
 }
 
 impl<Arch: Target> UI<Arch> {
     pub fn new() -> Result<Self, Error> {
-        let event_loop = EventLoopBuilder::<CustomEvent>::with_user_event()
+        let event_loop = EventLoopBuilder::<WinitEvent>::with_user_event()
             .build()
             .map_err(|_| Error::DuplicateInstance)?;
 
-        let window = Arch::create_window("bite", 1200, 800, &event_loop)?;
+        let window = Arc::new(Arch::create_window("bite", 1200, 800, &event_loop)?);
 
         #[cfg(target_family = "windows")]
         let arch = Arch::new(windows::ArchDescriptor {
@@ -103,11 +120,16 @@ impl<Arch: Target> UI<Arch> {
         #[cfg(target_family = "unix")]
         let arch = Arch::new();
 
-        let proxy = Proxy {
-            sender: event_loop.create_proxy(),
+        let ui_queue = UIQueue {
+            inner: Arc::new(crossbeam_queue::ArrayQueue::new(100)),
+            window: window.clone()
         };
 
-        let panels = panels::Panels::new(proxy.clone());
+        let winit_queue = WinitQueue {
+            inner: event_loop.create_proxy(),
+        };
+
+        let panels = panels::Panels::new(ui_queue.clone(), winit_queue.clone());
         let instance = wgpu_backend::Instance::new(&window)?;
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
         let platform = winit_backend::Platform::new::<Arch>(&window);
@@ -120,13 +142,13 @@ impl<Arch: Target> UI<Arch> {
             instance,
             egui_render_pass,
             platform,
-            proxy,
+            ui_queue,
         })
     }
 
     pub fn process_args(&mut self) {
         if let Some(path) = args::ARGS.path.as_ref().cloned() {
-            self.proxy.send(CustomEvent::BinaryRequested(path));
+            self.ui_queue.push(UIEvent::BinaryRequested(path));
         }
     }
 
@@ -137,12 +159,12 @@ impl<Arch: Target> UI<Arch> {
         }
 
         self.panels.loading = true;
-        let proxy = self.proxy.clone();
+        let queue = self.ui_queue.clone();
 
         std::thread::spawn(move || {
             match disassembler::Disassembly::parse(&path) {
-                Ok(diss) => proxy.send(CustomEvent::BinaryLoaded(Arc::new(diss))),
-                Err(err) => proxy.send(CustomEvent::BinaryFailed(err)),
+                Ok(diss) => queue.push(UIEvent::BinaryLoaded(Arc::new(diss))),
+                Err(err) => queue.push(UIEvent::BinaryFailed(err)),
             };
         });
     }
@@ -154,7 +176,7 @@ impl<Arch: Target> UI<Arch> {
             return;
         }
 
-        let proxy = self.proxy.clone();
+        let queue = self.ui_queue.clone();
         let path = match self.panels.listing() {
             Some(listing) => listing.disassembly.path.clone(),
             None => {
@@ -173,7 +195,7 @@ impl<Arch: Target> UI<Arch> {
             let mut session = match debugger::Debugger::spawn(path, args) {
                 Ok(session) => session,
                 Err(err) => {
-                    proxy.send(CustomEvent::DebuggerFailed(err));
+                    queue.push(UIEvent::DebuggerFailed(err));
                     return;
                 }
             };
@@ -181,13 +203,37 @@ impl<Arch: Target> UI<Arch> {
             session.trace_syscalls(true);
 
             match session.run_to_end() {
-                Ok(()) => proxy.send(CustomEvent::DebuggerFinished),
-                Err(err) => proxy.send(CustomEvent::DebuggerFailed(err)),
-            }
+                Ok(()) => queue.push(UIEvent::DebuggerFinished),
+                Err(err) => queue.push(UIEvent::DebuggerFailed(err)),
+            };
         });
 
         #[cfg(not(target_os = "linux"))]
-        proxy.send(CustomEvent::DebuggerFinished);
+        queue.send(WinitEvent::DebuggerFinished);
+    }
+
+    fn handle_ui_events(&mut self) {
+        while let Some(event) = self.ui_queue.inner.pop() {
+            match event {
+                UIEvent::DebuggerExecute(args) => self.offload_debugging(args),
+                UIEvent::DebuggerFailed(err) => {
+                    self.panels.debugging = false;
+                    print_extern!(self.panels.terminal(), "{err:?}.");
+                }
+                UIEvent::DebuggerFinished => {
+                    self.panels.debugging = false;
+                }
+                UIEvent::BinaryRequested(path) => self.offload_binary_processing(path),
+                UIEvent::BinaryFailed(err) => {
+                    self.panels.loading = false;
+                    log::warning!("{err:?}");
+                }
+                UIEvent::BinaryLoaded(disassembly) => {
+                    self.panels.loading = false;
+                    self.panels.load_binary(disassembly);
+                }
+            }
+        }
     }
 
     pub fn run(mut self) {
@@ -197,8 +243,10 @@ impl<Arch: Target> UI<Arch> {
         let event_loop = self.event_loop.take().unwrap();
 
         let _ = event_loop.run(move |mut event, target| {
-            // Pass the winit events to the platform integration
+            // pass the winit events to the platform integration
             self.platform.handle_event(&self.window, &mut event);
+
+            self.handle_ui_events();
 
             let events = self.platform.unprocessed_events();
             let terminal_events = self.panels.terminal().record_input(events);
@@ -250,29 +298,12 @@ impl<Arch: Target> UI<Arch> {
                     _ => {}
                 },
                 Event::UserEvent(event) => match event {
-                    CustomEvent::CloseRequest => target.exit(),
-                    CustomEvent::DragWindow => {
+                    WinitEvent::CloseRequest => target.exit(),
+                    WinitEvent::DragWindow => {
                         let _ = self.window.drag_window();
                     }
-                    CustomEvent::Fullscreen => self.arch.fullscreen(&self.window),
-                    CustomEvent::Minimize => self.window.set_minimized(true),
-                    CustomEvent::DebuggerExecute(args) => self.offload_debugging(args),
-                    CustomEvent::DebuggerFailed(err) => {
-                        self.panels.debugging = false;
-                        print_extern!(self.panels.terminal(), "{err:?}.");
-                    }
-                    CustomEvent::DebuggerFinished => {
-                        self.panels.debugging = false;
-                    }
-                    CustomEvent::BinaryRequested(path) => self.offload_binary_processing(path),
-                    CustomEvent::BinaryFailed(err) => {
-                        self.panels.loading = false;
-                        log::warning!("{err:?}");
-                    }
-                    CustomEvent::BinaryLoaded(disassembly) => {
-                        self.panels.loading = false;
-                        self.panels.load_binary(disassembly);
-                    }
+                    WinitEvent::Fullscreen => self.arch.fullscreen(&self.window),
+                    WinitEvent::Minimize => self.window.set_minimized(true),
                 },
                 Event::AboutToWait => self.window.request_redraw(),
                 _ => {}
