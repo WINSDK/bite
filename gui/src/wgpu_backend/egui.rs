@@ -59,7 +59,7 @@ impl Pipeline {
 
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("bite::gui shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("./shaders/egui.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("./egui.wgsl"))),
         };
         let module = device.create_shader_module(shader);
 
