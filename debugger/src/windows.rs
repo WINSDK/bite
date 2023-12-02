@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 pub struct Pid(winapi::um::winnt::HANDLE);
 
+#[derive(Debug, PartialEq)]
 pub enum Error {}
 
 pub struct Debugger {
@@ -31,10 +32,6 @@ impl Process for Debugger {
 }
 
 impl Tracee for Debugger {
-    fn notify(&self, event: crate::DebugeeEvent) {
-        todo!("notify");
-    }
-
     fn detach(&mut self) {
         todo!("detach");
     }

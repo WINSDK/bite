@@ -205,6 +205,7 @@ impl<Arch: Target> UI<Arch> {
                 }
             };
 
+            #[cfg(target_os = "linux")]
             session.trace_syscalls(true);
 
             match session.run() {

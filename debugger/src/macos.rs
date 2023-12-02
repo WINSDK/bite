@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 pub struct Pid;
 
+#[derive(Debug, PartialEq)]
 pub enum Error {}
 
 pub struct Debugger {

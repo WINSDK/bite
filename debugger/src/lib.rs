@@ -122,8 +122,13 @@ impl MessageQueue {
         self.attached.load(Ordering::Relaxed)
     }
 
-    /// Mark queue as being used by debugger.
+    /// Mark queue as being used by a debugger.
     pub(crate) fn attach(&self) {
         self.attached.store(true, Ordering::Relaxed);
+    }
+
+    /// Mark queue as not being used by a debugger.
+    pub(crate) fn deattach(&self) {
+        self.attached.store(false, Ordering::Relaxed);
     }
 }

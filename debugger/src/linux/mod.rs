@@ -16,6 +16,7 @@ mod trace;
 
 pub type Pid = nix::unistd::Pid;
 
+#[derive(PartialEq)]
 pub enum Error {
     InvalidPathName,
     IncompleteRead(usize, usize),
@@ -74,7 +75,6 @@ impl Debugger {
         let mut pids = Tree::new();
 
         pids.push_root(root, State::WaitingForInit);
-        queue.attach();
 
         Debugger {
             pids,
@@ -256,7 +256,7 @@ impl Process for Debugger {
             c_args.push(arg);
         }
 
-        let child = || {
+        let exec_child = || {
             // disable ASLR
             personality::set(personality::Persona::ADDR_NO_RANDOMIZE)?;
 
@@ -272,10 +272,12 @@ impl Process for Debugger {
 
         match unsafe { fork().map_err(Error::Kernel)? } {
             ForkResult::Parent { child } => Ok(Debugger::local(queue, child)),
-            ForkResult::Child => match child() {
-                Err(err) => panic!("{err:?}"),
-                Ok(..) => unsafe { nix::libc::_exit(1) },
-            },
+            ForkResult::Child => {
+                let _ = exec_child();
+
+                // child may never continue execution on failure
+                unsafe { nix::libc::_exit(1) }
+            }
         }
     }
 
@@ -285,6 +287,8 @@ impl Process for Debugger {
     }
 
     fn run(mut self) -> Result<(), Error> {
+        self.queue.attach();
+
         'event_loop: loop {
             // check if there are still tracee's
             if self.pids.is_empty() {
@@ -325,6 +329,7 @@ impl Process for Debugger {
         }
 
         self.queue.pushd(DebuggerEvent::Exited(self.exit_code));
+        self.queue.deattach();
         Ok(())
     }
 }
