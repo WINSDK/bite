@@ -1,15 +1,16 @@
 use std::ffi::CString;
-use std::fmt;
+use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
 
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::Signal;
 use nix::sys::wait::{self, WaitStatus};
 use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
 
 use crate::collections::Tree;
-use crate::{Process, Tracee};
+use crate::{DebugeeEvent, DebuggerEvent, ExitCode, MessageQueue, Process, Tracee};
 
+mod fmt;
 mod ioctl;
 mod trace;
 
@@ -20,21 +21,6 @@ pub enum Error {
     IncompleteRead(usize, usize),
     IncompleteWrite(usize, usize),
     Kernel(nix::errno::Errno),
-}
-
-impl fmt::Debug for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidPathName => f.write_str("There appears to be a '\\0' in the path name."),
-            Self::IncompleteRead(req, res) => {
-                f.write_fmt(format_args!("Tried to read {req} bytes, only read {res}."))
-            }
-            Self::IncompleteWrite(req, res) => f.write_fmt(format_args!(
-                "Tried to write {req} bytes, only wrote {res}."
-            )),
-            Self::Kernel(err) => f.write_fmt(format_args!("{err}.")),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -50,6 +36,13 @@ pub struct Debugger {
     unprocessed_signal: Option<Signal>,
     last_syscall: ptrace::SyscallInfoOp,
     print_buf: String,
+    queue: MessageQueue,
+
+    /// Exit code of most recently exited tracee.
+    exit_code: ExitCode,
+
+    /// Prevent [`Debugger`] implementing Send.
+    _not_send: PhantomData<*mut ()>,
 }
 
 // fn set_empty_signal_handler(signal: Signal) -> Result<(), Error> {
@@ -77,9 +70,11 @@ pub struct Debugger {
 // }
 
 impl Debugger {
-    fn local(root: Pid) -> Self {
+    fn local(queue: MessageQueue, root: Pid) -> Self {
         let mut pids = Tree::new();
+
         pids.push_root(root, State::WaitingForInit);
+        queue.attach();
 
         Debugger {
             pids,
@@ -88,11 +83,14 @@ impl Debugger {
             unprocessed_signal: None,
             last_syscall: ptrace::SyscallInfoOp::None,
             print_buf: String::new(),
+            queue,
+            exit_code: 0,
+            _not_send: PhantomData,
         }
     }
 
-    fn remote(root: Pid) -> Self {
-        let mut this = Debugger::local(root);
+    fn remote(queue: MessageQueue, root: Pid) -> Self {
+        let mut this = Debugger::local(queue, root);
         this.remote = true;
         this
     }
@@ -121,57 +119,47 @@ impl Debugger {
         ptrace::setoptions(pid, options).map_err(Error::Kernel)
     }
 
-    pub fn run_to_end(&mut self) -> Result<(), Error> {
-        loop {
-            // wait for child to give send a message
-            let status = wait::waitpid(
-                self.pids.root(),
-                Some(wait::WaitPidFlag::WSTOPPED | wait::WaitPidFlag::WCONTINUED),
-            )
-            .map_err(Error::Kernel)?;
+    fn handle_ptrace_status(&mut self, status: wait::WaitStatus) -> Result<(), Error> {
+        let pid = status.pid().unwrap();
 
-            let pid = status.pid().unwrap();
+        let state = match self.pids.find(&pid) {
+            Some(state) => state,
+            // if a pid isn't being tracked, don't handle to it's event
+            None => return Ok(()),
+        };
 
-            let state = match self.pids.find(&pid) {
-                Some(state) => state,
-                // if a pid isn't being tracked, don't handle to it's event
-                None => continue,
-            };
+        match state {
+            State::WaitingForInit => {
+                assert!(
+                    matches!(status, WaitStatus::Stopped(_, Signal::SIGSTOP)),
+                    "got '{status:?}' expected a SIGSTOP"
+                );
 
-            match state {
-                State::WaitingForInit => {
-                    assert!(
-                        matches!(status, WaitStatus::Stopped(_, Signal::SIGSTOP)),
-                        "got '{status:?}' expected a SIGSTOP"
-                    );
-
-                    *state = State::Running;
-                    self.set_options(pid)?;
-                    self.kontinue(pid);
-                }
-                State::Running => self.process_event(status)?,
+                *state = State::Running;
+                self.set_options(pid)?;
+                self.kontinue_pid(pid);
             }
-
-            if self.pids.is_empty() {
-                return Ok(());
-            }
+            State::Running => self.process_event(status)?,
         }
+
+        Ok(())
     }
 
     fn process_event(&mut self, status: wait::WaitStatus) -> Result<(), Error> {
         match status {
             WaitStatus::Stopped(pid, signal) => {
                 self.unprocessed_signal = Some(signal);
-                self.kontinue(pid);
+                self.kontinue_pid(pid);
             }
             WaitStatus::Signaled(pid, signal, ..) => {
                 self.pids.remove(&pid);
-                self.kontinue(pid);
+                self.kontinue_pid(pid);
                 log::trace!("[debugger::event] child exited by signal: {signal:?}.");
             }
             WaitStatus::Exited(pid, code) => {
+                self.exit_code = code;
                 self.pids.remove(&pid);
-                self.kontinue(pid);
+                self.kontinue_pid(pid);
                 log::trace!("[debugger::event] child '{pid}' exited with code '{code}'.");
             }
             WaitStatus::PtraceSyscall(pid) => {
@@ -191,7 +179,7 @@ impl Debugger {
 
                         // `exit_group` syscall doesn't have a return value
                         if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = self.last_syscall {
-                            self.kontinue(pid);
+                            self.kontinue_pid(pid);
                             return Ok(());
                         }
 
@@ -211,7 +199,7 @@ impl Debugger {
                     _ => {}
                 }
 
-                self.kontinue(pid);
+                self.kontinue_pid(pid);
             }
             WaitStatus::PtraceEvent(pid, _, event) => {
                 use nix::libc::*;
@@ -224,12 +212,23 @@ impl Debugger {
                     self.pids.push_child(&pid, created_pid, State::WaitingForInit);
                 }
 
-                self.kontinue(pid);
+                self.kontinue_pid(pid);
             }
             _ => unreachable!("{status:?}"),
         }
 
         Ok(())
+    }
+
+    fn kontinue_pid(&mut self, pid: Pid) {
+        let sig = std::mem::take(&mut self.unprocessed_signal);
+
+        // ignore the result since continuing a process can't fail
+        if self.tracing_syscalls {
+            let _ = ptrace::syscall(pid, sig);
+        } else {
+            let _ = ptrace::cont(pid, sig);
+        }
     }
 
     pub fn trace_syscalls(&mut self, tracing: bool) {
@@ -238,7 +237,11 @@ impl Debugger {
 }
 
 impl Process for Debugger {
-    fn spawn<P: AsRef<std::path::Path>>(path: P, args: Vec<String>) -> Result<Self, Error> {
+    fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
+        queue: MessageQueue,
+        path: P,
+        args: Vec<A>,
+    ) -> Result<Self, Error> {
         let c_path = CString::new(path.as_ref().as_os_str().as_bytes())
             .map_err(|_| Error::InvalidPathName)?;
 
@@ -268,7 +271,7 @@ impl Process for Debugger {
         };
 
         match unsafe { fork().map_err(Error::Kernel)? } {
-            ForkResult::Parent { child } => Ok(Debugger::local(child)),
+            ForkResult::Parent { child } => Ok(Debugger::local(queue, child)),
             ForkResult::Child => match child() {
                 Err(err) => panic!("{err:?}"),
                 Ok(..) => unsafe { nix::libc::_exit(1) },
@@ -276,9 +279,53 @@ impl Process for Debugger {
         }
     }
 
-    fn attach(pid: Pid) -> Result<Self, Error> {
+    fn attach(queue: MessageQueue, pid: Pid) -> Result<Self, Error> {
         ptrace::attach(pid).map_err(Error::Kernel)?;
-        Ok(Debugger::remote(pid))
+        Ok(Debugger::remote(queue, pid))
+    }
+
+    fn run(mut self) -> Result<(), Error> {
+        'event_loop: loop {
+            // check if there are still tracee's
+            if self.pids.is_empty() {
+                break;
+            }
+
+            while let Some(event) = self.queue.popd() {
+                match event {
+                    DebugeeEvent::Exit => {
+                        if self.remote {
+                            self.detach();
+                        } else {
+                            self.kill();
+                        }
+
+                        break 'event_loop;
+                    }
+                }
+            }
+
+            // wait for child to give send a message
+            let status = wait::waitpid(
+                self.pids.root(),
+                Some(
+                    wait::WaitPidFlag::WNOHANG
+                        | wait::WaitPidFlag::WSTOPPED
+                        | wait::WaitPidFlag::WCONTINUED,
+                ),
+            )
+            .map_err(Error::Kernel)?;
+
+            if status == WaitStatus::StillAlive {
+                std::thread::sleep(std::time::Duration::from_nanos(10));
+                continue;
+            }
+
+            self.handle_ptrace_status(status)?;
+        }
+
+        self.queue.pushd(DebuggerEvent::Exited(self.exit_code));
+        Ok(())
     }
 }
 
@@ -293,25 +340,31 @@ impl Tracee for Debugger {
     fn kill(&mut self) {
         for (pid, _) in self.pids.consuming_iter() {
             // ignore the result since killing a process can't fail
-            let _ = kill(pid, Signal::SIGKILL);
+            let _ = ptrace::kill(pid);
         }
     }
 
-    fn pause(&self, pid: Pid) {
-        // ignore the result since it appears to be unlikely interrupting can fail
-        //
-        // https://github.com/torvalds/linux/blob/d528014517f2b0531862c02865b9d4c908019dc4/kernel/ptrace.c#L1137
-        let _ = ptrace::interrupt(pid);
+    fn pause(&self) {
+        for (pid, _) in self.pids.iter() {
+            // ignore the result since it appears to be unlikely interrupting can fail
+            //
+            // https://github.com/torvalds/linux/blob/d528014517f2b0531862c02865b9d4c908019dc4/kernel/ptrace.c#L1137
+            let _ = ptrace::interrupt(*pid);
+        }
     }
 
-    fn kontinue(&mut self, pid: Pid) {
+    fn kontinue(&mut self) {
         let sig = std::mem::take(&mut self.unprocessed_signal);
 
         // ignore the result since continuing a process can't fail
-        if self.tracing_syscalls {
-            let _ = ptrace::syscall(pid, sig);
+        let cont = if self.tracing_syscalls {
+            ptrace::syscall
         } else {
-            let _ = ptrace::cont(pid, sig);
+            ptrace::cont
+        };
+
+        for (pid, _) in self.pids.iter() {
+            let _ = cont(*pid, sig);
         }
     }
 
@@ -358,24 +411,17 @@ impl Tracee for Debugger {
     }
 }
 
-impl Drop for Debugger {
-    fn drop(&mut self) {
-        if !self.remote {
-            self.kill();
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
-    fn spawn() {
-        let mut session =
-            Debugger::spawn("sh", vec!["-c".to_string(), "echo 10".to_string()]).unwrap();
-        // let mut session = Debugger::spawn("../target/debug/bite", &[]).unwrap();
-        session.trace_syscalls(true);
-        session.run_to_end().unwrap();
+    fn spawn_echo() {
+        let queue = MessageQueue::new();
+        let session = Debugger::spawn(queue.clone(), "sh", vec!["-c", "echo 10"]).unwrap();
+
+        assert!(session.run().is_ok());
+        assert_eq!(queue.pop(), Some(DebuggerEvent::Exited(0)));
+        assert_eq!(queue.pop(), None);
     }
 }

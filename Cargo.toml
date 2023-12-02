@@ -46,3 +46,4 @@ members = [
 
 [workspace.dependencies]
 egui = { version = "0.24", features = ["bytemuck"] }
+crossbeam-queue = "0.3"

@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use egui::text::LayoutJob;
-pub use rfd::{MessageLevel, MessageDialog};
+pub use rfd::{MessageDialog, MessageLevel};
 
 /// Time a given expression.
 #[macro_export]

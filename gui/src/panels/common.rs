@@ -24,4 +24,3 @@ pub fn tokens_to_layoutjob(tokens: Vec<tokenizing::Token>) -> egui::text::Layout
 
     job
 }
-

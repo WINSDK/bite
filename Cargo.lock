@@ -516,6 +516,7 @@ dependencies = [
 name = "debugger"
 version = "0.0.0"
 dependencies = [
+ "crossbeam-queue",
  "log 0.0.0",
  "nix 0.26.1",
  "symbols",

@@ -1,4 +1,5 @@
-use crate::{Process, Tracee};
+use crate::{MessageQueue, Process, Tracee};
+use std::marker::PhantomData;
 
 pub struct Pid(winapi::um::winnt::HANDLE);
 
@@ -6,19 +7,36 @@ pub struct Pid(winapi::um::winnt::HANDLE);
 pub enum Error {}
 
 #[derive(Debug)]
-pub struct Debugger {}
+pub struct Debugger {
+    queue: Queue,
+
+    /// Prevent [`Debugger`] implementing Send.
+    _not_send: PhantomData<*mut ()>,
+}
 
 impl Process for Debugger {
-    fn spawn<P: AsRef<std::path::Path>>(_: P, _: Vec<String>) -> Result<Self, Error> {
+    fn spawn<P: AsRef<std::path::Path>>(
+        _: MessageQueue,
+        _: P,
+        _: Vec<String>,
+    ) -> Result<Self, Error> {
         todo!("spawn");
     }
 
-    fn attach(_: Pid) -> Result<Self, Error> {
+    fn attach(_: MessageQueue, _: Pid) -> Result<Self, Error> {
         todo!("attach");
+    }
+
+    fn run(mut self) -> Result<(), Error> {
+        todo!("run");
     }
 }
 
 impl Tracee for Debugger {
+    fn notify(&self, event: crate::DebugeeEvent) {
+        todo!("notify");
+    }
+
     fn detach(&mut self) {
         todo!("detach");
     }
@@ -27,11 +45,11 @@ impl Tracee for Debugger {
         todo!("kill");
     }
 
-    fn pause(&self, _: Pid) {
+    fn pause(&self) {
         todo!("pause");
     }
 
-    fn kontinue(&mut self, _: Pid) {
+    fn kontinue(&mut self) {
         todo!("kontinue");
     }
 
@@ -41,11 +59,5 @@ impl Tracee for Debugger {
 
     fn write_process_memory(&mut self, _: usize, _: &[u8]) -> Result<(), Error> {
         todo!("write_process_memory");
-    }
-}
-
-impl Drop for Debugger {
-    fn drop(&mut self) {
-        self.kill();
     }
 }

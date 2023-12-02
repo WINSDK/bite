@@ -10,7 +10,7 @@ use egui::emath::{pos2, vec2};
 use egui::{Context, FontData, FontDefinitions, FontFamily, Key};
 
 use winit::dpi::PhysicalSize;
-use winit::event::{DeviceId, Event, TouchPhase, WindowEvent, KeyEvent};
+use winit::event::{DeviceId, Event, KeyEvent, TouchPhase, WindowEvent};
 use winit::keyboard::{KeyCode, ModifiersState};
 
 /// Provides the integration between egui and winit.
@@ -87,9 +87,7 @@ impl Platform {
         if pressed {
             if let Some(ref text) = event.text {
                 if text.chars().all(is_printable) {
-                    self.raw_input
-                        .events
-                        .push(egui::Event::Text(text.to_string()));
+                    self.raw_input.events.push(egui::Event::Text(text.to_string()));
                 }
             }
         }

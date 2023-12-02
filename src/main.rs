@@ -8,8 +8,8 @@ compile_error!("Bite can only be build for windows, macos and linux.");
 
 mod wayland;
 
-use std::fs;
 use args::ARGS;
+use std::fs;
 
 fn main() {
     #[cfg(target_os = "linux")]

@@ -48,11 +48,11 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
     }
 
     pub fn root(&self) -> K {
-        self.root.as_ref().expect("No root").clone()
+        self.root.as_ref().expect("No root.").clone()
     }
 
     pub fn push_child(&mut self, parent: &K, key: K, value: V) {
-        let parent_node = self.nodes.get_mut(parent).expect("Failed to find parent");
+        let parent_node = self.nodes.get_mut(parent).expect("Failed to find parent.");
 
         parent_node.children.push(key.clone());
         self.nodes.insert(key, Node::new(value, Some(parent.clone())));
@@ -71,7 +71,7 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
         if Some(key) == self.root.as_ref() {
             assert!(
                 self.nodes.len() == 1,
-                "can't remove root when there are still leafs"
+                "Can't remove root when there are still leafs."
             );
 
             self.root = None;
@@ -81,7 +81,7 @@ impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
         let opt_parent = self
             .nodes
             .get(key)
-            .expect("value being removed isn't part of the tree")
+            .expect("Value being removed isn't part of the tree.")
             .parent
             .clone();
 

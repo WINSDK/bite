@@ -1,13 +1,13 @@
 #![cfg(target_os = "windows")]
 
 use copypasta::{ClipboardContext, ClipboardProvider};
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::platform::windows::HMONITOR;
 use winit::platform::windows::HWND;
-use winit::platform::windows::{WindowBuilderExtWindows, MonitorHandleExtWindows};
-use winit::dpi::{PhysicalSize, PhysicalPosition};
+use winit::platform::windows::{MonitorHandleExtWindows, WindowBuilderExtWindows};
 use winit::raw_window_handle::HasWindowHandle;
 
-use crate::{Window, Error};
+use crate::{Error, Window};
 
 pub struct ArchDescriptor {
     pub initial_size: PhysicalSize<u32>,
@@ -23,7 +23,7 @@ pub struct Arch {
 fn query_hwnd(window: &Window) -> HWND {
     match window.window_handle().unwrap().as_raw() {
         winit::raw_window_handle::RawWindowHandle::Win32(handle) => handle.hwnd.get(),
-        _ => unsafe { std::hint::unreachable_unchecked() }
+        _ => unsafe { std::hint::unreachable_unchecked() },
     }
 }
 
@@ -49,7 +49,7 @@ impl crate::Target for Arch {
     ) -> Result<winit::window::Window, Error> {
         let icon = crate::icon::PngIcon::decode("./assets/iconx256.png")?;
         let icon = winit::window::Icon::from_rgba(icon.data, icon.width, icon.height).ok();
-    
+
         let window = winit::window::WindowBuilder::new()
             .with_title(title)
             .with_visible(false)
@@ -59,38 +59,38 @@ impl crate::Target for Arch {
             .with_inner_size(winit::dpi::LogicalSize { width, height })
             .build(event_loop)
             .map_err(|_| Error::WindowCreation)?;
-    
+
         let PhysicalSize { width, height } =
             window.current_monitor().ok_or(Error::WindowCreation)?.size();
 
         let hwnd = query_hwnd(&window);
-    
+
         unsafe {
             let width = width * 2 / 5;
             let height = height * 2 / 3;
-    
+
             // set basic window attributes
             let attr = WS_THICKFRAME | WS_POPUP;
             if SetWindowLongPtrW(hwnd, GWL_STYLE, attr) == 0 {
                 return Err(Error::WindowCreation);
             }
-    
+
             // set extended window attributes
             if SetWindowLongPtrW(hwnd, GWL_EXSTYLE, WS_EX_ACCEPTFILES) == 0 {
                 return Err(Error::WindowCreation);
             }
-    
+
             // resize window to some reasonable dimensions, whilst applying the window attributes
             if SetWindowPos(hwnd, HWND_TOP, 0, 0, width, height, SWP_NOZORDER) == 0 {
                 return Err(Error::WindowCreation);
             }
-    
+
             // set window visibility
             if SetWindowLongPtrW(hwnd, GWL_STYLE, attr | WS_VISIBLE) == 0 {
                 return Err(Error::WindowCreation);
             }
         }
-    
+
         Ok(window)
     }
 

@@ -45,10 +45,7 @@ impl Instance {
         }
     }
 
-    fn new_with_backends(
-        window: &crate::Window,
-        backends: wgpu::Backends,
-    ) -> Result<Self, Error> {
+    fn new_with_backends(window: &crate::Window, backends: wgpu::Backends) -> Result<Self, Error> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,

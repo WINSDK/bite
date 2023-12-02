@@ -1,7 +1,7 @@
-use super::common::{FONT, tokens_to_layoutjob};
+use super::common::{tokens_to_layoutjob, FONT};
 
-use std::sync::Arc;
 use egui::text::LayoutJob;
+use std::sync::Arc;
 
 pub struct Listing {
     pub disassembly: Arc<disassembler::Disassembly>,
@@ -65,9 +65,9 @@ impl super::Display for Listing {
         let row_height = FONT.size + spacing.y;
 
         let area = egui::ScrollArea::vertical()
-           .auto_shrink(false)
-           .drag_to_scroll(false)
-           .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+            .auto_shrink(false)
+            .drag_to_scroll(false)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
         area.show_viewport(ui, |ui, viewport| {
             let min_row = (viewport.min.y / row_height).floor() as usize;

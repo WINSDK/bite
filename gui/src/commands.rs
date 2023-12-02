@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::path::Path;
 
-use crate::panels::{Terminal, Panels};
+use crate::panels::{Panels, Terminal};
 
 const CMDS: &[&str] = &["exec", "pwd", "cd", "quit", "run", "goto", "set"];
 
@@ -18,7 +18,6 @@ macro_rules! print_extern {
         let _ = writeln!($dst, $($arg)*);
     }};
 }
-
 
 fn possible_command(unknown: &str) -> Option<&str> {
     let mut distance = u32::MAX;
@@ -130,7 +129,10 @@ impl Panels {
             let (var, value) = match cmd.split_once("=") {
                 Some(pair) => pair,
                 None => {
-                    print!(self.terminal(), "You must specify what env variable to set.");
+                    print!(
+                        self.terminal(),
+                        "You must specify what env variable to set."
+                    );
                     return true;
                 }
             };

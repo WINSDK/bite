@@ -12,6 +12,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use copypasta::ClipboardProvider;
+use debugger::{DebugeeEvent, DebuggerEvent};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 
@@ -24,7 +25,7 @@ pub enum Error {
     PngDecode,
     PngFormat,
     NotFound(std::path::PathBuf),
-    DuplicateInstance,
+    EventLoopCreation(winit::error::EventLoopError),
 }
 
 type Window = winit::window::Window;
@@ -101,13 +102,14 @@ pub struct UI<Arch: Target> {
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
     ui_queue: UIQueue,
+    dbg_queue: debugger::MessageQueue,
 }
 
 impl<Arch: Target> UI<Arch> {
     pub fn new() -> Result<Self, Error> {
         let event_loop = EventLoopBuilder::<WinitEvent>::with_user_event()
             .build()
-            .map_err(|_| Error::DuplicateInstance)?;
+            .map_err(Error::EventLoopCreation)?;
 
         let window = Arc::new(Arch::create_window("bite", 1200, 800, &event_loop)?);
 
@@ -122,12 +124,14 @@ impl<Arch: Target> UI<Arch> {
 
         let ui_queue = UIQueue {
             inner: Arc::new(crossbeam_queue::ArrayQueue::new(100)),
-            window: window.clone()
+            window: window.clone(),
         };
 
         let winit_queue = WinitQueue {
             inner: event_loop.create_proxy(),
         };
+
+        let debug_queue = debugger::MessageQueue::new();
 
         let panels = panels::Panels::new(ui_queue.clone(), winit_queue.clone());
         let instance = wgpu_backend::Instance::new(&window)?;
@@ -143,12 +147,13 @@ impl<Arch: Target> UI<Arch> {
             egui_render_pass,
             platform,
             ui_queue,
+            dbg_queue: debug_queue,
         })
     }
 
     pub fn process_args(&mut self) {
         if let Some(path) = args::ARGS.path.as_ref().cloned() {
-            self.ui_queue.push(UIEvent::BinaryRequested(path));
+            self.offload_binary_processing(path);
         }
     }
 
@@ -176,7 +181,8 @@ impl<Arch: Target> UI<Arch> {
             return;
         }
 
-        let queue = self.ui_queue.clone();
+        let ui_queue = self.ui_queue.clone();
+        let dbg_queue = self.dbg_queue.clone();
         let path = match self.panels.listing() {
             Some(listing) => listing.disassembly.path.clone(),
             None => {
@@ -188,28 +194,24 @@ impl<Arch: Target> UI<Arch> {
         self.panels.debugging = true;
         print_extern!(self.panels.terminal(), "Running debugger.");
 
-        #[cfg(target_os = "linux")]
         std::thread::spawn(move || {
             use debugger::Process;
 
-            let mut session = match debugger::Debugger::spawn(path, args) {
+            let mut session = match debugger::Debugger::spawn(dbg_queue, path, args) {
                 Ok(session) => session,
                 Err(err) => {
-                    queue.push(UIEvent::DebuggerFailed(err));
+                    ui_queue.push(UIEvent::DebuggerFailed(err));
                     return;
                 }
             };
 
             session.trace_syscalls(true);
 
-            match session.run_to_end() {
-                Ok(()) => queue.push(UIEvent::DebuggerFinished),
-                Err(err) => queue.push(UIEvent::DebuggerFailed(err)),
+            match session.run() {
+                Ok(()) => ui_queue.push(UIEvent::DebuggerFinished),
+                Err(err) => ui_queue.push(UIEvent::DebuggerFailed(err)),
             };
         });
-
-        #[cfg(not(target_os = "linux"))]
-        queue.send(WinitEvent::DebuggerFinished);
     }
 
     fn handle_ui_events(&mut self) {
@@ -236,6 +238,16 @@ impl<Arch: Target> UI<Arch> {
         }
     }
 
+    fn handle_dbg_events(&mut self) {
+        while let Some(event) = self.dbg_queue.pop() {
+            match event {
+                DebuggerEvent::Exited(code) => {
+                    print_extern!(self.panels.terminal(), "Process exited with code '{code}'.");
+                }
+            }
+        }
+    }
+
     pub fn run(mut self) {
         let now = std::time::Instant::now();
 
@@ -247,6 +259,7 @@ impl<Arch: Target> UI<Arch> {
             self.platform.handle_event(&self.window, &mut event);
 
             self.handle_ui_events();
+            self.handle_dbg_events();
 
             let events = self.platform.unprocessed_events();
             let terminal_events = self.panels.terminal().record_input(events);
@@ -309,5 +322,21 @@ impl<Arch: Target> UI<Arch> {
                 _ => {}
             }
         });
+    }
+}
+
+impl<Arch: Target> Drop for UI<Arch> {
+    fn drop(&mut self) {
+        // if a debugger is running
+        if self.dbg_queue.attached() {
+            self.dbg_queue.push(DebugeeEvent::Exit);
+
+            // wait for debugger to signal it exited
+            loop {
+                if let Some(DebuggerEvent::Exited(..)) = self.dbg_queue.pop() {
+                    return;
+                }
+            }
+        }
     }
 }

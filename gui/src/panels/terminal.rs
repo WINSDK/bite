@@ -292,12 +292,16 @@ impl super::Display for Terminal {
             };
 
             output.append(left, 0.0, format.clone());
-            output.append(select, 0.0, egui::TextFormat {
-                font_id: FONT.clone(),
-                color: format.color,
-                background: crate::style::EGUI.noninteractive().fg_stroke.color,
-                ..Default::default()
-            });
+            output.append(
+                select,
+                0.0,
+                egui::TextFormat {
+                    font_id: FONT.clone(),
+                    color: format.color,
+                    background: crate::style::EGUI.noninteractive().fg_stroke.color,
+                    ..Default::default()
+                },
+            );
             output.append(right, 0.0, format.clone());
 
             ui.label(output);

@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use once_cell::sync::Lazy;
+use std::path::PathBuf;
 
 macro_rules! exit {
     ($code:expr => $($arg:tt)*) => {{
@@ -135,7 +135,7 @@ impl Cli {
                 exit!(1 => "Missing path to an object.");
             }
         } else {
-            // no action arguments were given 
+            // no action arguments were given
             self.disassemble = true;
             return;
         }

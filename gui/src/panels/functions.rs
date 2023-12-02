@@ -1,7 +1,7 @@
-use super::common::{FONT, tokens_to_layoutjob};
+use super::common::{tokens_to_layoutjob, FONT};
 
-use std::sync::Arc;
 use egui::text::LayoutJob;
+use std::sync::Arc;
 
 pub struct Functions {
     disassembly: Arc<disassembler::Disassembly>,
@@ -20,7 +20,7 @@ impl Functions {
             functions: LayoutJob::default(),
             function_count,
             min_row: 0,
-            max_row: 0
+            max_row: 0,
         }
     }
 }

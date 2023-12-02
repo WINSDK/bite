@@ -1,4 +1,4 @@
-use egui::style::{Selection, Spacing, Visuals, WidgetVisuals, Widgets, ScrollStyle};
+use egui::style::{ScrollStyle, Selection, Spacing, Visuals, WidgetVisuals, Widgets};
 use egui::{Color32, FontFamily, FontId, Rounding, Stroke, TextStyle};
 
 use once_cell::sync::Lazy;
@@ -182,5 +182,5 @@ pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
     overlay: egui_dock::OverlayStyle {
         selection_color: STYLE.selection_color,
         ..Default::default()
-    }
+    },
 });
