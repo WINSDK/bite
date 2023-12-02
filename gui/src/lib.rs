@@ -177,7 +177,7 @@ impl<Arch: Target> UI<Arch> {
     fn offload_debugging(&mut self, args: Vec<String>) {
         // don't debug multiple binaries at a time
         if self.panels.debugging {
-            print_extern!(self.panels.terminal(), "Debugger is already running.");
+            tprint!(self.panels.terminal(), "Debugger is already running.");
             return;
         }
 
@@ -186,13 +186,13 @@ impl<Arch: Target> UI<Arch> {
         let path = match self.panels.listing() {
             Some(listing) => listing.disassembly.path.clone(),
             None => {
-                print_extern!(self.panels.terminal(), "Missing binary to debug.");
+                tprint!(self.panels.terminal(), "Missing binary to debug.");
                 return;
             }
         };
 
         self.panels.debugging = true;
-        print_extern!(self.panels.terminal(), "Running debugger.");
+        tprint!(self.panels.terminal(), "Running debugger.");
 
         std::thread::spawn(move || {
             use debugger::Process;
@@ -220,7 +220,7 @@ impl<Arch: Target> UI<Arch> {
                 UIEvent::DebuggerExecute(args) => self.offload_debugging(args),
                 UIEvent::DebuggerFailed(err) => {
                     self.panels.debugging = false;
-                    print_extern!(self.panels.terminal(), "{err:?}.");
+                    tprint!(self.panels.terminal(), "{err:?}.");
                 }
                 UIEvent::DebuggerFinished => {
                     self.panels.debugging = false;
@@ -242,7 +242,7 @@ impl<Arch: Target> UI<Arch> {
         while let Some(event) = self.dbg_queue.pop() {
             match event {
                 DebuggerEvent::Exited(code) => {
-                    print_extern!(self.panels.terminal(), "Process exited with code '{code}'.");
+                    tprint!(self.panels.terminal(), "Process exited with code '{code}'.");
                 }
             }
         }

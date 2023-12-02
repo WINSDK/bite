@@ -5,15 +5,9 @@ use crate::panels::{Panels, Terminal};
 
 const CMDS: &[&str] = &["exec", "pwd", "cd", "quit", "run", "goto", "set"];
 
-macro_rules! print {
-    ($dst:expr, $($arg:tt)*) => {{
-        let _ = writeln!($dst, $($arg)*);
-    }};
-}
-
-/// Print to the terminal outside of [`process_cmd`].
+/// Print to the terminal.
 #[macro_export]
-macro_rules! print_extern {
+macro_rules! tprint {
     ($dst:expr, $($arg:tt)*) => {{
         let _ = writeln!($dst, $($arg)*);
     }};
@@ -36,8 +30,8 @@ fn possible_command(unknown: &str) -> Option<&str> {
 
 fn print_cwd(terminal: &mut Terminal) {
     match std::env::current_dir() {
-        Ok(path) => print!(terminal, "Working directory {}.", path.display()),
-        Err(err) => print!(terminal, "Failed to print pwd: '{err}'."),
+        Ok(path) => tprint!(terminal, "Working directory {}.", path.display()),
+        Err(err) => tprint!(terminal, "Failed to print pwd: '{err}'."),
     }
 }
 
@@ -75,7 +69,7 @@ impl Panels {
 
     /// Runs a singular commands, returning if it succeeded.
     fn process_cmd(&mut self, cmd: &str) -> bool {
-        print!(self.terminal(), "(bite) {cmd}");
+        tprint!(self.terminal(), "(bite) {cmd}");
 
         let cmd = cmd.trim();
         let mut args = cmd.split_whitespace();
@@ -89,11 +83,11 @@ impl Panels {
                 let path = expand_homedir(unexpanded);
 
                 self.ui_queue.push(crate::UIEvent::BinaryRequested(path));
-                print!(self.terminal(), "Binary '{unexpanded}' was opened.");
+                tprint!(self.terminal(), "Binary '{unexpanded}' was opened.");
                 return true;
             }
 
-            print!(self.terminal(), "Command 'exec' requires a path.");
+            tprint!(self.terminal(), "Command 'exec' requires a path.");
             return true;
         }
 
@@ -101,7 +95,7 @@ impl Panels {
             let path = expand_homedir(args.next().unwrap_or("~"));
 
             if let Err(err) = std::env::set_current_dir(path) {
-                print!(self.terminal(), "Failed to change directory: '{err}'.");
+                tprint!(self.terminal(), "Failed to change directory: '{err}'.");
                 return true;
             }
 
@@ -129,7 +123,7 @@ impl Panels {
             let (var, value) = match cmd.split_once("=") {
                 Some(pair) => pair,
                 None => {
-                    print!(
+                    tprint!(
                         self.terminal(),
                         "You must specify what env variable to set."
                     );
@@ -149,7 +143,7 @@ impl Panels {
             let listing = match self.listing() {
                 Some(dissasembly) => dissasembly,
                 None => {
-                    print!(self.terminal(), "There are no targets to inspect.");
+                    tprint!(self.terminal(), "There are no targets to inspect.");
                     return true;
                 }
             };
@@ -160,23 +154,23 @@ impl Panels {
                 Ok(addr) => {
                     if listing.disassembly_view.jump(&listing.disassembly, addr) {
                         listing.update();
-                        print!(self.terminal(), "Jumped to address '{addr:#X}'.");
+                        tprint!(self.terminal(), "Jumped to address '{addr:#X}'.");
                     } else {
-                        print!(self.terminal(), "Address '{addr:#X}' is undefined.");
+                        tprint!(self.terminal(), "Address '{addr:#X}' is undefined.");
                     }
                 }
-                Err(err) => print!(self.terminal(), "{err:?}."),
+                Err(err) => tprint!(self.terminal(), "{err:?}."),
             }
 
             return true;
         }
 
         match possible_command(cmd_name) {
-            Some(guess) => print!(
+            Some(guess) => tprint!(
                 self.terminal(),
                 "Command '{cmd_name}' is unknown, did you mean '{guess}'?"
             ),
-            None => print!(self.terminal(), "Command '{cmd_name}' is unknown."),
+            None => tprint!(self.terminal(), "Command '{cmd_name}' is unknown."),
         }
 
         true
