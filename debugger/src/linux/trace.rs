@@ -644,7 +644,7 @@ fn format_nullable_args(session: &mut Debugger, addr: u64) -> String {
 }
 
 impl super::Debugger {
-    pub fn display(&mut self, syscall: Sysno, args: [u64; 6]) -> String {
+    pub (super) fn display(&mut self, syscall: Sysno, args: [u64; 6]) -> String {
         let mut func = String::new();
 
         func += &syscall.to_string();

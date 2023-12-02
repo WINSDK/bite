@@ -3,22 +3,20 @@ use std::marker::PhantomData;
 
 pub struct Pid;
 
-#[derive(Debug)]
 pub enum Error {}
 
-#[derive(Debug)]
 pub struct Debugger {
-    queue: Queue,
+    queue: MessageQueue,
 
     /// Prevent [`Debugger`] implementing Send.
     _not_send: PhantomData<*mut ()>,
 }
 
 impl Process for Debugger {
-    fn spawn<P: AsRef<std::path::Path>>(
+    fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
         _: MessageQueue,
         _: P,
-        _: Vec<String>,
+        _: Vec<A>,
     ) -> Result<Self, Error> {
         todo!("spawn");
     }
