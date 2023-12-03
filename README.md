@@ -25,7 +25,7 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
 - [x] Assembly listing exploration
 - [x] Interactive terminal
 - [ ] Assembly instruction byte patching
-- [ ] Hex binary viewer
+- [x] Hex binary viewer
 - [ ] Debugging front-end's
   - [ ] [GDB](https://www.sourceware.org/gdb)
   - [ ] [LLDB](https://lldb.llvm.org)
