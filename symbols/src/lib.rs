@@ -72,6 +72,10 @@ impl Function {
         }
     }
 
+    pub fn as_str(&self) -> &str {
+        &self.name_as_str
+    }
+
     pub fn name(&self) -> &[Token] {
         self.name.tokens.as_slice()
     }

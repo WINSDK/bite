@@ -1,6 +1,7 @@
 use crossbeam_queue::SegQueue;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 mod collections;
 
@@ -23,6 +24,7 @@ pub use macos::*;
 pub use windows::*;
 
 pub type ExitCode = i32;
+pub type Addr = usize;
 
 /// Behaviour related to creating starting a debug session.
 pub trait Process: Tracee
@@ -31,16 +33,15 @@ where
 {
     /// Creates a `Tracee`, debugging a newly launched process.
     fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
-        queue: MessageQueue,
         path: P,
         args: Vec<A>,
     ) -> Result<Self, Error>;
 
     /// Creates a `Tracee`, debugging an existing process.
-    fn attach(queue: MessageQueue, pid: Pid) -> Result<Self, Error>;
+    fn attach(pid: Pid) -> Result<Self, Error>;
 
     /// Run blocking event loop of [`Debugger`].
-    fn run(self) -> Result<(), Error>;
+    fn run(self, ctx: Arc<Context>) -> Result<(), Error>;
 }
 
 /// Common behaviour shared amongst debugging sessions.
@@ -59,13 +60,75 @@ pub trait Tracee {
     ///
     /// On linux this is currently only supports unprotected memory pages.
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn read_process_memory(&self, base_addr: usize, len: usize) -> Result<Vec<u8>, Error>;
+    fn read_process_memory(&self, base_addr: Addr, len: usize) -> Result<Vec<u8>, Error>;
 
     /// Writes to a segment of memory.
     ///
     /// On linux this is currently only supports unprotected memory pages.
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn write_process_memory(&mut self, base_addr: usize, data: &[u8]) -> Result<(), Error>;
+    fn write_process_memory(&mut self, base_addr: Addr, data: &[u8]) -> Result<(), Error>;
+}
+
+/// Operation to be executed on [`Breakpoint`].
+enum BreakpointOp {
+    Create,
+    Delete
+}
+
+pub struct Breakpoint {
+    /// Location in [`Tracee`]'s memory space.
+    addr: Addr,
+
+    /// Byte in memory we overwrote with int3.
+    original_byte: u8,
+
+    /// Operation to be executed by [`Tracee`].
+    op: Option<BreakpointOp>,
+}
+
+impl Breakpoint {
+    pub(crate) fn set(&mut self, tracee: &mut impl Tracee) -> Result<(), Error> {
+        self.original_byte = tracee.read_process_memory(self.addr, 1)?[0];
+        let int3 = &[0xcc];
+        tracee.write_process_memory(self.addr, int3)?;
+        Ok(())
+    }
+
+    pub(crate) fn unset(&mut self, tracee: &mut impl Tracee) -> Result<(), Error> {
+        tracee.write_process_memory(self.addr, &[self.original_byte])?;
+        Ok(())
+    }
+}
+
+pub struct Breakpoints {
+    mapping: BTreeMap<Addr, Breakpoint>,
+}
+
+impl Breakpoints {
+    fn new() -> Self {
+        Self {
+            mapping: BTreeMap::new(),
+        }
+    }
+
+    /// Create a new [`Breakpoint`], the address must be valid within the [`Tracee`]'s memory.
+    pub fn create(&mut self, addr: Addr) {
+        self.mapping.insert(addr, Breakpoint {
+            addr,
+            original_byte: 0,
+            op: Some(BreakpointOp::Create),
+        });
+    }
+
+    /// Mark a [`Breakpoint`] for removal.
+    pub fn remove(&mut self, addr: Addr) -> Option<()> {
+        self.mapping.get_mut(&addr)?.op = Some(BreakpointOp::Delete);
+        Some(())
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Breakpoint> {
+        self.mapping.values_mut()
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -80,20 +143,17 @@ pub enum DebuggerEvent {
 
 /// Primary interface for consumer's to interact with debugger.
 /// Necessary as debugger runs on a different thread.
-#[derive(Clone)]
 pub struct MessageQueue {
-    attached: Arc<AtomicBool>,
-    debugee_queue: Arc<SegQueue<DebugeeEvent>>,
-    debugger_queue: Arc<SegQueue<DebuggerEvent>>,
+    debugee_queue: SegQueue<DebugeeEvent>,
+    debugger_queue: SegQueue<DebuggerEvent>,
 }
 
 impl MessageQueue {
     /// Empty unbound queue.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
-            attached: Arc::new(AtomicBool::new(false)),
-            debugee_queue: Arc::new(SegQueue::new()),
-            debugger_queue: Arc::new(SegQueue::new()),
+            debugee_queue: SegQueue::new(),
+            debugger_queue: SegQueue::new(),
         }
     }
 
@@ -115,6 +175,22 @@ impl MessageQueue {
     /// Try to receive event from consumer.
     pub(crate) fn popd(&self) -> Option<DebugeeEvent> {
         self.debugee_queue.pop()
+    }
+}
+
+pub struct Context {
+    attached: AtomicBool,
+    pub breakpoints: RwLock<Breakpoints>,
+    pub queue: MessageQueue,
+}
+
+impl Context {
+    pub fn new() -> Self {
+        Self {
+            attached: AtomicBool::new(false),
+            breakpoints: RwLock::new(Breakpoints::new()),
+            queue: MessageQueue::new(),
+        }
     }
 
     /// Return whether queue is being used by a debugger.

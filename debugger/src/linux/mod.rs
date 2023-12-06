@@ -1,6 +1,7 @@
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
+use std::sync::Arc;
 
 use nix::sys::signal::Signal;
 use nix::sys::wait::{self, WaitStatus};
@@ -8,7 +9,7 @@ use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
 
 use crate::collections::Tree;
-use crate::{DebugeeEvent, DebuggerEvent, ExitCode, MessageQueue, Process, Tracee};
+use crate::{DebugeeEvent, DebuggerEvent, ExitCode, Process, Tracee, Context, BreakpointOp};
 
 mod fmt;
 mod ioctl;
@@ -37,7 +38,6 @@ pub struct Debugger {
     unprocessed_signal: Option<Signal>,
     last_syscall: ptrace::SyscallInfoOp,
     print_buf: String,
-    queue: MessageQueue,
 
     /// Exit code of most recently exited tracee.
     exit_code: ExitCode,
@@ -71,7 +71,7 @@ pub struct Debugger {
 // }
 
 impl Debugger {
-    fn local(queue: MessageQueue, root: Pid) -> Self {
+    fn local(root: Pid) -> Self {
         let mut pids = Tree::new();
 
         pids.push_root(root, State::WaitingForInit);
@@ -83,16 +83,19 @@ impl Debugger {
             unprocessed_signal: None,
             last_syscall: ptrace::SyscallInfoOp::None,
             print_buf: String::new(),
-            queue,
             exit_code: 0,
             _not_send: PhantomData,
         }
     }
 
-    fn remote(queue: MessageQueue, root: Pid) -> Self {
-        let mut this = Debugger::local(queue, root);
+    fn remote(root: Pid) -> Self {
+        let mut this = Debugger::local(root);
         this.remote = true;
         this
+    }
+
+    pub fn trace_syscalls(&mut self, tracing: bool) {
+        self.tracing_syscalls = tracing;
     }
 
     fn set_options(&mut self, pid: Pid) -> Result<(), Error> {
@@ -117,6 +120,17 @@ impl Debugger {
             | ptrace::Options::PTRACE_O_TRACEVFORK;
 
         ptrace::setoptions(pid, options).map_err(Error::Kernel)
+    }
+
+    fn kontinue_pid(&mut self, pid: Pid) {
+        let sig = std::mem::take(&mut self.unprocessed_signal);
+
+        // ignore the result since continuing a process can't fail
+        if self.tracing_syscalls {
+            let _ = ptrace::syscall(pid, sig);
+        } else {
+            let _ = ptrace::cont(pid, sig);
+        }
     }
 
     fn handle_ptrace_status(&mut self, status: wait::WaitStatus) -> Result<(), Error> {
@@ -220,25 +234,72 @@ impl Debugger {
         Ok(())
     }
 
-    fn kontinue_pid(&mut self, pid: Pid) {
-        let sig = std::mem::take(&mut self.unprocessed_signal);
-
-        // ignore the result since continuing a process can't fail
-        if self.tracing_syscalls {
-            let _ = ptrace::syscall(pid, sig);
+    fn exit_tracee(&mut self) {
+        if self.remote {
+            self.detach();
         } else {
-            let _ = ptrace::cont(pid, sig);
+            self.kill();
         }
     }
 
-    pub fn trace_syscalls(&mut self, tracing: bool) {
-        self.tracing_syscalls = tracing;
+    fn event_loop(&mut self, ctx: Arc<Context>) -> Result<(), Error> {
+        'event_loop: loop {
+            // check if there are still tracee's
+            if self.pids.is_empty() {
+                break;
+            }
+
+            while let Some(event) = ctx.queue.popd() {
+                match event {
+                    DebugeeEvent::Exit => {
+                        self.exit_tracee();
+                        break 'event_loop;
+                    }
+                }
+            }
+
+            let breakpoints = &mut ctx.breakpoints.write().unwrap();
+            let mut up_for_removal = Vec::new();
+            for bp in breakpoints.iter_mut() {
+                match bp.op.take() {
+                    Some(BreakpointOp::Create) => bp.set(self)?,
+                    Some(BreakpointOp::Delete) => {
+                        bp.unset(self)?;
+                        up_for_removal.push(bp.addr);
+                    }
+                    None => {}
+                }
+            }
+
+            for addr in up_for_removal {
+                breakpoints.remove(addr);
+            }
+
+            // wait for child to give send a message
+            let status = wait::waitpid(
+                self.pids.root(),
+                Some(
+                    wait::WaitPidFlag::WNOHANG
+                        | wait::WaitPidFlag::WSTOPPED
+                        | wait::WaitPidFlag::WCONTINUED,
+                ),
+            )
+            .map_err(Error::Kernel)?;
+
+            if status == WaitStatus::StillAlive {
+                std::thread::sleep(std::time::Duration::from_nanos(10));
+                continue;
+            }
+
+            self.handle_ptrace_status(status)?;
+        }
+
+        Ok(())
     }
 }
 
 impl Process for Debugger {
     fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
-        queue: MessageQueue,
         path: P,
         args: Vec<A>,
     ) -> Result<Self, Error> {
@@ -271,7 +332,7 @@ impl Process for Debugger {
         };
 
         match unsafe { fork().map_err(Error::Kernel)? } {
-            ForkResult::Parent { child } => Ok(Debugger::local(queue, child)),
+            ForkResult::Parent { child } => Ok(Debugger::local(child)),
             ForkResult::Child => {
                 let _ = exec_child();
 
@@ -281,56 +342,22 @@ impl Process for Debugger {
         }
     }
 
-    fn attach(queue: MessageQueue, pid: Pid) -> Result<Self, Error> {
+    fn attach(pid: Pid) -> Result<Self, Error> {
         ptrace::attach(pid).map_err(Error::Kernel)?;
-        Ok(Debugger::remote(queue, pid))
+        Ok(Debugger::remote(pid))
     }
 
-    fn run(mut self) -> Result<(), Error> {
-        self.queue.attach();
+    fn run(mut self, ctx: Arc<Context>) -> Result<(), Error> {
+        ctx.attach();
+        let result = self.event_loop(ctx.clone());
 
-        'event_loop: loop {
-            // check if there are still tracee's
-            if self.pids.is_empty() {
-                break;
-            }
-
-            while let Some(event) = self.queue.popd() {
-                match event {
-                    DebugeeEvent::Exit => {
-                        if self.remote {
-                            self.detach();
-                        } else {
-                            self.kill();
-                        }
-
-                        break 'event_loop;
-                    }
-                }
-            }
-
-            // wait for child to give send a message
-            let status = wait::waitpid(
-                self.pids.root(),
-                Some(
-                    wait::WaitPidFlag::WNOHANG
-                        | wait::WaitPidFlag::WSTOPPED
-                        | wait::WaitPidFlag::WCONTINUED,
-                ),
-            )
-            .map_err(Error::Kernel)?;
-
-            if status == WaitStatus::StillAlive {
-                std::thread::sleep(std::time::Duration::from_nanos(10));
-                continue;
-            }
-
-            self.handle_ptrace_status(status)?;
+        if result.is_err() {
+            self.exit_tracee();
         }
 
-        self.queue.pushd(DebuggerEvent::Exited(self.exit_code));
-        self.queue.deattach();
-        Ok(())
+        ctx.queue.pushd(DebuggerEvent::Exited(self.exit_code));
+        ctx.deattach();
+        result
     }
 }
 
@@ -422,10 +449,10 @@ mod test {
 
     #[test]
     fn spawn_echo() {
-        let queue = MessageQueue::new();
-        let session = Debugger::spawn(queue.clone(), "sh", vec!["-c", "echo 10"]).unwrap();
+        let ctx = Arc::new(Context::new());
+        let session = Debugger::spawn( "sh", vec!["-c", "echo 10"]).unwrap();
 
-        assert!(session.run().is_ok());
+        assert!(session.run(ctx).is_ok());
         assert_eq!(queue.pop(), Some(DebuggerEvent::Exited(0)));
         assert_eq!(queue.pop(), None);
     }

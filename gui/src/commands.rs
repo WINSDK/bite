@@ -154,14 +154,63 @@ impl Panels {
                 Ok(addr) => {
                     if listing.disassembly_view.jump(&listing.disassembly, addr) {
                         listing.update();
-                        tprint!(self.terminal(), "Jumped to address '{addr:#X}'.");
+                        tprint!(self.terminal(), "Jumped to address {addr:#X}.");
                     } else {
-                        tprint!(self.terminal(), "Address '{addr:#X}' is undefined.");
+                        tprint!(self.terminal(), "Address {addr:#X} is undefined.");
                     }
                 }
                 Err(err) => tprint!(self.terminal(), "{err:?}."),
             }
 
+            return true;
+        }
+
+        if cmd_name == "break" || cmd_name == "b" {
+            let listing = match self.listing() {
+                Some(dissasembly) => dissasembly,
+                None => {
+                    tprint!(self.terminal(), "There are no targets to debug.");
+                    return true;
+                }
+            };
+
+            let expr = cmd.strip_prefix("break").or(cmd.strip_prefix("b")).unwrap_or(cmd);
+            match disassembler::expr::parse(&listing.disassembly.symbols, expr) {
+                Ok(addr) => {
+                    if listing.disassembly.processor.instruction_by_addr(addr).is_none() {
+                        tprint!(self.terminal(), "Address {addr:#X} is undefined.");
+                    } else {
+                        self.dbg_ctx.breakpoints.write().unwrap().create(addr);
+                        tprint!(self.terminal(), "Breakpoint set at {addr:#X}.");
+                    }
+                }
+                Err(err) => tprint!(self.terminal(), "{err:?}."),
+            }
+
+            return true;
+        }
+
+        if cmd_name == "delete" || cmd_name == "db" {
+            let listing = match self.listing() {
+                Some(dissasembly) => dissasembly,
+                None => {
+                    tprint!(self.terminal(), "There are no targets to debug.");
+                    return true;
+                }
+            };
+
+            let expr = cmd.strip_prefix("delete").or(cmd.strip_prefix("db")).unwrap_or(cmd);
+            match disassembler::expr::parse(&listing.disassembly.symbols, expr) {
+                Ok(addr) => {
+                    if listing.disassembly.processor.instruction_by_addr(addr).is_none() {
+                        tprint!(self.terminal(), "Address {addr:#X} is undefined.");
+                    } else {
+                        self.dbg_ctx.breakpoints.write().unwrap().remove(addr);
+                        tprint!(self.terminal(), "Breakpoint {addr:#X} removed.");
+                    }
+                }
+                Err(err) => tprint!(self.terminal(), "{err:?}."),
+            }
             return true;
         }
 

@@ -4,9 +4,9 @@ version = "0.11.0"
 edition = "2021"
 
 [dependencies]
-object = "0.32"
-pdb = "0.8"
-once_cell = "1.1"
+object = { workspace = true }
+pdb = { workspace = true }
+once_cell = { workspace = true }
 png = "0.17"
 rfd = "0.12"
 
@@ -47,3 +47,6 @@ members = [
 [workspace.dependencies]
 egui = { version = "0.24", features = ["bytemuck"] }
 crossbeam-queue = "0.3"
+object = "0.32"
+pdb = "0.8"
+once_cell = "1.18"

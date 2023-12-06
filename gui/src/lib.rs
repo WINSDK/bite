@@ -61,7 +61,6 @@ pub enum WinitEvent {
 pub enum UIEvent {
     DebuggerExecute(Vec<String>),
     DebuggerFailed(debugger::Error),
-    DebuggerFinished,
     BinaryRequested(std::path::PathBuf),
     BinaryFailed(disassembler::Error),
     BinaryLoaded(Arc<disassembler::Disassembly>),
@@ -102,7 +101,7 @@ pub struct UI<Arch: Target> {
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
     ui_queue: UIQueue,
-    dbg_queue: debugger::MessageQueue,
+    dbg_ctx: Arc<debugger::Context>,
 }
 
 impl<Arch: Target> UI<Arch> {
@@ -131,9 +130,9 @@ impl<Arch: Target> UI<Arch> {
             inner: event_loop.create_proxy(),
         };
 
-        let debug_queue = debugger::MessageQueue::new();
+        let dbg_ctx = Arc::new(debugger::Context::new());
 
-        let panels = panels::Panels::new(ui_queue.clone(), winit_queue.clone());
+        let panels = panels::Panels::new(ui_queue.clone(), winit_queue.clone(), dbg_ctx.clone());
         let instance = wgpu_backend::Instance::new(&window)?;
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
         let platform = winit_backend::Platform::new::<Arch>(&window);
@@ -147,7 +146,7 @@ impl<Arch: Target> UI<Arch> {
             egui_render_pass,
             platform,
             ui_queue,
-            dbg_queue: debug_queue,
+            dbg_ctx,
         })
     }
 
@@ -176,13 +175,13 @@ impl<Arch: Target> UI<Arch> {
 
     fn offload_debugging(&mut self, args: Vec<String>) {
         // don't debug multiple binaries at a time
-        if self.panels.debugging {
+        if self.dbg_ctx.attached() {
             tprint!(self.panels.terminal(), "Debugger is already running.");
             return;
         }
 
         let ui_queue = self.ui_queue.clone();
-        let dbg_queue = self.dbg_queue.clone();
+        let dbg_ctx = self.dbg_ctx.clone();
         let path = match self.panels.listing() {
             Some(listing) => listing.disassembly.path.clone(),
             None => {
@@ -191,13 +190,12 @@ impl<Arch: Target> UI<Arch> {
             }
         };
 
-        self.panels.debugging = true;
         tprint!(self.panels.terminal(), "Running debugger.");
 
         std::thread::spawn(move || {
             use debugger::Process;
 
-            let mut session = match debugger::Debugger::spawn(dbg_queue, path, args) {
+            let mut session = match debugger::Debugger::spawn(path, args) {
                 Ok(session) => session,
                 Err(err) => {
                     ui_queue.push(UIEvent::DebuggerFailed(err));
@@ -208,10 +206,9 @@ impl<Arch: Target> UI<Arch> {
             #[cfg(target_os = "linux")]
             session.trace_syscalls(true);
 
-            match session.run() {
-                Ok(()) => ui_queue.push(UIEvent::DebuggerFinished),
-                Err(err) => ui_queue.push(UIEvent::DebuggerFailed(err)),
-            };
+            if let Err(err) = session.run(dbg_ctx) {
+                ui_queue.push(UIEvent::DebuggerFailed(err));
+            }
         });
     }
 
@@ -220,11 +217,7 @@ impl<Arch: Target> UI<Arch> {
             match event {
                 UIEvent::DebuggerExecute(args) => self.offload_debugging(args),
                 UIEvent::DebuggerFailed(err) => {
-                    self.panels.debugging = false;
                     tprint!(self.panels.terminal(), "{err:?}.");
-                }
-                UIEvent::DebuggerFinished => {
-                    self.panels.debugging = false;
                 }
                 UIEvent::BinaryRequested(path) => self.offload_binary_processing(path),
                 UIEvent::BinaryFailed(err) => {
@@ -240,7 +233,7 @@ impl<Arch: Target> UI<Arch> {
     }
 
     fn handle_dbg_events(&mut self) {
-        while let Some(event) = self.dbg_queue.pop() {
+        while let Some(event) = self.dbg_ctx.queue.pop() {
             match event {
                 DebuggerEvent::Exited(code) => {
                     tprint!(self.panels.terminal(), "Process exited with code '{code}'.");
@@ -329,12 +322,12 @@ impl<Arch: Target> UI<Arch> {
 impl<Arch: Target> Drop for UI<Arch> {
     fn drop(&mut self) {
         // if a debugger is running
-        if self.dbg_queue.attached() {
-            self.dbg_queue.push(DebugeeEvent::Exit);
+        if self.dbg_ctx.attached() {
+            self.dbg_ctx.queue.push(DebugeeEvent::Exit);
 
             // wait for debugger to signal it exited
             loop {
-                if let Some(DebuggerEvent::Exited(..)) = self.dbg_queue.pop() {
+                if let Some(DebuggerEvent::Exited(..)) = self.dbg_ctx.queue.pop() {
                     return;
                 }
             }

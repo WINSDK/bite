@@ -10,7 +10,9 @@ impl fmt::Debug for super::Error {
             Self::IncompleteWrite(req, res) => f.write_fmt(format_args!(
                 "Tried to write {req} bytes, only wrote {res}."
             )),
-            Self::Kernel(err) => f.write_fmt(format_args!("{err}.")),
+            Self::Kernel(err) => f.write_fmt(format_args!(
+                "Debugger failed with {err}"
+            )),
         }
     }
 }

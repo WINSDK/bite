@@ -215,9 +215,7 @@ impl DisassemblyView {
             let annotation = Token::from_string(text, colors::GRAY60);
             tokens.push(annotation);
             line_count += 2;
-        }
-
-        if let Some(function) = disassembly.symbols.get_by_addr(addr) {
+        } else if let Some(function) = disassembly.symbols.get_by_addr(addr) {
             tokens.push(Token::from_str("<", colors::BLUE));
             tokens.extend_from_slice(function.name());
             tokens.push(Token::from_str(">:\n", colors::BLUE));
