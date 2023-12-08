@@ -185,7 +185,7 @@ impl<Arch: Target> UI<Arch> {
         let path = match self.panels.listing() {
             Some(listing) => listing.disassembly.path.clone(),
             None => {
-                tprint!(self.panels.terminal(), "Missing binary to debug.");
+                tprint!(self.panels.terminal(), "No binary to debug.");
                 return;
             }
         };
@@ -193,7 +193,7 @@ impl<Arch: Target> UI<Arch> {
         tprint!(self.panels.terminal(), "Running debugger.");
 
         std::thread::spawn(move || {
-            use debugger::Process;
+            use debugger::Debuggable;
 
             let mut session = match debugger::Debugger::spawn(path, args) {
                 Ok(session) => session,
@@ -204,7 +204,7 @@ impl<Arch: Target> UI<Arch> {
             };
 
             #[cfg(target_os = "linux")]
-            session.trace_syscalls(true);
+            session.enable_tracing();
 
             if let Err(err) = session.run(dbg_ctx) {
                 ui_queue.push(UIEvent::DebuggerFailed(err));
@@ -237,6 +237,9 @@ impl<Arch: Target> UI<Arch> {
             match event {
                 DebuggerEvent::Exited(code) => {
                     tprint!(self.panels.terminal(), "Process exited with code '{code}'.");
+                }
+                DebuggerEvent::BreakpointSet(addr) => {
+                    tprint!(self.panels.terminal(), "Breakpoint set at {addr:#X}.");
                 }
             }
         }

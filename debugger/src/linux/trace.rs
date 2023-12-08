@@ -1,4 +1,4 @@
-use crate::{Debugger, Tracee};
+use crate::{Process, Tracing};
 
 use nix::libc;
 use nix::sys::socket::{self, SockaddrLike};
@@ -99,12 +99,12 @@ fn format_fd(fd: u64) -> String {
     }
 }
 
-fn format_fdset(session: &mut Debugger, addr: u64) -> String {
+fn format_fdset(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, size_of::<nix::sys::select::FdSet>()) {
+    match proc.read_memory(addr as usize, size_of::<nix::sys::select::FdSet>()) {
         Ok(data) => {
             let set = unsafe { ptr::read(data.as_ptr() as *const nix::sys::select::FdSet) };
             let set: Vec<_> = set.fds(None).map(|fd| Fd(fd.as_raw_fd())).collect();
@@ -118,13 +118,13 @@ fn format_fdset(session: &mut Debugger, addr: u64) -> String {
 // Try to read 20 bytes.
 //
 // TODO: guess whether the bytes could be a utf-8 sequence
-fn format_bytes_u8(session: &mut Debugger, addr: u64, len: u64) -> String {
+fn format_bytes_u8(proc: &mut Process, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let bytes_to_read = std::cmp::min(len as usize, 20);
-    match session.read_process_memory(addr as usize, bytes_to_read) {
+    match proc.read_memory(addr as usize, bytes_to_read) {
         Ok(data) => {
             let mut data = format!("{data:x?}");
 
@@ -140,7 +140,7 @@ fn format_bytes_u8(session: &mut Debugger, addr: u64, len: u64) -> String {
 }
 
 /// Read first 20 elements of an array of type `T`.
-fn format_array<T: std::fmt::Debug>(session: &mut Debugger, addr: u64, len: u64) -> String {
+fn format_array<T: std::fmt::Debug>(proc: &mut Process, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
@@ -149,7 +149,7 @@ fn format_array<T: std::fmt::Debug>(session: &mut Debugger, addr: u64, len: u64)
     let end_of_array = addr + len * width as u64;
     let mut items = Vec::new();
     for addr in (addr..end_of_array).step_by(width).take(20) {
-        if let Ok(data) = session.read_process_memory(addr as usize, width) {
+        if let Ok(data) = proc.read_memory(addr as usize, width) {
             let item = unsafe { ptr::read(data.as_ptr() as *const T) };
             items.push(item);
         }
@@ -159,13 +159,13 @@ fn format_array<T: std::fmt::Debug>(session: &mut Debugger, addr: u64, len: u64)
 }
 
 /// Try to read a string with a known length and print the first 60 characters.
-fn format_str(session: &mut Debugger, addr: u64, len: u64) -> String {
+fn format_str(proc: &mut Process, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let bytes_to_read = std::cmp::min(len as usize, 60 * size_of::<char>());
-    match session.read_process_memory(addr as usize, bytes_to_read) {
+    match proc.read_memory(addr as usize, bytes_to_read) {
         Ok(data) => {
             let data = String::from_utf8_lossy(&data).into_owned();
             let mut data = data.escape_default().to_string();
@@ -182,13 +182,13 @@ fn format_str(session: &mut Debugger, addr: u64, len: u64) -> String {
 }
 
 /// Try to read a string with a null terminator and print the first 60 characters.
-fn format_c_str(session: &mut Debugger, addr: u64) -> String {
+fn format_c_str(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let bytes_to_read = 60 * size_of::<char>();
-    match session.read_process_memory(addr as usize, bytes_to_read) {
+    match proc.read_memory(addr as usize, bytes_to_read) {
         Ok(mut data) => {
             // add a null terminator if one wasn't found in the first 40 bytes
             match data.iter().position(|&b| b == b'\0') {
@@ -217,12 +217,12 @@ fn format_c_str(session: &mut Debugger, addr: u64) -> String {
 }
 
 // FIXME: i don't think this is being interpreted correctly
-fn format_sigset(session: &mut Debugger, addr: u64) -> String {
+fn format_sigset(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, size_of::<signal::SigSet>()) {
+    match proc.read_memory(addr as usize, size_of::<signal::SigSet>()) {
         Ok(data) => {
             let set = unsafe { ptr::read(data.as_ptr() as *const signal::SigSet) };
 
@@ -242,12 +242,12 @@ fn format_sigset(session: &mut Debugger, addr: u64) -> String {
     }
 }
 
-fn format_sigaction(session: &mut Debugger, addr: u64) -> String {
+fn format_sigaction(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, size_of::<signal::SigAction>()) {
+    match proc.read_memory(addr as usize, size_of::<signal::SigAction>()) {
         Ok(data) => {
             let action = unsafe { ptr::read(data.as_ptr() as *const signal::SigAction) };
             let handler = action.handler();
@@ -285,12 +285,12 @@ fn format_futex_op(op: u64) -> &'static str {
     }
 }
 
-fn format_stat(session: &mut Debugger, addr: u64) -> String {
+fn format_stat(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, size_of::<stat::FileStat>()) {
+    match proc.read_memory(addr as usize, size_of::<stat::FileStat>()) {
         Ok(data) => {
             let stats = unsafe { ptr::read(data.as_ptr() as *const stat::FileStat) };
             let mode = stats.st_mode;
@@ -323,12 +323,12 @@ fn format_ioctl(request: u64) -> &'static str {
     "???"
 }
 
-fn format_timespec(session: &mut Debugger, addr: u64) -> String {
+fn format_timespec(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, size_of::<nix::sys::time::TimeSpec>()) {
+    match proc.read_memory(addr as usize, size_of::<nix::sys::time::TimeSpec>()) {
         Ok(data) => {
             let time = unsafe { ptr::read(data.as_ptr() as *const nix::sys::time::TimeSpec) };
             let duration = std::time::Duration::from(time);
@@ -339,12 +339,12 @@ fn format_timespec(session: &mut Debugger, addr: u64) -> String {
     }
 }
 
-fn format_timerval(session: &mut Debugger, addr: u64) -> String {
+fn format_timerval(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    match session.read_process_memory(addr as usize, size_of::<nix::sys::time::TimeVal>()) {
+    match proc.read_memory(addr as usize, size_of::<nix::sys::time::TimeVal>()) {
         Ok(data) => {
             let time = unsafe { ptr::read(data.as_ptr() as *const nix::sys::time::TimeVal) };
             format!("{time}")
@@ -353,18 +353,18 @@ fn format_timerval(session: &mut Debugger, addr: u64) -> String {
     }
 }
 
-fn format_itimerval(session: &mut Debugger, addr: u64) -> String {
+fn format_itimerval(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    let interval = format_timerval(session, addr);
-    let next = format_timerval(session, addr + size_of::<nix::sys::time::TimeVal>() as u64);
+    let interval = format_timerval(proc, addr);
+    let next = format_timerval(proc, addr + size_of::<nix::sys::time::TimeVal>() as u64);
 
     format!("{{interval: {interval}, next: {next}}}")
 }
 
-fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) -> String {
+fn format_sockaddr(proc: &mut Process, addr: u64, socketlen: Option<u32>) -> String {
     let addr = addr as usize;
 
     if addr == 0 {
@@ -373,7 +373,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
 
     // read the first field of any sockaddr struct, it includes what family of addresses we
     // are working with
-    let family = match session.read_process_memory(addr, size_of::<libc::sa_family_t>()) {
+    let family = match proc.read_memory(addr, size_of::<libc::sa_family_t>()) {
         Ok(data) => {
             let raw = libc::sa_family_t::from_le_bytes(data.try_into().unwrap()) as i32;
 
@@ -392,7 +392,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
     match family {
         // struct sockaddr_in
         socket::AddressFamily::Inet => {
-            let read = session.read_process_memory(addr, size_of::<socket::sockaddr_in>());
+            let read = proc.read_memory(addr, size_of::<socket::sockaddr_in>());
             let sock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in) },
                 Err(..) => return "???".to_string(),
@@ -405,7 +405,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
         }
         // struct sockaddr_in6
         socket::AddressFamily::Inet6 => {
-            let read = session.read_process_memory(addr, size_of::<socket::sockaddr_in6>());
+            let read = proc.read_memory(addr, size_of::<socket::sockaddr_in6>());
             let sock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in6) },
                 Err(..) => return "???".to_string(),
@@ -418,7 +418,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
         }
         // struct sockaddr_un
         socket::AddressFamily::Unix => {
-            let read = session.read_process_memory(addr, size_of::<socket::sockaddr>());
+            let read = proc.read_memory(addr, size_of::<socket::sockaddr>());
             let sock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr) },
                 Err(..) => return "???".to_string(),
@@ -439,7 +439,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
         }
         // struct sockaddr_nl
         socket::AddressFamily::Netlink => {
-            let read = session.read_process_memory(addr, size_of::<socket::NetlinkAddr>());
+            let read = proc.read_memory(addr, size_of::<socket::NetlinkAddr>());
             let netlink_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::NetlinkAddr) },
                 Err(..) => return "???".to_string(),
@@ -452,7 +452,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
         }
         // struct sockaddr_alg
         socket::AddressFamily::Alg => {
-            let read = session.read_process_memory(addr, size_of::<socket::AlgAddr>());
+            let read = proc.read_memory(addr, size_of::<socket::AlgAddr>());
             let alg_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::AlgAddr) },
                 Err(..) => return "???".to_string(),
@@ -465,7 +465,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
         }
         // struct sockaddr_ll
         socket::AddressFamily::Packet => {
-            let read = session.read_process_memory(addr, size_of::<socket::LinkAddr>());
+            let read = proc.read_memory(addr, size_of::<socket::LinkAddr>());
             let link_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::LinkAddr) },
                 Err(..) => return "???".to_string(),
@@ -488,7 +488,7 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
         }
         // struct sockaddr_vm
         socket::AddressFamily::Vsock => {
-            let read = session.read_process_memory(addr, size_of::<socket::VsockAddr>());
+            let read = proc.read_memory(addr, size_of::<socket::VsockAddr>());
             let vsock_addr = match read {
                 Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::VsockAddr) },
                 Err(..) => return "???".to_string(),
@@ -504,15 +504,15 @@ fn format_sockaddr(session: &mut Debugger, addr: u64, socketlen: Option<u32>) ->
 }
 
 /// `sock_addr` is a *const sockaddr and `len_addr` is a *const u32.
-fn format_sockaddr_using_len(session: &mut Debugger, sock_addr: u64, len_addr: u64) -> String {
+fn format_sockaddr_using_len(proc: &mut Process, sock_addr: u64, len_addr: u64) -> String {
     if len_addr == 0 {
-        return format_sockaddr(session, sock_addr, None);
+        return format_sockaddr(proc, sock_addr, None);
     }
 
-    match session.read_process_memory(len_addr as usize, size_of::<u32>()) {
+    match proc.read_memory(len_addr as usize, size_of::<u32>()) {
         Ok(data) => {
             let len = unsafe { ptr::read(data.as_ptr() as *const u32) };
-            format_sockaddr(session, sock_addr, Some(len))
+            format_sockaddr(proc, sock_addr, Some(len))
         }
         Err(..) => "???".to_string(),
     }
@@ -542,16 +542,16 @@ fn format_sock_protocol(protocol: u64) -> &'static str {
     }
 }
 
-fn format_msghdr(session: &mut Debugger, addr: u64) -> String {
-    let msghdr = match session.read_process_memory(addr as usize, size_of::<libc::msghdr>()) {
+fn format_msghdr(proc: &mut Process, addr: u64) -> String {
+    let msghdr = match proc.read_memory(addr as usize, size_of::<libc::msghdr>()) {
         Ok(data) => unsafe { ptr::read(data.as_ptr() as *const libc::msghdr) },
         Err(..) => return "???".to_string(),
     };
 
-    let name = format_sockaddr(session, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
+    let name = format_sockaddr(proc, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
     let name_len = msghdr.msg_namelen;
 
-    let msg_iov = format_array::<IoVec>(session, msghdr.msg_iov as u64, msghdr.msg_iovlen as u64);
+    let msg_iov = format_array::<IoVec>(proc, msghdr.msg_iov as u64, msghdr.msg_iovlen as u64);
     let msg_iov_len = msghdr.msg_iovlen;
 
     let msg_ctrl = format_ptr(msghdr.msg_control as u64);
@@ -625,13 +625,13 @@ fn format_sockoptname(optname: u64) -> &'static str {
 
 /// Format arrays like argv and envp that include are made of an array of pointers
 /// where the last element is a null pointer.
-fn format_nullable_args(session: &mut Debugger, addr: u64) -> String {
+fn format_nullable_args(proc: &mut Process, addr: u64) -> String {
     let mut args = Vec::new();
 
     // only try to read the first 20 args
     for idx in 0..20 {
         let addr = addr + idx * std::mem::size_of::<*const i8>() as u64;
-        let arg = format_c_str(session, addr);
+        let arg = format_c_str(proc, addr);
 
         if arg == "NULL" {
             break;
@@ -643,8 +643,8 @@ fn format_nullable_args(session: &mut Debugger, addr: u64) -> String {
     format!("{args:?}")
 }
 
-impl super::Debugger {
-    pub (super) fn display(&mut self, syscall: Sysno, args: [u64; 6]) -> String {
+impl super::Process {
+    pub(super) fn display(&mut self, syscall: Sysno, args: [u64; 6]) -> String {
         let mut func = String::new();
 
         func += &syscall.to_string();

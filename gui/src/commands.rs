@@ -181,7 +181,6 @@ impl Panels {
                         tprint!(self.terminal(), "Address {addr:#X} is undefined.");
                     } else {
                         self.dbg_ctx.breakpoints.write().unwrap().create(addr);
-                        tprint!(self.terminal(), "Breakpoint set at {addr:#X}.");
                     }
                 }
                 Err(err) => tprint!(self.terminal(), "{err:?}."),

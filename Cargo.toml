@@ -19,6 +19,10 @@ tokenizing = { path = "./tokenizing" }
 symbols = { path = "./symbols" }
 libc = "0.2.147"
 
+# tracing-tracy = "0.10.4"
+# tracing-subscriber = { version = "0.3", default-features = false }
+# tracing = "0.1"
+
 [profile.release]
 # strip = true
 # debug = true

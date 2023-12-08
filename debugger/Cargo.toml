@@ -9,6 +9,7 @@ symbols = { path = "../symbols" }
 crossbeam-queue = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+procfs = { version = "0.16", default-features = false }
 # fork that includes `getsyscallinfo`
 nix = { git = "https://github.com/mbyzhang/nix" }
 

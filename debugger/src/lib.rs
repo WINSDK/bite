@@ -25,9 +25,10 @@ pub use windows::*;
 
 pub type ExitCode = i32;
 pub type Addr = usize;
+pub type Rva = usize;
 
 /// Behaviour related to creating starting a debug session.
-pub trait Process: Tracee
+pub trait Debuggable
 where
     Self: Sized,
 {
@@ -45,7 +46,7 @@ where
 }
 
 /// Common behaviour shared amongst debugging sessions.
-pub trait Tracee {
+pub trait Tracing {
     /// Remove debugger's hooks from process, releasing it's control.
     fn detach(&mut self);
 
@@ -60,48 +61,48 @@ pub trait Tracee {
     ///
     /// On linux this is currently only supports unprotected memory pages.
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn read_process_memory(&self, base_addr: Addr, len: usize) -> Result<Vec<u8>, Error>;
+    fn read_memory(&self, addr: Rva, len: usize) -> Result<Vec<u8>, Error>;
 
     /// Writes to a segment of memory.
     ///
     /// On linux this is currently only supports unprotected memory pages.
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn write_process_memory(&mut self, base_addr: Addr, data: &[u8]) -> Result<(), Error>;
+    fn write_memory(&mut self, addr: Rva, data: &[u8]) -> Result<(), Error>;
 }
 
 /// Operation to be executed on [`Breakpoint`].
 enum BreakpointOp {
     Create,
-    Delete
+    Delete,
 }
 
 pub struct Breakpoint {
-    /// Location in [`Tracee`]'s memory space.
-    addr: Addr,
+    /// Relative virtual address obtain from disassembler.
+    addr: Rva,
 
     /// Byte in memory we overwrote with int3.
-    original_byte: u8,
+    shadow: u8,
 
-    /// Operation to be executed by [`Tracee`].
+    /// Operation to be executed by [`Process`].
     op: Option<BreakpointOp>,
 }
 
 impl Breakpoint {
-    pub(crate) fn set(&mut self, tracee: &mut impl Tracee) -> Result<(), Error> {
-        self.original_byte = tracee.read_process_memory(self.addr, 1)?[0];
+    pub(crate) fn set(&mut self, tracee: &mut impl Tracing) -> Result<(), Error> {
+        self.shadow = tracee.read_memory(self.addr, 1)?[0];
         let int3 = &[0xcc];
-        tracee.write_process_memory(self.addr, int3)?;
+        tracee.write_memory(self.addr, int3)?;
         Ok(())
     }
 
-    pub(crate) fn unset(&mut self, tracee: &mut impl Tracee) -> Result<(), Error> {
-        tracee.write_process_memory(self.addr, &[self.original_byte])?;
+    pub(crate) fn unset(&mut self, tracee: &mut impl Tracing) -> Result<(), Error> {
+        tracee.write_memory(self.addr, &[self.shadow])?;
         Ok(())
     }
 }
 
 pub struct Breakpoints {
-    mapping: BTreeMap<Addr, Breakpoint>,
+    mapping: BTreeMap<Rva, Breakpoint>,
 }
 
 impl Breakpoints {
@@ -111,23 +112,41 @@ impl Breakpoints {
         }
     }
 
-    /// Create a new [`Breakpoint`], the address must be valid within the [`Tracee`]'s memory.
-    pub fn create(&mut self, addr: Addr) {
-        self.mapping.insert(addr, Breakpoint {
+    /// Create a new [`Breakpoint`].
+    pub fn create(&mut self, addr: Rva) {
+        // can't set a breakpoint twice
+        if self.mapping.get(&addr).is_some() {
+            return;
+        }
+
+        self.mapping.insert(
             addr,
-            original_byte: 0,
-            op: Some(BreakpointOp::Create),
-        });
+            Breakpoint {
+                addr,
+                shadow: 0,
+                op: Some(BreakpointOp::Create),
+            },
+        );
     }
 
     /// Mark a [`Breakpoint`] for removal.
-    pub fn remove(&mut self, addr: Addr) -> Option<()> {
+    pub fn remove(&mut self, addr: Rva) -> Option<()> {
         self.mapping.get_mut(&addr)?.op = Some(BreakpointOp::Delete);
         Some(())
     }
+}
 
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Breakpoint> {
-        self.mapping.values_mut()
+impl std::ops::Deref for Breakpoints {
+    type Target = BTreeMap<Rva, Breakpoint>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.mapping
+    }
+}
+
+impl std::ops::DerefMut for Breakpoints {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.mapping
     }
 }
 
@@ -138,6 +157,7 @@ pub enum DebugeeEvent {
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerEvent {
+    BreakpointSet(Rva),
     Exited(ExitCode),
 }
 

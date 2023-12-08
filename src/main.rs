@@ -12,6 +12,12 @@ use args::ARGS;
 use std::fs;
 
 fn main() {
+    // use tracing_subscriber::layer::SubscriberExt;
+    // tracing::subscriber::set_global_default(
+    //     tracing_subscriber::registry()
+    //         .with(tracing_tracy::TracyLayer::new()),
+    // ).expect("set up the subscriber");
+
     #[cfg(target_os = "linux")]
     if unsafe { libc::getuid() } == 0 {
         wayland::set_env();

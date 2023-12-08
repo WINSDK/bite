@@ -4,15 +4,19 @@ use std::os::unix::ffi::OsStrExt;
 use std::sync::Arc;
 
 use nix::sys::signal::Signal;
-use nix::sys::wait::{self, WaitStatus};
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::sys::{personality, ptrace};
 use nix::unistd::{execvp, fork, ForkResult};
+use procfs::process::MemoryMap;
 
-use crate::collections::Tree;
-use crate::{DebugeeEvent, DebuggerEvent, ExitCode, Process, Tracee, Context, BreakpointOp};
+use crate::{
+    collections::Tree, Addr, BreakpointOp, Context, DebugeeEvent, Debuggable, DebuggerEvent,
+    ExitCode, Rva, Tracing,
+};
 
 mod fmt;
 mod ioctl;
+mod tests;
 mod trace;
 
 pub type Pid = nix::unistd::Pid;
@@ -20,88 +24,72 @@ pub type Pid = nix::unistd::Pid;
 #[derive(PartialEq)]
 pub enum Error {
     InvalidPathName,
+    PermissionDenied,
+    ProcessLost(Pid),
     IncompleteRead(usize, usize),
     IncompleteWrite(usize, usize),
     Kernel(nix::errno::Errno),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum State {
     WaitingForInit,
     Running,
 }
 
-pub struct Debugger {
-    pids: Tree<Pid, State>,
-    tracing_syscalls: bool,
-    remote: bool,
-    unprocessed_signal: Option<Signal>,
-    last_syscall: ptrace::SyscallInfoOp,
-    print_buf: String,
+fn read_memory_maps(pid: Pid) -> Result<Vec<MemoryMap>, Error> {
+    let proc = match procfs::process::Process::new(pid.as_raw()) {
+        Err(procfs::ProcError::PermissionDenied(_)) => return Err(Error::PermissionDenied),
+        Err(procfs::ProcError::NotFound(_)) => return Err(Error::ProcessLost(pid)),
+        Err(..) => unreachable!(),
+        Ok(proc) => proc,
+    };
 
-    /// Exit code of most recently exited tracee.
-    exit_code: ExitCode,
-
-    /// Prevent [`Debugger`] implementing Send.
-    _not_send: PhantomData<*mut ()>,
+    Ok(proc.maps().unwrap_or_else(|_| panic!("Failed to open memory map on {pid}")).0)
 }
 
-// fn set_empty_signal_handler(signal: Signal) -> Result<(), Error> {
-//     unsafe {
-//         signal::sigaction(
-//             signal,
-//             &signal::SigAction::new(
-//                 signal::SigHandler::SigIgn,
-//                 signal::SaFlags::empty(),
-//                 signal::SigSet::empty(),
-//             ),
-//         )
-//         .map_err(Error::Kernel)?;
-//     }
-//
-//     Ok(())
-// }
+#[derive(Debug)]
+pub struct Process {
+    id: Pid,
+    state: State,
+    memory_maps: Vec<MemoryMap>,
+    unprocessed_signal: Option<Signal>,
+    last_syscall: ptrace::SyscallInfoOp,
+    tracing: bool,
+}
 
-// fn set_signal_handlers() -> Result<(), Error> {
-//     set_empty_signal_handler(Signal::SIGINT)?;
-//     set_empty_signal_handler(Signal::SIGQUIT)?;
-//     set_empty_signal_handler(Signal::SIGPIPE)?;
-//     set_empty_signal_handler(Signal::SIGTERM)?;
-//     Ok(())
-// }
-
-impl Debugger {
-    fn local(root: Pid) -> Self {
-        let mut pids = Tree::new();
-
-        pids.push_root(root, State::WaitingForInit);
-
-        Debugger {
-            pids,
-            tracing_syscalls: false,
-            remote: false,
+impl Process {
+    fn stopped(pid: Pid) -> Result<Self, Error> {
+        Ok(Self {
+            id: pid,
+            state: State::WaitingForInit,
+            memory_maps: read_memory_maps(pid)?,
             unprocessed_signal: None,
             last_syscall: ptrace::SyscallInfoOp::None,
-            print_buf: String::new(),
-            exit_code: 0,
-            _not_send: PhantomData,
+            tracing: false,
+        })
+    }
+
+    /// Convert disassembler's address to virtual memory address.
+    pub fn translate(&self, rva: Rva) -> Addr {
+        let mut base = 0;
+
+        for map in &self.memory_maps {
+            if map.address.0 > rva as u64 {
+                base = map.address.1;
+                break;
+            }
+
+            base = map.address.0;
         }
+
+        rva.wrapping_add(base as usize)
     }
 
-    fn remote(root: Pid) -> Self {
-        let mut this = Debugger::local(root);
-        this.remote = true;
-        this
-    }
-
-    pub fn trace_syscalls(&mut self, tracing: bool) {
-        self.tracing_syscalls = tracing;
-    }
-
-    fn set_options(&mut self, pid: Pid) -> Result<(), Error> {
+    fn configure(&mut self) -> Result<(), Error> {
         let mut options = ptrace::Options::empty();
 
-        if self.tracing_syscalls {
+        if self.tracing {
             // distinguish regular SIGTRAP's from syscalls
             options |= ptrace::Options::PTRACE_O_TRACESYSGOOD;
         }
@@ -119,39 +107,128 @@ impl Debugger {
             // new child in same memory space
             | ptrace::Options::PTRACE_O_TRACEVFORK;
 
-        ptrace::setoptions(pid, options).map_err(Error::Kernel)
+        ptrace::setoptions(self.id, options).map_err(Error::Kernel)?;
+        self.state = State::Running;
+
+        Ok(())
+    }
+}
+
+impl Tracing for Process {
+    fn detach(&mut self) {
+        // ignore the result since detaching can't fail
+        let _ = ptrace::detach(self.id, None);
     }
 
-    fn kontinue_pid(&mut self, pid: Pid) {
+    fn kill(&mut self) {
+        // ignore the result since killing a process can't fail
+        let _ = ptrace::kill(self.id);
+    }
+
+    fn pause(&self) {
+        // ignore the result since it appears to be unlikely interrupting can fail
+        //
+        // https://github.com/torvalds/linux/blob/d528014517f2b0531862c02865b9d4c908019dc4/kernel/ptrace.c#L1137
+        let _ = ptrace::interrupt(self.id);
+    }
+
+    fn kontinue(&mut self) {
         let sig = std::mem::take(&mut self.unprocessed_signal);
 
         // ignore the result since continuing a process can't fail
-        if self.tracing_syscalls {
-            let _ = ptrace::syscall(pid, sig);
+        let cont = if self.tracing {
+            ptrace::syscall
         } else {
-            let _ = ptrace::cont(pid, sig);
-        }
-    }
-
-    fn handle_ptrace_status(&mut self, status: wait::WaitStatus) -> Result<(), Error> {
-        let pid = status.pid().unwrap();
-
-        let state = match self.pids.find(&pid) {
-            Some(state) => state,
-            // if a pid isn't being tracked, don't handle to it's event
-            None => return Ok(()),
+            ptrace::cont
         };
 
-        match state {
-            State::WaitingForInit => {
-                assert!(
-                    matches!(status, WaitStatus::Stopped(_, Signal::SIGSTOP)),
-                    "got '{status:?}' expected a SIGSTOP"
-                );
+        let _ = cont(self.id, sig);
+    }
 
-                *state = State::Running;
-                self.set_options(pid)?;
-                self.kontinue_pid(pid);
+    fn read_memory(&self, addr: Rva, len: usize) -> Result<Vec<u8>, Error> {
+        let base = self.translate(addr);
+
+        // create buffer of that can hold `len` elements
+        let mut buf: Vec<u8> = Vec::with_capacity(len);
+        let uninit = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr(), len) };
+
+        let local = std::io::IoSliceMut::new(uninit);
+        let remote = nix::sys::uio::RemoteIoVec { base, len };
+
+        let bytes_read = nix::sys::uio::process_vm_readv(self.id, &mut [local], &[remote])
+            .map_err(Error::Kernel)?;
+
+        if len != bytes_read {
+            return Err(Error::IncompleteRead(len, bytes_read));
+        }
+
+        // set buffer size to `len` iff `len` number of bytes have been read
+        unsafe { buf.set_len(len) }
+        Ok(buf)
+    }
+
+    fn write_memory(&mut self, addr: Rva, data: &[u8]) -> Result<(), Error> {
+        let base = self.translate(addr);
+
+        let local = std::io::IoSlice::new(data);
+        let remote = nix::sys::uio::RemoteIoVec {
+            base,
+            len: data.len(),
+        };
+
+        let bytes_wrote = nix::sys::uio::process_vm_writev(self.id, &[local], &[remote])
+            .map_err(Error::Kernel)?;
+
+        if data.len() != bytes_wrote {
+            return Err(Error::IncompleteWrite(data.len(), bytes_wrote));
+        }
+
+        Ok(())
+    }
+}
+
+pub struct Debugger {
+    procs: Tree<Pid, Process>,
+    remote: bool,
+    print_buf: String,
+
+    /// Exit code of most recently exited process.
+    exit_code: ExitCode,
+
+    /// Prevent [`Debugger`] from implementing Send.
+    #[doc(hidden)]
+    _not_send: PhantomData<*mut ()>,
+}
+
+impl Debugger {
+    fn local(root: Pid) -> Result<Self, Error> {
+        Ok(Debugger {
+            procs: Tree::new(root, Process::stopped(root)?),
+            remote: false,
+            print_buf: String::new(),
+            exit_code: 0,
+            _not_send: PhantomData,
+        })
+    }
+
+    fn remote(root: Pid) -> Result<Self, Error> {
+        let mut this = Debugger::local(root)?;
+        this.remote = true;
+        Ok(this)
+    }
+
+    pub fn enable_tracing(&mut self) {
+        self.procs.root().tracing = true;
+    }
+
+    fn handle_ptrace_status(&mut self, status: WaitStatus) -> Result<(), Error> {
+        let pid = status.pid().unwrap();
+        let proc = self.procs.get(&pid).unwrap();
+
+        match proc.state {
+            State::WaitingForInit => {
+                proc.configure()?;
+                proc.kontinue();
             }
             State::Running => self.process_event(status)?,
         }
@@ -159,41 +236,41 @@ impl Debugger {
         Ok(())
     }
 
-    fn process_event(&mut self, status: wait::WaitStatus) -> Result<(), Error> {
+    fn process_event(&mut self, status: WaitStatus) -> Result<(), Error> {
         match status {
             WaitStatus::Stopped(pid, signal) => {
-                self.unprocessed_signal = Some(signal);
-                self.kontinue_pid(pid);
+                let proc = self.procs.get(&pid).unwrap();
+                proc.unprocessed_signal = Some(signal);
+                proc.kontinue();
             }
             WaitStatus::Signaled(pid, signal, ..) => {
-                self.pids.remove(&pid);
-                self.kontinue_pid(pid);
+                self.procs.remove(&pid);
                 log::trace!("[debugger::event] child exited by signal: {signal:?}.");
             }
             WaitStatus::Exited(pid, code) => {
                 self.exit_code = code;
-                self.pids.remove(&pid);
-                self.kontinue_pid(pid);
-                log::trace!("[debugger::event] child '{pid}' exited with code '{code}'.");
+                self.procs.remove(&pid);
+                log::trace!("[debugger::event] child {pid} exited with code {code}.");
             }
             WaitStatus::PtraceSyscall(pid) => {
+                let proc = self.procs.get(&pid).unwrap();
                 let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
 
                 match syscall.op {
                     ptrace::SyscallInfoOp::Entry { nr, args } => {
                         let sysno = trace::Sysno::from(nr as i32);
-                        let func = self.display(sysno, args);
+                        let func = proc.display(sysno, args);
 
                         //if sysno == trace::Sysno::exit_group {
                         self.print_buf += &func;
-                        self.last_syscall = syscall.op;
+                        proc.last_syscall = syscall.op;
                     }
                     ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
                         const EXIT: u64 = trace::Sysno::exit_group as u64;
 
                         // `exit_group` syscall doesn't have a return value
-                        if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = self.last_syscall {
-                            self.kontinue_pid(pid);
+                        if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = proc.last_syscall {
+                            proc.kontinue();
                             return Ok(());
                         }
 
@@ -213,7 +290,7 @@ impl Debugger {
                     _ => {}
                 }
 
-                self.kontinue_pid(pid);
+                proc.kontinue();
             }
             WaitStatus::PtraceEvent(pid, _, event) => {
                 use nix::libc::*;
@@ -223,10 +300,13 @@ impl Debugger {
                     let created_pid = ptrace::getevent(pid).map_err(Error::Kernel)?;
                     let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
 
-                    self.pids.push_child(&pid, created_pid, State::WaitingForInit);
+                    let mut proc = Process::stopped(created_pid)?;
+                    proc.kontinue();
+                    self.procs.push_child(&pid, created_pid, proc);
                 }
 
-                self.kontinue_pid(pid);
+                let proc = self.procs.get(&pid).unwrap();
+                proc.kontinue();
             }
             _ => unreachable!("{status:?}"),
         }
@@ -234,25 +314,27 @@ impl Debugger {
         Ok(())
     }
 
-    fn exit_tracee(&mut self) {
-        if self.remote {
-            self.detach();
-        } else {
-            self.kill();
+    fn end_processes(&mut self) {
+        for (_, proc) in self.procs.iter_mut() {
+            if self.remote {
+                proc.detach();
+            } else {
+                proc.kill();
+            }
         }
     }
 
     fn event_loop(&mut self, ctx: Arc<Context>) -> Result<(), Error> {
         'event_loop: loop {
-            // check if there are still tracee's
-            if self.pids.is_empty() {
+            // check if there are still processes
+            if self.procs.is_empty() {
                 break;
             }
 
             while let Some(event) = ctx.queue.popd() {
                 match event {
                     DebugeeEvent::Exit => {
-                        self.exit_tracee();
+                        self.end_processes();
                         break 'event_loop;
                     }
                 }
@@ -260,11 +342,16 @@ impl Debugger {
 
             let breakpoints = &mut ctx.breakpoints.write().unwrap();
             let mut up_for_removal = Vec::new();
-            for bp in breakpoints.iter_mut() {
+            for bp in breakpoints.values_mut() {
                 match bp.op.take() {
-                    Some(BreakpointOp::Create) => bp.set(self)?,
+                    Some(BreakpointOp::Create) => {
+                        let root_proc = self.procs.root();
+                        bp.set(root_proc)?;
+                        ctx.queue.pushd(DebuggerEvent::BreakpointSet(bp.addr));
+                    }
                     Some(BreakpointOp::Delete) => {
-                        bp.unset(self)?;
+                        let root_proc = self.procs.root();
+                        bp.unset(root_proc)?;
                         up_for_removal.push(bp.addr);
                     }
                     None => {}
@@ -276,29 +363,29 @@ impl Debugger {
             }
 
             // wait for child to give send a message
-            let status = wait::waitpid(
-                self.pids.root(),
-                Some(
-                    wait::WaitPidFlag::WNOHANG
-                        | wait::WaitPidFlag::WSTOPPED
-                        | wait::WaitPidFlag::WCONTINUED,
-                ),
-            )
-            .map_err(Error::Kernel)?;
+            let pids: Vec<Pid> = self.procs.iter().map(|(pid, _)| *pid).collect();
+            for pid in pids {
+                let status = waitpid(
+                    pid,
+                    Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED | WaitPidFlag::WCONTINUED),
+                )
+                .map_err(Error::Kernel)?;
 
-            if status == WaitStatus::StillAlive {
-                std::thread::sleep(std::time::Duration::from_nanos(10));
-                continue;
+                if status == WaitStatus::StillAlive {
+                    continue;
+                }
+
+                self.handle_ptrace_status(status)?;
             }
 
-            self.handle_ptrace_status(status)?;
+            std::thread::sleep(std::time::Duration::from_nanos(10));
         }
 
         Ok(())
     }
 }
 
-impl Process for Debugger {
+impl Debuggable for Debugger {
     fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
         path: P,
         args: Vec<A>,
@@ -332,7 +419,7 @@ impl Process for Debugger {
         };
 
         match unsafe { fork().map_err(Error::Kernel)? } {
-            ForkResult::Parent { child } => Ok(Debugger::local(child)),
+            ForkResult::Parent { child } => Debugger::local(child),
             ForkResult::Child => {
                 let _ = exec_child();
 
@@ -344,7 +431,7 @@ impl Process for Debugger {
 
     fn attach(pid: Pid) -> Result<Self, Error> {
         ptrace::attach(pid).map_err(Error::Kernel)?;
-        Ok(Debugger::remote(pid))
+        Debugger::remote(pid)
     }
 
     fn run(mut self, ctx: Arc<Context>) -> Result<(), Error> {
@@ -352,108 +439,11 @@ impl Process for Debugger {
         let result = self.event_loop(ctx.clone());
 
         if result.is_err() {
-            self.exit_tracee();
+            self.end_processes();
         }
 
         ctx.queue.pushd(DebuggerEvent::Exited(self.exit_code));
         ctx.deattach();
         result
-    }
-}
-
-impl Tracee for Debugger {
-    fn detach(&mut self) {
-        for (pid, _) in self.pids.consuming_iter() {
-            // ignore the result since detaching can't fail
-            let _ = ptrace::detach(pid, None);
-        }
-    }
-
-    fn kill(&mut self) {
-        for (pid, _) in self.pids.consuming_iter() {
-            // ignore the result since killing a process can't fail
-            let _ = ptrace::kill(pid);
-        }
-    }
-
-    fn pause(&self) {
-        for (pid, _) in self.pids.iter() {
-            // ignore the result since it appears to be unlikely interrupting can fail
-            //
-            // https://github.com/torvalds/linux/blob/d528014517f2b0531862c02865b9d4c908019dc4/kernel/ptrace.c#L1137
-            let _ = ptrace::interrupt(*pid);
-        }
-    }
-
-    fn kontinue(&mut self) {
-        let sig = std::mem::take(&mut self.unprocessed_signal);
-
-        // ignore the result since continuing a process can't fail
-        let cont = if self.tracing_syscalls {
-            ptrace::syscall
-        } else {
-            ptrace::cont
-        };
-
-        for (pid, _) in self.pids.iter() {
-            let _ = cont(*pid, sig);
-        }
-    }
-
-    fn read_process_memory(&self, base_addr: usize, len: usize) -> Result<Vec<u8>, Error> {
-        // create buffer of that can hold `len` elements
-        let mut buf: Vec<u8> = Vec::with_capacity(len);
-        let uninit = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr(), len) };
-
-        let local = std::io::IoSliceMut::new(uninit);
-        let remote = nix::sys::uio::RemoteIoVec {
-            base: base_addr,
-            len,
-        };
-
-        let pid = self.pids.root();
-        let bytes_read =
-            nix::sys::uio::process_vm_readv(pid, &mut [local], &[remote]).map_err(Error::Kernel)?;
-
-        if len != bytes_read {
-            return Err(Error::IncompleteRead(len, bytes_read));
-        }
-
-        // set buffer size to `len` iff `len` number of bytes have been read
-        unsafe { buf.set_len(len) }
-        Ok(buf)
-    }
-
-    fn write_process_memory(&mut self, base_addr: usize, data: &[u8]) -> Result<(), Error> {
-        let local = std::io::IoSlice::new(data);
-        let remote = nix::sys::uio::RemoteIoVec {
-            base: base_addr,
-            len: data.len(),
-        };
-
-        let pid = self.pids.root();
-        let bytes_wrote =
-            nix::sys::uio::process_vm_writev(pid, &[local], &[remote]).map_err(Error::Kernel)?;
-
-        if data.len() != bytes_wrote {
-            return Err(Error::IncompleteWrite(data.len(), bytes_wrote));
-        }
-
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn spawn_echo() {
-        let ctx = Arc::new(Context::new());
-        let session = Debugger::spawn( "sh", vec!["-c", "echo 10"]).unwrap();
-
-        assert!(session.run(ctx).is_ok());
-        assert_eq!(queue.pop(), Some(DebuggerEvent::Exited(0)));
-        assert_eq!(queue.pop(), None);
     }
 }
