@@ -192,8 +192,8 @@ impl<Arch: Target> UI<Arch> {
         std::thread::spawn(move || {
             let desc = DebuggerDescriptor {
                 module,
-                tracing: false,
-                follow_children: false,
+                tracing: args::ARGS.tracing,
+                follow_children: args::ARGS.tracing,
             };
 
             let session = match Debugger::spawn(path, args, desc) {
