@@ -266,20 +266,25 @@ impl Debugger {
                     let proc = self.procs.get(pid)?;
 
                     let dirfd = args[0];
-                    let mut path = std::fs::read_link(format!("/proc/{pid}/fd/{dirfd}")).unwrap();
-                    let relative = trace::read_c_str_slow(proc, args[1]);
-                    path.push(relative);
+                    if let Ok(mut path) = std::fs::read_link(format!("/proc/{pid}/fd/{dirfd}")) {
+                        let relative = trace::read_c_str_slow(proc, args[1]);
+                        path.push(relative);
+                        dbg!(&path);
 
-                    let module = self.parse_module_or_reuse(path).unwrap();
-                    self.procs.get_mut(pid)?.module = module;
+                        if let Some(module) = self.parse_module_or_reuse(path) {
+                            self.procs.get_mut(pid)?.module = module
+                        }
+                    }
                 }
 
                 if sysno == trace::Sysno::execve {
                     let proc = self.procs.get(pid)?;
-
                     let path = PathBuf::from(trace::read_c_str_slow(proc, args[0]));
-                    let module = self.parse_module_or_reuse(path).unwrap();
-                    self.procs.get_mut(pid)?.module = module;
+                    dbg!(&path);
+
+                    if let Some(module) = self.parse_module_or_reuse(path) {
+                        self.procs.get_mut(pid)?.module = module;
+                    }
                 }
 
                 let proc = self.procs.get_mut(pid)?;
