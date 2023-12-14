@@ -1,13 +1,18 @@
 //! Consumes decoder crates and provides an interface to interact with the decoders.
+
 pub mod expr;
 mod fmt;
 mod processor;
 
+use std::borrow::Cow;
+use std::sync::Arc;
+
 use object::{Object, SectionKind};
-use processor::Processor;
+pub use processor::Processor;
 use tokenizing::{colors, Token};
 
-type Addr = usize;
+type VirtAddr = usize;
+type PhysAddr = usize;
 
 pub enum Error {
     IO(std::io::Error),
@@ -22,7 +27,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Section {
     /// Section identifier.
-    pub name: String,
+    pub name: Cow<'static, str>,
 
     /// What kind of data the section holds.
     pub kind: SectionKind,
@@ -30,19 +35,22 @@ pub struct Section {
     /// Uncompressed data.
     pub bytes: Vec<u8>,
 
-    /// Address where section starts.
-    pub start: Addr,
+    /// Virtual address.
+    pub addr: VirtAddr,
 
-    /// Section start + length of uncompressed data.
-    pub end: Addr,
+    /// Address where section starts.
+    pub start: PhysAddr,
+
+    /// Section start + size of uncompressed data.
+    pub end: PhysAddr,
 }
 
 impl Section {
-    pub fn contains(&self, addr: Addr) -> bool {
+    pub fn contains(&self, addr: PhysAddr) -> bool {
         (self.start..=self.end).contains(&addr)
     }
 
-    pub fn format_bytes(&self, addr: Addr, len: usize, max_len: usize) -> Option<String> {
+    pub fn format_bytes(&self, addr: PhysAddr, len: usize, max_len: usize) -> Option<String> {
         let rva = addr.checked_sub(self.start)?;
         let bytes = self.bytes.get(rva..)?;
         let bytes = &bytes[..std::cmp::min(bytes.len(), len)];
@@ -51,11 +59,26 @@ impl Section {
     }
 }
 
+#[derive(Debug)]
+pub struct Segment {
+    /// Segment identifier.
+    pub name: Cow<'static, str>,
+
+    /// Virtual address.
+    pub addr: VirtAddr,
+
+    /// Offset of physical file.
+    pub start: PhysAddr,
+
+    /// Segment start + size.
+    pub end: PhysAddr,
+}
+
 /// A singular address.
 ///
 /// NOTE: `line_count` must be valid and `tokens` must not be empty.
 struct Block {
-    addr: Addr,
+    addr: PhysAddr,
     tokens: Vec<Token>,
     line_count: usize,
 }
@@ -84,10 +107,88 @@ impl Block {
     }
 }
 
+/// Everything necessary to display a ASM listing.
+pub struct Disassembly {
+    /// Where execution start.
+    pub entrypoint: PhysAddr,
+
+    /// Everything related to a module.
+    pub processor: Arc<Processor>,
+}
+
+impl Disassembly {
+    pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
+        let binary = std::fs::read(&path).map_err(Error::IO)?;
+        let obj = object::File::parse(&binary[..]).map_err(Error::IncompleteObject)?;
+
+        if obj.entry() == 0 {
+            return Err(Error::NotAnExecutable);
+        }
+
+        let entrypoint = obj.entry();
+        log::complex!(
+            w "[disassembly::parse] entrypoint ",
+            g format!("{entrypoint:#X}"),
+            w ".",
+        );
+
+        let path = path.as_ref().to_path_buf();
+        let processor = Processor::parse(path, &binary[..], &obj)?;
+
+        Ok(Self {
+            entrypoint: entrypoint as usize,
+            processor: Arc::new(processor),
+        })
+    }
+
+    pub fn section_name(&self, addr: PhysAddr) -> Option<&str> {
+        self.processor
+            .sections()
+            .find(|s| (s.start..=s.end).contains(&addr))
+            .map(|s| &s.name as &str)
+    }
+
+    fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
+        self.processor.sections()
+    }
+
+    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
+        let mut tokens: Vec<Token> = Vec::new();
+
+        let lines_to_read = range.end - range.start;
+        let lines = self
+            .processor
+            .symbols()
+            .iter()
+            .filter(|(_, func)| !func.intrinsic())
+            .skip(range.start)
+            .take(lines_to_read + 10);
+
+        // for each instruction
+        for (addr, symbol) in lines {
+            tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
+            tokens.push(Token::from_str(" | ", colors::WHITE));
+
+            if let Some(module) = symbol.module() {
+                tokens.push(module);
+                tokens.push(Token::from_str("!", colors::GRAY60));
+            }
+
+            for token in symbol.name() {
+                tokens.push(token.clone());
+            }
+
+            tokens.push(Token::from_str("\n", colors::WHITE));
+        }
+
+        tokens
+    }
+}
+
 /// Window into a [`Disassembly`], just a reference essentially.
 pub struct DisassemblyView {
     /// Address of the current block.
-    addr: Addr,
+    addr: PhysAddr,
 
     /// List of all lines.
     blocks: Vec<Block>,
@@ -121,14 +222,14 @@ impl DisassemblyView {
         }
     }
 
-    pub fn addr(&self) -> Addr {
+    pub fn addr(&self) -> PhysAddr {
         self.addr
     }
 
     /// Jump to address, returning whether it succeeded.
     ///
     /// Try an address range of +- 32 bytes.
-    pub fn jump(&mut self, disassembly: &Disassembly, addr: Addr) -> bool {
+    pub fn jump(&mut self, disassembly: &Disassembly, addr: PhysAddr) -> bool {
         let processor = &disassembly.processor;
 
         if !disassembly.sections().any(|s| s.contains(addr)) {
@@ -196,13 +297,13 @@ impl DisassemblyView {
     }
 
     /// Read's a [`Block`] at `addr` and also returns how many bytes were read.
-    fn read_block(&mut self, disassembly: &Disassembly, section: &Section, addr: Addr) -> usize {
+    fn read_block(&mut self, disassembly: &Disassembly, section: &Section, addr: PhysAddr) -> usize {
         let mut tokens = Vec::new();
         let mut line_count = 0;
 
         let mut error = disassembly.processor.error_by_addr(addr);
         let mut instruction = disassembly.processor.instruction_by_addr(addr);
-        let function = disassembly.symbols.get_by_addr(addr);
+        let function = disassembly.processor.symbols().get_by_addr(addr);
 
         // annotations require one line spacing
         if section.start == addr || function.is_some() {
@@ -215,7 +316,7 @@ impl DisassemblyView {
             let annotation = Token::from_string(text, colors::GRAY60);
             tokens.push(annotation);
             line_count += 2;
-        } else if let Some(function) = disassembly.symbols.get_by_addr(addr) {
+        } else if let Some(function) = disassembly.processor.symbols().get_by_addr(addr) {
             tokens.push(Token::from_str("<", colors::BLUE));
             tokens.extend_from_slice(function.name());
             tokens.push(Token::from_str(">:\n", colors::BLUE));
@@ -390,7 +491,7 @@ impl DisassemblyView {
             return;
         }
 
-        fn item_exists(disassembly: &Disassembly, addr: Addr) -> bool {
+        fn item_exists(disassembly: &Disassembly, addr: PhysAddr) -> bool {
             let err = disassembly.processor.error_by_addr(addr);
             let inst = disassembly.processor.instruction_by_addr(addr);
             err.is_some() || inst.is_some()
@@ -490,111 +591,6 @@ impl DisassemblyView {
                 let newlines = token.text.chars().filter(|&c| c == '\n').count();
                 rows_to_add = rows_to_add.saturating_sub(newlines);
             }
-        }
-
-        tokens
-    }
-}
-
-/// Everything necessary to display a ASM listing.
-pub struct Disassembly {
-    /// Where the binary is located.
-    pub path: std::path::PathBuf,
-
-    /// Where execution start.
-    pub entrypoint: Addr,
-
-    /// Address lookup for instructions.
-    pub processor: Processor,
-
-    /// Symbol lookup by absolute address.
-    pub symbols: symbols::Index,
-}
-
-impl Disassembly {
-    pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
-        let now = std::time::Instant::now();
-
-        let binary = std::fs::read(&path).map_err(Error::IO)?;
-        let obj = object::File::parse(&binary[..]).map_err(Error::IncompleteObject)?;
-
-        if obj.entry() == 0 {
-            return Err(Error::NotAnExecutable);
-        }
-
-        // TODO: refactor disassembly process to not just work on executables
-        //       and handle all text sections of any object
-        let entrypoint = obj.entry();
-
-        log::complex!(
-            w "[disassembly::parse] entrypoint ",
-            g format!("{entrypoint:#X}"),
-            w ".",
-        );
-
-        let mut index = symbols::Index::new();
-
-        index.parse_debug(&obj).map_err(Error::IncompleteSymbolTable)?;
-        index.parse_imports(&binary[..], &obj).map_err(Error::IncompleteImportTable)?;
-        index.label();
-
-        let mut processor = Processor::new(obj.sections(), obj.architecture())
-            .map_err(Error::UnknownArchitecture)?;
-
-        processor.recurse(&index);
-
-        log::complex!(
-            w "[disassembly::parse] took ",
-            y format!("{:#?}", now.elapsed()),
-            w " to parse ",
-            w format!("{:?}.", path.as_ref())
-        );
-
-        Ok(Self {
-            path: path.as_ref().to_path_buf(),
-            entrypoint: obj.entry() as usize,
-            processor,
-            symbols: index,
-        })
-    }
-
-    pub fn section_name(&self, addr: Addr) -> Option<&str> {
-        self.processor
-            .sections()
-            .find(|s| (s.start..=s.end).contains(&addr))
-            .map(|s| &s.name as &str)
-    }
-
-    fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
-        self.processor.sections()
-    }
-
-    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
-        let mut tokens: Vec<Token> = Vec::new();
-
-        let lines_to_read = range.end - range.start;
-        let lines = self
-            .symbols
-            .iter()
-            .filter(|(_, func)| !func.intrinsic())
-            .skip(range.start)
-            .take(lines_to_read + 10);
-
-        // for each instruction
-        for (addr, symbol) in lines {
-            tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
-            tokens.push(Token::from_str(" | ", colors::WHITE));
-
-            if let Some(module) = symbol.module() {
-                tokens.push(module);
-                tokens.push(Token::from_str("!", colors::GRAY60));
-            }
-
-            for token in symbol.name() {
-                tokens.push(token.clone());
-            }
-
-            tokens.push(Token::from_str("\n", colors::WHITE));
         }
 
         tokens

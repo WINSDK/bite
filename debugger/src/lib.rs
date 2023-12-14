@@ -24,8 +24,8 @@ pub use macos::*;
 pub use windows::*;
 
 pub type ExitCode = i32;
-pub type Addr = usize;
-pub type Rva = usize;
+pub type PhysAddr = usize;
+pub type VirtAddr = usize;
 
 /// Behaviour related to creating starting a debug session.
 pub trait Debuggable
@@ -36,10 +36,11 @@ where
     fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
         path: P,
         args: Vec<A>,
+        desc: DebuggerDescriptor
     ) -> Result<Self, Error>;
 
     /// Creates a `Tracee`, debugging an existing process.
-    fn attach(pid: Pid) -> Result<Self, Error>;
+    fn attach(pid: Pid, desc: DebuggerDescriptor) -> Result<Self, Error>;
 
     /// Run blocking event loop of [`Debugger`].
     fn run(self, ctx: Arc<Context>) -> Result<(), Error>;
@@ -47,6 +48,9 @@ where
 
 /// Common behaviour shared amongst debugging sessions.
 pub trait Tracing {
+    /// Create debugger's hooks onto process.
+    fn attach(&mut self);
+
     /// Remove debugger's hooks from process, releasing it's control.
     fn detach(&mut self);
 
@@ -61,13 +65,13 @@ pub trait Tracing {
     ///
     /// On linux this is currently only supports unprotected memory pages.
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn read_memory(&self, addr: Rva, len: usize) -> Result<Vec<u8>, Error>;
+    fn read_memory(&self, addr: VirtAddr, len: usize) -> Result<Vec<u8>, Error>;
 
     /// Writes to a segment of memory.
     ///
     /// On linux this is currently only supports unprotected memory pages.
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn write_memory(&mut self, addr: Rva, data: &[u8]) -> Result<(), Error>;
+    fn write_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error>;
 }
 
 /// Operation to be executed on [`Breakpoint`].
@@ -77,8 +81,8 @@ enum BreakpointOp {
 }
 
 pub struct Breakpoint {
-    /// Relative virtual address obtain from disassembler.
-    addr: Rva,
+    /// Virtual address.
+    addr: VirtAddr,
 
     /// Byte in memory we overwrote with int3.
     shadow: u8,
@@ -102,7 +106,7 @@ impl Breakpoint {
 }
 
 pub struct Breakpoints {
-    mapping: BTreeMap<Rva, Breakpoint>,
+    mapping: BTreeMap<VirtAddr, Breakpoint>,
 }
 
 impl Breakpoints {
@@ -113,7 +117,7 @@ impl Breakpoints {
     }
 
     /// Create a new [`Breakpoint`].
-    pub fn create(&mut self, addr: Rva) {
+    pub fn create(&mut self, addr: VirtAddr) {
         // can't set a breakpoint twice
         if self.mapping.get(&addr).is_some() {
             return;
@@ -130,14 +134,14 @@ impl Breakpoints {
     }
 
     /// Mark a [`Breakpoint`] for removal.
-    pub fn remove(&mut self, addr: Rva) -> Option<()> {
+    pub fn remove(&mut self, addr: VirtAddr) -> Option<()> {
         self.mapping.get_mut(&addr)?.op = Some(BreakpointOp::Delete);
         Some(())
     }
 }
 
 impl std::ops::Deref for Breakpoints {
-    type Target = BTreeMap<Rva, Breakpoint>;
+    type Target = BTreeMap<VirtAddr, Breakpoint>;
 
     fn deref(&self) -> &Self::Target {
         &self.mapping
@@ -152,12 +156,14 @@ impl std::ops::DerefMut for Breakpoints {
 
 #[derive(Debug, PartialEq)]
 pub enum DebugeeEvent {
+    Break,
+    Continue,
     Exit,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerEvent {
-    BreakpointSet(Rva),
+    BreakpointSet(VirtAddr),
     Exited(ExitCode),
 }
 

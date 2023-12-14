@@ -12,7 +12,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use copypasta::ClipboardProvider;
-use debugger::{DebugeeEvent, DebuggerEvent};
+use debugger::{DebugeeEvent, DebuggerEvent, Debugger, Debuggable, DebuggerDescriptor};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 
@@ -79,16 +79,13 @@ impl WinitQueue {
     }
 }
 
-#[derive(Clone)]
 pub struct UIQueue {
-    inner: Arc<crossbeam_queue::ArrayQueue<UIEvent>>,
-    window: Arc<Window>,
+    inner: crossbeam_queue::ArrayQueue<UIEvent>,
 }
 
 impl UIQueue {
     pub fn push(&self, event: UIEvent) {
         let _ = self.inner.push(event);
-        self.window.request_redraw();
     }
 }
 
@@ -100,7 +97,7 @@ pub struct UI<Arch: Target> {
     instance: wgpu_backend::Instance,
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
-    ui_queue: UIQueue,
+    ui_queue: Arc<UIQueue>,
     dbg_ctx: Arc<debugger::Context>,
 }
 
@@ -121,10 +118,9 @@ impl<Arch: Target> UI<Arch> {
         #[cfg(target_family = "unix")]
         let arch = Arch::new();
 
-        let ui_queue = UIQueue {
-            inner: Arc::new(crossbeam_queue::ArrayQueue::new(100)),
-            window: window.clone(),
-        };
+        let ui_queue = Arc::new(UIQueue {
+            inner: crossbeam_queue::ArrayQueue::new(100),
+        });
 
         let winit_queue = WinitQueue {
             inner: event_loop.create_proxy(),
@@ -163,12 +159,12 @@ impl<Arch: Target> UI<Arch> {
         }
 
         self.panels.loading = true;
-        let queue = self.ui_queue.clone();
+        let ui_queue = self.ui_queue.clone();
 
         std::thread::spawn(move || {
             match disassembler::Disassembly::parse(&path) {
-                Ok(diss) => queue.push(UIEvent::BinaryLoaded(Arc::new(diss))),
-                Err(err) => queue.push(UIEvent::BinaryFailed(err)),
+                Ok(diss) => ui_queue.push(UIEvent::BinaryLoaded(Arc::new(diss))),
+                Err(err) => ui_queue.push(UIEvent::BinaryFailed(err)),
             };
         });
     }
@@ -180,31 +176,33 @@ impl<Arch: Target> UI<Arch> {
             return;
         }
 
-        let ui_queue = self.ui_queue.clone();
         let dbg_ctx = self.dbg_ctx.clone();
+        let ui_queue = self.ui_queue.clone();
         let path = match self.panels.listing() {
-            Some(listing) => listing.disassembly.path.clone(),
+            Some(listing) => listing.disassembly.processor.path.clone(),
             None => {
                 tprint!(self.panels.terminal(), "No binary to debug.");
                 return;
             }
         };
+        let module = self.panels.listing().unwrap().disassembly.processor.clone();
 
         tprint!(self.panels.terminal(), "Running debugger.");
 
         std::thread::spawn(move || {
-            use debugger::Debuggable;
+            let desc = DebuggerDescriptor {
+                module,
+                tracing: false,
+                follow_children: false,
+            };
 
-            let mut session = match debugger::Debugger::spawn(path, args) {
+            let session = match Debugger::spawn(path, args, desc) {
                 Ok(session) => session,
                 Err(err) => {
                     ui_queue.push(UIEvent::DebuggerFailed(err));
                     return;
                 }
             };
-
-            #[cfg(target_os = "linux")]
-            session.enable_tracing();
 
             if let Err(err) = session.run(dbg_ctx) {
                 ui_queue.push(UIEvent::DebuggerFailed(err));
@@ -236,7 +234,7 @@ impl<Arch: Target> UI<Arch> {
         while let Some(event) = self.dbg_ctx.queue.pop() {
             match event {
                 DebuggerEvent::Exited(code) => {
-                    tprint!(self.panels.terminal(), "Process exited with code '{code}'.");
+                    tprint!(self.panels.terminal(), "Process exited with code {code}.");
                 }
                 DebuggerEvent::BreakpointSet(addr) => {
                     tprint!(self.panels.terminal(), "Breakpoint set at {addr:#X}.");
@@ -269,7 +267,7 @@ impl<Arch: Target> UI<Arch> {
 
                     if let Some(listing) = self.panels.listing() {
                         let _ = dbg!(disassembler::expr::parse(
-                            &listing.disassembly.symbols,
+                            &listing.disassembly.processor.symbols(),
                             &arg
                         ));
                     }

@@ -1,6 +1,7 @@
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use nix::sys::signal::Signal;
@@ -10,15 +11,17 @@ use nix::unistd::{execvp, fork, ForkResult};
 use procfs::process::MemoryMap;
 
 use crate::{
-    collections::Tree, Addr, BreakpointOp, Context, DebugeeEvent, Debuggable, DebuggerEvent,
-    ExitCode, Rva, Tracing,
+    collections::Tree, BreakpointOp, Context, DebugeeEvent, Debuggable, DebuggerEvent, ExitCode,
+    PhysAddr, Tracing, VirtAddr,
 };
+use disassembler::Processor;
 
 mod fmt;
 mod ioctl;
 mod tests;
 mod trace;
 
+pub type Tid = nix::unistd::Pid;
 pub type Pid = nix::unistd::Pid;
 
 #[derive(PartialEq)]
@@ -31,39 +34,42 @@ pub enum Error {
     Kernel(nix::errno::Errno),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum State {
-    WaitingForInit,
+    /// Nothing.
     Running,
+    /// Tracing options have yet to been set .
+    WaitingForInit,
 }
 
-fn read_memory_maps(pid: Pid) -> Result<Vec<MemoryMap>, Error> {
-    let proc = match procfs::process::Process::new(pid.as_raw()) {
+fn procfs_process(pid: Pid) -> Result<procfs::process::Process, Error> {
+    match procfs::process::Process::new(pid.as_raw()) {
         Err(procfs::ProcError::PermissionDenied(_)) => return Err(Error::PermissionDenied),
         Err(procfs::ProcError::NotFound(_)) => return Err(Error::ProcessLost(pid)),
         Err(..) => unreachable!(),
-        Ok(proc) => proc,
-    };
-
-    Ok(proc.maps().unwrap_or_else(|_| panic!("Failed to open memory map on {pid}")).0)
+        Ok(proc) => Ok(proc),
+    }
 }
 
-#[derive(Debug)]
+fn read_memory_maps(proc: &procfs::process::Process) -> Result<Vec<MemoryMap>, Error> {
+    Ok(proc.maps().unwrap_or_else(|_| panic!("Failed to open memory map of {proc:?}")).0)
+}
+
 pub struct Process {
     id: Pid,
+    module: Arc<Processor>,
     state: State,
-    memory_maps: Vec<MemoryMap>,
     unprocessed_signal: Option<Signal>,
     last_syscall: ptrace::SyscallInfoOp,
     tracing: bool,
 }
 
 impl Process {
-    fn stopped(pid: Pid) -> Result<Self, Error> {
+    fn stopped(pid: Pid, module: Arc<Processor>) -> Result<Self, Error> {
         Ok(Self {
             id: pid,
+            module,
             state: State::WaitingForInit,
-            memory_maps: read_memory_maps(pid)?,
             unprocessed_signal: None,
             last_syscall: ptrace::SyscallInfoOp::None,
             tracing: false,
@@ -71,41 +77,32 @@ impl Process {
     }
 
     /// Convert disassembler's address to virtual memory address.
-    pub fn translate(&self, rva: Rva) -> Addr {
-        let mut base = 0;
-
-        for map in &self.memory_maps {
-            if map.address.0 > rva as u64 {
-                base = map.address.1;
-                break;
+    pub fn translate(&self, addr: PhysAddr) -> VirtAddr {
+        // iterate from high addresses to low addresses.
+        for segment in self.module.segments().rev() {
+            if addr >= segment.start {
+                let rva = addr - segment.start;
+                return segment.addr + rva;
             }
-
-            base = map.address.0;
         }
 
-        rva.wrapping_add(base as usize)
+        // failed to translate the address
+        addr
     }
 
     fn configure(&mut self) -> Result<(), Error> {
-        let mut options = ptrace::Options::empty();
-
-        if self.tracing {
-            // distinguish regular SIGTRAP's from syscalls
-            options |= ptrace::Options::PTRACE_O_TRACESYSGOOD;
-        }
-
         // break on common syscalls
-        let options = options
+        let options = ptrace::Options::empty()
             // new thread
             | ptrace::Options::PTRACE_O_TRACECLONE
             // new process
             | ptrace::Options::PTRACE_O_TRACEEXEC
-            // exit child
-            | ptrace::Options::PTRACE_O_TRACEEXIT
             // new child
             | ptrace::Options::PTRACE_O_TRACEFORK
             // new child in same memory space
-            | ptrace::Options::PTRACE_O_TRACEVFORK;
+            | ptrace::Options::PTRACE_O_TRACEVFORK
+            // distinguish regular SIGTRAP's from syscalls
+            | ptrace::Options::PTRACE_O_TRACESYSGOOD;
 
         ptrace::setoptions(self.id, options).map_err(Error::Kernel)?;
         self.state = State::Running;
@@ -115,6 +112,9 @@ impl Process {
 }
 
 impl Tracing for Process {
+    fn attach(&mut self) {
+        let _ = ptrace::attach(self.id);
+    }
     fn detach(&mut self) {
         // ignore the result since detaching can't fail
         let _ = ptrace::detach(self.id, None);
@@ -136,24 +136,16 @@ impl Tracing for Process {
         let sig = std::mem::take(&mut self.unprocessed_signal);
 
         // ignore the result since continuing a process can't fail
-        let cont = if self.tracing {
-            ptrace::syscall
-        } else {
-            ptrace::cont
-        };
-
-        let _ = cont(self.id, sig);
+        let _ = ptrace::syscall(self.id, sig).unwrap();
     }
 
-    fn read_memory(&self, addr: Rva, len: usize) -> Result<Vec<u8>, Error> {
-        let base = self.translate(addr);
-
+    fn read_memory(&self, addr: VirtAddr, len: usize) -> Result<Vec<u8>, Error> {
         // create buffer of that can hold `len` elements
         let mut buf: Vec<u8> = Vec::with_capacity(len);
         let uninit = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr(), len) };
 
         let local = std::io::IoSliceMut::new(uninit);
-        let remote = nix::sys::uio::RemoteIoVec { base, len };
+        let remote = nix::sys::uio::RemoteIoVec { base: addr, len };
 
         let bytes_read = nix::sys::uio::process_vm_readv(self.id, &mut [local], &[remote])
             .map_err(Error::Kernel)?;
@@ -167,12 +159,10 @@ impl Tracing for Process {
         Ok(buf)
     }
 
-    fn write_memory(&mut self, addr: Rva, data: &[u8]) -> Result<(), Error> {
-        let base = self.translate(addr);
-
+    fn write_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error> {
         let local = std::io::IoSlice::new(data);
         let remote = nix::sys::uio::RemoteIoVec {
-            base,
+            base: addr,
             len: data.len(),
         };
 
@@ -187,9 +177,32 @@ impl Tracing for Process {
     }
 }
 
+/// Options related to creating a [`Debugger`].
+pub struct DebuggerDescriptor {
+    /// Disassembly of process that will be traced.
+    pub module: Arc<Processor>,
+
+    /// Whether or not to trace syscalls.
+    pub tracing: bool,
+
+    /// Whether or not syscall tracing should apply to children.
+    pub follow_children: bool,
+}
+
 pub struct Debugger {
+    /// Processes being traced.
     procs: Tree<Pid, Process>,
+
+    /// Whether or not the process should be killed on detaching.
     remote: bool,
+
+    /// Whether or not to trace syscalls.
+    tracing: bool,
+
+    /// Whether or not syscall tracing should apply to children.
+    follow_children: bool,
+
+    /// Buffer for logging syscalls.
     print_buf: String,
 
     /// Exit code of most recently exited process.
@@ -201,36 +214,113 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    fn local(root: Pid) -> Result<Self, Error> {
+    fn new(root: Pid, desc: DebuggerDescriptor) -> Result<Self, Error> {
+        assert!(
+            !(!desc.tracing && desc.follow_children),
+            "Can't enable 'follow_children' without tracing."
+        );
+
         Ok(Debugger {
-            procs: Tree::new(root, Process::stopped(root)?),
+            procs: Tree::new(root, Process::stopped(root, desc.module)?),
             remote: false,
             print_buf: String::new(),
+            tracing: desc.tracing,
+            follow_children: desc.follow_children,
             exit_code: 0,
             _not_send: PhantomData,
         })
     }
 
-    fn remote(root: Pid) -> Result<Self, Error> {
-        let mut this = Debugger::local(root)?;
-        this.remote = true;
-        Ok(this)
-    }
+    fn parse_module_or_reuse(&self, path: PathBuf) -> Option<Arc<Processor>> {
+        let full_path = path.canonicalize().ok();
+        let proc_with_module = self
+            .procs
+            .values()
+            .find(|proc| proc.module.path.canonicalize().ok() == full_path);
 
-    pub fn enable_tracing(&mut self) {
-        self.procs.root().tracing = true;
+        match proc_with_module {
+            Some(proc) => Some(Arc::clone(&proc.module)),
+            None => Processor::parse_unknown(path).ok().map(Arc::new),
+        }
     }
 
     fn handle_ptrace_status(&mut self, status: WaitStatus) -> Result<(), Error> {
         let pid = status.pid().unwrap();
-        let proc = self.procs.get(&pid).unwrap();
+        let proc = self.procs.get_mut(&pid).unwrap();
 
-        match proc.state {
-            State::WaitingForInit => {
-                proc.configure()?;
+        if proc.state == State::WaitingForInit {
+            proc.configure()?;
+        }
+
+        self.process_event(status)
+    }
+
+    fn handle_syscall(&mut self, pid: Pid) -> Result<(), Error> {
+        let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
+
+        match syscall.op {
+            ptrace::SyscallInfoOp::Entry { nr, args } => {
+                let sysno = trace::Sysno::from(nr as i32);
+
+                if sysno == trace::Sysno::execveat {
+                    let proc = self.procs.get(&pid).unwrap();
+
+                    let dirfd = args[0];
+                    let mut path = std::fs::read_link(format!("/proc/{pid}/fd/{dirfd}")).unwrap();
+                    let relative = trace::read_c_str_slow(proc, args[1]);
+                    path.push(relative);
+
+                    let module = self.parse_module_or_reuse(path).unwrap();
+                    self.procs.get_mut(&pid).unwrap().module = module;
+                }
+
+                if sysno == trace::Sysno::execve {
+                    let proc = self.procs.get(&pid).unwrap();
+
+                    let path = PathBuf::from(trace::read_c_str_slow(proc, args[0]));
+                    let module = self.parse_module_or_reuse(path).unwrap();
+                    self.procs.get_mut(&pid).unwrap().module = module;
+                }
+
+                let proc = self.procs.get_mut(&pid).unwrap();
+
+                if proc.tracing {
+                    let func = proc.display(sysno, args);
+                    self.print_buf += &func;
+                    proc.last_syscall = syscall.op;
+                }
+
                 proc.kontinue();
             }
-            State::Running => self.process_event(status)?,
+            ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
+                const EXIT: u64 = trace::Sysno::exit_group as u64;
+                let proc = self.procs.get_mut(&pid).unwrap();
+
+                // check condition for logging syscall
+                if proc.tracing {
+                    // `exit_group` syscall doesn't have a return value
+                    if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = proc.last_syscall {
+                        proc.kontinue();
+                        return Ok(());
+                    }
+
+                    self.print_buf += " -> ";
+                    self.print_buf += &ret_val.to_string();
+
+                    if is_error == 1 {
+                        let err = nix::Error::from_i32(-ret_val as i32);
+
+                        self.print_buf += " ";
+                        self.print_buf += &err.to_string();
+                    }
+
+                    log::trace!("[debugger::syscall] {}", self.print_buf);
+                    self.print_buf.clear();
+                }
+
+                proc.kontinue();
+            }
+            _ => {}
         }
 
         Ok(())
@@ -239,7 +329,7 @@ impl Debugger {
     fn process_event(&mut self, status: WaitStatus) -> Result<(), Error> {
         match status {
             WaitStatus::Stopped(pid, signal) => {
-                let proc = self.procs.get(&pid).unwrap();
+                let proc = self.procs.get_mut(&pid).unwrap();
                 proc.unprocessed_signal = Some(signal);
                 proc.kontinue();
             }
@@ -252,60 +342,30 @@ impl Debugger {
                 self.procs.remove(&pid);
                 log::trace!("[debugger::event] child {pid} exited with code {code}.");
             }
-            WaitStatus::PtraceSyscall(pid) => {
-                let proc = self.procs.get(&pid).unwrap();
-                let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
-
-                match syscall.op {
-                    ptrace::SyscallInfoOp::Entry { nr, args } => {
-                        let sysno = trace::Sysno::from(nr as i32);
-                        let func = proc.display(sysno, args);
-
-                        //if sysno == trace::Sysno::exit_group {
-                        self.print_buf += &func;
-                        proc.last_syscall = syscall.op;
-                    }
-                    ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
-                        const EXIT: u64 = trace::Sysno::exit_group as u64;
-
-                        // `exit_group` syscall doesn't have a return value
-                        if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = proc.last_syscall {
-                            proc.kontinue();
-                            return Ok(());
-                        }
-
-                        self.print_buf += " -> ";
-                        self.print_buf += &ret_val.to_string();
-
-                        if is_error == 1 {
-                            let err = nix::Error::from_i32(-ret_val as i32);
-
-                            self.print_buf += " ";
-                            self.print_buf += &err.to_string();
-                        }
-
-                        log::trace!("[debugger::syscall] {}", self.print_buf);
-                        self.print_buf.clear();
-                    }
-                    _ => {}
-                }
-
-                proc.kontinue();
-            }
+            WaitStatus::PtraceSyscall(pid) => self.handle_syscall(pid)?,
             WaitStatus::PtraceEvent(pid, _, event) => {
                 use nix::libc::*;
 
-                // if a new pid was created, store it as the child of it's parent
-                if let PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK | PTRACE_EVENT_CLONE = event {
+                // if a new child was created, store it as the child of it's parent
+                if event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK {
                     let created_pid = ptrace::getevent(pid).map_err(Error::Kernel)?;
                     let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
 
-                    let mut proc = Process::stopped(created_pid)?;
+                    // find module and add it to process
+                    let procfs_proc = procfs_process(created_pid)?;
+                    let path = procfs_proc.exe().unwrap();
+                    let module = self.parse_module_or_reuse(path).unwrap();
+
+                    let mut proc = Process::stopped(created_pid, module)?;
+                    proc.tracing = self.follow_children;
+                    proc.attach();
+                    proc.configure()?;
                     proc.kontinue();
+
                     self.procs.push_child(&pid, created_pid, proc);
                 }
 
-                let proc = self.procs.get(&pid).unwrap();
+                let proc = self.procs.get_mut(&pid).unwrap();
                 proc.kontinue();
             }
             _ => unreachable!("{status:?}"),
@@ -315,7 +375,7 @@ impl Debugger {
     }
 
     fn end_processes(&mut self) {
-        for (_, proc) in self.procs.iter_mut() {
+        for proc in self.procs.values_mut() {
             if self.remote {
                 proc.detach();
             } else {
@@ -333,8 +393,19 @@ impl Debugger {
 
             while let Some(event) = ctx.queue.popd() {
                 match event {
+                    DebugeeEvent::Break => {
+                        for proc in self.procs.values() {
+                            proc.pause();
+                        }
+                    }
+                    DebugeeEvent::Continue => {
+                        for proc in self.procs.values_mut() {
+                            proc.kontinue();
+                        }
+                    }
                     DebugeeEvent::Exit => {
                         self.end_processes();
+                        ctx.breakpoints.write().unwrap().clear();
                         break 'event_loop;
                     }
                 }
@@ -346,6 +417,7 @@ impl Debugger {
                 match bp.op.take() {
                     Some(BreakpointOp::Create) => {
                         let root_proc = self.procs.root();
+                        bp.addr = root_proc.translate(bp.addr);
                         bp.set(root_proc)?;
                         ctx.queue.pushd(DebuggerEvent::BreakpointSet(bp.addr));
                     }
@@ -363,7 +435,7 @@ impl Debugger {
             }
 
             // wait for child to give send a message
-            let pids: Vec<Pid> = self.procs.iter().map(|(pid, _)| *pid).collect();
+            let pids: Vec<Pid> = self.procs.values().map(|proc| proc.id).collect();
             for pid in pids {
                 let status = waitpid(
                     pid,
@@ -389,6 +461,7 @@ impl Debuggable for Debugger {
     fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
         path: P,
         args: Vec<A>,
+        desc: DebuggerDescriptor,
     ) -> Result<Self, Error> {
         let c_path = CString::new(path.as_ref().as_os_str().as_bytes())
             .map_err(|_| Error::InvalidPathName)?;
@@ -419,7 +492,7 @@ impl Debuggable for Debugger {
         };
 
         match unsafe { fork().map_err(Error::Kernel)? } {
-            ForkResult::Parent { child } => Debugger::local(child),
+            ForkResult::Parent { child } => Debugger::new(child, desc),
             ForkResult::Child => {
                 let _ = exec_child();
 
@@ -429,19 +502,27 @@ impl Debuggable for Debugger {
         }
     }
 
-    fn attach(pid: Pid) -> Result<Self, Error> {
+    fn attach(pid: Pid, desc: DebuggerDescriptor) -> Result<Self, Error> {
         ptrace::attach(pid).map_err(Error::Kernel)?;
-        Debugger::remote(pid)
+        let mut debugger = Debugger::new(pid, desc)?;
+        debugger.remote = true;
+        Ok(debugger)
     }
 
     fn run(mut self, ctx: Arc<Context>) -> Result<(), Error> {
         ctx.attach();
+
+        if self.tracing {
+            self.procs.root().tracing = true;
+        }
+
         let result = self.event_loop(ctx.clone());
 
         if result.is_err() {
             self.end_processes();
         }
 
+        ctx.breakpoints.write().unwrap().clear();
         ctx.queue.pushd(DebuggerEvent::Exited(self.exit_code));
         ctx.deattach();
         result

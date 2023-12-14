@@ -74,7 +74,7 @@ impl egui_dock::TabViewer for Tabs {
 pub struct Panels {
     pub layout: DockState<Identifier>,
     pub tabs: Tabs,
-    pub ui_queue: crate::UIQueue,
+    pub ui_queue: Arc<crate::UIQueue>,
     pub winit_queue: crate::WinitQueue,
     pub dbg_ctx: Arc<debugger::Context>,
     pub loading: bool,
@@ -82,7 +82,7 @@ pub struct Panels {
 
 impl Panels {
     pub fn new(
-        ui_queue: crate::UIQueue,
+        ui_queue: Arc<crate::UIQueue>,
         winit_queue: crate::WinitQueue,
         dbg_ctx: Arc<debugger::Context>,
     ) -> Self {

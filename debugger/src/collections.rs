@@ -56,7 +56,11 @@ impl<K: Copy + Hash + Eq, V> Tree<K, V> {
         self.nodes.insert(key, Node::new(value));
     }
 
-    pub fn get(&mut self, key: &K) -> Option<&mut V> {
+    pub fn get(&mut self, key: &K) -> Option<&V> {
+        self.nodes.get_mut(key).map(|node| &node.value)
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
         self.nodes.get_mut(key).map(|node| &mut node.value)
     }
 
@@ -85,13 +89,12 @@ impl<K: Copy + Hash + Eq, V> Tree<K, V> {
         self.nodes.is_empty()
     }
 
-    #[allow(dead_code)]
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
-        self.nodes.iter().map(|(key, node)| (key, &node.value))
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.nodes.iter().map(|(_, node)| (&node.value))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
-        self.nodes.iter_mut().map(|(key, node)| (key, &mut node.value))
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.nodes.iter_mut().map(|(_, node)| (&mut node.value))
     }
 }
 

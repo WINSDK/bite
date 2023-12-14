@@ -13,7 +13,7 @@ pub struct Functions {
 
 impl Functions {
     pub fn new(disassembly: Arc<disassembler::Disassembly>) -> Self {
-        let function_count = disassembly.symbols.named_len();
+        let function_count = disassembly.processor.symbols().named_len();
 
         Self {
             disassembly,
@@ -33,7 +33,7 @@ impl super::Display for Functions {
             if row_range != (self.min_row..self.max_row) {
                 let functions = self.disassembly.functions(row_range.clone());
                 self.functions = tokens_to_layoutjob(functions);
-                self.function_count = self.disassembly.symbols.named_len();
+                self.function_count = self.disassembly.processor.symbols().named_len();
                 self.min_row = row_range.start;
                 self.max_row = row_range.end;
             }

@@ -181,6 +181,25 @@ fn format_str(proc: &mut Process, addr: u64, len: u64) -> String {
     }
 }
 
+pub fn read_c_str_slow(proc: &Process, mut addr: u64) -> String {
+    let mut data = Vec::new();
+    while let Ok(bytes) = proc.read_memory(addr as usize, 1) {
+        match &bytes[..] {
+            &[b'\0'] | &[] => break,
+            &[byte, ..] => {
+                if data.len() > 10_000 {
+                    break;
+                }
+
+                data.push(byte);
+                addr += 1;
+            }
+        }
+    }
+
+    String::from_utf8_lossy(&data).into_owned()
+}
+
 /// Try to read a string with a null terminator and print the first 60 characters.
 fn format_c_str(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
