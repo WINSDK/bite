@@ -314,6 +314,7 @@ impl<const N: usize> Logger<N> {
     }
 
     pub fn clear(&mut self) {
+        self.len = 0;
         self.head = 0;
     }
 

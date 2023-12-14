@@ -15,6 +15,7 @@ const CMDS: &[&str] = &[
     "delete",
     "stop",
     "continue",
+    "clear"
 ];
 
 /// Print to the terminal.
@@ -243,6 +244,12 @@ impl Panels {
             }
 
             self.dbg_ctx.queue.push(debugger::DebugeeEvent::Continue);
+            return true;
+        }
+
+        if cmd == "clear" {
+            log::LOGGER.lock().unwrap().clear();
+            self.terminal().clear();
             return true;
         }
 
