@@ -191,7 +191,7 @@ pub struct DebuggerDescriptor {
 
 pub struct Debugger {
     /// Processes being traced.
-    procs: Tree<Pid, Process>,
+    procs: Tree<Process>,
 
     /// Whether or not the process should be killed on detaching.
     remote: bool,
@@ -246,7 +246,7 @@ impl Debugger {
 
     fn handle_ptrace_status(&mut self, status: WaitStatus) -> Result<(), Error> {
         let pid = status.pid().unwrap();
-        let proc = self.procs.get_mut(&pid).unwrap();
+        let proc = self.procs.get_mut(pid)?;
 
         if proc.state == State::WaitingForInit {
             proc.configure()?;
@@ -263,7 +263,7 @@ impl Debugger {
                 let sysno = trace::Sysno::from(nr as i32);
 
                 if sysno == trace::Sysno::execveat {
-                    let proc = self.procs.get(&pid).unwrap();
+                    let proc = self.procs.get(pid)?;
 
                     let dirfd = args[0];
                     let mut path = std::fs::read_link(format!("/proc/{pid}/fd/{dirfd}")).unwrap();
@@ -271,18 +271,18 @@ impl Debugger {
                     path.push(relative);
 
                     let module = self.parse_module_or_reuse(path).unwrap();
-                    self.procs.get_mut(&pid).unwrap().module = module;
+                    self.procs.get_mut(pid)?.module = module;
                 }
 
                 if sysno == trace::Sysno::execve {
-                    let proc = self.procs.get(&pid).unwrap();
+                    let proc = self.procs.get(pid)?;
 
                     let path = PathBuf::from(trace::read_c_str_slow(proc, args[0]));
                     let module = self.parse_module_or_reuse(path).unwrap();
-                    self.procs.get_mut(&pid).unwrap().module = module;
+                    self.procs.get_mut(pid)?.module = module;
                 }
 
-                let proc = self.procs.get_mut(&pid).unwrap();
+                let proc = self.procs.get_mut(pid)?;
 
                 if proc.tracing {
                     let func = proc.display(sysno, args);
@@ -294,7 +294,7 @@ impl Debugger {
             }
             ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
                 const EXIT: u64 = trace::Sysno::exit_group as u64;
-                let proc = self.procs.get_mut(&pid).unwrap();
+                let proc = self.procs.get_mut(pid)?;
 
                 // check condition for logging syscall
                 if proc.tracing {
@@ -329,17 +329,17 @@ impl Debugger {
     fn process_event(&mut self, status: WaitStatus) -> Result<(), Error> {
         match status {
             WaitStatus::Stopped(pid, signal) => {
-                let proc = self.procs.get_mut(&pid).unwrap();
+                let proc = self.procs.get_mut(pid)?;
                 proc.unprocessed_signal = Some(signal);
                 proc.kontinue();
             }
             WaitStatus::Signaled(pid, signal, ..) => {
-                self.procs.remove(&pid);
+                self.procs.remove(pid);
                 log::trace!("[debugger::event] child exited by signal: {signal:?}.");
             }
             WaitStatus::Exited(pid, code) => {
                 self.exit_code = code;
-                self.procs.remove(&pid);
+                self.procs.remove(pid);
                 log::trace!("[debugger::event] child {pid} exited with code {code}.");
             }
             WaitStatus::PtraceSyscall(pid) => self.handle_syscall(pid)?,
@@ -365,7 +365,7 @@ impl Debugger {
                     self.procs.push_child(&pid, created_pid, proc);
                 }
 
-                let proc = self.procs.get_mut(&pid).unwrap();
+                let proc = self.procs.get_mut(pid)?;
                 proc.kontinue();
             }
             _ => unreachable!("{status:?}"),

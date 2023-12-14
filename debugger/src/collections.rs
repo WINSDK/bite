@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::hash::Hash;
+use crate::{Pid, Error};
 
 pub struct Node<K, V> {
     value: V,
@@ -30,13 +30,13 @@ impl<K, V> std::ops::DerefMut for Node<K, V> {
     }
 }
 
-pub struct Tree<K: Copy + Hash + Eq, V> {
-    root: Option<K>,
-    nodes: HashMap<K, Node<K, V>>,
+pub struct Tree<V> {
+    root: Option<Pid>,
+    nodes: HashMap<Pid, Node<Pid, V>>,
 }
 
-impl<K: Copy + Hash + Eq, V> Tree<K, V> {
-    pub fn new(root: K, root_value: V) -> Self {
+impl<V> Tree<V> {
+    pub fn new(root: Pid, root_value: V) -> Self {
         let mut nodes = HashMap::new();
         nodes.insert(root, Node::new(root_value));
         Self {
@@ -49,38 +49,46 @@ impl<K: Copy + Hash + Eq, V> Tree<K, V> {
         self.root.as_ref().and_then(|root| self.nodes.get_mut(root)).unwrap()
     }
 
-    pub fn push_child(&mut self, parent: &K, key: K, value: V) {
+    pub fn push_child(&mut self, parent: &Pid, key: Pid, value: V) {
         let parent_node = self.nodes.get_mut(parent).expect("Failed to find parent.");
 
         parent_node.children.push(key);
         self.nodes.insert(key, Node::new(value));
     }
 
-    pub fn get(&mut self, key: &K) -> Option<&V> {
-        self.nodes.get_mut(key).map(|node| &node.value)
+    pub fn get(&mut self, key: Pid) -> Result<&V, Error> {
+        self
+            .nodes
+            .get_mut(&key)
+            .map(|node| &node.value)
+            .ok_or(Error::ProcessLost(key))
     }
 
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.nodes.get_mut(key).map(|node| &mut node.value)
+    pub fn get_mut(&mut self, key: Pid) -> Result<&mut V, Error> {
+        self
+            .nodes
+            .get_mut(&key)
+            .map(|node| &mut node.value)
+            .ok_or(Error::ProcessLost(key))
     }
 
-    pub fn remove(&mut self, key: &K) {
-        let node = self.nodes.remove(key).expect("Key isn't part of tree");
+    pub fn remove(&mut self, key: Pid) {
+        let node = self.nodes.remove(&key).expect("Key isn't part of tree");
 
         // remove a node's children recursively
         for child_key in node.children {
-            self.remove(&child_key);
+            self.remove(child_key);
         }
 
         // remove the key from the children of other nodes
         for (_, node) in self.nodes.iter_mut() {
-            if let Some(index) = node.children.iter().position(|k| k == key) {
+            if let Some(index) = node.children.iter().position(|&k| k == key) {
                 node.children.remove(index);
             }
         }
 
         // update the root if necessary
-        if self.root.as_ref() == Some(key) {
+        if self.root == Some(key) {
             self.root = None;
         }
     }
@@ -98,7 +106,7 @@ impl<K: Copy + Hash + Eq, V> Tree<K, V> {
     }
 }
 
-impl<K: fmt::Debug + Copy + Hash + Eq, V> fmt::Debug for Tree<K, V> {
+impl<V> fmt::Debug for Tree<V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(ref root_key) = self.root {
             self.recursive_debug_print(f, root_key, 0)?;
@@ -108,11 +116,11 @@ impl<K: fmt::Debug + Copy + Hash + Eq, V> fmt::Debug for Tree<K, V> {
     }
 }
 
-impl<K: fmt::Debug + Copy + Hash + Eq, V> Tree<K, V> {
+impl<V> Tree<V> {
     fn recursive_debug_print(
         &self,
         f: &mut fmt::Formatter<'_>,
-        key: &K,
+        key: &Pid,
         depth: usize,
     ) -> fmt::Result {
         if let Some(node) = self.nodes.get(key) {
