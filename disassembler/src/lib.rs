@@ -108,6 +108,7 @@ impl Block {
 }
 
 /// Everything necessary to display a ASM listing.
+#[derive(Clone)]
 pub struct Disassembly {
     /// Where execution start.
     pub entrypoint: PhysAddr,
@@ -150,38 +151,6 @@ impl Disassembly {
 
     fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
         self.processor.sections()
-    }
-
-    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
-        let mut tokens: Vec<Token> = Vec::new();
-
-        let lines_to_read = range.end - range.start;
-        let lines = self
-            .processor
-            .symbols()
-            .iter()
-            .filter(|(_, func)| !func.intrinsic())
-            .skip(range.start)
-            .take(lines_to_read + 10);
-
-        // for each instruction
-        for (addr, symbol) in lines {
-            tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
-            tokens.push(Token::from_str(" | ", colors::WHITE));
-
-            if let Some(module) = symbol.module() {
-                tokens.push(module);
-                tokens.push(Token::from_str("!", colors::GRAY60));
-            }
-
-            for token in symbol.name() {
-                tokens.push(token.clone());
-            }
-
-            tokens.push(Token::from_str("\n", colors::WHITE));
-        }
-
-        tokens
     }
 }
 

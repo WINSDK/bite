@@ -1,10 +1,8 @@
 use super::common::{tokens_to_layoutjob, FONT};
-
 use egui::text::LayoutJob;
-use std::sync::Arc;
 
 pub struct Listing {
-    pub disassembly: Arc<disassembler::Disassembly>,
+    pub disassembly: disassembler::Disassembly,
     pub disassembly_view: disassembler::DisassemblyView,
     lines: LayoutJob,
     line_count: usize,
@@ -13,7 +11,7 @@ pub struct Listing {
 }
 
 impl Listing {
-    pub fn new(disassembly: Arc<disassembler::Disassembly>) -> Self {
+    pub fn new(disassembly: disassembler::Disassembly) -> Self {
         Self {
             disassembly,
             disassembly_view: disassembler::DisassemblyView::new(),

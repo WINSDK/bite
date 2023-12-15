@@ -7,7 +7,7 @@ use std::sync::Arc;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::sys::{personality, ptrace};
-use nix::unistd::{execvp, fork, ForkResult};
+use nix::unistd::{execvpe, fork, ForkResult};
 use procfs::process::MemoryMap;
 
 use crate::{
@@ -62,7 +62,7 @@ pub struct Process {
     unprocessed_signal: Option<Signal>,
     print_next_syscall: bool,
     tracing: bool,
-    memory_maps: Vec<MemoryMap>
+    memory_maps: Vec<MemoryMap>,
 }
 
 impl Process {
@@ -186,16 +186,30 @@ impl Tracing for Process {
     }
 }
 
-/// Options related to creating a [`Debugger`].
-pub struct DebuggerDescriptor {
-    /// Disassembly of process that will be traced.
-    pub module: Arc<Processor>,
+/// Optional settings related to creating a [`Debugger`].
+#[derive(Clone)]
+pub struct DebuggerSettings<S: Into<Vec<u8>>> {
+    /// Environmental variables set for the target.
+    pub env: Vec<S>,
 
     /// Whether or not to trace syscalls.
     pub tracing: bool,
 
     /// Whether or not syscall tracing should apply to children.
     pub follow_children: bool,
+}
+
+/// Required options related to creating a [`Debugger`].
+#[derive(Clone)]
+pub struct DebuggerDescriptor<P: AsRef<std::path::Path>, S: Into<Vec<u8>>> {
+    /// Relative or absolute path to binary.
+    pub path: P,
+
+    /// Process arguments.
+    pub args: Vec<S>,
+
+    /// Processes that have been disassembled.
+    pub module: Arc<Processor>,
 }
 
 pub struct Debugger {
@@ -223,9 +237,13 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    fn new(root: Pid, desc: DebuggerDescriptor) -> Result<Self, Error> {
+    fn new<P: AsRef<std::path::Path>, S: Into<Vec<u8>>>(
+        root: Pid,
+        settings: DebuggerSettings<S>,
+        desc: DebuggerDescriptor<P, S>,
+    ) -> Result<Self, Error> {
         assert!(
-            !(!desc.tracing && desc.follow_children),
+            !(!settings.tracing && settings.follow_children),
             "Can't enable 'follow_children' without tracing."
         );
 
@@ -233,8 +251,8 @@ impl Debugger {
             procs: Tree::new(root, Process::stopped(root, desc.module)?),
             remote: false,
             print_buf: String::new(),
-            tracing: desc.tracing,
-            follow_children: desc.follow_children,
+            tracing: settings.tracing,
+            follow_children: settings.follow_children,
             exit_code: 0,
             _not_send: PhantomData,
         })
@@ -435,11 +453,8 @@ impl Debugger {
             // wait for child to give send a message
             let pids: Vec<Pid> = self.procs.values().map(|proc| proc.id).collect();
             for pid in pids {
-                let status = waitpid(
-                    pid,
-                    Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED),
-                )
-                .map_err(Error::Kernel)?;
+                let status = waitpid(pid, Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED))
+                    .map_err(Error::Kernel)?;
 
                 if status == WaitStatus::StillAlive {
                     continue;
@@ -456,15 +471,20 @@ impl Debugger {
 }
 
 impl Debuggable for Debugger {
-    fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
-        path: P,
-        args: Vec<A>,
-        desc: DebuggerDescriptor,
-    ) -> Result<Self, Error> {
-        let c_path = CString::new(path.as_ref().as_os_str().as_bytes())
+    fn spawn<P, S>(
+        mut settings: DebuggerSettings<S>,
+        mut desc: DebuggerDescriptor<P, S>,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized,
+        P: AsRef<std::path::Path>,
+        S: Into<Vec<u8>>,
+    {
+        let c_path = CString::new(desc.path.as_ref().as_os_str().as_bytes())
             .map_err(|_| Error::InvalidPathName)?;
 
-        let mut c_args = Vec::with_capacity(args.len() + 1);
+        let args = std::mem::take(&mut desc.args);
+        let mut c_args = Vec::with_capacity(desc.args.len() + 1);
 
         // push program as first argument
         c_args.push(c_path.clone());
@@ -475,7 +495,7 @@ impl Debuggable for Debugger {
             c_args.push(arg);
         }
 
-        let exec_child = || {
+        let mut exec_child = || {
             // disable ASLR
             personality::set(personality::Persona::ADDR_NO_RANDOMIZE)?;
 
@@ -485,12 +505,19 @@ impl Debuggable for Debugger {
             // stop child
             nix::sys::signal::raise(Signal::SIGSTOP)?;
 
+            // inherit environmental variables
+            let env = std::mem::take(&mut settings.env);
+            let c_env: Vec<CString> = std::env::vars()
+                .flat_map(|(key, val)| CString::new(format!("{key}={val}")))
+                .chain(env.into_iter().flat_map(CString::new))
+                .collect();
+
             // execute program
-            execvp(&c_path, &c_args)
+            execvpe(&c_path, &c_args, &c_env)
         };
 
         match unsafe { fork().map_err(Error::Kernel)? } {
-            ForkResult::Parent { child } => Debugger::new(child, desc),
+            ForkResult::Parent { child } => Debugger::new(child, settings, desc),
             ForkResult::Child => {
                 let _ = exec_child();
 
@@ -500,9 +527,18 @@ impl Debuggable for Debugger {
         }
     }
 
-    fn attach(pid: Pid, desc: DebuggerDescriptor) -> Result<Self, Error> {
+    fn attach<P, S>(
+        pid: Pid,
+        settings: DebuggerSettings<S>,
+        desc: DebuggerDescriptor<P, S>,
+    ) -> Result<Self, Error>
+    where
+        Self: Sized,
+        P: AsRef<std::path::Path>,
+        S: Into<Vec<u8>>,
+    {
         ptrace::attach(pid).map_err(Error::Kernel)?;
-        let mut debugger = Debugger::new(pid, desc)?;
+        let mut debugger = Debugger::new(pid, settings, desc)?;
         debugger.remote = true;
         Ok(debugger)
     }

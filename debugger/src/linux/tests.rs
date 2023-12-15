@@ -11,7 +11,7 @@ fn spawn_sleep() {
         tracing: false,
         follow_children: false,
     };
-    let session = Debugger::spawn("sh", vec!["-c", "echo 10"], desc).unwrap();
+    let session = Debugger::spawn("sh", vec!["-c", "echo 10"], vec![], desc).unwrap();
 
     assert!(session.run(ctx.clone()).is_ok());
     assert_eq!(ctx.queue.pop(), Some(DebuggerEvent::Exited(0)));
@@ -26,7 +26,7 @@ fn spawn_sleep_invalid() {
         tracing: false,
         follow_children: false,
     };
-    let session = Debugger::spawn("/bin/sleep", Vec::<&str>::new(), desc).unwrap();
+    let session = Debugger::spawn("/bin/sleep", Vec::<&str>::new(), vec![], desc).unwrap();
 
     assert!(session.run(ctx.clone()).is_ok());
     assert_eq!(ctx.queue.pop(), Some(DebuggerEvent::Exited(1)));

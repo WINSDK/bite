@@ -114,15 +114,17 @@ impl Panels {
         &mut self.tabs.terminal
     }
 
-    pub fn load_binary(&mut self, disassembly: Arc<disassembler::Disassembly>) {
+    pub fn load_binary(&mut self, disassembly: disassembler::Disassembly) {
+        let processor = Arc::clone(&disassembly.processor);
+
         self.tabs.mapping.insert(
             DISASSEMBLY,
-            PanelKind::Disassembly(listing::Listing::new(disassembly.clone())),
+            PanelKind::Disassembly(listing::Listing::new(disassembly)),
         );
 
         self.tabs.mapping.insert(
             FUNCTIONS,
-            PanelKind::Functions(functions::Functions::new(disassembly)),
+            PanelKind::Functions(functions::Functions::new(processor)),
         );
     }
 

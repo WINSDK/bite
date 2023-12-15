@@ -360,7 +360,6 @@ impl<'src> Context<'src> {
             match self.peek() {
                 Some('*') => {
                     self.consume('*')?;
-                    self.consume_whitespace();
                     let rhs = self.parse_primary()?;
                     lhs = Expr::Compound {
                         lhs: self.store(lhs),
@@ -370,7 +369,6 @@ impl<'src> Context<'src> {
                 },
                 Some('/') => {
                     self.consume('/')?;
-                    self.consume_whitespace();
                     let rhs = self.parse_primary()?;
                     lhs = Expr::Compound {
                         lhs: self.store(lhs),
@@ -380,7 +378,6 @@ impl<'src> Context<'src> {
                 },
                 Some('%') => {
                     self.consume('%')?;
-                    self.consume_whitespace();
                     let rhs = self.parse_primary()?;
                     lhs = Expr::Compound {
                         lhs: self.store(lhs),
@@ -403,7 +400,6 @@ impl<'src> Context<'src> {
             match self.peek() {
                 Some('+') => {
                     self.consume('+')?;
-                    self.consume_whitespace();
                     let rhs = self.parse_high_precedence()?;
                     lhs = Expr::Compound {
                         lhs: self.store(lhs),
@@ -413,7 +409,6 @@ impl<'src> Context<'src> {
                 },
                 Some('-') => {
                     self.consume('-')?;
-                    self.consume_whitespace();
                     let rhs = self.parse_high_precedence()?;
                     lhs = Expr::Compound {
                         lhs: self.store(lhs),
@@ -644,11 +639,11 @@ mod tests {
 
     #[test]
     fn operation_order() {
-        eval_eq!([], "1 + 10 * 10", 101);
-        eval_eq!([], "1 + (10 + 10)", 21);
-        eval_eq!([], "(10 + 10) * 2", 40);
-        eval_eq!([], "2 * (10 + 10)", 40);
-        eval_eq!([], "10 * 4 / 2", 20);
-        eval_eq!([], "10 * 2 / 4", 5);
+        eval_eq!("1 + 10 * 10", 101);
+        eval_eq!("1 + (10 + 10)", 21);
+        eval_eq!("(10 + 10) * 2", 40);
+        eval_eq!("2 * (10 + 10)", 40);
+        eval_eq!("10 * 4 / 2", 20);
+        eval_eq!("10 * 2 / 4", 5);
     }
 }

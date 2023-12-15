@@ -4,18 +4,8 @@ use std::path::Path;
 use crate::panels::{Panels, Terminal};
 
 const CMDS: &[&str] = &[
-    "exec",
-    "pwd",
-    "cd",
-    "quit",
-    "run",
-    "goto",
-    "set",
-    "break",
-    "delete",
-    "stop",
-    "continue",
-    "clear"
+    "exec", "pwd", "cd", "quit", "run", "goto", "set", "break", "delete", "stop", "continue",
+    "clear",
 ];
 
 /// Print to the terminal.
@@ -133,18 +123,16 @@ impl Panels {
         }
 
         if cmd_name == "set" {
-            let (var, value) = match cmd.split_once("=") {
-                Some(pair) => pair,
-                None => {
-                    tprint!(
-                        self.terminal(),
-                        "You must specify what env variable to set."
-                    );
-                    return true;
-                }
+            let expr = cmd.strip_prefix("set").unwrap().trim();
+            if expr.split_once("=").is_none() {
+                tprint!(
+                    self.terminal(),
+                    "You must specify what env variable to set."
+                );
+                return true;
             };
 
-            std::env::set_var(var, value);
+            self.ui_queue.push(crate::UIEvent::SetEnvironmental(expr.to_string()));
             return true;
         }
 
@@ -161,7 +149,7 @@ impl Panels {
                 }
             };
 
-            let expr = cmd.strip_prefix("goto").or(cmd.strip_prefix("g")).unwrap_or(cmd);
+            let expr = cmd.strip_prefix("goto").or(cmd.strip_prefix("g")).unwrap().trim();
 
             match disassembler::expr::parse(&listing.disassembly.processor.symbols(), expr) {
                 Ok(addr) => {
@@ -187,7 +175,7 @@ impl Panels {
                 }
             };
 
-            let expr = cmd.strip_prefix("break").or(cmd.strip_prefix("b")).unwrap_or(cmd);
+            let expr = cmd.strip_prefix("break").or(cmd.strip_prefix("b")).unwrap().trim();
             match disassembler::expr::parse(&listing.disassembly.processor.symbols(), expr) {
                 Ok(addr) => {
                     if listing.disassembly.processor.instruction_by_addr(addr).is_none() {
@@ -212,7 +200,7 @@ impl Panels {
                 }
             };
 
-            let expr = cmd.strip_prefix("delete").or(cmd.strip_prefix("db")).unwrap_or(cmd);
+            let expr = cmd.strip_prefix("delete").or(cmd.strip_prefix("db")).unwrap().trim();
             match disassembler::expr::parse(&listing.disassembly.processor.symbols(), expr) {
                 Ok(addr) => {
                     if listing.disassembly.processor.instruction_by_addr(addr).is_none() {

@@ -1,8 +1,8 @@
 use crossbeam_queue::SegQueue;
+use disassembler::{PhysAddr, VirtAddr};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use disassembler::{VirtAddr, PhysAddr};
 
 mod collections;
 
@@ -28,18 +28,22 @@ pub type ExitCode = i32;
 
 /// Behaviour related to creating starting a debug session.
 pub trait Debuggable
-where
-    Self: Sized,
-{
+where Self: Sized {
     /// Creates a `Tracee`, debugging a newly launched process.
-    fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
-        path: P,
-        args: Vec<A>,
-        desc: DebuggerDescriptor
-    ) -> Result<Self, Error>;
+    fn spawn<P, S>(settings: DebuggerSettings<S>, desc: DebuggerDescriptor<P, S>) -> Result<Self, Error>
+    where
+        P: AsRef<std::path::Path>,
+        S: Into<Vec<u8>>;
 
     /// Creates a `Tracee`, debugging an existing process.
-    fn attach(pid: Pid, desc: DebuggerDescriptor) -> Result<Self, Error>;
+    fn attach<P, S>(
+        pid: Pid,
+        settings: DebuggerSettings<S>,
+        desc: DebuggerDescriptor<P, S>,
+    ) -> Result<Self, Error>
+    where
+        P: AsRef<std::path::Path>,
+        S: Into<Vec<u8>>;
 
     /// Run blocking event loop of [`Debugger`].
     fn run(self, ctx: Arc<Context>) -> Result<(), Error>;

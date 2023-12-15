@@ -12,7 +12,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use copypasta::ClipboardProvider;
-use debugger::{DebugeeEvent, DebuggerEvent, Debugger, Debuggable, DebuggerDescriptor};
+use debugger::{DebugeeEvent, DebuggerEvent, Debugger, Debuggable, DebuggerDescriptor, DebuggerSettings};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 
@@ -59,11 +59,12 @@ pub enum WinitEvent {
 
 /// Global UI events.
 pub enum UIEvent {
+    SetEnvironmental(String),
     DebuggerExecute(Vec<String>),
     DebuggerFailed(debugger::Error),
     BinaryRequested(std::path::PathBuf),
     BinaryFailed(disassembler::Error),
-    BinaryLoaded(Arc<disassembler::Disassembly>),
+    BinaryLoaded(disassembler::Disassembly),
 }
 
 #[derive(Clone)]
@@ -99,6 +100,7 @@ pub struct UI<Arch: Target> {
     platform: winit_backend::Platform,
     ui_queue: Arc<UIQueue>,
     dbg_ctx: Arc<debugger::Context>,
+    dbg_settings: DebuggerSettings<String>,
 }
 
 impl<Arch: Target> UI<Arch> {
@@ -133,6 +135,12 @@ impl<Arch: Target> UI<Arch> {
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
         let platform = winit_backend::Platform::new::<Arch>(&window);
 
+        let dbg_settings = DebuggerSettings {
+            env: Vec::new(),
+            tracing: false,
+            follow_children: false,
+        };
+
         Ok(Self {
             arch,
             event_loop: Some(event_loop),
@@ -143,6 +151,7 @@ impl<Arch: Target> UI<Arch> {
             platform,
             ui_queue,
             dbg_ctx,
+            dbg_settings
         })
     }
 
@@ -163,7 +172,7 @@ impl<Arch: Target> UI<Arch> {
 
         std::thread::spawn(move || {
             match disassembler::Disassembly::parse(&path) {
-                Ok(diss) => ui_queue.push(UIEvent::BinaryLoaded(Arc::new(diss))),
+                Ok(diss) => ui_queue.push(UIEvent::BinaryLoaded(diss)),
                 Err(err) => ui_queue.push(UIEvent::BinaryFailed(err)),
             };
         });
@@ -187,8 +196,7 @@ impl<Arch: Target> UI<Arch> {
         };
 
         let module = self.panels.listing().unwrap().disassembly.processor.clone();
-
-        tprint!(self.panels.terminal(), "Running debugger.");
+        let settings = self.dbg_settings.clone();
 
         std::thread::spawn(move || {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -196,12 +204,13 @@ impl<Arch: Target> UI<Arch> {
 
             #[cfg(target_os = "linux")]
             let desc = DebuggerDescriptor {
+                path,
+                args,
                 module,
-                tracing: args::ARGS.tracing,
-                follow_children: args::ARGS.tracing,
             };
 
-            let session = match Debugger::spawn(path, args, desc) {
+            dbg!(&settings.env);
+            let session = match Debugger::spawn(settings, desc) {
                 Ok(session) => session,
                 Err(err) => {
                     ui_queue.push(UIEvent::DebuggerFailed(err));
@@ -213,11 +222,14 @@ impl<Arch: Target> UI<Arch> {
                 ui_queue.push(UIEvent::DebuggerFailed(err));
             }
         });
+
+        tprint!(self.panels.terminal(), "Running debugger.");
     }
 
     fn handle_ui_events(&mut self) {
         while let Some(event) = self.ui_queue.inner.pop() {
             match event {
+                UIEvent::SetEnvironmental(arg) => self.dbg_settings.env.push(arg),
                 UIEvent::DebuggerExecute(args) => self.offload_debugging(args),
                 UIEvent::DebuggerFailed(err) => {
                     tprint!(self.panels.terminal(), "{err:?}.");
