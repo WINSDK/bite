@@ -4,14 +4,18 @@ use crate::*;
 use disassembler::Processor;
 
 #[test]
-fn spawn_sleep() {
+fn spawn_sh() {
     let ctx = Arc::new(Context::new());
-    let desc = DebuggerDescriptor {
-        module: Arc::new(Processor::parse_unknown("/bin/sleep").unwrap()),
+    let settings = DebuggerSettings {
         tracing: false,
         follow_children: false,
+        env: Vec::<&str>::new(),
     };
-    let session = Debugger::spawn("sh", vec!["-c", "echo 10"], vec![], desc).unwrap();
+    let desc = DebuggerDescriptor {
+        args: vec!["-c", "echo 10"],
+        module: Arc::new(Processor::parse_unknown("/bin/sh").unwrap()),
+    };
+    let session = Debugger::spawn(settings, desc).unwrap();
 
     assert!(session.run(ctx.clone()).is_ok());
     assert_eq!(ctx.queue.pop(), Some(DebuggerEvent::Exited(0)));
@@ -21,12 +25,16 @@ fn spawn_sleep() {
 #[test]
 fn spawn_sleep_invalid() {
     let ctx = Arc::new(Context::new());
-    let desc = DebuggerDescriptor {
-        module: Arc::new(Processor::parse_unknown("/bin/sleep").unwrap()),
+    let settings = DebuggerSettings {
         tracing: false,
         follow_children: false,
+        env: Vec::<String>::new(),
     };
-    let session = Debugger::spawn("/bin/sleep", Vec::<&str>::new(), vec![], desc).unwrap();
+    let desc = DebuggerDescriptor {
+        module: Arc::new(Processor::parse_unknown("/bin/sleep").unwrap()),
+        args: vec![]
+    };
+    let session = Debugger::spawn(settings, desc).unwrap();
 
     assert!(session.run(ctx.clone()).is_ok());
     assert_eq!(ctx.queue.pop(), Some(DebuggerEvent::Exited(1)));

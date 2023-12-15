@@ -28,22 +28,21 @@ pub type ExitCode = i32;
 
 /// Behaviour related to creating starting a debug session.
 pub trait Debuggable
-where Self: Sized {
+where
+    Self: Sized,
+{
     /// Creates a `Tracee`, debugging a newly launched process.
-    fn spawn<P, S>(settings: DebuggerSettings<S>, desc: DebuggerDescriptor<P, S>) -> Result<Self, Error>
-    where
-        P: AsRef<std::path::Path>,
-        S: Into<Vec<u8>>;
+    fn spawn<S: Into<Vec<u8>>>(
+        settings: DebuggerSettings<S>,
+        desc: DebuggerDescriptor<S>,
+    ) -> Result<Self, Error>;
 
     /// Creates a `Tracee`, debugging an existing process.
-    fn attach<P, S>(
+    fn attach<S: Into<Vec<u8>>>(
         pid: Pid,
         settings: DebuggerSettings<S>,
-        desc: DebuggerDescriptor<P, S>,
-    ) -> Result<Self, Error>
-    where
-        P: AsRef<std::path::Path>,
-        S: Into<Vec<u8>>;
+        desc: DebuggerDescriptor<S>,
+    ) -> Result<Self, Error>;
 
     /// Run blocking event loop of [`Debugger`].
     fn run(self, ctx: Arc<Context>) -> Result<(), Error>;

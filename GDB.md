@@ -16,6 +16,8 @@
 * d/detach
 * q/quit
 * s/stop
+* trace
+* follow-children
 
 ## Small details
 

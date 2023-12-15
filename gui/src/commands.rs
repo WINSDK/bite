@@ -5,7 +5,7 @@ use crate::panels::{Panels, Terminal};
 
 const CMDS: &[&str] = &[
     "exec", "pwd", "cd", "quit", "run", "goto", "set", "break", "delete", "stop", "continue",
-    "clear",
+    "clear", "trace", "follow-children"
 ];
 
 /// Print to the terminal.
@@ -233,6 +233,14 @@ impl Panels {
 
             self.dbg_ctx.queue.push(debugger::DebugeeEvent::Continue);
             return true;
+        }
+
+        if cmd == "trace" {
+            // FIXME
+        }
+
+        if cmd == "follow-children" {
+            // FIXME
         }
 
         if cmd == "clear" {

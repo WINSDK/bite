@@ -187,14 +187,6 @@ impl<Arch: Target> UI<Arch> {
 
         let dbg_ctx = self.dbg_ctx.clone();
         let ui_queue = self.ui_queue.clone();
-        let path = match self.panels.listing() {
-            Some(listing) => listing.disassembly.processor.path.clone(),
-            None => {
-                tprint!(self.panels.terminal(), "No binary to debug.");
-                return;
-            }
-        };
-
         let module = self.panels.listing().unwrap().disassembly.processor.clone();
         let settings = self.dbg_settings.clone();
 
@@ -204,12 +196,10 @@ impl<Arch: Target> UI<Arch> {
 
             #[cfg(target_os = "linux")]
             let desc = DebuggerDescriptor {
-                path,
                 args,
                 module,
             };
 
-            dbg!(&settings.env);
             let session = match Debugger::spawn(settings, desc) {
                 Ok(session) => session,
                 Err(err) => {

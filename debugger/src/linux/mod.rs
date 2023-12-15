@@ -52,7 +52,10 @@ fn procfs_process(pid: Pid) -> Result<procfs::process::Process, Error> {
 }
 
 fn read_memory_maps(proc: &procfs::process::Process) -> Result<Vec<MemoryMap>, Error> {
-    Ok(proc.maps().unwrap_or_else(|_| panic!("Failed to open memory map of {proc:?}")).0)
+    Ok(proc
+        .maps()
+        .unwrap_or_else(|_| panic!("Failed to open memory map of {proc:?}"))
+        .0)
 }
 
 pub struct Process {
@@ -201,10 +204,7 @@ pub struct DebuggerSettings<S: Into<Vec<u8>>> {
 
 /// Required options related to creating a [`Debugger`].
 #[derive(Clone)]
-pub struct DebuggerDescriptor<P: AsRef<std::path::Path>, S: Into<Vec<u8>>> {
-    /// Relative or absolute path to binary.
-    pub path: P,
-
+pub struct DebuggerDescriptor<S: Into<Vec<u8>>> {
     /// Process arguments.
     pub args: Vec<S>,
 
@@ -237,10 +237,10 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    fn new<P: AsRef<std::path::Path>, S: Into<Vec<u8>>>(
+    fn new<S: Into<Vec<u8>>>(
         root: Pid,
         settings: DebuggerSettings<S>,
-        desc: DebuggerDescriptor<P, S>,
+        desc: DebuggerDescriptor<S>,
     ) -> Result<Self, Error> {
         assert!(
             !(!settings.tracing && settings.follow_children),
@@ -471,16 +471,11 @@ impl Debugger {
 }
 
 impl Debuggable for Debugger {
-    fn spawn<P, S>(
+    fn spawn<S: Into<Vec<u8>>>(
         mut settings: DebuggerSettings<S>,
-        mut desc: DebuggerDescriptor<P, S>,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized,
-        P: AsRef<std::path::Path>,
-        S: Into<Vec<u8>>,
-    {
-        let c_path = CString::new(desc.path.as_ref().as_os_str().as_bytes())
+        mut desc: DebuggerDescriptor<S>,
+    ) -> Result<Self, Error> {
+        let c_path = CString::new(desc.module.path.as_os_str().as_bytes())
             .map_err(|_| Error::InvalidPathName)?;
 
         let args = std::mem::take(&mut desc.args);
@@ -527,16 +522,11 @@ impl Debuggable for Debugger {
         }
     }
 
-    fn attach<P, S>(
+    fn attach<S: Into<Vec<u8>>>(
         pid: Pid,
         settings: DebuggerSettings<S>,
-        desc: DebuggerDescriptor<P, S>,
-    ) -> Result<Self, Error>
-    where
-        Self: Sized,
-        P: AsRef<std::path::Path>,
-        S: Into<Vec<u8>>,
-    {
+        desc: DebuggerDescriptor<S>,
+    ) -> Result<Self, Error> {
         ptrace::attach(pid).map_err(Error::Kernel)?;
         let mut debugger = Debugger::new(pid, settings, desc)?;
         debugger.remote = true;
