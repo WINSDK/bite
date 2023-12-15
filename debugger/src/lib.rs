@@ -2,6 +2,7 @@ use crossbeam_queue::SegQueue;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
+use disassembler::{VirtAddr, PhysAddr};
 
 mod collections;
 
@@ -24,8 +25,6 @@ pub use macos::*;
 pub use windows::*;
 
 pub type ExitCode = i32;
-pub type PhysAddr = usize;
-pub type VirtAddr = usize;
 
 /// Behaviour related to creating starting a debug session.
 pub trait Debuggable
@@ -81,8 +80,8 @@ enum BreakpointOp {
 }
 
 pub struct Breakpoint {
-    /// Virtual address.
-    addr: VirtAddr,
+    /// Physical address.
+    addr: PhysAddr,
 
     /// Byte in memory we overwrote with int3.
     shadow: u8,
@@ -92,21 +91,23 @@ pub struct Breakpoint {
 }
 
 impl Breakpoint {
-    pub(crate) fn set(&mut self, tracee: &mut impl Tracing) -> Result<(), Error> {
-        self.shadow = tracee.read_memory(self.addr, 1)?[0];
+    pub(crate) fn set(&mut self, proc: &mut Process) -> Result<(), Error> {
+        let vaddr = proc.translate(self.addr);
+        self.shadow = dbg!(proc.read_memory(vaddr, 1)?[0]);
         let int3 = &[0xcc];
-        tracee.write_memory(self.addr, int3)?;
+        proc.write_memory(self.addr, int3)?;
         Ok(())
     }
 
-    pub(crate) fn unset(&mut self, tracee: &mut impl Tracing) -> Result<(), Error> {
-        tracee.write_memory(self.addr, &[self.shadow])?;
+    pub(crate) fn unset(&mut self, proc: &mut Process) -> Result<(), Error> {
+        let vaddr = proc.translate(self.addr);
+        proc.write_memory(vaddr, &[self.shadow])?;
         Ok(())
     }
 }
 
 pub struct Breakpoints {
-    mapping: BTreeMap<VirtAddr, Breakpoint>,
+    mapping: BTreeMap<PhysAddr, Breakpoint>,
 }
 
 impl Breakpoints {
@@ -117,7 +118,7 @@ impl Breakpoints {
     }
 
     /// Create a new [`Breakpoint`].
-    pub fn create(&mut self, addr: VirtAddr) {
+    pub fn create(&mut self, addr: PhysAddr) {
         // can't set a breakpoint twice
         if self.mapping.get(&addr).is_some() {
             return;
@@ -134,7 +135,7 @@ impl Breakpoints {
     }
 
     /// Mark a [`Breakpoint`] for removal.
-    pub fn remove(&mut self, addr: VirtAddr) -> Option<()> {
+    pub fn remove(&mut self, addr: PhysAddr) -> Option<()> {
         self.mapping.get_mut(&addr)?.op = Some(BreakpointOp::Delete);
         Some(())
     }

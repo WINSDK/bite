@@ -455,7 +455,7 @@ impl<'src> Context<'src> {
 enum Expr {
     Number(isize),
     Symbol {
-        addr: usize,
+        addr: crate::PhysAddr,
         function: symbols::Function,
     },
     Compound {

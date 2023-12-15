@@ -4,7 +4,7 @@ use crate::*;
 use disassembler::Processor;
 
 #[test]
-fn spawn_echo() {
+fn spawn_sleep() {
     let ctx = Arc::new(Context::new());
     let desc = DebuggerDescriptor {
         module: Arc::new(Processor::parse_unknown("/bin/sleep").unwrap()),
@@ -19,7 +19,7 @@ fn spawn_echo() {
 }
 
 #[test]
-fn spawn_error_code() {
+fn spawn_sleep_invalid() {
     let ctx = Arc::new(Context::new());
     let desc = DebuggerDescriptor {
         module: Arc::new(Processor::parse_unknown("/bin/sleep").unwrap()),

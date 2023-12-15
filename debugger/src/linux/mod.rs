@@ -38,7 +38,7 @@ pub enum Error {
 enum State {
     /// Nothing.
     Running,
-    /// Tracing options have yet to been set .
+    /// Tracing options have yet to been set.
     WaitingForInit,
 }
 
@@ -60,8 +60,9 @@ pub struct Process {
     module: Arc<Processor>,
     state: State,
     unprocessed_signal: Option<Signal>,
-    last_syscall: ptrace::SyscallInfoOp,
+    print_next_syscall: bool,
     tracing: bool,
+    memory_maps: Vec<MemoryMap>
 }
 
 impl Process {
@@ -71,18 +72,27 @@ impl Process {
             module,
             state: State::WaitingForInit,
             unprocessed_signal: None,
-            last_syscall: ptrace::SyscallInfoOp::None,
+            print_next_syscall: true,
             tracing: false,
+            memory_maps: read_memory_maps(&procfs_process(pid)?)?,
         })
     }
 
     /// Convert disassembler's address to virtual memory address.
     pub fn translate(&self, addr: PhysAddr) -> VirtAddr {
         // iterate from high addresses to low addresses.
-        for segment in self.module.segments().rev() {
-            if addr >= segment.start {
-                let rva = addr - segment.start;
-                return segment.addr + rva;
+        //for segment in self.module.segments() {
+        //     if addr >= segment.start && addr <= segment.end {
+        //         let rva = addr - segment.start;
+        //         return segment.addr + rva;
+        //     }
+        // }
+
+        for map in &self.memory_maps {
+            let size = (map.address.1 - map.address.0) as usize;
+            if addr >= map.offset as usize && addr < map.offset as usize + size {
+                let rva = addr - map.offset as usize;
+                return map.address.0 as usize + rva;
             }
         }
 
@@ -91,7 +101,6 @@ impl Process {
     }
 
     fn configure(&mut self) -> Result<(), Error> {
-        // break on common syscalls
         let options = ptrace::Options::empty()
             // new thread
             | ptrace::Options::PTRACE_O_TRACECLONE
@@ -269,7 +278,6 @@ impl Debugger {
                     if let Ok(mut path) = std::fs::read_link(format!("/proc/{pid}/fd/{dirfd}")) {
                         let relative = trace::read_c_str_slow(proc, args[1]);
                         path.push(relative);
-                        dbg!(&path);
 
                         if let Some(module) = self.parse_module_or_reuse(path) {
                             self.procs.get_mut(pid)?.module = module
@@ -280,7 +288,6 @@ impl Debugger {
                 if sysno == trace::Sysno::execve {
                     let proc = self.procs.get(pid)?;
                     let path = PathBuf::from(trace::read_c_str_slow(proc, args[0]));
-                    dbg!(&path);
 
                     if let Some(module) = self.parse_module_or_reuse(path) {
                         self.procs.get_mut(pid)?.module = module;
@@ -288,27 +295,18 @@ impl Debugger {
                 }
 
                 let proc = self.procs.get_mut(pid)?;
-
                 if proc.tracing {
-                    let func = proc.display(sysno, args);
-                    self.print_buf += &func;
-                    proc.last_syscall = syscall.op;
+                    self.print_buf += &proc.display(sysno, args);
+                    proc.print_next_syscall = nr != trace::Sysno::exit_group as u64;
                 }
 
                 proc.kontinue();
             }
             ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
-                const EXIT: u64 = trace::Sysno::exit_group as u64;
                 let proc = self.procs.get_mut(pid)?;
 
                 // check condition for logging syscall
-                if proc.tracing {
-                    // `exit_group` syscall doesn't have a return value
-                    if let ptrace::SyscallInfoOp::Entry { nr: EXIT, .. } = proc.last_syscall {
-                        proc.kontinue();
-                        return Ok(());
-                    }
-
+                if proc.tracing && proc.print_next_syscall {
                     self.print_buf += " -> ";
                     self.print_buf += &ret_val.to_string();
 
@@ -357,11 +355,9 @@ impl Debugger {
                     let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
 
                     // find module and add it to process
-                    let procfs_proc = procfs_process(created_pid)?;
-                    let path = procfs_proc.exe().unwrap();
-                    let module = self.parse_module_or_reuse(path).unwrap();
-
+                    let module = Arc::clone(&self.procs.get(pid)?.module);
                     let mut proc = Process::stopped(created_pid, module)?;
+
                     proc.tracing = self.follow_children;
                     proc.attach();
                     proc.configure()?;
@@ -421,14 +417,11 @@ impl Debugger {
             for bp in breakpoints.values_mut() {
                 match bp.op.take() {
                     Some(BreakpointOp::Create) => {
-                        let root_proc = self.procs.root();
-                        bp.addr = root_proc.translate(bp.addr);
-                        bp.set(root_proc)?;
+                        bp.set(self.procs.root())?;
                         ctx.queue.pushd(DebuggerEvent::BreakpointSet(bp.addr));
                     }
                     Some(BreakpointOp::Delete) => {
-                        let root_proc = self.procs.root();
-                        bp.unset(root_proc)?;
+                        bp.unset(self.procs.root())?;
                         up_for_removal.push(bp.addr);
                     }
                     None => {}
@@ -436,7 +429,7 @@ impl Debugger {
             }
 
             for addr in up_for_removal {
-                breakpoints.remove(addr);
+                breakpoints.mapping.remove(&addr);
             }
 
             // wait for child to give send a message
@@ -444,7 +437,7 @@ impl Debugger {
             for pid in pids {
                 let status = waitpid(
                     pid,
-                    Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED | WaitPidFlag::WCONTINUED),
+                    Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED),
                 )
                 .map_err(Error::Kernel)?;
 

@@ -11,8 +11,8 @@ use object::{Object, SectionKind};
 pub use processor::Processor;
 use tokenizing::{colors, Token};
 
-type VirtAddr = usize;
-type PhysAddr = usize;
+pub type VirtAddr = usize;
+pub type PhysAddr = usize;
 
 pub enum Error {
     IO(std::io::Error),
