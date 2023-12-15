@@ -185,11 +185,16 @@ impl<Arch: Target> UI<Arch> {
                 return;
             }
         };
+
         let module = self.panels.listing().unwrap().disassembly.processor.clone();
 
         tprint!(self.panels.terminal(), "Running debugger.");
 
         std::thread::spawn(move || {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            let desc = DebuggerDescriptor {};
+
+            #[cfg(target_os = "linux")]
             let desc = DebuggerDescriptor {
                 module,
                 tracing: args::ARGS.tracing,

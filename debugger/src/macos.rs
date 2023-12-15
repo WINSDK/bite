@@ -1,37 +1,44 @@
-use crate::{MessageQueue, Process, Tracee};
 use std::marker::PhantomData;
+use std::sync::Arc;
+use crate::{Tracing, Debuggable, VirtAddr, Context};
 
-pub struct Pid;
+pub type Pid = isize;
 
 #[derive(Debug, PartialEq)]
-pub enum Error {}
+pub enum Error {
+    ProcessLost(Pid),
+}
+
+pub struct DebuggerDescriptor {}
 
 pub struct Debugger {
-    queue: MessageQueue,
-
     /// Prevent [`Debugger`] implementing Send.
     _not_send: PhantomData<*mut ()>,
 }
 
-impl Process for Debugger {
+impl Debuggable for Debugger {
     fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
-        _: MessageQueue,
         _: P,
         _: Vec<A>,
+        _: DebuggerDescriptor
     ) -> Result<Self, Error> {
         todo!("spawn");
     }
 
-    fn attach(_: MessageQueue, _: Pid) -> Result<Self, Error> {
+    fn attach(_: Pid, _: DebuggerDescriptor) -> Result<Self, Error> {
         todo!("attach");
     }
 
-    fn run(mut self) -> Result<(), Error> {
+    fn run(self, _: Arc<Context>) -> Result<(), Error> {
         todo!("run");
     }
 }
 
-impl Tracee for Debugger {
+impl Tracing for Debugger {
+    fn attach(&mut self) {
+        todo!("detach");
+    }
+
     fn detach(&mut self) {
         todo!("detach");
     }
@@ -48,11 +55,11 @@ impl Tracee for Debugger {
         todo!("kontinue");
     }
 
-    fn read_process_memory(&self, _: usize, _: usize) -> Result<Vec<u8>, Error> {
-        todo!("read_process_memory");
+    fn read_memory(&self, _: VirtAddr, _: usize) -> Result<Vec<u8>, Error> {
+        todo!("process_memory");
     }
 
-    fn write_process_memory(&mut self, _: usize, _: &[u8]) -> Result<(), Error> {
-        todo!("write_process_memory");
+    fn write_memory(&mut self, _: VirtAddr, _: &[u8]) -> Result<(), Error> {
+        todo!("process_memory");
     }
 }
