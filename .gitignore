@@ -2,3 +2,4 @@
 /.vs
 *.swp
 *~
+.vscode/settings.json

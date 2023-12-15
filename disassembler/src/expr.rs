@@ -281,26 +281,6 @@ impl<'src> Context<'src> {
         return Ok(int);
     }
 
-    /// Reads one of 5 math operations.
-    fn operator(&mut self) -> Result<Operator, Error> {
-        let op = match self.peek() {
-            Some(op) => op,
-            None => return self.error("Trailing characters in expression"),
-        };
-
-        let op = match op {
-            '+' => Operator::Add,
-            '-' => Operator::Min,
-            '*' => Operator::Mul,
-            '/' => Operator::Div,
-            '%' => Operator::Mod,
-            chr => return self.failing(&format!("Encountered invalid operator '{chr}'")),
-        };
-
-        self.offset += 1;
-        Ok(op)
-    }
-
     /// Reads a serious of characters.
     /// If a pair of <..> is detected, it will allow any series of characters
     /// in-between the generic.
@@ -348,86 +328,111 @@ impl<'src> Context<'src> {
         Ok(&self.src[start..self.offset])
     }
 
-    /// Parses an [`Expr`] without reading trailing whitespace.
-    fn expr_inner(&mut self) -> Result<Expr, Error> {
-        self.descent()?;
+    fn parse_primary(&mut self) -> Result<Expr, Error> {
         self.consume_whitespace();
 
-        match self.number() {
-            Ok(num) => {
-                self.consume_whitespace();
-
-                if let Ok(op) = self.operator() {
-                    self.consume_whitespace();
-
-                    self.ascent();
-                    let rhs = self.expr_inner()?;
-                    return Ok(Expr::Compound {
-                        lhs: self.store(Expr::Number(num)),
-                        op,
-                        rhs: self.store(rhs),
-                    });
-                }
-
-                self.ascent();
-                return Ok(Expr::Number(num));
-            }
-            Err(err) if self.is_failing => return Err(err),
-            Err(..) => {}
+        if let Ok(num) = self.number() {
+            return Ok(Expr::Number(num));
         }
-
+        
         let sym = self.symbol()?;
         if !sym.is_empty() {
-            self.consume_whitespace();
-
-            let (addr, function) = match self.index.get_by_name(sym) {
-                Some(got) => got,
-                None => {
-                    return Err(Error {
-                        msg: format!("Function '{sym}' isn't known"),
-                        offset: None,
-                    })
-                }
-            };
-
-            if let Ok(op) = self.operator() {
-                self.consume_whitespace();
-
-                self.ascent();
-                let rhs = self.expr_inner()?;
-                return Ok(Expr::Compound {
-                    lhs: self.store(Expr::Symbol { addr, function }),
-                    op,
-                    rhs: self.store(rhs),
-                });
+            return match self.index.get_by_name(sym) {
+                Some((addr, function)) => Ok(Expr::Symbol { addr, function }),
+                None => self.error(&format!("Unknown symbol '{sym}'")),
             }
-
-            self.ascent();
-            return Ok(Expr::Symbol { addr, function });
-        }
-
-        if let Ok(()) = self.consume('(') {
-            let expr = self.expr_inner()?;
+        } 
+        
+        if self.consume('(').is_ok() {
+            let inner_expr = self.expr_inner()?;
             self.consume(')')?;
+            return Ok(inner_expr);
+        }
+            
+        self.error("Expected a primary expression")
+    }
+
+    fn parse_high_precedence(&mut self) -> Result<Expr, Error> {
+        let mut lhs = self.parse_primary()?;
+
+        loop {
             self.consume_whitespace();
-
-            if let Ok(op) = self.operator() {
-                self.consume_whitespace();
-
-                self.ascent();
-                let rhs = self.expr_inner()?;
-                return Ok(Expr::Compound {
-                    lhs: self.store(expr),
-                    op,
-                    rhs: self.store(rhs),
-                });
+            match self.peek() {
+                Some('*') => {
+                    self.consume('*')?;
+                    self.consume_whitespace();
+                    let rhs = self.parse_primary()?;
+                    lhs = Expr::Compound {
+                        lhs: self.store(lhs),
+                        op: Operator::Mul,
+                        rhs: self.store(rhs),
+                    };
+                },
+                Some('/') => {
+                    self.consume('/')?;
+                    self.consume_whitespace();
+                    let rhs = self.parse_primary()?;
+                    lhs = Expr::Compound {
+                        lhs: self.store(lhs),
+                        op: Operator::Div,
+                        rhs: self.store(rhs),
+                    };
+                },
+                Some('%') => {
+                    self.consume('%')?;
+                    self.consume_whitespace();
+                    let rhs = self.parse_primary()?;
+                    lhs = Expr::Compound {
+                        lhs: self.store(lhs),
+                        op: Operator::Mod,
+                        rhs: self.store(rhs),
+                    };
+                },
+                _ => break,
             }
-
-            self.ascent();
-            return Ok(expr);
         }
 
-        self.error("Invalid expression")
+        Ok(lhs)
+    }
+
+    fn parse_low_precedence(&mut self) -> Result<Expr, Error> {
+        let mut lhs = self.parse_high_precedence()?;
+
+        loop {
+            self.consume_whitespace();
+            match self.peek() {
+                Some('+') => {
+                    self.consume('+')?;
+                    self.consume_whitespace();
+                    let rhs = self.parse_high_precedence()?;
+                    lhs = Expr::Compound {
+                        lhs: self.store(lhs),
+                        op: Operator::Add,
+                        rhs: self.store(rhs),
+                    };
+                },
+                Some('-') => {
+                    self.consume('-')?;
+                    self.consume_whitespace();
+                    let rhs = self.parse_high_precedence()?;
+                    lhs = Expr::Compound {
+                        lhs: self.store(lhs),
+                        op: Operator::Min,
+                        rhs: self.store(rhs),
+                    };
+                },
+                _ => break,
+            }
+        }
+
+        Ok(lhs)
+    }
+
+    fn expr_inner(&mut self) -> Result<Expr, Error> {
+        self.descent()?;
+        let expr = self.parse_low_precedence()?;
+        self.ascent();
+        Ok(expr)
     }
 
     /// Parses an [`Expr`] with surrounding whitespace, checking if
@@ -637,37 +642,13 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn operation_order() {
-    //     eval_eq!(
-    //         [],
-    //         "1 + 10 * 10",
-    //         101
-    //     );
-    //     eval_eq!(
-    //         [],
-    //         "1 + (10 + 10)",
-    //         21
-    //     );
-    //     eval_eq!(
-    //         [],
-    //         "(10 + 10) * 2",
-    //         40
-    //     );
-    //     eval_eq!(
-    //         [],
-    //         "2 * (10 + 10)",
-    //         40
-    //     );
-    //     eval_eq!(
-    //         [],
-    //         "10 * 4 / 2",
-    //         20
-    //     );
-    //     eval_eq!(
-    //         [],
-    //         "10 * 2 / 4",
-    //         5
-    //     );
-    // }
+    #[test]
+    fn operation_order() {
+        eval_eq!([], "1 + 10 * 10", 101);
+        eval_eq!([], "1 + (10 + 10)", 21);
+        eval_eq!([], "(10 + 10) * 2", 40);
+        eval_eq!([], "2 * (10 + 10)", 40);
+        eval_eq!([], "10 * 4 / 2", 20);
+        eval_eq!([], "10 * 2 / 4", 5);
+    }
 }
