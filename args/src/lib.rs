@@ -18,23 +18,25 @@ OPTIONS:
   -N, --names         Print all symbols exposed by object
   -S, --simplify      Replace common types with shortened paths
   -D, --disassemble   Path to object you're disassembling
+  -T, --tracing       Trace all syscalls performed
   -C, --config        Path to config used for disassembling
   -B, --debug         Enable extra debug information";
 
-const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C", "-B"];
+const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C", "-T", "-B"];
 const NAMES: &[&str] = &[
     "--help",
     "--libs",
     "--names",
     "--simplify",
     "--disassemble",
+    "--tracing",
     "--config",
     "--debug",
 ];
 
 pub static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Cli {
     /// Print shared libraries the object is linked against.
     pub libs: bool,
@@ -48,6 +50,9 @@ pub struct Cli {
     /// Disassemble object into `readable` assembly,
     pub disassemble: bool,
 
+    /// Record syscalls.
+    pub tracing: bool,
+
     /// Show egui debug overlay.
     pub debug: bool,
 
@@ -60,16 +65,7 @@ pub struct Cli {
 
 impl Cli {
     pub fn parse() -> Self {
-        let mut cli = Cli {
-            libs: false,
-            names: false,
-            simplify: false,
-            disassemble: false,
-            debug: false,
-            config: None,
-            path: None,
-        };
-
+        let mut cli = Cli::default();
         let mut args = std::env::args().skip(1).peekable();
 
         while let Some(arg) = args.next() {
@@ -103,6 +99,7 @@ impl Cli {
                         }
                     }
                 }
+                "-T" | "--tracing" => cli.tracing = true,
                 "-B" | "--debug" => cli.debug = true,
                 unknown => {
                     let mut distance = u32::MAX;
@@ -138,6 +135,10 @@ impl Cli {
             // no action arguments were given
             self.disassemble = true;
             return;
+        }
+
+        if self.tracing && !self.disassemble {
+            exit!(1 => "Invalid combination of arguements.\n\n{HELP}");
         }
 
         if self.disassemble as usize + self.libs as usize + self.names as usize > 1 {

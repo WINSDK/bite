@@ -3,7 +3,20 @@ use std::path::Path;
 
 use crate::panels::{Panels, Terminal};
 
-const CMDS: &[&str] = &["exec", "pwd", "cd", "quit", "run", "goto", "set"];
+const CMDS: &[&str] = &[
+    "exec",
+    "pwd",
+    "cd",
+    "quit",
+    "run",
+    "goto",
+    "set",
+    "break",
+    "delete",
+    "stop",
+    "continue",
+    "clear"
+];
 
 /// Print to the terminal.
 #[macro_export]
@@ -150,18 +163,93 @@ impl Panels {
 
             let expr = cmd.strip_prefix("goto").or(cmd.strip_prefix("g")).unwrap_or(cmd);
 
-            match disassembler::expr::parse(&listing.disassembly.symbols, expr) {
+            match disassembler::expr::parse(&listing.disassembly.processor.symbols(), expr) {
                 Ok(addr) => {
                     if listing.disassembly_view.jump(&listing.disassembly, addr) {
                         listing.update();
-                        tprint!(self.terminal(), "Jumped to address '{addr:#X}'.");
+                        tprint!(self.terminal(), "Jumped to address {addr:#X}.");
                     } else {
-                        tprint!(self.terminal(), "Address '{addr:#X}' is undefined.");
+                        tprint!(self.terminal(), "Address {addr:#X} is undefined.");
                     }
                 }
                 Err(err) => tprint!(self.terminal(), "{err:?}."),
             }
 
+            return true;
+        }
+
+        if cmd_name == "break" || cmd_name == "b" {
+            let listing = match self.listing() {
+                Some(dissasembly) => dissasembly,
+                None => {
+                    tprint!(self.terminal(), "There are no targets to debug.");
+                    return true;
+                }
+            };
+
+            let expr = cmd.strip_prefix("break").or(cmd.strip_prefix("b")).unwrap_or(cmd);
+            match disassembler::expr::parse(&listing.disassembly.processor.symbols(), expr) {
+                Ok(addr) => {
+                    if listing.disassembly.processor.instruction_by_addr(addr).is_none() {
+                        tprint!(self.terminal(), "Address {addr:#X} is undefined.");
+                    } else {
+                        self.dbg_ctx.breakpoints.write().unwrap().create(addr);
+                        tprint!(self.terminal(), "Breakpoint at {addr:#X} queued.");
+                    }
+                }
+                Err(err) => tprint!(self.terminal(), "{err:?}."),
+            }
+
+            return true;
+        }
+
+        if cmd_name == "delete" || cmd_name == "db" {
+            let listing = match self.listing() {
+                Some(dissasembly) => dissasembly,
+                None => {
+                    tprint!(self.terminal(), "There are no targets to debug.");
+                    return true;
+                }
+            };
+
+            let expr = cmd.strip_prefix("delete").or(cmd.strip_prefix("db")).unwrap_or(cmd);
+            match disassembler::expr::parse(&listing.disassembly.processor.symbols(), expr) {
+                Ok(addr) => {
+                    if listing.disassembly.processor.instruction_by_addr(addr).is_none() {
+                        tprint!(self.terminal(), "Address {addr:#X} is undefined.");
+                    } else {
+                        self.dbg_ctx.breakpoints.write().unwrap().remove(addr);
+                        tprint!(self.terminal(), "Breakpoint {addr:#X} removed.");
+                    }
+                }
+                Err(err) => tprint!(self.terminal(), "{err:?}."),
+            }
+            return true;
+        }
+
+        if cmd == "stop" || cmd == "s" {
+            if !self.dbg_ctx.attached() {
+                tprint!(self.terminal(), "There are no targets to stop.");
+                return true;
+            }
+
+            self.dbg_ctx.queue.push(debugger::DebugeeEvent::Break);
+            return true;
+        }
+
+        if cmd == "continue" || cmd == "c" {
+            if !self.dbg_ctx.attached() {
+                tprint!(self.terminal(), "There are no targets to continue.");
+                return true;
+            }
+
+            self.dbg_ctx.queue.push(debugger::DebugeeEvent::Continue);
+            return true;
+        }
+
+        if cmd == "clear" {
+            log::LOGGER.lock().unwrap().clear();
+            self.terminal().clear();
             return true;
         }
 

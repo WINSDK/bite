@@ -71,6 +71,11 @@ impl Terminal {
         self.commands[self.command_position].clear();
     }
 
+    pub fn clear(&mut self) {
+        self.reset_line();
+        self.prompt.clear();
+    }
+
     /// Search through newer commands, finding one that isn't empty.
     pub fn scroll_to_next_cmd(&mut self) {
         while self.command_position != self.commands.len() - 1 {

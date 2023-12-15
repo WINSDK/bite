@@ -1,19 +1,16 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
+use std::fmt;
+use crate::{Pid, Error};
 
-#[derive(Debug)]
 pub struct Node<K, V> {
     value: V,
-    parent: Option<K>,
     children: Vec<K>,
 }
 
 impl<K, V> Node<K, V> {
-    fn new(value: V, parent: Option<K>) -> Self {
+    fn new(value: V) -> Self {
         Self {
             value,
-            parent,
             children: Vec::new(),
         }
     }
@@ -33,89 +30,119 @@ impl<K, V> std::ops::DerefMut for Node<K, V> {
     }
 }
 
-#[derive(Debug)]
-pub struct Tree<K, V> {
-    root: Option<K>,
-    nodes: HashMap<K, Node<K, V>>,
+pub struct Tree<V> {
+    root: Option<Pid>,
+    nodes: HashMap<Pid, Node<Pid, V>>,
 }
 
-impl<K: Clone + std::hash::Hash + Eq, V: Clone> Tree<K, V> {
-    pub fn new() -> Self {
+impl<V> Tree<V> {
+    pub fn new(root: Pid, root_value: V) -> Self {
+        let mut nodes = HashMap::new();
+        nodes.insert(root, Node::new(root_value));
         Self {
-            root: None,
-            nodes: HashMap::new(),
+            root: Some(root),
+            nodes,
         }
     }
 
-    pub fn root(&self) -> K {
-        self.root.as_ref().expect("No root.").clone()
+    pub fn root(&mut self) -> &mut V {
+        self.root.as_ref().and_then(|root| self.nodes.get_mut(root)).unwrap()
     }
 
-    pub fn push_child(&mut self, parent: &K, key: K, value: V) {
+    pub fn push_child(&mut self, parent: &Pid, key: Pid, value: V) {
         let parent_node = self.nodes.get_mut(parent).expect("Failed to find parent.");
 
-        parent_node.children.push(key.clone());
-        self.nodes.insert(key, Node::new(value, Some(parent.clone())));
+        parent_node.children.push(key);
+        self.nodes.insert(key, Node::new(value));
     }
 
-    pub fn push_root(&mut self, key: K, value: V) {
-        self.root = Some(key.clone());
-        self.nodes.insert(key, Node::new(value, None));
+    pub fn get(&mut self, key: Pid) -> Result<&V, Error> {
+        self
+            .nodes
+            .get_mut(&key)
+            .map(|node| &node.value)
+            .ok_or(Error::ProcessLost(key))
     }
 
-    pub fn find(&mut self, key: &K) -> Option<&mut V> {
-        self.nodes.get_mut(key).map(|node| &mut node.value)
+    pub fn get_mut(&mut self, key: Pid) -> Result<&mut V, Error> {
+        self
+            .nodes
+            .get_mut(&key)
+            .map(|node| &mut node.value)
+            .ok_or(Error::ProcessLost(key))
     }
 
-    pub fn remove(&mut self, key: &K) {
-        if Some(key) == self.root.as_ref() {
-            assert!(
-                self.nodes.len() == 1,
-                "Can't remove root when there are still leafs."
-            );
+    pub fn remove(&mut self, key: Pid) {
+        let node = self.nodes.remove(&key).expect("Key isn't part of tree");
 
+        // remove a node's children recursively
+        for child_key in node.children {
+            self.remove(child_key);
+        }
+
+        // remove the key from the children of other nodes
+        for (_, node) in self.nodes.iter_mut() {
+            if let Some(index) = node.children.iter().position(|&k| k == key) {
+                node.children.remove(index);
+            }
+        }
+
+        // update the root if necessary
+        if self.root == Some(key) {
             self.root = None;
         }
-
-        // find parent of node
-        let opt_parent = self
-            .nodes
-            .get(key)
-            .expect("Value being removed isn't part of the tree.")
-            .parent
-            .clone();
-
-        // if we aren't removing the root
-        if let Some(parent) = opt_parent {
-            // find the parent node
-            let parent_node = self.nodes.get_mut(&parent).unwrap();
-
-            // get the index of the parent's child (the node we're removing)
-            let child_of_parent = parent_node.children.iter().position(|k| k == key).unwrap();
-
-            // remove reference
-            parent_node.children.remove(child_of_parent);
-        }
-
-        self.nodes.remove(key);
     }
 
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
-        self.nodes.iter().map(|(key, node)| (key, &node.value))
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.nodes.iter().map(|(_, node)| (&node.value))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
-        self.nodes.iter_mut().map(|(key, node)| (key, &mut node.value))
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.nodes.iter_mut().map(|(_, node)| (&mut node.value))
     }
+}
 
-    pub fn consuming_iter(&mut self) -> impl Iterator<Item = (K, V)> {
-        let nodes = std::mem::take(&mut self.nodes);
-        self.root = None;
+impl<V> fmt::Debug for Tree<V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(ref root_key) = self.root {
+            self.recursive_debug_print(f, root_key, 0)?;
+        }
 
-        nodes.into_iter().map(|(key, node)| (key, node.value))
+        Ok(())
+    }
+}
+
+impl<V> Tree<V> {
+    fn recursive_debug_print(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        key: &Pid,
+        depth: usize,
+    ) -> fmt::Result {
+        if let Some(node) = self.nodes.get(key) {
+            if depth > 0 {
+                f.write_str(" ")?;
+            }
+
+            for _ in 0..depth {
+                f.write_str("-")?;
+            }
+
+            if depth > 0 {
+                f.write_str("> ")?;
+            }
+
+            f.write_fmt(format_args!("{:?}\n", key))?;
+
+            for child_key in &node.children {
+                self.recursive_debug_print(f, child_key, depth + 1)?;
+            }
+        }
+
+        Ok(())
     }
 }

@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 pdb = "0.8"
-object = "0.32"
+object = { workspace = true }
 log = { path = "../log" }
 tokenizing = { path = "../tokenizing" }
 symbols = { path = "../symbols" }

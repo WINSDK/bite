@@ -1,11 +1,13 @@
-use crate::{Addr, Section};
+use crate::{Error, PhysAddr, Section, Segment, VirtAddr};
 use decoder::{Decodable, Decoded};
+use object::{Object, ObjectSegment};
 use tokenizing::Token;
 
-use object::{Architecture, ObjectSection, SectionIterator, SectionKind};
+use object::{Architecture, ObjectSection, SectionKind};
 use x86_64::long_mode as x64;
 use x86_64::protected_mode as x86;
 
+use std::borrow::Cow;
 use std::mem::ManuallyDrop;
 
 pub union Instruction {
@@ -16,16 +18,17 @@ pub union Instruction {
 }
 
 macro_rules! impl_recursion {
-    ($this:expr, $index:expr, $arch:ident, $decoder:expr) => {{
-        let decoder = $decoder;
-        $this.max_instruction_width = decoder.max_width();
-        for section in $this.sections.iter().filter(|s| s.kind == SectionKind::Text) {
+    ($symbols:expr, $errors:expr, $instructions:expr, $sections:expr,
+     $max_instruction_width:expr, $decoder:expr, $arch:ident) => {{
+        $max_instruction_width = $decoder.max_width();
+
+        for section in $sections.iter().filter(|s| s.kind == SectionKind::Text) {
             let mut reader = decoder::Reader::new(&section.bytes);
             let mut addr = section.start;
 
             log::complex!(
                 w "[processor::recurse] analyzing section ",
-                b &section.name,
+                b &*section.name,
                 w " <",
                 g format!("{:x}", section.start),
                 w "..",
@@ -34,12 +37,12 @@ macro_rules! impl_recursion {
             );
 
             loop {
-                match decoder.decode(&mut reader) {
+                match $decoder.decode(&mut reader) {
                     Ok(mut instruction) => {
-                        instruction.find_xrefs(addr, $index);
+                        instruction.find_xrefs(addr, $symbols);
 
                         let width = instruction.width();
-                        $this.instructions.push((addr, Instruction {
+                        $instructions.push((addr, Instruction {
                             $arch: std::mem::ManuallyDrop::new(instruction)
                         }));
 
@@ -51,7 +54,7 @@ macro_rules! impl_recursion {
                         }
 
                         let width = error.size();
-                        $this.errors.push((addr, error));
+                        $errors.push((addr, error));
                         addr += width;
                     }
                 }
@@ -60,18 +63,27 @@ macro_rules! impl_recursion {
     }};
 }
 
-/// Architecture agnostic code analysis.
+/// Architecture agnostic analysis of a module.
 pub struct Processor {
+    /// Where the binary is located.
+    pub path: std::path::PathBuf,
+
     /// Object's sections sorted by address.
     sections: Vec<Section>,
 
+    /// Object's segments sorted by address.
+    segments: Vec<Segment>,
+
     /// Errors occurred in decoding instructions.
     /// Sorted by address.
-    pub errors: Vec<(Addr, decoder::Error)>,
+    errors: Vec<(PhysAddr, decoder::Error)>,
 
     /// Successfully decoded instructions.
     /// Sorted by address.
-    pub instructions: Vec<(Addr, Instruction)>,
+    instructions: Vec<(PhysAddr, Instruction)>,
+
+    /// Symbol lookup by physical address.
+    symbols: symbols::Index,
 
     /// How many bytes an instruction given the architecture.
     max_instruction_width: usize,
@@ -87,18 +99,54 @@ pub struct Processor {
 }
 
 impl Processor {
-    pub fn new(sections: SectionIterator, arch: Architecture) -> Result<Self, Architecture> {
-        let mut found_sections: Vec<Section> = Vec::new();
-        let mut has_text_section = false;
+    /// Parse module that doesn't have an associated [`object::File`] yet.
+    pub fn parse_unknown<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
+        let binary = std::fs::read(&path).map_err(Error::IO)?;
+        let obj = object::File::parse(&binary[..]).map_err(Error::IncompleteObject)?;
+        Self::parse(path, &binary[..], &obj)
+    }
 
-        for section in sections {
+    pub fn parse<P: AsRef<std::path::Path>>(
+        path: P,
+        binary: &[u8],
+        obj: &object::File<'_>,
+    ) -> Result<Self, Error> {
+        let now = std::time::Instant::now();
+
+        let mut sections = Vec::new();
+        let mut segments = Vec::new();
+        let arch = obj.architecture();
+
+        for segment in obj.segments() {
+            let name = match segment.name() {
+                Ok(Some(name)) => Cow::Owned(name.to_string()),
+                _ => Cow::Borrowed("unnamed"),
+            };
+
+            let phys_start = segment.file_range().0 as PhysAddr;
+            let phys_end = phys_start + segment.size() as PhysAddr;
+
+            let segment = Segment {
+                name,
+                addr: segment.address() as VirtAddr,
+                start: phys_start,
+                end: phys_end,
+            };
+
+            segments.push(segment);
+        }
+
+        for section in obj.sections() {
             // there appear to be sections that aren't meant to be conventionally loaded
             // they appear to be sections meant for the debugger to load
             if section.address() == 0 {
                 continue;
             }
 
-            let name = section.name().unwrap_or("unknown").to_string();
+            let name = match section.name() {
+                Ok(name) => Cow::Owned(name.to_string()),
+                _ => Cow::Borrowed("unnamed"),
+            };
 
             const DWARF_SECTIONS: [&str; 22] = [
                 ".debug_abbrev",
@@ -141,30 +189,23 @@ impl Processor {
                 }
             };
 
-            let start = section.address() as Addr;
+            let start = section.address() as PhysAddr;
             let end = bytes.len() + start;
             let section = Section {
                 name,
                 kind: section.kind(),
                 bytes: bytes.into_owned(),
+                addr: section.address() as VirtAddr,
                 start,
                 end,
             };
 
-            if section.kind == SectionKind::Text {
-                has_text_section = true;
-            }
-
-            found_sections.push(section);
+            sections.push(section);
         }
 
-        if !has_text_section {
-            // FIXME
-            unimplemented!("We don't handle objects that don't have an code sections.");
-        }
-
-        // sort sections by their address
-        found_sections.sort_unstable_by_key(|s| s.start);
+        // sort segments/sections by their physical address
+        segments.sort_unstable_by_key(|s| s.start);
+        sections.sort_unstable_by_key(|s| s.start);
 
         let (instruction_tokens, instruction_width) = unsafe {
             match arch {
@@ -184,47 +225,105 @@ impl Processor {
                     std::mem::transmute(<x64::Instruction as Decoded>::tokens as usize),
                     std::mem::transmute(<x64::Instruction as Decoded>::width as usize),
                 ),
-                arch => return Err(arch),
+                arch => return Err(Error::UnknownArchitecture(arch)),
             }
         };
 
+        let mut symbols = symbols::Index::new();
+
+        symbols.parse_debug(&obj).map_err(Error::IncompleteSymbolTable)?;
+        symbols.parse_imports(&binary[..], &obj).map_err(Error::IncompleteImportTable)?;
+        symbols.label();
+
+        let mut instructions = Vec::new();
+        let mut errors = Vec::new();
+        let max_instruction_width;
+
+        match arch {
+            Architecture::Riscv32 => {
+                impl_recursion!(
+                    &symbols,
+                    &mut errors,
+                    &mut instructions,
+                    &mut sections,
+                    max_instruction_width,
+                    riscv::Decoder { is_64: false },
+                    riscv
+                )
+            }
+            Architecture::Riscv64 => {
+                impl_recursion!(
+                    &symbols,
+                    &mut errors,
+                    &mut instructions,
+                    &mut sections,
+                    max_instruction_width,
+                    riscv::Decoder { is_64: true },
+                    riscv
+                )
+            }
+            Architecture::Mips | Architecture::Mips64 => {
+                impl_recursion!(
+                    &symbols,
+                    &mut errors,
+                    &mut instructions,
+                    &mut sections,
+                    max_instruction_width,
+                    mips::Decoder::default(),
+                    mips
+                )
+            }
+            Architecture::X86_64_X32 | Architecture::I386 => {
+                impl_recursion!(
+                    &symbols,
+                    &mut errors,
+                    &mut instructions,
+                    &mut sections,
+                    max_instruction_width,
+                    x86::Decoder::default(),
+                    x86
+                )
+            }
+            Architecture::X86_64 => {
+                impl_recursion!(
+                    &symbols,
+                    &mut errors,
+                    &mut instructions,
+                    &mut sections,
+                    max_instruction_width,
+                    x64::Decoder::default(),
+                    x64
+                )
+            }
+            _ => unreachable!(),
+        };
+
+        instructions.sort_unstable_by_key(|k| k.0);
+        errors.sort_unstable_by_key(|k| k.0);
+
+        log::complex!(
+            w "[processor::parse] took ",
+            y format!("{:#?}", now.elapsed()),
+            w " to parse ",
+            w format!("{:?}.", path.as_ref())
+        );
+
         Ok(Self {
-            sections: found_sections,
-            errors: Vec::new(),
-            instructions: Vec::new(),
-            max_instruction_width: 0,
+            path: path.as_ref().to_path_buf(),
+            sections,
+            segments,
+            errors,
+            instructions,
+            symbols,
+            max_instruction_width,
             instruction_tokens,
             instruction_width,
             arch,
         })
     }
 
-    pub fn recurse(&mut self, index: &symbols::Index) {
-        match self.arch {
-            Architecture::Riscv32 => {
-                impl_recursion!(self, index, riscv, riscv::Decoder { is_64: false })
-            }
-            Architecture::Riscv64 => {
-                impl_recursion!(self, index, riscv, riscv::Decoder { is_64: true })
-            }
-            Architecture::Mips | Architecture::Mips64 => {
-                impl_recursion!(self, index, mips, mips::Decoder::default())
-            }
-            Architecture::X86_64_X32 | Architecture::I386 => {
-                impl_recursion!(self, index, x86, x86::Decoder::default())
-            }
-            Architecture::X86_64 => {
-                impl_recursion!(self, index, x64, x64::Decoder::default())
-            }
-            _ => {}
-        };
-
-        self.instructions.sort_unstable_by_key(|k| k.0);
-        self.errors.sort_unstable_by_key(|k| k.0);
-    }
-
     /// Format address relative to a given section.
-    pub fn format_bytes(&self, addr: Addr, len: usize, section: &Section) -> Option<String> {
+    pub fn format_bytes(&self, addr: PhysAddr, len: usize, section: &Section) -> Option<String> {
         section.format_bytes(addr, len, self.max_instruction_width * 3 + 1)
     }
 
@@ -236,22 +335,30 @@ impl Processor {
         (self.instruction_width)(&instruction)
     }
 
-    pub fn error_by_addr(&self, addr: Addr) -> Option<&decoder::Error> {
+    pub fn error_by_addr(&self, addr: PhysAddr) -> Option<&decoder::Error> {
         match self.errors.binary_search_by(|k| k.0.cmp(&addr)) {
             Ok(idx) => Some(&self.errors[idx].1),
             Err(..) => None,
         }
     }
 
-    pub fn instruction_by_addr(&self, addr: Addr) -> Option<&Instruction> {
+    pub fn instruction_by_addr(&self, addr: PhysAddr) -> Option<&Instruction> {
         match self.instructions.binary_search_by(|k| k.0.cmp(&addr)) {
             Ok(idx) => Some(&self.instructions[idx].1),
             Err(..) => None,
         }
     }
 
+    pub fn segments(&self) -> impl DoubleEndedIterator<Item = &Segment> {
+        self.segments.iter()
+    }
+
     pub fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
         self.sections.iter()
+    }
+
+    pub fn symbols(&self) -> &symbols::Index {
+        &self.symbols
     }
 }
 

@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
-
 use object::endian::Endian;
 use object::read::elf::{ElfFile, FileHeader};
 use object::read::macho::MachHeader;
@@ -54,6 +53,48 @@ fn parser(s: &str) -> TokenStream {
     TokenStream::simple(s)
 }
 
+fn parallel_compute<In, Out, F>(items: Vec<In>, output: &mut Vec<Out>, transformer: F)
+where
+    F: FnOnce(&In) -> Out,
+    F: Send + Copy,
+    In: Sync,
+    Out: Send + Sync,
+{
+    let thread_count = std::thread::available_parallelism().unwrap().get();
+
+    // for small item counts, perform single-threaded
+    if items.len() < thread_count {
+        for item in items.iter() {
+            output.push(transformer(item));
+        }
+
+        return;
+    }
+
+    // multithreaded
+    std::thread::scope(|s| {
+        let mut chunks = items.chunks(items.len() / thread_count);
+        let mut threads = Vec::with_capacity(thread_count);
+
+        while let Some(chunk) = chunks.next() {
+            let thread = s.spawn(move || {
+                let mut result = Vec::with_capacity(chunk.len());
+                for item in chunk {
+                    result.push(transformer(item));
+                }
+                result
+            });
+
+            threads.push(thread);
+        }
+
+        for thread in threads {
+            let chunk = thread.join().unwrap();
+            output.extend(chunk);
+        }
+    });
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     name: Arc<TokenStream>,
@@ -70,6 +111,10 @@ impl Function {
             module,
             intrisic: false,
         }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.name_as_str
     }
 
     pub fn name(&self) -> &[Token] {
@@ -149,10 +194,9 @@ impl Index {
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
         // insert defined symbols
-        for (addr, symbol) in symbols {
-            let func = Function::new(parser(symbol), None);
-            self.insert(addr, func);
-        }
+        parallel_compute(symbols, &mut self.tree, |(addr, symbol)| {
+            (*addr, Function::new(parser(symbol), None))
+        });
 
         // keep tree sorted so it can be binary searched
         self.tree.sort_unstable_by_key(|k| k.0);

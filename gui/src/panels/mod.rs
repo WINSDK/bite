@@ -74,14 +74,18 @@ impl egui_dock::TabViewer for Tabs {
 pub struct Panels {
     pub layout: DockState<Identifier>,
     pub tabs: Tabs,
-    pub ui_queue: crate::UIQueue,
+    pub ui_queue: Arc<crate::UIQueue>,
     pub winit_queue: crate::WinitQueue,
+    pub dbg_ctx: Arc<debugger::Context>,
     pub loading: bool,
-    pub debugging: bool,
 }
 
 impl Panels {
-    pub fn new(ui_queue: crate::UIQueue, winit_queue: crate::WinitQueue) -> Self {
+    pub fn new(
+        ui_queue: Arc<crate::UIQueue>,
+        winit_queue: crate::WinitQueue,
+        dbg_ctx: Arc<debugger::Context>,
+    ) -> Self {
         let mut layout = DockState::new(vec![DISASSEMBLY, FUNCTIONS, LOGGING]);
 
         layout.set_focused_node_and_surface((
@@ -94,8 +98,8 @@ impl Panels {
             tabs: Tabs::new(),
             ui_queue,
             winit_queue,
+            dbg_ctx,
             loading: false,
-            debugging: false,
         }
     }
 
@@ -297,7 +301,7 @@ impl Panels {
 
                     DockArea::new(&mut self.layout)
                         .style(style)
-                        .show_close_buttons(false)
+                        .show_close_buttons(true)
                         .show_window_close_buttons(true)
                         .show_window_collapse_buttons(false)
                         .tab_context_menus(false)

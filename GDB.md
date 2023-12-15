@@ -8,6 +8,9 @@
 * set variable expr|address
 * p|print expr|register
 * b/break
+* c/continue
+* s/stop
+* db/delete
 * f/finish (run function till the end)
 * w/watch expr|variable (set watchpoint on expr)
 * d/detach
