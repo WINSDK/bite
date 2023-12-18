@@ -156,22 +156,26 @@ impl<'src> Context<'src> {
     fn parse_next(&mut self, expected: &'static str) -> Result<&'src str, Error> {
         self.skip_whitespace();
 
-        let str = self.parse_till_whitespace();
-        if str.is_empty() {
+        let s = self.parse_till_whitespace();
+        if s.is_empty() {
             return Err(Error::Missing(expected));
         }
 
         self.skip_whitespace();
-        Ok(str)
+        Ok(s)
     }
 
     fn parse_arg(&mut self, expected: &'static str) -> Result<&'src str, Error> {
-        let str = self.src().trim();
-        if str.is_empty() {
+        let s = self.src().trim();
+
+        // mark all remaining characters as read
+        self.offset = self.src.len() - 1;
+
+        if s.is_empty() {
             return Err(Error::Missing(expected));
         }
 
-        Ok(str)
+        Ok(s)
     }
 
     fn parse_path(&mut self) -> Result<PathBuf, Error> {
@@ -327,5 +331,12 @@ mod tests {
         let home = expand_homedir(PathBuf::from("~"));
         eval_eq!("cd ~", Command::ChangeDir(home));
         eval_eq!("cd   / ", Command::ChangeDir(PathBuf::from("/")));
+        eval_eq!("cd . ", Command::ChangeDir(PathBuf::from(".")));
+    }
+
+    #[test]
+    #[should_panic]
+    fn change_dir_invalid() {
+        eval_eq!("cd ???", Command::ChangeDir(PathBuf::from("???")));
     }
 }
