@@ -1,6 +1,4 @@
 //! Consumes decoder crates and provides an interface to interact with the decoders.
-
-pub mod expr;
 mod fmt;
 mod processor;
 
@@ -8,8 +6,10 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use object::{Object, SectionKind};
-pub use processor::Processor;
 use tokenizing::{colors, Token};
+
+pub use processor::Processor;
+pub use symbols::Index;
 
 pub type VirtAddr = usize;
 pub type PhysAddr = usize;

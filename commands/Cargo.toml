@@ -1,8 +1,10 @@
 [package]
-name = "args"
+name = "commands"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
 triple_accel = "0.4"
+dirs = "5"
+symbols = { path = "../symbols" }
 once_cell = { workspace = true }

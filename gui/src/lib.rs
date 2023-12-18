@@ -1,6 +1,6 @@
-mod commands;
 mod fmt;
 mod icon;
+mod interp;
 mod panels;
 mod style;
 pub mod unix;
@@ -8,13 +8,24 @@ mod wgpu_backend;
 pub mod windows;
 mod winit_backend;
 
-use std::fmt::Write;
 use std::sync::Arc;
-
+use commands::{Command, CommandError};
 use copypasta::ClipboardProvider;
-use debugger::{DebugeeEvent, DebuggerEvent, Debugger, Debuggable, DebuggerDescriptor, DebuggerSettings};
+use debugger::{
+    DebugeeEvent, Debuggable, Debugger, DebuggerDescriptor, DebuggerEvent, DebuggerSettings,
+};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
+
+/// Print to the terminal.
+#[macro_export]
+macro_rules! tprint {
+    ($dst:expr, $($arg:tt)*) => {{
+        #[allow(unused_imports)]
+        use ::std::fmt::Write;
+        let _ = writeln!($dst, $($arg)*);
+    }};
+}
 
 pub enum Error {
     WindowCreation,
@@ -59,8 +70,6 @@ pub enum WinitEvent {
 
 /// Global UI events.
 pub enum UIEvent {
-    SetEnvironmental(String),
-    DebuggerExecute(Vec<String>),
     DebuggerFailed(debugger::Error),
     BinaryRequested(std::path::PathBuf),
     BinaryFailed(disassembler::Error),
@@ -151,12 +160,12 @@ impl<Arch: Target> UI<Arch> {
             platform,
             ui_queue,
             dbg_ctx,
-            dbg_settings
+            dbg_settings,
         })
     }
 
     pub fn process_args(&mut self) {
-        if let Some(path) = args::ARGS.path.as_ref().cloned() {
+        if let Some(path) = commands::ARGS.path.as_ref().cloned() {
             self.offload_binary_processing(path);
         }
     }
@@ -195,10 +204,7 @@ impl<Arch: Target> UI<Arch> {
             let desc = DebuggerDescriptor {};
 
             #[cfg(target_os = "linux")]
-            let desc = DebuggerDescriptor {
-                args,
-                module,
-            };
+            let desc = DebuggerDescriptor { args, module };
 
             let session = match Debugger::spawn(settings, desc) {
                 Ok(session) => session,
@@ -219,16 +225,14 @@ impl<Arch: Target> UI<Arch> {
     fn handle_ui_events(&mut self) {
         while let Some(event) = self.ui_queue.inner.pop() {
             match event {
-                UIEvent::SetEnvironmental(arg) => self.dbg_settings.env.push(arg),
-                UIEvent::DebuggerExecute(args) => self.offload_debugging(args),
                 UIEvent::DebuggerFailed(err) => {
                     tprint!(self.panels.terminal(), "{err:?}.");
                 }
-                UIEvent::BinaryRequested(path) => self.offload_binary_processing(path),
                 UIEvent::BinaryFailed(err) => {
                     self.panels.loading = false;
                     log::warning!("{err:?}");
                 }
+                UIEvent::BinaryRequested(path) => self.offload_binary_processing(path),
                 UIEvent::BinaryLoaded(disassembly) => {
                     self.panels.loading = false;
                     self.panels.load_binary(disassembly);
@@ -267,16 +271,20 @@ impl<Arch: Target> UI<Arch> {
             let terminal_events = self.panels.terminal().record_input(events);
 
             if terminal_events > 0 {
-                // if a goto command is being run, start performing the autocomplete
-                let split = self.panels.terminal().current_line().split_once(' ');
-                if let Some(("g" | "goto", arg)) = split {
-                    let arg = arg.to_string();
+                let line = self.panels.terminal().current_line().to_string();
 
-                    if let Some(listing) = self.panels.listing() {
-                        let _ = dbg!(disassembler::expr::parse(
-                            &listing.disassembly.processor.symbols(),
-                            &arg
-                        ));
+                if let Some(listing) = self.panels.listing() {
+                    let index = listing.disassembly.processor.symbols();
+
+                    // if a goto command is being run, start performing the autocomplete
+                    match Command::parse(index, &line) {
+                        Ok(Command::Goto(addr)) => {
+                            println!("goto {addr:X}");
+                        }
+                        Err(CommandError::Debugger(err)) => {
+                            eprintln!("{err}");
+                        }
+                        _ => {}
                     }
                 }
 
@@ -285,8 +293,7 @@ impl<Arch: Target> UI<Arch> {
             }
 
             let cmds = self.panels.terminal().take_commands().to_vec();
-
-            if !self.panels.process_commands(&cmds) {
+            if !self.process_commands(&cmds) {
                 target.exit();
             }
 

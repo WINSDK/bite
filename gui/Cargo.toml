@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 rfd = "0.12"
-triple_accel = "0.4"
+dirs = "5"
 bytemuck = { version = "1.14", default-features = false }
 winit = { version = "0.29", features = ["rwh_05"] } # remove this feature when gpu 0.19 comes out
 wgpu = { version = "0.18" }
@@ -15,11 +15,10 @@ copypasta = "0.10"
 once_cell = { workspace = true }
 png = "0.17"
 pollster = "0.3.0"
-dirs = "5"
 crossbeam-queue = { workspace = true }
 
 log = { path = "../log" }
-args = { path = "../args" }
+commands = { path = "../commands" }
 tokenizing = { path = "../tokenizing" }
 debugger = { path = "../debugger" }
 disassembler = { path = "../disassembler" }

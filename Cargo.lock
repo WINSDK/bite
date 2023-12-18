@@ -89,14 +89,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "args"
-version = "0.0.0"
-dependencies = [
- "once_cell",
- "triple_accel",
-]
-
-[[package]]
 name = "arm"
 version = "0.0.0"
 dependencies = [
@@ -188,7 +180,7 @@ checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
 name = "bite"
 version = "0.12.0"
 dependencies = [
- "args",
+ "commands",
  "decoder",
  "disassembler",
  "gui",
@@ -387,6 +379,16 @@ checksum = "35ed6e9d84f0b51a7f52daf1c7d71dd136fd7a3f41a8462b8cdb8c78d920fad4"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "commands"
+version = "0.0.0"
+dependencies = [
+ "dirs",
+ "once_cell",
+ "symbols",
+ "triple_accel",
 ]
 
 [[package]]
@@ -950,8 +952,8 @@ dependencies = [
 name = "gui"
 version = "0.0.0"
 dependencies = [
- "args",
  "bytemuck",
+ "commands",
  "copypasta",
  "crossbeam-queue",
  "debugger",
@@ -965,7 +967,6 @@ dependencies = [
  "pollster",
  "rfd",
  "tokenizing",
- "triple_accel",
  "wgpu",
  "winit",
 ]

@@ -68,19 +68,20 @@ struct Context<'src> {
 }
 
 /// Error with line number and context.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Error {
     offset: Option<usize>,
     msg: String,
 }
 
-impl fmt::Debug for Error {
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.msg)?;
         if let Some(offset) = self.offset {
             f.write_str(" at position ")?;
             offset.fmt(f)?;
         }
+        f.write_str(".")?;
         Ok(())
     }
 }
@@ -450,7 +451,7 @@ impl<'src> Context<'src> {
 enum Expr {
     Number(isize),
     Symbol {
-        addr: crate::PhysAddr,
+        addr: usize,
         function: symbols::Function,
     },
     Compound {

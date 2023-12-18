@@ -1,4 +1,3 @@
-use once_cell::sync::Lazy;
 use std::path::PathBuf;
 
 macro_rules! exit {
@@ -8,7 +7,7 @@ macro_rules! exit {
     }};
 }
 
-const HELP: &str = "OVERVIEW: Decompilation tool
+const HELP: &str = "OVERVIEW: Debugger/Decompilation tool
 
 USAGE: bite [options] <OBJECT>
 
@@ -33,8 +32,6 @@ const NAMES: &[&str] = &[
     "--config",
     "--debug",
 ];
-
-pub static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
 
 #[derive(Default, Debug, Clone)]
 pub struct Cli {

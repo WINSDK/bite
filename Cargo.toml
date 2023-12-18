@@ -10,7 +10,7 @@ once_cell = { workspace = true }
 png = "0.17"
 rfd = "0.12"
 
-args = { path = "./args" }
+commands = { path = "./commands" }
 log = { path = "./log" }
 gui = { path = "./gui" }
 decoder = { path = "./decoder" }
@@ -36,7 +36,7 @@ resolver = "2"
 members = [
     "log",
     "gui",
-    "args",
+    "commands",
     "disassembler",
     "tokenizing",
     "decoder",

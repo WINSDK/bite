@@ -135,7 +135,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         styles
     },
     #[cfg(debug_assertions)]
-    debug: if args::ARGS.debug {
+    debug: if commands::ARGS.debug {
         egui::style::DebugOptions {
             debug_on_hover: true,
             debug_on_hover_with_all_modifiers: true,
