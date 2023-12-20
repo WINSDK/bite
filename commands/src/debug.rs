@@ -156,7 +156,7 @@ impl<'src> Context<'src> {
     fn consume(&mut self, chr: char) -> Result<(), Error> {
         match self.peek() {
             Some(got) if got == chr => {
-                self.offset += 1;
+                self.offset += got.len_utf8();
                 Ok(())
             }
             Some(got) => self.error(&format!("Expected '{chr}' got '{got}'")),
@@ -304,10 +304,11 @@ impl<'src> Context<'src> {
                 // existing a generic
                 Some('>') => depth -= 1,
                 // any other character should be part of a valid symbol
-                Some(..) => {}
+                Some(chr) => {
+                    self.offset += chr.len_utf8();
+                    continue;
+                }
             }
-
-            self.offset += 1;
         }
 
         // generic is missing a opening bracket

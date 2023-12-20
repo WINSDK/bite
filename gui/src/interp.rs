@@ -10,6 +10,7 @@ fn print_cwd(terminal: &mut crate::panels::Terminal) {
 
 
 impl<Arch: crate::Target> super::UI<Arch> {
+    /// Runs all queued commands, returning if they trigger a process exit.
     pub fn process_commands(&mut self, commands: &[String]) -> bool {
         commands.iter().all(|cmd| self.process_cmd(cmd))
     }

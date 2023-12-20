@@ -35,7 +35,7 @@ pub struct Terminal {
     commands: Vec<String>,
     commands_unprocessed: usize,
     command_position: usize,
-    cursor_position: usize,
+    cursor_position: usize, // byte offset
 }
 
 impl Terminal {
@@ -100,15 +100,31 @@ impl Terminal {
         }
     }
 
+    // Helper function to calculate the byte position of a UTF-8 codepoint
+    fn byte_position(&self, char_position: usize) -> usize {
+        self.current_line()
+            .char_indices()
+            .nth(char_position)
+            .map_or(self.current_line().len(), |(idx, _)| idx)
+    }
+
+    // Helper function to calculate the character position from byte position
+    fn char_position(&self) -> usize {
+        self.current_line()
+            .char_indices()
+            .take_while(|&(idx, _)| idx < self.cursor_position)
+            .count()
+    }
+
     pub fn move_left(&mut self) {
         if self.cursor_position != 0 {
-            self.cursor_position -= 1;
+            self.cursor_position = self.byte_position(self.char_position() - 1);
         }
     }
 
     pub fn move_right(&mut self) {
         if self.cursor_position < self.current_line().len() {
-            self.cursor_position += 1;
+            self.cursor_position = self.byte_position(self.char_position() + 1);
         }
     }
 
@@ -130,7 +146,8 @@ impl Terminal {
     }
 
     pub fn append(&mut self, characters: &str) {
-        self.commands[self.command_position].insert_str(self.cursor_position, characters);
+        let characters = characters.escape_debug().to_string();
+        self.commands[self.command_position].insert_str(self.cursor_position, &characters);
         self.cursor_position += characters.len();
     }
 
@@ -293,7 +310,13 @@ impl super::Display for Terminal {
             let (select, right) = if right.is_empty() {
                 (" ", "")
             } else {
-                right.split_at(1)
+                // right's one char byte offset
+                let off = right
+                         .char_indices()
+                         .nth(1)
+                         .map_or(right.len(), |(idx, _)| idx);
+
+                right.split_at(off)
             };
 
             output.append(left, 0.0, format.clone());

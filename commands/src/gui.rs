@@ -21,7 +21,6 @@ pub enum Command {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    MissingName,
     Missing(&'static str),
     UnknownName(String),
     PathDoesntExist(PathBuf),
@@ -32,7 +31,6 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingName => f.write_str("Expected an expression."),
             Self::Missing(part) => f.write_fmt(format_args!("Expected '{part}'.")),
             Self::UnknownName(cmd) => match possible_command(&cmd) {
                 Some(guess) => f.write_fmt(format_args!(
@@ -118,7 +116,7 @@ struct Context<'src> {
 }
 
 impl<'src> Context<'src> {
-    /// create's a new [`Context`].
+    /// Create's a new [`Context`].
     pub fn new(index: &'src symbols::Index, src: &'src str) -> Self {
         Self {
             src,
@@ -127,7 +125,7 @@ impl<'src> Context<'src> {
         }
     }
 
-    /// where we are in the string.
+    /// Where we are in the string.
     fn src(&self) -> &'src str {
         &self.src[self.offset..]
     }
@@ -146,7 +144,7 @@ impl<'src> Context<'src> {
         loop {
             match self.src().chars().next() {
                 Some(' ') | None => break,
-                Some(_) => self.offset += 1,
+                Some(chr) => self.offset += chr.len_utf8(),
             }
         }
 
@@ -200,10 +198,6 @@ impl<'src> Context<'src> {
     }
 
     fn parse(&mut self) -> Result<Command, Error> {
-        if self.src().is_empty() {
-            return Err(Error::MissingName);
-        }
-
         let name = match self.parse_next("command")? {
             "exec" | "e" => Command::Load(self.parse_path()?),
             "pwd" => Command::PrintPath,
@@ -269,6 +263,12 @@ mod tests {
                 Ok(parsed) => assert_eq!(parsed, $expected)
             }
         }};
+    }
+
+    #[test]
+    #[should_panic]
+    fn empty() {
+        eval_eq!("", Command::Continue);
     }
 
     #[test]
