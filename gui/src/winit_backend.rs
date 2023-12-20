@@ -39,8 +39,8 @@ impl Platform {
         let mut fonts = FontDefinitions::default();
 
         fonts.font_data.insert(
-            "liga".to_owned(),
-            FontData::from_static(include_bytes!("../fonts/LigaSFMonoNerdFont-Regular.ttf")),
+            "hack".to_owned(),
+            FontData::from_static(include_bytes!("../fonts/Hack-Regular.ttf")),
         );
 
         fonts.font_data.insert(
@@ -48,8 +48,16 @@ impl Platform {
             FontData::from_static(include_bytes!("../fonts/IcoMoon.ttf")),
         );
 
+        fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("hack".to_owned());
         fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("icons".to_owned());
-        fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("liga".to_owned());
+
+        if let Some((font_name, bytes)) = find_cjk_font().and_then(read_font) {
+            fonts.font_data.insert(
+                font_name.clone(),
+                FontData::from_owned(bytes),
+            );
+            fonts.families.get_mut(&FontFamily::Monospace).unwrap().push(font_name);
+        }
 
         context.set_fonts(fonts);
         context.set_style(crate::style::EGUI.clone());
@@ -344,6 +352,47 @@ impl Platform {
     pub fn scale_factor(&self) -> f32 {
         self.scale_factor
     }
+}
+
+#[cfg(unix)]
+fn find_cjk_font() -> Option<String> {
+    // linux/macOS command: fc-list
+    let output = std::process::Command::new("sh").arg("-c").arg("fc-list").output().ok()?;
+    let stdout = std::str::from_utf8(&output.stdout).ok()?;
+
+    #[cfg(target_os = "macos")]
+    let font_line = stdout
+        .lines()
+        .find(|line| line.contains("Regular") && line.contains("Hiragino Sans GB"))
+        .unwrap_or("/System/Library/Fonts/Hiragino Sans GB.ttc");
+
+    #[cfg(target_os = "linux")]
+    let font_line = stdout
+        .lines()
+        .find(|line| line.contains("Regular") && line.contains("CJK"))
+        .unwrap_or("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
+
+    let font_path = font_line.split(':').next()?.trim();
+    Some(font_path.to_string())
+}
+
+#[cfg(windows)]
+fn find_cjk_font() -> Option<String> {
+    let font_file = {
+        // C:/Windows/Fonts/msyh.ttc
+        let mut font_path = PathBuf::from(std::env::var("SystemRoot").ok()?);
+        font_path.push("Fonts");
+        font_path.push("msyh.ttc");
+        font_path.to_str()?.to_string().replace("\\", "/")
+    };
+
+    Some(font_file)
+}
+
+fn read_font(path: String) -> Option<(String, Vec<u8>)> {
+    let font_name = path.split('/').last()?.split('.').next()?.to_string();
+    let font_bytes = std::fs::read(path).ok()?;
+    Some((font_name, font_bytes))
 }
 
 /// Translates winit to egui keycodes.

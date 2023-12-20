@@ -49,7 +49,7 @@ members = [
 ]
 
 [workspace.dependencies]
-egui = { version = "0.24", features = ["bytemuck"] }
+egui = { version = "0.24", features = ["bytemuck"], default-features = false }
 crossbeam-queue = "0.3"
 object = "0.32"
 pdb = "0.8"
