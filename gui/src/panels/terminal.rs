@@ -100,7 +100,7 @@ impl Terminal {
         }
     }
 
-    // Helper function to calculate the byte position of a UTF-8 codepoint
+    /// Byte position of a UTF-8 codepoint.
     fn byte_position(&self, char_position: usize) -> usize {
         self.current_line()
             .char_indices()
@@ -108,7 +108,7 @@ impl Terminal {
             .map_or(self.current_line().len(), |(idx, _)| idx)
     }
 
-    // Helper function to calculate the character position from byte position
+    /// Character position from byte position.
     fn char_position(&self) -> usize {
         self.current_line()
             .char_indices()

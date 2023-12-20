@@ -52,10 +52,7 @@ impl Platform {
         fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("icons".to_owned());
 
         if let Some((font_name, bytes)) = find_cjk_font().and_then(read_font) {
-            fonts.font_data.insert(
-                font_name.clone(),
-                FontData::from_owned(bytes),
-            );
+            fonts.font_data.insert(font_name.clone(), FontData::from_owned(bytes));
             fonts.families.get_mut(&FontFamily::Monospace).unwrap().push(font_name);
         }
 
@@ -356,21 +353,22 @@ impl Platform {
 
 #[cfg(unix)]
 fn find_cjk_font() -> Option<String> {
-    // linux/macOS command: fc-list
-    let output = std::process::Command::new("sh").arg("-c").arg("fc-list").output().ok()?;
+    let output = std::process::Command::new("fc-match")
+        .arg("--verbose")
+        .arg(":lang=zh:charset=6c49")
+        .output()
+        .ok()?;
+
     let stdout = std::str::from_utf8(&output.stdout).ok()?;
+    let font_line = stdout.lines()
+        .find_map(|line| line.split_once("\tfile: \""))
+        .and_then(|(_, line)| line.rfind("\"").map(|idx| &line[..idx]));
 
     #[cfg(target_os = "macos")]
-    let font_line = stdout
-        .lines()
-        .find(|line| line.contains("Regular") && line.contains("Hiragino Sans GB"))
-        .unwrap_or("/System/Library/Fonts/Hiragino Sans GB.ttc");
+    let font_line = font_line.unwrap_or("/System/Library/Fonts/Hiragino Sans GB.ttc");
 
     #[cfg(target_os = "linux")]
-    let font_line = stdout
-        .lines()
-        .find(|line| line.contains("Regular") && line.contains("CJK"))
-        .unwrap_or("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
+    let font_line = font_line.unwrap_or("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
 
     let font_path = font_line.split(':').next()?.trim();
     Some(font_path.to_string())
