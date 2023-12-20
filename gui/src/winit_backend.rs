@@ -101,16 +101,17 @@ impl Platform {
                 WindowEvent::KeyboardInput { event, .. } => {
                     let pressed = event.state == winit::event::ElementState::Pressed;
                     let ctrl = self.modifier_state.control_key();
+                    let shift = self.modifier_state.shift_key();
 
                     if let winit::keyboard::PhysicalKey::Code(key) = event.physical_key {
-                        match (pressed, ctrl, key) {
-                            (true, true, KeyCode::KeyC) => {
+                        match (pressed, ctrl, shift, key) {
+                            (true, true, true, KeyCode::KeyC) => {
                                 self.raw_input.events.push(egui::Event::Copy);
                             }
-                            (true, true, KeyCode::KeyX) => {
+                            (true, true, true, KeyCode::KeyX) => {
                                 self.raw_input.events.push(egui::Event::Cut)
                             }
-                            (true, true, KeyCode::KeyV) => {
+                            (true, true, true, KeyCode::KeyV) => {
                                 if let Ok(contents) = self.clipboard.get_contents() {
                                     self.raw_input.events.push(egui::Event::Text(contents))
                                 }
