@@ -293,7 +293,7 @@ impl<'src> Context<'src> {
         let mut depth = 0isize;
 
         loop {
-            match self.peek() {
+            match dbg!(self.peek()) {
                 // operators are ambiguous
                 Some('+' | '-' | '*' | '/' | '%') if depth == 0 => break,
                 // brackets are ambiguous
@@ -303,14 +303,17 @@ impl<'src> Context<'src> {
                 // EOF means there we must be at the end of a symbol
                 None => break,
                 // entering a generic
-                Some('<') => depth += 1,
-                // existing a generic
-                Some('>') => depth -= 1,
-                // any other character should be part of a valid symbol
-                Some(chr) => {
-                    self.offset += chr.len_utf8();
-                    continue;
+                Some('<') => {
+                    depth += 1;
+                    self.offset += 1;
                 }
+                // existing a generic
+                Some('>') => {
+                    depth -= 1;
+                    self.offset += 1;
+                }
+                // any other character should be part of a valid symbol
+                Some(chr) => self.offset += chr.len_utf8(),
             }
         }
 
