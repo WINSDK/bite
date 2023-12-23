@@ -1,7 +1,5 @@
-use super::common::FONT;
-
+use crate::common::*;
 use std::path::PathBuf;
-
 use egui::text::LayoutJob;
 use once_cell::sync::Lazy;
 
@@ -288,7 +286,7 @@ impl std::fmt::Write for Terminal {
     }
 }
 
-impl super::Display for Terminal {
+impl Display for Terminal {
     fn show(&mut self, ui: &mut egui::Ui) {
         ui.style_mut().wrap = Some(true);
 

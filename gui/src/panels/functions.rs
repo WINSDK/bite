@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
-use super::common::{tokens_to_layoutjob, FONT};
-use disassembler::Processor;
+use crate::common::*;
 use egui::text::LayoutJob;
+use std::sync::Arc;
+use disassembler::Processor;
 
 pub struct Functions {
     processor: Arc<Processor>,
@@ -26,7 +25,7 @@ impl Functions {
     }
 }
 
-impl super::Display for Functions {
+impl Display for Functions {
     fn show(&mut self, ui: &mut egui::Ui) {
         let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
 

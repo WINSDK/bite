@@ -1,10 +1,9 @@
-mod common;
-mod donut;
 mod functions;
 mod listing;
 mod terminal;
 
-use common::*;
+use crate::common::*;
+use crate::widgets::Donut;
 pub use terminal::Terminal;
 
 use egui::{Button, RichText};
@@ -13,9 +12,12 @@ use egui_dock::{DockArea, DockState};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub trait Display {
-    fn show(&mut self, ui: &mut egui::Ui);
-}
+pub type Identifier = &'static str;
+
+// pub const SOURCE: Identifier = crate::icon!(EMBED2, " Source");
+pub const DISASSEMBLY: Identifier = crate::icon!(PARAGRAPH_LEFT, " Disassembly");
+pub const FUNCTIONS: Identifier = crate::icon!(LIGATURE, " Functions");
+pub const LOGGING: Identifier = crate::icon!(TERMINAL, " Logs");
 
 enum PanelKind {
     Disassembly(listing::Listing),
@@ -26,7 +28,7 @@ enum PanelKind {
 pub struct Tabs {
     mapping: BTreeMap<Identifier, PanelKind>,
     terminal: terminal::Terminal,
-    donut: donut::Donut,
+    donut: Donut,
 }
 
 impl Tabs {
@@ -38,7 +40,7 @@ impl Tabs {
                 mapping
             },
             terminal: terminal::Terminal::new(),
-            donut: donut::Donut::new(false),
+            donut: Donut::new(false),
         }
     }
 }

@@ -1,24 +1,4 @@
-struct Timer {
-    start: std::time::Instant,
-    ups: usize,
-}
-
-impl Timer {
-    fn new(ups: usize) -> Self {
-        Self {
-            start: std::time::Instant::now(),
-            ups,
-        }
-    }
-
-    fn times_elapsed(&self) -> usize {
-        self.start.elapsed().as_millis() as usize * self.ups / 1000
-    }
-
-    fn reset(&mut self) {
-        self.start = std::time::Instant::now();
-    }
-}
+use crate::common::*;
 
 pub struct Donut {
     timer: Timer,
@@ -100,7 +80,7 @@ impl Donut {
     }
 }
 
-impl super::Display for Donut {
+impl Display for Donut {
     fn show(&mut self, ui: &mut egui::Ui) {
         self.update();
 

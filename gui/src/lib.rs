@@ -2,11 +2,13 @@ mod fmt;
 mod icon;
 mod interp;
 mod panels;
+mod widgets;
 mod style;
 pub mod unix;
 mod wgpu_backend;
 pub mod windows;
 mod winit_backend;
+mod common;
 
 use std::sync::Arc;
 use commands::{Command, CommandError};

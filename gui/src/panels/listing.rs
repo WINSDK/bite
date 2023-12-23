@@ -1,4 +1,4 @@
-use super::common::{tokens_to_layoutjob, FONT};
+use crate::common::*;
 use egui::text::LayoutJob;
 
 pub struct Listing {
@@ -30,7 +30,7 @@ impl Listing {
     }
 }
 
-impl super::Display for Listing {
+impl Display for Listing {
     fn show(&mut self, ui: &mut egui::Ui) {
         if !self.disassembly_view.no_code() {
             if let Some(text) = self.disassembly.section_name(self.disassembly_view.addr()) {
