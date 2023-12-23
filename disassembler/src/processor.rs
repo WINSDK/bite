@@ -3,7 +3,7 @@ use decoder::{Decodable, Decoded};
 use object::{Object, ObjectSegment};
 use tokenizing::{colors, Token};
 
-use object::{Architecture, ObjectSection, SectionKind};
+use object::{Architecture, BinaryFormat, ObjectSection, SectionKind};
 use x86_64::long_mode as x64;
 use x86_64::protected_mode as x86;
 
@@ -115,6 +115,7 @@ impl Processor {
 
         let mut sections = Vec::new();
         let mut segments = Vec::new();
+
         let arch = obj.architecture();
 
         for segment in obj.segments() {
@@ -201,6 +202,47 @@ impl Processor {
             };
 
             sections.push(section);
+        }
+
+        if sections.is_empty() {
+            let addr = if obj.format() == BinaryFormat::Pe {
+                0x1000
+            } else {
+                0
+            };
+
+            let rva = obj.entry() as VirtAddr - obj.relative_address_base() as VirtAddr;
+            let start = obj.relative_address_base() as VirtAddr + rva;
+            let end = start + binary.len() - rva;
+            let section = Section {
+                name: Cow::Borrowed("flat (generated)"),
+                kind: SectionKind::Text,
+                bytes: binary[rva..].to_vec(),
+                addr,
+                start,
+                end,
+            };
+
+            sections.push(section);
+        }
+
+        if segments.is_empty() {
+            let addr = if obj.format() == BinaryFormat::Pe {
+                0x1000
+            } else {
+                0
+            };
+
+            let start = obj.relative_address_base() as VirtAddr;
+            let end = start + binary.len();
+            let segment = Segment {
+                name: Cow::Borrowed("flat (generated)"),
+                addr,
+                start,
+                end,
+            };
+
+            segments.push(segment);
         }
 
         // sort segments/sections by their physical address

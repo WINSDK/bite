@@ -63,11 +63,14 @@ impl<Arch: crate::Target> super::UI<Arch> {
             },
             Command::Break(addr) => {
                 self.dbg_ctx.breakpoints.write().unwrap().create(addr);
-                tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} queued.");
+                tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} set.");
             },
             Command::DeleteBreak(addr) => {
-                self.dbg_ctx.breakpoints.write().unwrap().remove(addr);
-                tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} queued for removal.");
+                if self.dbg_ctx.breakpoints.write().unwrap().remove(addr).is_some() {
+                    tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} removed.");
+                } else {
+                    tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} wasn't set.");
+                }
             },
             Command::SetEnv(env) => self.dbg_settings.env.push(env),
             Command::Stop => {

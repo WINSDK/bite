@@ -96,9 +96,9 @@ pub struct Breakpoint {
 impl Breakpoint {
     pub(crate) fn set(&mut self, proc: &mut Process) -> Result<(), Error> {
         let vaddr = proc.translate(self.addr);
-        self.shadow = dbg!(proc.read_memory(vaddr, 1)?[0]);
+        self.shadow = proc.read_memory(vaddr, 1)?[0];
         let int3 = &[0xcc];
-        proc.write_memory(self.addr, int3)?;
+        proc.write_memory(vaddr, int3)?;
         Ok(())
     }
 
@@ -167,7 +167,6 @@ pub enum DebugeeEvent {
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerEvent {
-    BreakpointSet(VirtAddr),
     Exited(ExitCode),
 }
 

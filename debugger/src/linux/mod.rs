@@ -83,14 +83,6 @@ impl Process {
 
     /// Convert disassembler's address to virtual memory address.
     pub fn translate(&self, addr: PhysAddr) -> VirtAddr {
-        // iterate from high addresses to low addresses.
-        //for segment in self.module.segments() {
-        //     if addr >= segment.start && addr <= segment.end {
-        //         let rva = addr - segment.start;
-        //         return segment.addr + rva;
-        //     }
-        // }
-
         for map in &self.memory_maps {
             let size = (map.address.1 - map.address.0) as usize;
             if addr >= map.offset as usize && addr < map.offset as usize + size {
@@ -436,7 +428,6 @@ impl Debugger {
                 match bp.op.take() {
                     Some(BreakpointOp::Create) => {
                         bp.set(self.procs.root())?;
-                        ctx.queue.pushd(DebuggerEvent::BreakpointSet(bp.addr));
                     }
                     Some(BreakpointOp::Delete) => {
                         bp.unset(self.procs.root())?;

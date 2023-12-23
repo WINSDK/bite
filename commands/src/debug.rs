@@ -54,7 +54,7 @@ struct Context<'src> {
     /// Symbol lookup table.
     index: &'src symbols::Index,
 
-    /// Offset into input string.
+    /// Byte offset into input string.
     offset: usize,
 
     /// Recursion depth.
@@ -70,7 +70,10 @@ struct Context<'src> {
 /// Error with line number and context.
 #[derive(Debug, PartialEq)]
 pub struct Error {
+    // Byte offset.
     offset: Option<usize>,
+
+    /// Associated message.
     msg: String,
 }
 

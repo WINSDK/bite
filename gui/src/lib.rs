@@ -198,8 +198,14 @@ impl<Arch: Target> UI<Arch> {
 
         let dbg_ctx = self.dbg_ctx.clone();
         let ui_queue = self.ui_queue.clone();
-        let module = self.panels.listing().unwrap().disassembly.processor.clone();
         let settings = self.dbg_settings.clone();
+        let module = match self.panels.listing() {
+            Some(listing) => Arc::clone(&listing.disassembly.processor),
+            None => {
+                tprint!(self.panels.terminal(), "Missing binary to run.");
+                return;
+            }
+        };
 
         std::thread::spawn(move || {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -249,9 +255,6 @@ impl<Arch: Target> UI<Arch> {
                 DebuggerEvent::Exited(code) => {
                     tprint!(self.panels.terminal(), "Process exited with code {code}.");
                 }
-                DebuggerEvent::BreakpointSet(addr) => {
-                    tprint!(self.panels.terminal(), "Breakpoint set at {addr:#X}.");
-                }
             }
         }
     }
@@ -282,6 +285,12 @@ impl<Arch: Target> UI<Arch> {
                     match Command::parse(index, &line) {
                         Ok(Command::Goto(addr)) => {
                             println!("goto {addr:X}");
+                        }
+                        Ok(Command::Break(addr)) => {
+                            println!("b {addr:X}");
+                        }
+                        Ok(Command::DeleteBreak(addr)) => {
+                            println!("db {addr:X}");
                         }
                         Err(CommandError::Debugger(err)) => {
                             eprintln!("{err}");
