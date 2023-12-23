@@ -74,6 +74,12 @@ pub trait Tracing {
     /// On linux this is currently only supports unprotected memory pages.
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
     fn write_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error>;
+
+    /// Translate virtual memory address to physical address the related parsers understand.
+    fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr;
+
+    /// Translate physical address to virtual memory address.
+    fn phys_to_virt(&self, addr: PhysAddr) -> VirtAddr;
 }
 
 /// Operation to be executed on [`Breakpoint`].
@@ -94,16 +100,16 @@ pub struct Breakpoint {
 }
 
 impl Breakpoint {
-    pub(crate) fn set(&mut self, proc: &mut Process) -> Result<(), Error> {
-        let vaddr = proc.translate(self.addr);
+    pub(crate) fn set(&mut self, proc: &mut dyn Tracing) -> Result<(), Error> {
+        let vaddr = proc.phys_to_virt(self.addr);
         self.shadow = proc.read_memory(vaddr, 1)?[0];
         let int3 = &[0xcc];
         proc.write_memory(vaddr, int3)?;
         Ok(())
     }
 
-    pub(crate) fn unset(&mut self, proc: &mut Process) -> Result<(), Error> {
-        let vaddr = proc.translate(self.addr);
+    pub(crate) fn unset(&mut self, proc: &mut dyn Tracing) -> Result<(), Error> {
+        let vaddr = proc.phys_to_virt(self.addr);
         proc.write_memory(vaddr, &[self.shadow])?;
         Ok(())
     }

@@ -1,43 +1,56 @@
-#![allow(dead_code)]
-
-use crate::common::*;
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct ProgressBar {
-    desc: &'static str,
-    steps_done: usize,
-    step_count: usize,
+    desc: RwLock<&'static str>,
+    steps_done: AtomicUsize,
+    step_count: AtomicUsize,
     size: egui::Vec2,
     bg_col: egui::Color32,
     fg_col: egui::Color32,
 }
 
 impl ProgressBar {
-    pub fn new(desc: &'static str, step_count: usize) -> Self {
+    pub const fn unset() -> Self {
         Self {
-            desc,
-            steps_done: 0,
-            step_count,
-            size: egui::vec2(300.0,18.0),
+            desc: RwLock::new("???"),
+            steps_done: AtomicUsize::new(0),
+            step_count: AtomicUsize::new(0),
+            size: egui::vec2(300.0, 18.0),
             bg_col: egui::Color32::from_gray(66),
-            fg_col: egui::Color32::from_rgb(0x34, 0x73, 0xCF)
+            fg_col: egui::Color32::from_rgb(0x34, 0x73, 0xcf)
         }
     }
 
-    pub fn step(&mut self) {
-        self.steps_done += 1;
+    pub fn set(&self, desc: &'static str, step_count: usize) {
+        *self.desc.write().unwrap() = desc;
+        self.step_count.store(step_count, Ordering::SeqCst);
+        self.steps_done.store(0, Ordering::SeqCst);
+    }
+
+    pub fn step(&self) {
+        self.steps_done.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn step_n(&mut self, n: usize) {
-        self.steps_done += n;
+        self.steps_done.fetch_add(n, Ordering::Relaxed);
     }
-}
 
-impl Display for ProgressBar {
-    fn show(&mut self, ui: &mut egui::Ui) {
-        let progress = self.steps_done as f64 / self.step_count as f64;
+    pub fn show(&self, ui: &mut egui::Ui) {
+        let desc = self.desc.read().unwrap();
+        let steps_done = self.steps_done.load(Ordering::Relaxed);
+        let step_count = self.step_count.load(Ordering::Relaxed);
+
+        let progress = steps_done as f64 / step_count as f64;
         let progress = progress.clamp(0.0, 1.0) as f32;
 
         let rect = ui.allocate_exact_size(self.size, egui::Sense::hover()).0;
+
+        // not yet set so don't display text
+        if *desc == "???" {
+            return;
+        }
+
         let (top_rect, bot_rect) = rect.split_top_bottom_at_fraction(0.5);
         let (bar_rect, circles_rect) = top_rect.split_left_right_at_fraction(0.9);
         let (l, r) = bar_rect.split_left_right_at_fraction(progress);
@@ -69,8 +82,8 @@ impl Display for ProgressBar {
         // draw centered text
         ui.allocate_ui_at_rect(bot_rect, |ui| {
             ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                let progress = self.steps_done.clamp(0, self.step_count);
-                let status = format!("{} {}/{}", self.desc, progress, self.step_count);
+                let steps_done = steps_done.clamp(0, step_count);
+                let status = format!("{desc} {steps_done}/{step_count}");
                 ui.label(egui::RichText::new(status).size(top_rect.height() * 1.3))
             });
         });

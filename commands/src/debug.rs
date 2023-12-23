@@ -293,7 +293,7 @@ impl<'src> Context<'src> {
         let mut depth = 0isize;
 
         loop {
-            match dbg!(self.peek()) {
+            match self.peek() {
                 // operators are ambiguous
                 Some('+' | '-' | '*' | '/' | '%') if depth == 0 => break,
                 // brackets are ambiguous

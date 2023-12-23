@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
-use crate::{Tracing, Debuggable, VirtAddr, Context};
+use crate::{Tracing, Debuggable, VirtAddr, PhysAddr, Context};
 
 pub type Pid = isize;
 
@@ -61,5 +61,13 @@ impl Tracing for Debugger {
 
     fn write_memory(&mut self, _: VirtAddr, _: &[u8]) -> Result<(), Error> {
         todo!("process_memory");
+    }
+
+    fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr {
+        addr
+    }
+
+    fn phys_to_virt(&self, addr: PhysAddr) -> VirtAddr {
+        addr
     }
 }

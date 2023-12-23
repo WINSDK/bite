@@ -1,5 +1,5 @@
 mod donut;
-mod progress;
+mod terminal;
 
 pub use donut::Donut;
-pub use progress::ProgressBar;
+pub use terminal::Terminal;

@@ -1,7 +1,11 @@
-use std::sync::Mutex;
+mod progress;
 
+use std::sync::Mutex;
 use egui::text::LayoutJob;
 pub use rfd::{MessageDialog, MessageLevel};
+pub use progress::ProgressBar;
+
+pub static PROGRESS: ProgressBar = ProgressBar::unset();
 
 /// Time a given expression.
 #[macro_export]

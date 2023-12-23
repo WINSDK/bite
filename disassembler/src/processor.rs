@@ -36,6 +36,9 @@ macro_rules! impl_recursion {
                 w ">.",
             );
 
+            // guessing an average of 5 byte long instructions
+            log::PROGRESS.set("decoding instructions", section.bytes.len() / 5);
+
             loop {
                 match $decoder.decode(&mut reader) {
                     Ok(mut instruction) => {
@@ -58,6 +61,8 @@ macro_rules! impl_recursion {
                         addr += width;
                     }
                 }
+
+                log::PROGRESS.step();
             }
         }
     }};

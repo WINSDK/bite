@@ -81,20 +81,6 @@ impl Process {
         })
     }
 
-    /// Convert disassembler's address to virtual memory address.
-    pub fn translate(&self, addr: PhysAddr) -> VirtAddr {
-        for map in &self.memory_maps {
-            let size = (map.address.1 - map.address.0) as usize;
-            if addr >= map.offset as usize && addr < map.offset as usize + size {
-                let rva = addr - map.offset as usize;
-                return map.address.0 as usize + rva;
-            }
-        }
-
-        // failed to translate the address
-        addr
-    }
-
     fn configure(&mut self) -> Result<(), Error> {
         let options = ptrace::Options::empty()
             // new thread
@@ -178,6 +164,33 @@ impl Tracing for Process {
         }
 
         Ok(())
+    }
+
+    fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr {
+        for map in &self.memory_maps {
+            let (start, end) = (map.address.0 as usize, map.address.1 as usize);
+            if addr >= start && addr < end {
+                let rva = addr - start;
+                return map.offset as usize + rva;
+            }
+        }
+
+        // failed to translate the address
+        addr
+    }
+
+    fn phys_to_virt(&self, addr: PhysAddr) -> VirtAddr {
+        for map in &self.memory_maps {
+            let size = (map.address.1 - map.address.0) as usize;
+            let (start, end) = (map.offset as usize, map.offset as usize + size);
+            if addr >= start && addr < end {
+                let rva = addr - start;
+                return map.address.0 as usize + rva;
+            }
+        }
+
+        // failed to translate the address
+        addr
     }
 }
 

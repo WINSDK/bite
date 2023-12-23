@@ -84,7 +84,18 @@ impl Display for Donut {
     fn show(&mut self, ui: &mut egui::Ui) {
         self.update();
 
-        let text = egui::RichText::new(self.frame()).size(10.0);
-        ui.label(text);
+        // HACK: has to be done this way since egui can't center two
+        // widgets at once (progress bar and donut).
+        let panel = ui.max_rect();
+        let mut font = FONT;
+        font.size /= 1.5;
+        let rect = ui.painter().text(
+            panel.center(),
+            egui::Align2::CENTER_CENTER,
+            self.frame(),
+            font,
+            egui::Color32::WHITE,
+        );
+        ui.allocate_rect(rect, egui::Sense::hover());
     }
 }

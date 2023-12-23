@@ -193,8 +193,11 @@ impl Index {
         let entrypoint = obj.entry() as usize;
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
+        log::PROGRESS.set("Demangling symbols", symbols.len());
+
         // insert defined symbols
         parallel_compute(symbols, &mut self.tree, |(addr, symbol)| {
+            log::PROGRESS.step();
             (*addr, Function::new(parser(symbol), None))
         });
 

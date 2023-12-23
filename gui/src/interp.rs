@@ -1,7 +1,7 @@
 use crate::tprint;
 use commands::Command;
 
-fn print_cwd(terminal: &mut crate::panels::Terminal) {
+fn print_cwd(terminal: &mut crate::widgets::Terminal) {
     match std::env::current_dir() {
         Ok(path) => tprint!(terminal, "Working directory {}.", path.display()),
         Err(err) => tprint!(terminal, "Failed to print pwd: '{err}'."),

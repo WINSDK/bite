@@ -1,10 +1,8 @@
 mod functions;
 mod listing;
-mod terminal;
 
 use crate::common::*;
-use crate::widgets::Donut;
-pub use terminal::Terminal;
+use crate::widgets::{Donut, Terminal};
 
 use egui::{Button, RichText};
 use egui_dock::{DockArea, DockState};
@@ -27,7 +25,7 @@ enum PanelKind {
 
 pub struct Tabs {
     mapping: BTreeMap<Identifier, PanelKind>,
-    terminal: terminal::Terminal,
+    terminal: Terminal,
     donut: Donut,
 }
 
@@ -39,7 +37,7 @@ impl Tabs {
                 mapping.insert(LOGGING, PanelKind::Logging);
                 mapping
             },
-            terminal: terminal::Terminal::new(),
+            terminal: Terminal::new(),
             donut: Donut::new(false),
         }
     }
@@ -112,7 +110,7 @@ impl Panels {
         })
     }
 
-    pub fn terminal(&mut self) -> &mut terminal::Terminal {
+    pub fn terminal(&mut self) -> &mut Terminal {
         &mut self.tabs.terminal
     }
 
@@ -298,8 +296,13 @@ impl Panels {
             })
             .show(ctx, |ui| {
                 if self.loading {
-                    let layout = egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
-                    ui.with_layout(layout, |ui| self.tabs.donut.show(ui));
+                    ui.spacing_mut().item_spacing.y += 20.0;
+                    let layout = egui::Layout::top_down_justified(egui::Align::Center);
+                    ui.with_layout(layout, |ui| {
+                        self.tabs.donut.show(ui);
+                        log::PROGRESS.show(ui);
+                    });
+                    ui.spacing_mut().item_spacing.y -= 20.0;
                 } else {
                     let style = crate::style::DOCK.clone();
 
