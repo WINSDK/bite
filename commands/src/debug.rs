@@ -190,8 +190,8 @@ impl<'src> Context<'src> {
     fn base16(&mut self) -> Option<u8> {
         let n = match self.peek()? as u8 {
             chr @ b'0'..=b'9' => chr - b'0',
-            chr @ b'a'..=b'f' => chr - b'a',
-            chr @ b'A'..=b'F' => chr - b'A',
+            chr @ b'a'..=b'f' => chr - b'a' + 10,
+            chr @ b'A'..=b'F' => chr - b'A' + 10,
             _ => return None,
         };
 
@@ -585,6 +585,7 @@ mod tests {
     #[test]
     fn simple() {
         eval_eq!("3 * 32", 96);
+        eval_eq!("0x4f2", 0x4f2);
     }
 
     #[test]
