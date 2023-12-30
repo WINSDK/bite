@@ -39,7 +39,7 @@ impl fmt::Display for Error {
                 None => f.write_fmt(format_args!("Command '{cmd}' is unknown.")),
             },
             Self::PathDoesntExist(path) => {
-                f.write_fmt(format_args!("Path '{path:?}' doesn't exist."))
+                f.write_fmt(format_args!("Path {path:?} doesn't exist."))
             }
             Self::InvalidEnv => f.write_str("Invalid environmental variable pair."),
             Self::Debugger(err) => err.fmt(f),

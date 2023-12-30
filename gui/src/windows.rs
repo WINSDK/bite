@@ -47,7 +47,8 @@ impl crate::Target for Arch {
         height: u32,
         event_loop: &winit::event_loop::EventLoop<T>,
     ) -> Result<winit::window::Window, Error> {
-        let icon = crate::icon::PngIcon::decode("./assets/iconx256.png")?;
+        let icon = include_bytes!("../../assets/iconx256.png");
+        let icon = crate::icon::PngIcon::decode_bytes(icon)?;
         let icon = winit::window::Icon::from_rgba(icon.data, icon.width, icon.height).ok();
 
         let window = winit::window::WindowBuilder::new()

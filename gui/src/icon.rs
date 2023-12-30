@@ -7,6 +7,7 @@ pub struct PngIcon {
 }
 
 impl PngIcon {
+    #[allow(dead_code)]
     pub fn decode<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
         let bytes = std::fs::read(&path).map_err(|_| Error::NotFound(path.as_ref().to_owned()))?;
         Self::decode_bytes(&bytes)
