@@ -40,7 +40,7 @@ impl Display for Functions {
                 self.max_row = row_range.end;
             }
 
-            let text_area = TextSelection::precomputed(&self.lines);
+            let text_area = TextSelection::precomputed(FONT, &self.lines);
             ui.add(text_area);
         });
     }

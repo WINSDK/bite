@@ -1,3 +1,4 @@
+use crate::common::*;
 use crate::widgets::TextSelection;
 
 use once_cell::sync::Lazy;
@@ -307,7 +308,7 @@ impl Terminal {
             let title = "(bite) ";
             let input = self.current_line();
 
-            let mut text_area = TextSelection::new();
+            let mut text_area = TextSelection::new(FONT);
             text_area.append(&self.prompt);
             text_area.append(title);
             text_area.append(input);

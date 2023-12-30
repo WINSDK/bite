@@ -62,8 +62,12 @@ impl egui_dock::TabViewer for Tabs {
                     .stick_to_bottom(true);
 
                 area.show(ui, |ui| {
+                    let font = egui::FontId {
+                        size: 12.0,
+                        family: egui::FontFamily::Monospace,
+                    };
                     let layout = log::LOGGER.lock().unwrap().format();
-                    let text_area = TextSelection::precomputed(&layout);
+                    let text_area = TextSelection::precomputed(font, &layout);
                     ui.add(text_area);
                 });
             }

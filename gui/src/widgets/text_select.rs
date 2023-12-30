@@ -36,16 +36,17 @@
 // }
 // ```
 
-use crate::common::*;
 use crate::style::EGUI;
+use crate::widgets::TextEdit;
 
+use egui::FontId;
 use egui::text::LayoutJob;
 use egui::text::{CCursor, CCursorRange};
-use egui::TextEdit;
 
 type Layouter<'l> = &'l mut dyn FnMut(&str) -> LayoutJob;
 
 pub struct TextSelection<'l> {
+    font: FontId,
     text: String,
     reset_position: Option<usize>,
     layouter: Option<Layouter<'l>>,
@@ -53,8 +54,9 @@ pub struct TextSelection<'l> {
 }
 
 impl<'l> TextSelection<'l> {
-    pub fn new() -> Self {
+    pub fn new(font: FontId) -> Self {
         Self {
+            font,
             text: String::new(),
             reset_position: None,
             layouter: None,
@@ -62,8 +64,8 @@ impl<'l> TextSelection<'l> {
         }
     }
 
-    pub fn precomputed(layoutjob: &'l LayoutJob) -> Self {
-        let mut this = Self::new();
+    pub fn precomputed(font: FontId, layoutjob: &'l LayoutJob) -> Self {
+        let mut this = Self::new(font);
         this.precomputed = Some(layoutjob);
         this
     }
@@ -129,7 +131,7 @@ impl egui::Widget for TextSelection<'_> {
                 (None, Some(precomputed)) => precomputed.clone(),
                 (None, None) => LayoutJob::simple(
                     self.text.clone(),
-                    FONT,
+                    self.font.clone(),
                     EGUI.noninteractive().fg_stroke.color,
                     wrap_width,
                 ),
@@ -148,7 +150,7 @@ impl egui::Widget for TextSelection<'_> {
 
         let response = ui.add(
             TextEdit::multiline(&mut text)
-                .code_editor()
+                .font(self.font.clone())
                 .desired_width(f32::INFINITY)
                 .layouter(&mut layouter),
         );
