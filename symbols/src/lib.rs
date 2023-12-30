@@ -202,10 +202,13 @@ impl Index {
         });
 
         // keep tree sorted so it can be binary searched
-        self.tree.sort_unstable_by_key(|k| k.0);
+        self.tree.sort_unstable_by_key(|(addr, _)| *addr);
 
         // only keep one symbol per address
-        self.tree.dedup_by_key(|k| k.0);
+        self.tree.dedup_by_key(|(addr, _)| *addr);
+
+        // only keep symbols with a non-empty name
+        self.tree.retain(|(_, func)| !func.as_str().is_empty());
 
         // insert entrypoint
         self.insert(entrypoint, entry_func);

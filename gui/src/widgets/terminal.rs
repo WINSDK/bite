@@ -1,4 +1,3 @@
-use crate::common::*;
 use crate::widgets::TextSelection;
 
 use once_cell::sync::Lazy;
@@ -232,25 +231,25 @@ impl Terminal {
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, .. },
+                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
                     ..
                 } => self.reset_line(),
                 egui::Event::Key {
                     key: egui::Key::A,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, .. },
+                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
                     ..
                 } => self.move_to_start(),
                 egui::Event::Key {
                     key: egui::Key::E,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, .. },
+                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
                     ..
                 } => self.move_to_end(),
                 egui::Event::Key {
                     key: egui::Key::L,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, .. },
+                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
                     ..
                 } => self.clear(),
                 egui::Event::Key {
@@ -273,6 +272,12 @@ impl Terminal {
                     pressed: true,
                     ..
                 } => self.move_right(),
+                // copy and cut are events that will reset the cursor
+                egui::Event::Copy | egui::Event::Cut => {
+                    events_processed += 1;
+                    prev_consumed = false;
+                    return true;
+                },
                 _ => {
                     prev_consumed = false;
                     return true;
@@ -290,66 +295,37 @@ impl Terminal {
 
         events_processed
     }
+
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        let area = egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false)
+            .stick_to_bottom(true)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+
+        area.show(ui, |ui| {
+            let title = "(bite) ";
+            let input = self.current_line();
+
+            let mut text_area = TextSelection::new();
+            text_area.append(&self.prompt);
+            text_area.append(title);
+            text_area.append(input);
+
+            if self.reset_cursor {
+                let abs_position = self.prompt.len() + title.len() + self.cursor_position;
+                text_area.set_reset_position(abs_position);
+                self.reset_cursor = false;
+            }
+
+            ui.add_sized(ui.available_size(), text_area);
+        });
+    }
 }
 
 impl std::fmt::Write for Terminal {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         self.prompt.push_str(s);
         Ok(())
-    }
-}
-
-impl Display for Terminal {
-    fn show(&mut self, ui: &mut egui::Ui) {
-        let area = egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .drag_to_scroll(false)
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
-
-        let format = egui::TextFormat {
-            font_id: FONT,
-            color: crate::style::EGUI.noninteractive().fg_stroke.color,
-            ..Default::default()
-        };
-
-        let ex_bg_color = ui.style().visuals.extreme_bg_color;
-        ui.style_mut().visuals.extreme_bg_color = crate::style::STYLE.primary_background;
-
-        area.show(ui, |ui| {
-            let mut text_area = TextSelection::new();
-            let title = "(bite) ";
-
-            text_area.append(&self.prompt, &format);
-            text_area.append(title, &format);
-
-            let input = self.current_line();
-            let (left, right) = input.split_at(self.cursor_position);
-            let (select, right) = if right.is_empty() {
-                (" ", "")
-            } else {
-                // right's one char byte offset
-                let off = right.char_indices().nth(1).map_or(right.len(), |(idx, _)| idx);
-                right.split_at(off)
-            };
-
-            text_area.append(left, &format);
-            text_area.append(select, &format);
-            text_area.append(right, &format);
-
-            // HACK: keep track of cumulative command position 
-            let pos = self.commands[..self.command_position]
-                .iter()
-                .map(|l| l.bytes().count())
-                .sum::<usize>()
-                + self.cursor_position
-                + title.len()
-                - 1;
-
-            text_area.set_cursor_position(pos);
-            text_area.show(ui, self.reset_cursor);
-            self.reset_cursor = false;
-        });
-
-        ui.style_mut().visuals.extreme_bg_color = ex_bg_color;
     }
 }

@@ -88,7 +88,7 @@ impl Platform {
         &mut self.raw_input.events
     }
 
-    fn handle_key_text(&mut self, pressed: bool, event: &KeyEvent) {
+    fn store_key_text(&mut self, pressed: bool, event: &KeyEvent) {
         if pressed {
             if let Some(ref text) = event.text {
                 if text.chars().all(is_printable) {
@@ -114,7 +114,7 @@ impl Platform {
                                 self.raw_input.events.push(egui::Event::Copy);
                             }
                             (true, true, true, KeyCode::KeyX) => {
-                                self.raw_input.events.push(egui::Event::Cut)
+                                self.raw_input.events.push(egui::Event::Cut);
                             }
                             (true, true, true, KeyCode::KeyV) => {
                                 if let Ok(contents) = self.clipboard.get_contents() {
@@ -134,7 +134,7 @@ impl Platform {
                                     });
                                 }
 
-                                self.handle_key_text(pressed, event);
+                                self.store_key_text(pressed, event);
                             }
                         }
                     }

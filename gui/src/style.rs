@@ -47,8 +47,8 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
     visuals: Visuals {
         widgets: Widgets {
             noninteractive: WidgetVisuals {
-                bg_fill: STYLE.tab_color,
-                weak_bg_fill: Color32::TRANSPARENT,
+                bg_fill: STYLE.primary_background,
+                weak_bg_fill: STYLE.primary_background,
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
@@ -59,7 +59,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             },
             inactive: WidgetVisuals {
                 bg_fill: STYLE.primary_background,
-                weak_bg_fill: Color32::TRANSPARENT,
+                weak_bg_fill: STYLE.primary_background,
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
@@ -70,7 +70,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             },
             hovered: WidgetVisuals {
                 bg_fill: STYLE.primary_background,
-                weak_bg_fill: Color32::TRANSPARENT,
+                weak_bg_fill: STYLE.primary_background,
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
@@ -81,7 +81,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             },
             active: WidgetVisuals {
                 bg_fill: STYLE.tab_color,
-                weak_bg_fill: Color32::TRANSPARENT,
+                weak_bg_fill: STYLE.primary_background,
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
@@ -92,7 +92,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             },
             open: WidgetVisuals {
                 bg_fill: STYLE.primary_background,
-                weak_bg_fill: Color32::TRANSPARENT,
+                weak_bg_fill: STYLE.primary_background,
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
@@ -113,8 +113,8 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         window_rounding: STYLE.tab_rounding,
         window_fill: STYLE.tab_color,
         panel_fill: STYLE.tab_color,
-        extreme_bg_color: Color32::from_rgba_unmultiplied(100, 100, 100, 160),
-        text_cursor: Stroke::new(12.0, Color32::from_rgba_unmultiplied(150, 150, 150, 200)),
+        extreme_bg_color: STYLE.tab_color,
+        text_cursor: Stroke::new(2.0, Color32::from_rgba_unmultiplied(130, 130, 130, 200)),
         ..Default::default()
     },
     wrap: Some(false),
@@ -124,6 +124,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
 
         styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Monospace));
         styles.insert(TextStyle::Body, FontId::new(16.0, FontFamily::Monospace));
+        styles.insert(TextStyle::Monospace, FontId::new(16.0, FontFamily::Monospace));
         styles.insert(TextStyle::Button, FontId::new(14.0, FontFamily::Monospace));
         styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Monospace));
         styles
@@ -197,7 +198,10 @@ pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
             bg_fill: STYLE.primary_background,
             text_color: STYLE.text_color,
         },
-        tab_body: egui_dock::TabBodyStyle::from_egui(&*EGUI),
+        tab_body: egui_dock::TabBodyStyle {
+            bg_fill: STYLE.tab_color,
+            ..Default::default()
+        },
         hline_below_active_tab_name: false,
         minimum_width: None
     },

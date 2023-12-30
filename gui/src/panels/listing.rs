@@ -1,11 +1,11 @@
 use crate::common::*;
+use crate::widgets::TextSelection;
 use egui::text::LayoutJob;
 
 pub struct Listing {
     pub disassembly: disassembler::Disassembly,
     pub disassembly_view: disassembler::DisassemblyView,
     lines: LayoutJob,
-    line_count: usize,
     min_row: usize,
     max_row: usize,
 }
@@ -16,17 +16,16 @@ impl Listing {
             disassembly,
             disassembly_view: disassembler::DisassemblyView::new(),
             lines: LayoutJob::default(),
-            line_count: 0,
             min_row: 0,
             max_row: 0,
         }
     }
 
     /// Force refresh listing.
+    /// Force refresh listing.
     pub fn update(&mut self) {
         let instructions = self.disassembly_view.format();
         self.lines = tokens_to_layoutjob(instructions);
-        self.line_count = self.lines.text.lines().count();
     }
 }
 
@@ -102,7 +101,8 @@ impl Display for Listing {
                     self.max_row = max_row;
                 }
 
-                ui.label(self.lines.clone());
+                let text_area = TextSelection::precomputed(&self.lines);
+                ui.add(text_area);
             });
         });
     }

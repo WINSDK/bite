@@ -137,7 +137,7 @@ pub enum MaybeStatic {
 impl Deref for MaybeStatic {
     type Target = str;
 
-    #[inline]
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Dynamic(s) => s as &str,
@@ -153,7 +153,7 @@ pub struct Token {
 }
 
 impl Token {
-    #[inline]
+    #[inline(always)]
     pub fn from_str(text: &'static str, color: Color) -> Self {
         Self {
             text: MaybeStatic::Static(text),
@@ -161,7 +161,7 @@ impl Token {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn from_string(text: String, color: Color) -> Self {
         Self {
             text: MaybeStatic::Dynamic(Arc::from(text)),
@@ -171,6 +171,7 @@ impl Token {
 }
 
 impl PartialEq for Token {
+    #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         *self.text == *other.text
     }

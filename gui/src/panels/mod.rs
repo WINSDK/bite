@@ -2,7 +2,8 @@ mod functions;
 mod listing;
 
 use crate::common::*;
-use crate::widgets::{Donut, Terminal};
+use crate::style::{EGUI, STYLE};
+use crate::widgets::{Donut, Terminal, TextSelection};
 
 use egui::{Button, RichText};
 use egui_dock::{DockArea, DockState};
@@ -55,16 +56,16 @@ impl egui_dock::TabViewer for Tabs {
             Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
             Some(PanelKind::Functions(functions)) => functions.show(ui),
             Some(PanelKind::Logging) => {
-                ui.style_mut().wrap = Some(true);
-
                 let area = egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .drag_to_scroll(false)
                     .stick_to_bottom(true);
 
-                area.show(ui, |ui| ui.label(log::LOGGER.lock().unwrap().format()));
-
-                ui.style_mut().wrap = Some(false);
+                area.show(ui, |ui| {
+                    let layout = log::LOGGER.lock().unwrap().format();
+                    let text_area = TextSelection::precomputed(&layout);
+                    ui.add(text_area);
+                });
             }
             None => {}
         };
@@ -253,6 +254,36 @@ impl Panels {
 
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
 
+        let dock_area = egui::CentralPanel::default().frame({
+            egui::Frame::default().inner_margin(egui::Margin {
+                top: crate::style::STYLE.separator_width,
+                ..Default::default()
+            })
+        });
+
+        dock_area.show(ctx, |ui| {
+            if self.loading {
+                ui.spacing_mut().item_spacing.y += 20.0;
+                let layout = egui::Layout::top_down_justified(egui::Align::Center);
+                ui.with_layout(layout, |ui| {
+                    self.tabs.donut.show(ui);
+                    log::PROGRESS.show(ui);
+                });
+                ui.spacing_mut().item_spacing.y -= 20.0;
+            } else {
+                let style = crate::style::DOCK.clone();
+
+                DockArea::new(&mut self.layout)
+                    .style(style)
+                    .show_close_buttons(true)
+                    .show_window_close_buttons(true)
+                    .show_window_collapse_buttons(false)
+                    .tab_context_menus(false)
+                    .show_inside(ui, &mut self.tabs);
+            }
+        });
+
+        // terminal needs to be rendered last as it can take focus away from other panels
         let terminal = egui::TopBottomPanel::bottom("terminal")
             .min_height(80.0)
             .max_height(510.0)
@@ -270,50 +301,22 @@ impl Panels {
                     .fill(tokenizing::colors::GRAY35)
             });
 
+        let mut visuals = EGUI.visuals.clone();
+
+        // set alternative background color
+        visuals.extreme_bg_color = STYLE.primary_background;
         // disable on-hover highlighting for terminal
-        let mut visuals = crate::style::EGUI.visuals.clone();
         visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
         visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;
+
         ctx.set_visuals(visuals);
 
         terminal.show(ctx, |ui| {
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 self.tabs.terminal.show(ui);
             })
         });
 
-        // re-enable on-hover highlighting
-        let visuals = crate::style::EGUI.visuals.clone();
-        ctx.set_visuals(visuals);
-
-        // draw the primary panel
-        egui::CentralPanel::default()
-            .frame({
-                egui::Frame::default().inner_margin(egui::Margin {
-                    top: crate::style::STYLE.separator_width,
-                    ..Default::default()
-                })
-            })
-            .show(ctx, |ui| {
-                if self.loading {
-                    ui.spacing_mut().item_spacing.y += 20.0;
-                    let layout = egui::Layout::top_down_justified(egui::Align::Center);
-                    ui.with_layout(layout, |ui| {
-                        self.tabs.donut.show(ui);
-                        log::PROGRESS.show(ui);
-                    });
-                    ui.spacing_mut().item_spacing.y -= 20.0;
-                } else {
-                    let style = crate::style::DOCK.clone();
-
-                    DockArea::new(&mut self.layout)
-                        .style(style)
-                        .show_close_buttons(true)
-                        .show_window_close_buttons(true)
-                        .show_window_collapse_buttons(false)
-                        .tab_context_menus(false)
-                        .show_inside(ui, &mut self.tabs);
-                }
-            });
+        ctx.set_visuals(EGUI.visuals.clone());
     }
 }
