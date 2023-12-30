@@ -129,6 +129,48 @@ impl Terminal {
         }
     }
 
+    /// Moves the cursor to the start of the previous word.
+    pub fn move_left_next_word(&mut self) {
+        let current_line = self.current_line();
+        let mut is_in_whitespace = true;
+        let mut new_position = None;
+
+        for (idx, chr) in current_line[..self.cursor_position].char_indices().rev() {
+            if chr.is_whitespace() {
+                if !is_in_whitespace {
+                    new_position = Some(idx + chr.len_utf8());
+                    break;
+                }
+            } else {
+                is_in_whitespace = false;
+            }
+        }
+
+        // move to the found position or to the start if no suitable position was found.
+        self.cursor_position = new_position.unwrap_or(0);
+    }
+
+    /// Moves the cursor to the start of the next word.
+    pub fn move_right_next_word(&mut self) {
+        let current_line = self.current_line();
+        let mut is_in_whitespace = true;
+        let mut new_position = None;
+
+        for (idx, chr) in current_line[self.cursor_position..].char_indices() {
+            if chr.is_whitespace() {
+                if !is_in_whitespace && idx > 0 {
+                    new_position = Some(self.cursor_position + idx);
+                    break;
+                }
+            } else {
+                is_in_whitespace = false;
+            }
+        }
+
+        // move to the found position or to the end if no suitable position was found.
+        self.cursor_position = new_position.unwrap_or(current_line.len());
+    }
+
     pub fn move_to_start(&mut self) {
         self.cursor_position = 0;
     }
@@ -253,6 +295,18 @@ impl Terminal {
                     modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
                     ..
                 } => self.clear(),
+                egui::Event::Key {
+                    key: egui::Key::ArrowLeft,
+                    pressed: true,
+                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    ..
+                } => self.move_left_next_word(),
+                egui::Event::Key {
+                    key: egui::Key::ArrowRight,
+                    pressed: true,
+                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    ..
+                } => self.move_right_next_word(),
                 egui::Event::Key {
                     key: egui::Key::ArrowDown,
                     pressed: true,
