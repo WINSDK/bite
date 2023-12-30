@@ -16,7 +16,6 @@
 //                     &*token.text,
 //                     0.0,
 //                     egui::TextFormat {
-//                         font_id: FONT,
 //                         color: token.color,
 //                         ..Default::default()
 //                     }
@@ -82,6 +81,9 @@ impl<'l> TextSelection<'l> {
     ///
     /// Example code for setting a layout:
     /// ```
+    /// # use egui::text::LayoutJob;
+    /// # use gui::widgets::TextSelection;
+    /// let mut text_area = TextSelection::new(egui::FontId::default());
     /// let mut layouter = |input: &str| {
     ///     let mut output = LayoutJob::default();
 
@@ -96,7 +98,6 @@ impl<'l> TextSelection<'l> {
     ///             s,
     ///             0.0,
     ///             egui::TextFormat {
-    ///                 font_id: FONT,
     ///                 color,
     ///                 ..Default::default()
     ///             }
@@ -151,6 +152,7 @@ impl egui::Widget for TextSelection<'_> {
         let response = ui.add(
             TextEdit::multiline(&mut text)
                 .font(self.font.clone())
+                .lock_focus(true)
                 .desired_width(f32::INFINITY)
                 .layouter(&mut layouter),
         );

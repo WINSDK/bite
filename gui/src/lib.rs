@@ -2,7 +2,7 @@ mod fmt;
 mod icon;
 mod interp;
 mod panels;
-mod widgets;
+pub mod widgets;
 mod style;
 pub mod unix;
 mod wgpu_backend;
