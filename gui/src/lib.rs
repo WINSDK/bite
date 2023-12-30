@@ -283,18 +283,10 @@ impl<Arch: Target> UI<Arch> {
 
                     // if a goto command is being run, start performing the autocomplete
                     match Command::parse(index, &line) {
-                        Ok(Command::Goto(addr)) => {
-                            println!("goto {addr:X}");
-                        }
-                        Ok(Command::Break(addr)) => {
-                            println!("b {addr:X}");
-                        }
-                        Ok(Command::DeleteBreak(addr)) => {
-                            println!("db {addr:X}");
-                        }
-                        Err(CommandError::Debugger(err)) => {
-                            eprintln!("{err}");
-                        }
+                        Ok(Command::Goto(addr)) => println!("goto {addr:#X}"),
+                        Ok(Command::Break(addr)) => println!("b {addr:#X}"),
+                        Ok(Command::BreakDelete(addr)) => println!("db {addr:#X}"),
+                        Err(CommandError::Debugger(err)) => eprintln!("{err}"),
                         _ => {}
                     }
                 }

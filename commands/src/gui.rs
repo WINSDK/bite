@@ -10,7 +10,7 @@ pub enum Command {
     Run(Vec<String>),
     Goto(usize),
     Break(usize),
-    DeleteBreak(usize),
+    BreakDelete(usize),
     SetEnv(String),
     Stop,
     Continue,
@@ -177,7 +177,7 @@ impl<'src> Context<'src> {
     }
 
     fn parse_path(&mut self) -> Result<PathBuf, Error> {
-        let s = self.parse_arg("path")?;
+        let s = self.parse_arg("path").unwrap_or("~");
         let path = expand_homedir(PathBuf::from(s));
         if !path.exists() {
             return Err(Error::PathDoesntExist(path));
@@ -215,7 +215,7 @@ impl<'src> Context<'src> {
             "set" => Command::SetEnv(self.parse_env()?),
             "goto" | "g" => Command::Goto(self.parse_debug_expr()?),
             "break" | "b" => Command::Break(self.parse_debug_expr()?),
-            "delete" | "db" => Command::DeleteBreak(self.parse_debug_expr()?),
+            "delete" | "bd" => Command::BreakDelete(self.parse_debug_expr()?),
             "stop" | "s" => Command::Stop,
             "continue" | "c" => Command::Continue,
             "clear" => Command::Clear,

@@ -6,6 +6,7 @@ use tokenizing::colors;
 
 #[derive(Debug, Clone)]
 pub struct Style {
+    pub primary_background: Color32,
     pub separator_width: f32,
     pub button_background: Color32,
     pub selection_color: Color32,
@@ -19,9 +20,10 @@ pub struct Style {
 }
 
 pub static STYLE: Lazy<Style> = Lazy::new(|| Style {
+    primary_background: Color32::from_rgb(45, 45, 45),
     separator_width: 3.0,
     button_background: colors::GRAY20,
-    selection_color: Color32::from_rgba_unmultiplied(61, 133, 224, 60),
+    selection_color: Color32::from_rgba_unmultiplied(150, 150, 150, 60),
     close_tab_color: colors::GRAYAA,
     tab_color: colors::GRAY30,
     tab_rounding: Rounding::ZERO,
@@ -56,13 +58,10 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 expansion: 0.0,
             },
             inactive: WidgetVisuals {
-                bg_fill: STYLE.interactive_color,
+                bg_fill: STYLE.primary_background,
                 weak_bg_fill: Color32::TRANSPARENT,
                 rounding: STYLE.tab_rounding,
-                bg_stroke: Stroke {
-                    width: 5.0,
-                    color: STYLE.text_color,
-                },
+                bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 5.0,
                     color: STYLE.text_color,
@@ -70,21 +69,18 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 expansion: 0.0,
             },
             hovered: WidgetVisuals {
-                bg_fill: STYLE.interactive_color,
+                bg_fill: STYLE.primary_background,
                 weak_bg_fill: Color32::TRANSPARENT,
                 rounding: STYLE.tab_rounding,
-                bg_stroke: Stroke {
-                    width: 5.0,
-                    color: STYLE.active_text_color,
-                },
+                bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 5.0,
-                    color: STYLE.active_text_color,
+                    color: STYLE.text_color,
                 },
                 expansion: 0.0,
             },
             active: WidgetVisuals {
-                bg_fill: STYLE.interactive_color.linear_multiply(0.5),
+                bg_fill: STYLE.tab_color,
                 weak_bg_fill: Color32::TRANSPARENT,
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
@@ -95,22 +91,19 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 expansion: 0.0,
             },
             open: WidgetVisuals {
-                bg_fill: STYLE.tab_color,
+                bg_fill: STYLE.primary_background,
                 weak_bg_fill: Color32::TRANSPARENT,
                 rounding: STYLE.tab_rounding,
-                bg_stroke: Stroke {
-                    width: 5.0,
-                    color: STYLE.active_text_color,
-                },
+                bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 5.0,
-                    color: STYLE.active_text_color,
+                    color: STYLE.text_color,
                 },
                 expansion: 0.0,
             },
         },
         selection: Selection {
-            bg_fill: Color32::from_rgba_unmultiplied(61, 133, 224, 60),
+            bg_fill: STYLE.selection_color,
             stroke: Stroke::NONE,
         },
         menu_rounding: STYLE.tab_rounding,
@@ -121,6 +114,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         window_fill: STYLE.tab_color,
         panel_fill: STYLE.tab_color,
         extreme_bg_color: Color32::from_rgba_unmultiplied(100, 100, 100, 160),
+        text_cursor: Stroke::new(12.0, Color32::from_rgba_unmultiplied(150, 150, 150, 200)),
         ..Default::default()
     },
     wrap: Some(false),
@@ -178,7 +172,35 @@ pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
         hline_color: STYLE.separator_color,
         fill_tab_bar: true,
     },
-    tab: egui_dock::TabStyle::from_egui(&*EGUI),
+    tab: egui_dock::TabStyle {
+        active: egui_dock::TabInteractionStyle {
+            outline_color: Color32::TRANSPARENT,
+            rounding: STYLE.tab_rounding,
+            bg_fill: STYLE.tab_color,
+            text_color: STYLE.active_text_color,
+        },
+        inactive: egui_dock::TabInteractionStyle {
+            outline_color: Color32::TRANSPARENT,
+            rounding: STYLE.tab_rounding,
+            bg_fill: STYLE.primary_background,
+            text_color: STYLE.text_color,
+        },
+        focused: egui_dock::TabInteractionStyle {
+            outline_color: Color32::TRANSPARENT,
+            rounding: STYLE.tab_rounding,
+            bg_fill: STYLE.tab_color,
+            text_color: STYLE.active_text_color,
+        },
+        hovered: egui_dock::TabInteractionStyle {
+            outline_color: Color32::TRANSPARENT,
+            rounding: STYLE.tab_rounding,
+            bg_fill: STYLE.primary_background,
+            text_color: STYLE.text_color,
+        },
+        tab_body: egui_dock::TabBodyStyle::from_egui(&*EGUI),
+        hline_below_active_tab_name: false,
+        minimum_width: None
+    },
     overlay: egui_dock::OverlayStyle {
         selection_color: STYLE.selection_color,
         ..Default::default()

@@ -1,7 +1,8 @@
 use crate::common::*;
-use std::path::PathBuf;
-use egui::text::LayoutJob;
+use crate::widgets::TextSelection;
+
 use once_cell::sync::Lazy;
+use std::path::PathBuf;
 
 const HISTORY_PATH: Lazy<PathBuf> = Lazy::new(|| {
     let mut path = match dirs::data_dir() {
@@ -34,6 +35,7 @@ pub struct Terminal {
     commands_unprocessed: usize,
     command_position: usize,
     cursor_position: usize, // byte offset
+    reset_cursor: bool,
 }
 
 impl Terminal {
@@ -57,6 +59,7 @@ impl Terminal {
             command_position,
             commands_unprocessed: 0,
             cursor_position: 0,
+            reset_cursor: true,
         }
     }
 
@@ -245,6 +248,12 @@ impl Terminal {
                     ..
                 } => self.move_to_end(),
                 egui::Event::Key {
+                    key: egui::Key::L,
+                    pressed: true,
+                    modifiers: egui::Modifiers { ctrl: true, .. },
+                    ..
+                } => self.clear(),
+                egui::Event::Key {
                     key: egui::Key::ArrowDown,
                     pressed: true,
                     ..
@@ -275,6 +284,10 @@ impl Terminal {
             false
         });
 
+        if events_processed > 0 {
+            self.reset_cursor = true;
+        }
+
         events_processed
     }
 }
@@ -288,20 +301,26 @@ impl std::fmt::Write for Terminal {
 
 impl Display for Terminal {
     fn show(&mut self, ui: &mut egui::Ui) {
-        ui.style_mut().wrap = Some(true);
+        let area = egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false)
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
-        let area = egui::ScrollArea::vertical().auto_shrink([false, false]).drag_to_scroll(false);
         let format = egui::TextFormat {
             font_id: FONT,
             color: crate::style::EGUI.noninteractive().fg_stroke.color,
             ..Default::default()
         };
 
-        area.show(ui, |ui| {
-            let mut output = LayoutJob::default();
+        let ex_bg_color = ui.style().visuals.extreme_bg_color;
+        ui.style_mut().visuals.extreme_bg_color = crate::style::STYLE.primary_background;
 
-            output.append(&self.prompt, 0.0, format.clone());
-            output.append("(bite) ", 0.0, format.clone());
+        area.show(ui, |ui| {
+            let mut text_area = TextSelection::new();
+            let title = "(bite) ";
+
+            text_area.append(&self.prompt, &format);
+            text_area.append(title, &format);
 
             let input = self.current_line();
             let (left, right) = input.split_at(self.cursor_position);
@@ -309,30 +328,28 @@ impl Display for Terminal {
                 (" ", "")
             } else {
                 // right's one char byte offset
-                let off = right
-                         .char_indices()
-                         .nth(1)
-                         .map_or(right.len(), |(idx, _)| idx);
-
+                let off = right.char_indices().nth(1).map_or(right.len(), |(idx, _)| idx);
                 right.split_at(off)
             };
 
-            output.append(left, 0.0, format.clone());
-            output.append(
-                select,
-                0.0,
-                egui::TextFormat {
-                    font_id: FONT.clone(),
-                    color: format.color,
-                    background: crate::style::EGUI.noninteractive().fg_stroke.color,
-                    ..Default::default()
-                },
-            );
-            output.append(right, 0.0, format.clone());
+            text_area.append(left, &format);
+            text_area.append(select, &format);
+            text_area.append(right, &format);
 
-            ui.label(output);
+            // HACK: keep track of cumulative command position 
+            let pos = self.commands[..self.command_position]
+                .iter()
+                .map(|l| l.bytes().count())
+                .sum::<usize>()
+                + self.cursor_position
+                + title.len()
+                - 1;
+
+            text_area.set_cursor_position(pos);
+            text_area.show(ui, self.reset_cursor);
+            self.reset_cursor = false;
         });
 
-        ui.style_mut().wrap = Some(false);
+        ui.style_mut().visuals.extreme_bg_color = ex_bg_color;
     }
 }

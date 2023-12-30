@@ -22,6 +22,12 @@ macro_rules! impl_recursion {
      $max_instruction_width:expr, $decoder:expr, $arch:ident) => {{
         $max_instruction_width = $decoder.max_width();
 
+        let width_guess = if $max_instruction_width == 4 {
+            2
+        } else {
+            5
+        };
+
         for section in $sections.iter().filter(|s| s.kind == SectionKind::Text) {
             let mut reader = decoder::Reader::new(&section.bytes);
             let mut addr = section.start;
@@ -37,7 +43,7 @@ macro_rules! impl_recursion {
             );
 
             // guessing an average of 5 byte long instructions
-            log::PROGRESS.set("decoding instructions", section.bytes.len() / 5);
+            log::PROGRESS.set("decoding instructions", section.bytes.len() / width_guess);
 
             loop {
                 match $decoder.decode(&mut reader) {

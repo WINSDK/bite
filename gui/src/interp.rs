@@ -1,13 +1,5 @@
 use crate::tprint;
-use commands::Command;
-
-fn print_cwd(terminal: &mut crate::widgets::Terminal) {
-    match std::env::current_dir() {
-        Ok(path) => tprint!(terminal, "Working directory {}.", path.display()),
-        Err(err) => tprint!(terminal, "Failed to print pwd: '{err}'."),
-    }
-}
-
+use commands::{Command, CommandError};
 
 impl<Arch: crate::Target> super::UI<Arch> {
     /// Runs all queued commands, returning if they trigger a process exit.
@@ -24,28 +16,39 @@ impl<Arch: crate::Target> super::UI<Arch> {
             .map(|l| l.disassembly.processor.symbols())
             .unwrap_or(&empty_index);
 
-        let cmd = match Command::parse(index, cmd) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                tprint!(self.panels.terminal(), "{err}");
-                return true;
-            }
-        };
-        
-        match cmd {
-            Command::Load(path) => self.offload_binary_processing(path),
-            Command::PrintPath => print_cwd(self.panels.terminal()),
-            Command::ChangeDir(path) => {
+        match Command::parse(index, cmd) {
+            Ok(Command::Load(path)) => self.offload_binary_processing(path),
+            Ok(Command::PrintPath) => {
+                match std::env::current_dir() {
+                    Ok(path) => tprint!(
+                        self.panels.terminal(),
+                        "Working directory {}.",
+                        path.display()
+                    ),
+                    Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: '{err}'."),
+                }
+            },
+            Ok(Command::ChangeDir(path)) => {
                 if let Err(err) = std::env::set_current_dir(path) {
-                    tprint!(self.panels.terminal(), "Failed to change directory: '{err}'.");
+                    tprint!(
+                        self.panels.terminal(),
+                        "Failed to change directory: '{err}'."
+                    );
                     return true;
                 }
 
-                print_cwd(self.panels.terminal());
-            },
-            Command::Quit => return false,
-            Command::Run(args) => self.offload_debugging(args),
-            Command::Goto(addr) => {
+                match std::env::current_dir() {
+                    Ok(path) => tprint!(
+                        self.panels.terminal(),
+                        "Changed working directory to {}.",
+                        path.display()
+                    ),
+                    Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: '{err}'."),
+                }
+            }
+            Ok(Command::Quit) => return false,
+            Ok(Command::Run(args)) => self.offload_debugging(args),
+            Ok(Command::Goto(addr)) => {
                 let listing = match self.panels.listing() {
                     Some(dissasembly) => dissasembly,
                     None => {
@@ -60,41 +63,48 @@ impl<Arch: crate::Target> super::UI<Arch> {
                 } else {
                     tprint!(self.panels.terminal(), "Address {addr:#X} is undefined.");
                 }
-            },
-            Command::Break(addr) => {
-                self.dbg_ctx.breakpoints.write().unwrap().create(addr);
-                tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} set.");
-            },
-            Command::DeleteBreak(addr) => {
-                if self.dbg_ctx.breakpoints.write().unwrap().remove(addr).is_some() {
-                    tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} removed.");
+            }
+            Ok(Command::Break(addr)) => {
+                if self.dbg_ctx.breakpoints.write().unwrap().create(addr) {
+                    tprint!(self.panels.terminal(), "Breakpoint {addr:#X} set.");
                 } else {
-                    tprint!(self.panels.terminal(), "Breakpoint at {addr:#X} wasn't set.");
+                    tprint!(self.panels.terminal(), "Breakpoint already set.");
                 }
-            },
-            Command::SetEnv(env) => self.dbg_settings.env.push(env),
-            Command::Stop => {
+            }
+            Ok(Command::BreakDelete(addr)) => {
+                if self.dbg_ctx.breakpoints.write().unwrap().remove(addr) {
+                    tprint!(self.panels.terminal(), "Breakpoint {addr:#X} removed.");
+                } else {
+                    tprint!(self.panels.terminal(), "Breakpoint {addr:#X} wasn't set.");
+                }
+            }
+            Ok(Command::SetEnv(env)) => self.dbg_settings.env.push(env),
+            Ok(Command::Stop) => {
                 if !self.dbg_ctx.attached() {
                     tprint!(self.panels.terminal(), "There are no targets to stop.");
                     return true;
                 }
 
                 self.dbg_ctx.queue.push(debugger::DebugeeEvent::Break);
-            },
-            Command::Continue => {
+            }
+            Ok(Command::Continue) => {
                 if !self.dbg_ctx.attached() {
                     tprint!(self.panels.terminal(), "There are no targets to continue.");
                     return true;
                 }
 
                 self.dbg_ctx.queue.push(debugger::DebugeeEvent::Continue);
-            },
-            Command::Clear => {
+            }
+            Ok(Command::Clear) => {
                 log::LOGGER.lock().unwrap().clear();
                 self.panels.terminal().clear();
-            },
-            Command::Trace => {},
-            Command::FollowChildren => {},
+            }
+            Ok(Command::Trace) => tprint!(self.panels.terminal(), "Not yet implemented."),
+            Ok(Command::FollowChildren) => tprint!(self.panels.terminal(), "Not yet implemented."),
+            Err(CommandError::Missing("command")) => {}
+            Err(err) => {
+                tprint!(self.panels.terminal(), "{err}");
+            }
         }
 
         true
