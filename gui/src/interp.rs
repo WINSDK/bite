@@ -18,15 +18,13 @@ impl<Arch: crate::Target> super::UI<Arch> {
 
         match Command::parse(index, cmd) {
             Ok(Command::Load(path)) => self.offload_binary_processing(path),
-            Ok(Command::PrintPath) => {
-                match std::env::current_dir() {
-                    Ok(path) => tprint!(
-                        self.panels.terminal(),
-                        "Working directory {}.",
-                        path.display()
-                    ),
-                    Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: '{err}'."),
-                }
+            Ok(Command::PrintPath) => match std::env::current_dir() {
+                Ok(path) => tprint!(
+                    self.panels.terminal(),
+                    "Working directory {}.",
+                    path.display()
+                ),
+                Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: '{err}'."),
             },
             Ok(Command::ChangeDir(path)) => {
                 if let Err(err) = std::env::set_current_dir(path) {
@@ -99,8 +97,28 @@ impl<Arch: crate::Target> super::UI<Arch> {
                 log::LOGGER.lock().unwrap().clear();
                 self.panels.terminal().clear();
             }
-            Ok(Command::Trace) => tprint!(self.panels.terminal(), "Not yet implemented."),
-            Ok(Command::FollowChildren) => tprint!(self.panels.terminal(), "Not yet implemented."),
+            Ok(Command::Trace) => {
+                if self.dbg_ctx.attached() {
+                    tprint!(self.panels.terminal(), "Debugger already running.");
+                } else if self.dbg_settings.tracing == false {
+                    tprint!(self.panels.terminal(), "Enabled syscall tracing.");
+                    self.dbg_settings.tracing = true;
+                } else if self.dbg_settings.tracing == true {
+                    tprint!(self.panels.terminal(), "Disabled syscall tracing.");
+                    self.dbg_settings.tracing = false;
+                }
+            }
+            Ok(Command::FollowChildren) => {
+                if self.dbg_ctx.attached() {
+                    tprint!(self.panels.terminal(), "Debugger already running.");
+                } else if self.dbg_settings.follow_children == false {
+                    tprint!(self.panels.terminal(), "Enabled syscall tracing of children.");
+                    self.dbg_settings.follow_children = true;
+                } else if self.dbg_settings.follow_children == true {
+                    tprint!(self.panels.terminal(), "Disabled syscall tracing of children.");
+                    self.dbg_settings.follow_children = false;
+                }
+            },
             Err(CommandError::Missing("command")) => {}
             Err(err) => {
                 tprint!(self.panels.terminal(), "{err}");
