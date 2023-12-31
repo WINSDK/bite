@@ -32,7 +32,7 @@ impl ProgressBar {
         self.steps_done.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn step_n(&mut self, n: usize) {
+    pub fn step_n(&self, n: usize) {
         self.steps_done.fetch_add(n, Ordering::Relaxed);
     }
 

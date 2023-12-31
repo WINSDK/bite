@@ -1,4 +1,5 @@
 //! Consumes decoder crates and provides an interface to interact with the decoders.
+mod fs;
 mod fmt;
 mod processor;
 
@@ -119,7 +120,7 @@ pub struct Disassembly {
 
 impl Disassembly {
     pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
-        let binary = std::fs::read(&path).map_err(Error::IO)?;
+        let binary = crate::fs::read(&path).map_err(Error::IO)?;
         let obj = object::File::parse(&binary[..]).map_err(Error::IncompleteObject)?;
 
         if obj.entry() == 0 {

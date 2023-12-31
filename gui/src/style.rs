@@ -166,7 +166,7 @@ pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
         ..Default::default()
     },
     tab_bar: egui_dock::TabBarStyle {
-        bg_fill: STYLE.separator_color,
+        bg_fill: STYLE.tab_color,
         height: 24.0,
         show_scroll_bar_on_overflow: true,
         rounding: STYLE.tab_rounding,
@@ -206,7 +206,8 @@ pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
         minimum_width: None
     },
     overlay: egui_dock::OverlayStyle {
-        selection_color: STYLE.selection_color,
+        selection_color: STYLE.primary_background,
+        overlay_type: egui_dock::OverlayType::Widgets,
         ..Default::default()
     },
 });

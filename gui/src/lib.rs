@@ -174,11 +174,11 @@ impl<Arch: Target> UI<Arch> {
 
     fn offload_binary_processing(&mut self, path: std::path::PathBuf) {
         // don't load multiple binaries at a time
-        if self.panels.loading {
+        if self.panels.is_loading() {
             return;
         }
 
-        self.panels.loading = true;
+        self.panels.start_loading();
         let ui_queue = self.ui_queue.clone();
 
         std::thread::spawn(move || {
@@ -237,12 +237,12 @@ impl<Arch: Target> UI<Arch> {
                     tprint!(self.panels.terminal(), "{err:?}.");
                 }
                 UIEvent::BinaryFailed(err) => {
-                    self.panels.loading = false;
+                    self.panels.stop_loading();
                     log::warning!("{err:?}");
                 }
                 UIEvent::BinaryRequested(path) => self.offload_binary_processing(path),
                 UIEvent::BinaryLoaded(disassembly) => {
-                    self.panels.loading = false;
+                    self.panels.stop_loading();
                     self.panels.load_binary(disassembly);
                 }
             }

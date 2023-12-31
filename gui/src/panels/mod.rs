@@ -82,7 +82,7 @@ pub struct Panels {
     pub ui_queue: Arc<crate::UIQueue>,
     pub winit_queue: crate::WinitQueue,
     pub dbg_ctx: Arc<debugger::Context>,
-    pub loading: bool,
+    loading: bool,
 }
 
 impl Panels {
@@ -117,6 +117,20 @@ impl Panels {
 
     pub fn terminal(&mut self) -> &mut Terminal {
         &mut self.tabs.terminal
+    }
+
+    pub fn is_loading(&self) -> bool {
+        self.loading
+    }
+
+    pub fn start_loading(&mut self) {
+        // create new donut to restart internal timer
+        self.tabs.donut = Donut::new(false);
+        self.loading = true;
+    }
+
+    pub fn stop_loading(&mut self) {
+        self.loading = false;
     }
 
     pub fn load_binary(&mut self, disassembly: disassembler::Disassembly) {
