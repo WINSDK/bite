@@ -75,6 +75,11 @@ pub trait Tracing {
     /// Whilst this is faster than the ptrace alternative, it's more restrictive.
     fn write_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error>;
 
+    /// Writes to a protected segment of memory.
+    ///
+    /// On linux this uses ptrace::write in a loop which is slow for large write's.
+    fn write_protected_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error>;
+
     /// Translate virtual memory address to physical address the related parsers understand.
     fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr;
 
@@ -93,7 +98,7 @@ pub struct Breakpoint {
     addr: PhysAddr,
 
     /// Byte in memory we overwrote with int3.
-    shadow: u8,
+    shadow: Vec<u8>,
 
     /// Operation to be executed by [`Process`].
     op: Option<BreakpointOp>,
@@ -102,15 +107,19 @@ pub struct Breakpoint {
 impl Breakpoint {
     pub(crate) fn set(&mut self, proc: &mut dyn Tracing) -> Result<(), Error> {
         let vaddr = proc.phys_to_virt(self.addr);
-        self.shadow = proc.read_memory(vaddr, 1)?[0];
-        let int3 = &[0xcc];
-        proc.write_memory(vaddr, int3)?;
+        self.shadow = proc.read_memory(vaddr, 4)?;
+
+        let orig_byte = self.shadow[0];
+        self.shadow[0] = 0xcc;
+        proc.write_protected_memory(vaddr, &self.shadow)?;
+        self.shadow[0] = orig_byte;
+
         Ok(())
     }
 
     pub(crate) fn unset(&mut self, proc: &mut dyn Tracing) -> Result<(), Error> {
         let vaddr = proc.phys_to_virt(self.addr);
-        proc.write_memory(vaddr, &[self.shadow])?;
+        proc.write_protected_memory(vaddr, &self.shadow)?;
         Ok(())
     }
 }
@@ -127,40 +136,33 @@ impl Breakpoints {
     }
 
     /// Create a new [`Breakpoint`].
-    pub fn create(&mut self, addr: PhysAddr) {
+    pub fn create(&mut self, addr: PhysAddr) -> bool {
         // can't set a breakpoint twice
         if self.mapping.get(&addr).is_some() {
-            return;
+            return false;
         }
 
         self.mapping.insert(
             addr,
             Breakpoint {
                 addr,
-                shadow: 0,
+                shadow: Vec::new(),
                 op: Some(BreakpointOp::Create),
             },
         );
+
+        true
     }
 
     /// Mark a [`Breakpoint`] for removal.
-    pub fn remove(&mut self, addr: PhysAddr) -> Option<()> {
-        self.mapping.get_mut(&addr)?.op = Some(BreakpointOp::Delete);
-        Some(())
-    }
-}
-
-impl std::ops::Deref for Breakpoints {
-    type Target = BTreeMap<VirtAddr, Breakpoint>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.mapping
-    }
-}
-
-impl std::ops::DerefMut for Breakpoints {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.mapping
+    pub fn remove(&mut self, addr: PhysAddr) -> bool {
+        match self.mapping.get_mut(&addr) {
+            Some(bp) => {
+                bp.op = Some(BreakpointOp::Delete);
+                true
+            }
+            None => false
+        }
     }
 }
 

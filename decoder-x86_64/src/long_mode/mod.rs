@@ -2717,7 +2717,7 @@ impl decoder::Decoded for Instruction {
                 self.imm = addr as u64;
             }
 
-            if let Some(text) = symbols.get_by_addr(addr).cloned() {
+            if let Some(text) = symbols.get_by_addr(addr) {
                 *shadow = Some(decoder::Xref { addr, text });
             }
         }

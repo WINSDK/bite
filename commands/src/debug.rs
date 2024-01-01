@@ -18,7 +18,8 @@
 // TODO: Implement binary presidence (10 + 10 * 10 == 110).
 //       This likely requires parsing in two steps where we first generate tokens.
 
-use std::fmt;
+use std::{fmt, ops::Range};
+use symbols::Index;
 
 const MAX_DEPTH: usize = 256;
 
@@ -50,9 +51,6 @@ struct ExprRef(usize);
 struct Context<'src> {
     /// Reference to input string.
     src: &'src str,
-
-    /// Symbol lookup table.
-    index: &'src symbols::Index,
 
     /// Byte offset into input string.
     offset: usize,
@@ -91,10 +89,9 @@ impl fmt::Display for Error {
 
 impl<'src> Context<'src> {
     /// Create's a new [`Context`] required for parsing json
-    fn new(index: &'src symbols::Index, src: &'src str) -> Self {
+    fn new(src: &'src str) -> Self {
         Self {
             src,
-            index,
             offset: 0,
             depth: 0,
             is_failing: false,
@@ -112,11 +109,6 @@ impl<'src> Context<'src> {
         let idx = self.pool.len();
         self.pool.push(expr);
         ExprRef(idx)
-    }
-
-    /// Retrieves expression from arena.
-    fn load(&self, expr_ref: &ExprRef) -> &Expr {
-        &self.pool[expr_ref.0]
     }
 
     /// Increases the known recursion depth and checks for if we overflow [`MAX_DEPTH`].
@@ -342,21 +334,23 @@ impl<'src> Context<'src> {
         if let Ok(num) = self.number() {
             return Ok(Expr::Number(num));
         }
-        
+
+        let start = self.offset;
         let sym = self.symbol()?;
         if !sym.is_empty() {
-            return match self.index.get_by_name(sym) {
-                Some((addr, function)) => Ok(Expr::Symbol { addr, function }),
-                None => self.error(&format!("Unknown symbol '{sym}'")),
-            }
-        } 
-        
+            let end = self.offset;
+            return Ok(Expr::Symbol {
+                val: sym.to_string(),
+                span: Range { start, end },
+            });
+        }
+
         if self.consume('(').is_ok() {
             let inner_expr = self.expr_inner()?;
             self.consume(')')?;
             return Ok(inner_expr);
         }
-            
+
         self.error("Expected a primary expression")
     }
 
@@ -374,7 +368,7 @@ impl<'src> Context<'src> {
                         op: Operator::Mul,
                         rhs: self.store(rhs),
                     };
-                },
+                }
                 Some('/') => {
                     self.consume('/')?;
                     let rhs = self.parse_primary()?;
@@ -383,7 +377,7 @@ impl<'src> Context<'src> {
                         op: Operator::Div,
                         rhs: self.store(rhs),
                     };
-                },
+                }
                 Some('%') => {
                     self.consume('%')?;
                     let rhs = self.parse_primary()?;
@@ -392,7 +386,7 @@ impl<'src> Context<'src> {
                         op: Operator::Mod,
                         rhs: self.store(rhs),
                     };
-                },
+                }
                 _ => break,
             }
         }
@@ -414,7 +408,7 @@ impl<'src> Context<'src> {
                         op: Operator::Add,
                         rhs: self.store(rhs),
                     };
-                },
+                }
                 Some('-') => {
                     self.consume('-')?;
                     let rhs = self.parse_high_precedence()?;
@@ -423,7 +417,7 @@ impl<'src> Context<'src> {
                         op: Operator::Min,
                         rhs: self.store(rhs),
                     };
-                },
+                }
                 _ => break,
             }
         }
@@ -453,45 +447,6 @@ impl<'src> Context<'src> {
     }
 }
 
-/// Representation of any given expression.
-#[derive(Debug, PartialEq)]
-enum Expr {
-    Number(isize),
-    Symbol {
-        addr: usize,
-        function: symbols::Function,
-    },
-    Compound {
-        lhs: ExprRef,
-        op: Operator,
-        rhs: ExprRef,
-    },
-}
-
-impl Expr {
-    /// Evaluate the address of a given expression.
-    ///
-    /// Returns [`None`] if the expression overflows.
-    fn eval(&self, ctx: &Context) -> Option<isize> {
-        match self {
-            Self::Number(n) => Some(*n),
-            Self::Symbol { addr, .. } => Some(*addr as isize),
-            Self::Compound { lhs, op, rhs } => {
-                let lhs = ctx.load(lhs).eval(ctx)?;
-                let rhs = ctx.load(rhs).eval(ctx)?;
-
-                match op {
-                    Operator::Mul => lhs.checked_mul(rhs),
-                    Operator::Div => lhs.checked_div(rhs),
-                    Operator::Mod => lhs.checked_rem(rhs),
-                    Operator::Add => lhs.checked_add(rhs),
-                    Operator::Min => lhs.checked_sub(rhs),
-                }
-            }
-        }
-    }
-}
-
 /// Basic mathematical operations.
 #[derive(Debug, PartialEq, Eq)]
 enum Operator {
@@ -502,26 +457,120 @@ enum Operator {
     Mod,
 }
 
-/// Parses expression and returns it's corresponding address.
-pub fn parse(index: &symbols::Index, s: &str) -> Result<usize, Error> {
-    if s.is_empty() {
-        return Err(Error {
-            offset: None,
-            msg: "Empty expression".to_string(),
-        });
+/// Representation of any given expression.
+#[derive(Debug, PartialEq)]
+enum Expr {
+    Number(isize),
+    Symbol {
+        val: String,
+        span: Range<usize>,
+    },
+    Compound {
+        lhs: ExprRef,
+        op: Operator,
+        rhs: ExprRef,
+    },
+}
+
+/// Storable [`Expr`] with needed [`ExprRef`]'s.
+#[derive(Debug, PartialEq)]
+pub struct CompleteExpr {
+    /// Arena of expressions.
+    pool: Vec<Expr>,
+
+    /// Parsed expression.
+    root: Expr,
+}
+
+impl CompleteExpr {
+    /// Retrieves expression from arena.
+    fn load(&self, expr_ref: ExprRef) -> &Expr {
+        &self.pool[expr_ref.0]
     }
 
-    let mut ctx = Context::new(index, s);
+    fn eval_recursive(&self, node: &Expr, index: &Index) -> Result<isize, Error> {
+        match node {
+            Expr::Number(val) => Ok(*val),
+            Expr::Symbol { val, .. } => match index.get_by_name(val) {
+                Some((addr, _)) => Ok(addr as isize),
+                None => Err(Error {
+                    offset: None,
+                    msg: format!("Unknown symbol '{val}'"),
+                }),
+            },
+            Expr::Compound { lhs, op, rhs } => {
+                let lhs = self.eval_recursive(self.load(*lhs), index)?;
+                let rhs = self.eval_recursive(self.load(*rhs), index)?;
+                let err = || Error {
+                    offset: None,
+                    msg: "Expression overflowed".to_string(),
+                };
 
-    match ctx.expr() {
-        Err(err) => Err(err),
-        Ok(e) => match e.eval(&ctx) {
-            Some(val) => Ok(val as usize),
-            None => Err(Error {
+                match op {
+                    Operator::Mul => lhs.checked_mul(rhs).ok_or_else(err),
+                    Operator::Div => lhs.checked_div(rhs).ok_or_else(err),
+                    Operator::Mod => lhs.checked_rem(rhs).ok_or_else(err),
+                    Operator::Add => lhs.checked_add(rhs).ok_or_else(err),
+                    Operator::Min => lhs.checked_sub(rhs).ok_or_else(err),
+                }
+            }
+        }
+    }
+
+    /// Evaluate the address of a given expression.
+    ///
+    /// Returns [`None`] if the expression overflows.
+    pub fn eval(&self, index: &Index) -> Result<isize, Error> {
+        self.eval_recursive(&self.root, index)
+    }
+
+    fn find_matching_symbol<'src>(
+        &'src self,
+        node: &'src Expr,
+        cursor: usize,
+    ) -> Option<(&'src str, Range<usize>)> {
+        match node {
+            Expr::Symbol { val, span } => (span.end == cursor).then_some((val, span.clone())),
+            Expr::Compound { lhs, rhs, .. } => {
+                if let Some(matching) = self.find_matching_symbol(self.load(*lhs), cursor) {
+                    return Some(matching);
+                }
+
+                if let Some(matching) = self.find_matching_symbol(self.load(*rhs), cursor) {
+                    return Some(matching);
+                }
+
+                None
+            }
+            Expr::Number(_) => None,
+        }
+    }
+
+    pub fn autocomplete(
+        &self,
+        index: &Index,
+        cursor: usize,
+    ) -> Option<(String, Range<usize>)> {
+        let (prefix, span) = self.find_matching_symbol(&self.root, cursor)?;
+        index
+            .prefix_match(prefix)?
+            .next()
+            .map(|func| (func.as_str().to_string(), span))
+    }
+
+    pub fn parse(s: &str) -> Result<Self, Error> {
+        if s.is_empty() {
+            return Err(Error {
                 offset: None,
-                msg: "Expression overflowed".to_string(),
-            }),
-        },
+                msg: "Empty expression".to_string(),
+            });
+        }
+
+        let mut ctx = Context::new(s);
+        ctx.expr().map(|expr| CompleteExpr {
+            pool: ctx.pool,
+            root: expr,
+        })
     }
 }
 
@@ -529,6 +578,10 @@ pub fn parse(index: &symbols::Index, s: &str) -> Result<usize, Error> {
 mod tests {
     use super::*;
     use symbols::{Function, TokenStream};
+
+    fn parse(index: &symbols::Index, s: &str) -> Result<usize, Error> {
+        CompleteExpr::parse(s)?.eval(index).map(|addr| addr as usize)
+    }
 
     macro_rules! eval_eq {
         ($expr:expr, $expected:expr) => {{
@@ -558,34 +611,32 @@ mod tests {
 
     macro_rules! ast_eq {
         ($expr:expr, $expected:expr) => {{
-            let index = symbols::Index::new();
-
-            match Context::new(&index, $expr).expr() {
+            match Context::new($expr).expr() {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
-                Ok(parsed) => assert_eq!(parsed, $expected)
+                Ok(parsed) => assert_eq!(parsed, $expected),
             }
         }};
 
-        ([$($function:expr; $addr:expr),*], $expr:expr, $expected:expr) => {{
-            #[allow(unused_mut)]
-            let mut index = symbols::Index::new();
-
-            $(
-                let f = Function::new(TokenStream::simple($function), None);
-                index.insert($addr, f);
-            )*
-
-            match Context::new(&index, $expr).expr() {
+        ($expr:expr, $expected:expr) => {{
+            match Context::new($expr).expr() {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
-                Ok(parsed) => assert_eq!(parsed, $expected)
+                Ok(parsed) => assert_eq!(parsed, $expected),
             }
         }};
+    }
+
+    fn name_span_pair(name: &str) -> Expr {
+        Expr::Symbol {
+            val: name.to_string(),
+            span: Range { start: 0, end: name.len() }
+        }
     }
 
     #[test]
     fn simple() {
         eval_eq!("3 * 32", 96);
         eval_eq!("0x4f2", 0x4f2);
+        ast_eq!("0x4f2", Expr::Number(0x4f2));
     }
 
     #[test]
@@ -616,12 +667,8 @@ mod tests {
             0x100
         );
         ast_eq!(
-            ["abc::f<dyn Debug + Clone>"; 0x100],
             "abc::f<dyn Debug + Clone>",
-            Expr::Symbol {
-                addr: 0x100,
-                function: Function::new(TokenStream::simple("abc::f<dyn Debug + Clone>"), None)
-            }
+            name_span_pair("abc::f<dyn Debug + Clone>")
         );
     }
 
@@ -629,20 +676,12 @@ mod tests {
     #[should_panic]
     fn mismatched_generic() {
         ast_eq!(
-            ["abc::f<dyn Debug>"; 0x100],
             "abc::f<dyn Debug> + Clone>",
-            Expr::Symbol {
-                addr: 0x100,
-                function: Function::new(TokenStream::simple("abc::f<dyn Debug + Clone>"), None)
-            }
+            name_span_pair("abc::f<dyn Debug + Clone>")
         );
         ast_eq!(
-            ["abc::f<dyn Debug>"; 0x100],
             "abc::f<dyn Debug< + Clone>",
-            Expr::Symbol {
-                addr: 0x100,
-                function: Function::new(TokenStream::simple("abc::f<dyn Debug + Clone>"), None)
-            }
+            name_span_pair("abc::f<dyn Debug + Clone>")
         );
     }
 

@@ -1,21 +1,21 @@
+mod common;
 mod fmt;
 mod icon;
 mod interp;
 mod panels;
-pub mod widgets;
 mod style;
 pub mod unix;
 mod wgpu_backend;
+pub mod widgets;
 pub mod windows;
 mod winit_backend;
-mod common;
 
-use std::sync::Arc;
-use commands::{Command, CommandError};
+use commands::Command;
 use copypasta::ClipboardProvider;
 use debugger::{
     DebugeeEvent, Debuggable, Debugger, DebuggerDescriptor, DebuggerEvent, DebuggerSettings,
 };
+use std::sync::Arc;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
 
@@ -273,27 +273,28 @@ impl<Arch: Target> UI<Arch> {
             self.handle_dbg_events();
 
             let events = self.platform.unprocessed_events();
-            let terminal_events = self.panels.terminal().record_input(events);
 
-            if terminal_events > 0 {
+            // this should all probably be done in the terminal widget 
+            let tab_event = egui::Event::Key {
+                key: egui::Key::Tab,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+                repeat: false,
+            };
+            if events.contains(&tab_event) {
                 let line = self.panels.terminal().current_line().to_string();
-
+                let cursor = self.panels.terminal().cursor_position();
                 if let Some(listing) = self.panels.listing() {
                     let index = listing.disassembly.processor.symbols();
+                    let cmd = Command::parse(index, &line, cursor);
 
-                    // if a goto command is being run, start performing the autocomplete
-                    match Command::parse(index, &line) {
-                        Ok(Command::Goto(addr)) => println!("goto {addr:#X}"),
-                        Ok(Command::Break(addr)) => println!("b {addr:#X}"),
-                        Ok(Command::BreakDelete(addr)) => println!("db {addr:#X}"),
-                        Err(CommandError::Debugger(err)) => eprintln!("{err}"),
-                        _ => {}
+                    if let Ok(Command::Suggestion(suggestion)) = cmd {
+                        self.panels.terminal().set_current_line(suggestion);
                     }
                 }
-
-                // store new commands recorded
-                let _ = self.panels.terminal().save_command_history();
             }
+
+            self.panels.terminal().record_input(events);
 
             let cmds = self.panels.terminal().take_commands().to_vec();
             if !self.process_commands(&cmds) {

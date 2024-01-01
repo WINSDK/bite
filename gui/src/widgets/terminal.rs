@@ -67,6 +67,15 @@ impl Terminal {
         &self.commands[self.command_position]
     }
 
+    pub fn set_current_line(&mut self, line: String) {
+        self.commands[self.command_position] = line;
+        self.move_to_end();
+    }
+
+    pub fn cursor_position(&self) -> usize {
+        self.cursor_position
+    }
+
     pub fn reset_line(&mut self) {
         self.cursor_position = 0;
         self.commands[self.command_position].clear();
@@ -254,6 +263,12 @@ impl Terminal {
                     }
                 }
                 egui::Event::Key {
+                    key: egui::Key::Tab,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                    ..
+                } => {},
+                egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
@@ -346,6 +361,8 @@ impl Terminal {
 
         if events_processed > 0 {
             self.reset_cursor = true;
+            // store new commands recorded
+            let _ = self.save_command_history();
         }
 
         events_processed

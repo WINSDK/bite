@@ -16,7 +16,7 @@ impl<Arch: crate::Target> super::UI<Arch> {
             .map(|l| l.disassembly.processor.symbols())
             .unwrap_or(&empty_index);
 
-        match Command::parse(index, cmd) {
+        match Command::parse(index, cmd, 0) {
             Ok(Command::Load(path)) => self.offload_binary_processing(path),
             Ok(Command::PrintPath) => match std::env::current_dir() {
                 Ok(path) => tprint!(
@@ -119,6 +119,7 @@ impl<Arch: crate::Target> super::UI<Arch> {
                     self.dbg_settings.follow_children = false;
                 }
             },
+            Ok(Command::Suggestion(_)) => {},
             Err(CommandError::Missing("command")) => {}
             Err(err) => {
                 tprint!(self.panels.terminal(), "{err}");

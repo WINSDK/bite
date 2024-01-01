@@ -1,6 +1,7 @@
 //! Shared behaviour required between decoder crates.
 
 use std::fmt::Debug;
+use std::sync::Arc;
 use tokenizing::{Color, Token};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -73,7 +74,7 @@ pub trait Decodable {
 #[derive(Clone)]
 pub struct Xref {
     pub addr: usize,
-    pub text: symbols::Function,
+    pub text: Arc<symbols::Function>,
 }
 
 #[derive(Debug)]

@@ -281,13 +281,11 @@ impl Panels {
 
         dock_area.show(ctx, |ui| {
             if self.loading {
-                ui.spacing_mut().item_spacing.y += 20.0;
-                let layout = egui::Layout::top_down_justified(egui::Align::Center);
-                ui.with_layout(layout, |ui| {
+                ui.spacing_mut().item_spacing.y = 20.0;
+                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
                     self.tabs.donut.show(ui);
                     log::PROGRESS.show(ui);
                 });
-                ui.spacing_mut().item_spacing.y -= 20.0;
             } else {
                 let style = crate::style::DOCK.clone();
 

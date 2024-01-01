@@ -14,6 +14,7 @@ use object::{
 };
 
 use pdb::FallibleIterator;
+use radix_trie::{Trie, TrieCommon, TrieKey};
 use tokenizing::{Color, ColorScheme, Colors, Token};
 
 pub mod itanium;
@@ -95,46 +96,109 @@ where
     });
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct Function {
-    name: Arc<TokenStream>,
-    name_as_str: String,
-    module: Option<Token>,
-    intrisic: bool,
+    name: TokenStream,
+    name_as_str: ArcStr,
+    module: Option<String>,
+    is_intrinsics: bool,
+}
+
+fn is_name_an_intrinsic(name: &str) -> bool {
+    if name.is_empty() {
+        return true;
+    }
+
+    if name.starts_with("GCC_except_table") {
+        return true;
+    }
+
+    if name.starts_with("str.") {
+        return true;
+    }
+
+    if name.starts_with(".L") {
+        return true;
+    }
+
+    if name.starts_with("anon.") {
+        return true;
+    }
+
+    false
 }
 
 impl Function {
-    pub fn new(name: TokenStream, module: Option<Token>) -> Self {
+    pub fn new(name: TokenStream, module: Option<String>) -> Self {
+        let is_intrinsics = is_name_an_intrinsic(name.inner());
+        let name_as_str = String::from_iter(name.tokens().iter().map(|t| &t.text[..]));
+        let name_as_str = ArcStr {
+            inner: Arc::from(name_as_str),
+        };
+
         Self {
-            name_as_str: String::from_iter(name.tokens().iter().map(|t| &t.text[..])),
-            name: Arc::new(name),
+            name_as_str,
+            name,
             module,
-            intrisic: false,
+            is_intrinsics,
         }
     }
 
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.name_as_str
     }
 
+    #[inline]
     pub fn name(&self) -> &[Token] {
         self.name.tokens.as_slice()
     }
 
-    pub fn module(&self) -> Option<Token> {
-        self.module.clone()
+    #[inline]
+    pub fn module(&self) -> Option<&str> {
+        self.module.as_deref()
     }
 
     /// Is the function a unnamed compiler generated artifact.
+    #[inline]
     pub fn intrinsic(&self) -> bool {
-        self.intrisic
+        self.is_intrinsics
+    }
+}
+
+impl PartialEq for Function {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.name_as_str == other.name_as_str
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArcStr {
+    inner: Arc<str>,
+}
+
+impl std::ops::Deref for ArcStr {
+    type Target = Arc<str>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl TrieKey for ArcStr {
+    #[inline]
+    fn encode_bytes(&self) -> Vec<u8> {
+        self.as_bytes().encode_bytes()
     }
 }
 
 #[derive(Debug)]
 pub struct Index {
     /// Mapping from address starting at the header base to functions.
-    tree: Vec<(usize, Function)>,
+    tree: Vec<(usize, Arc<Function>)>,
+
+    trie: Trie<ArcStr, Arc<Function>>,
 
     /// Number of named compiler artifacts.
     named_len: usize,
@@ -144,6 +208,7 @@ impl Index {
     pub fn new() -> Self {
         Self {
             tree: Vec::new(),
+            trie: Trie::new(),
             named_len: 0,
         }
     }
@@ -197,9 +262,13 @@ impl Index {
 
         // insert defined symbols
         parallel_compute(symbols, &mut self.tree, |(addr, symbol)| {
+            let func = Function::new(parser(symbol), None);
             log::PROGRESS.step();
-            (*addr, Function::new(parser(symbol), None))
+            (*addr, Arc::new(func))
         });
+
+        // count the number of function's that aren't compiler intrinsics
+        self.named_len = self.tree.iter().filter(|(_, func)| func.is_intrinsics).count();
 
         // keep tree sorted so it can be binary searched
         self.tree.sort_unstable_by_key(|(addr, _)| *addr);
@@ -212,6 +281,11 @@ impl Index {
 
         // insert entrypoint
         self.insert(entrypoint, entry_func);
+
+        // radix-prefix tree for fast lookups
+        for (_, func) in self.tree.iter() {
+            self.trie.insert(func.name_as_str.clone(), func.clone());
+        }
 
         log::complex!(
             w "[index::parse_debug] found ",
@@ -317,7 +391,6 @@ impl Index {
 
                         let module = String::from_utf8_lossy(module);
                         let module = module.strip_prefix(".dll").unwrap_or(&module).to_owned();
-                        let module = Token::from_string(module, Colors::root());
                         let func = Function::new(parser(name), Some(module));
 
                         self.insert(phys_addr as usize, func);
@@ -402,42 +475,7 @@ impl Index {
         Ok(())
     }
 
-    /// Generate metadata based on the symbol name.
-    pub fn label(&mut self) {
-        for (_, symbol) in self.tree.iter_mut() {
-            let name = symbol.name.inner();
-
-            if name.is_empty() {
-                symbol.intrisic = true;
-                continue;
-            }
-
-            if name.starts_with("GCC_except_table") {
-                symbol.intrisic = true;
-                continue;
-            }
-
-            if name.starts_with("str.") {
-                symbol.intrisic = true;
-                continue;
-            }
-
-            if name.starts_with(".L") {
-                symbol.intrisic = true;
-                continue;
-            }
-
-            if name.starts_with("anon.") {
-                symbol.intrisic = true;
-                continue;
-            }
-
-            // if we don't filter the function, it must be named
-            self.named_len += 1;
-        }
-    }
-
-    pub fn symbols(&self) -> impl Iterator<Item = &Function> {
+    pub fn symbols(&self) -> impl Iterator<Item = &Arc<Function>> {
         self.tree.iter().map(|x| &x.1)
     }
 
@@ -453,28 +491,36 @@ impl Index {
         self.named_len
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(usize, Function)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(usize, Arc<Function>)> {
         self.tree.iter()
     }
 
-    pub fn get_by_addr(&self, addr: usize) -> Option<&Function> {
+    pub fn get_by_addr(&self, addr: usize) -> Option<Arc<Function>> {
         let search = self.tree.binary_search_by(|x| x.0.cmp(&addr));
 
         match search {
-            Ok(idx) => Some(&self.tree[idx].1),
+            Ok(idx) => Some(self.tree[idx].1.clone()),
             Err(..) => None,
         }
     }
 
-    pub fn get_by_name(&self, name: &str) -> Option<(usize, Function)> {
+    pub fn get_by_name(&self, name: &str) -> Option<(usize, Arc<Function>)> {
         self.tree
             .iter()
-            .find(|(_, func)| func.name_as_str == name)
+            .find(|(_, func)| func.as_str() == name)
             .map(|(addr, func)| (*addr, func.clone()))
     }
 
+    pub fn prefix_match(&self, prefix: &str) -> Option<impl Iterator<Item = &Arc<Function>> + '_> {
+        let prefix = ArcStr {
+            inner: Arc::from(prefix),
+        };
+
+        self.trie.get_raw_descendant(&prefix).map(|desc| desc.values())
+    }
+
     pub fn insert(&mut self, addr: usize, function: Function) {
-        self.tree.push((addr, function));
+        self.tree.push((addr, Arc::new(function)));
     }
 }
 

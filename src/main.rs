@@ -60,7 +60,7 @@ fn main() {
             let symbol = String::from_iter(symbol);
 
             match function.module() {
-                Some(module) => println!("\t{} => {symbol}", &*module.text),
+                Some(module) => println!("\t{module} => {symbol}"),
                 None => println!("\t{symbol}"),
             };
         }

@@ -1,5 +1,8 @@
 use std::fmt;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
+
+use crate::debug::CompleteExpr;
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
@@ -17,6 +20,7 @@ pub enum Command {
     Clear,
     Trace,
     FollowChildren,
+    Suggestion(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -113,15 +117,19 @@ struct Context<'src> {
 
     /// Offset into input string.
     offset: usize,
+
+    /// Cursor position in bytes.
+    cursor: usize,
 }
 
 impl<'src> Context<'src> {
     /// Create's a new [`Context`].
-    pub fn new(index: &'src symbols::Index, src: &'src str) -> Self {
+    pub fn new(index: &'src symbols::Index, src: &'src str, cursor: usize) -> Self {
         Self {
             src,
             index,
             offset: 0,
+            cursor,
         }
     }
 
@@ -192,9 +200,26 @@ impl<'src> Context<'src> {
         Ok(format!("{var}={val}"))
     }
 
-    fn parse_debug_expr(&mut self) -> Result<usize, Error> {
+    fn parse_debug_expr(&mut self) -> Result<Result<usize, String>, Error> {
+        let offset = self.offset;
         let s = self.parse_arg("expr")?;
-        crate::debug::parse(&self.index, s).map_err(Error::Debugger)
+        let expr = CompleteExpr::parse(s).map_err(Error::Debugger)?;
+
+        let err = match expr.eval(self.index) {
+            Ok(val) => return Ok(Ok(val as usize)),
+            Err(err) => err,
+        };
+
+        if let Some(relative_cursor) = self.cursor.checked_sub(offset) {
+            if let Some((suggestion, span)) = expr.autocomplete(self.index, relative_cursor) {
+                let mut src = self.src.to_string();
+                let span = Range { start: span.start + offset, end: span.end + offset };
+                src.replace_range(span, &suggestion);
+                return Ok(Err(src));
+            }
+        }
+
+        Err(Error::Debugger(err))
     }
 
     fn parse(&mut self) -> Result<Command, Error> {
@@ -213,9 +238,18 @@ impl<'src> Context<'src> {
                 Command::Run(args)
             }
             "set" => Command::SetEnv(self.parse_env()?),
-            "goto" | "g" => Command::Goto(self.parse_debug_expr()?),
-            "break" | "b" => Command::Break(self.parse_debug_expr()?),
-            "delete" | "bd" => Command::BreakDelete(self.parse_debug_expr()?),
+            "goto" | "g" => match self.parse_debug_expr()? {
+                Ok(addr) => Command::Goto(addr),
+                Err(suggestion) => Command::Suggestion(suggestion),
+            },
+            "break" | "b" => match self.parse_debug_expr()? {
+                Ok(addr) => Command::Break(addr),
+                Err(suggestion) => Command::Suggestion(suggestion)
+            }
+            "delete" | "bd" => match self.parse_debug_expr()? {
+                Ok(addr) => Command::BreakDelete(addr),
+                Err(suggestion) => Command::Suggestion(suggestion)
+            }
             "stop" | "s" => Command::Stop,
             "continue" | "c" => Command::Continue,
             "clear" => Command::Clear,
@@ -229,8 +263,12 @@ impl<'src> Context<'src> {
 }
 
 impl Command {
-    pub fn parse(index: &symbols::Index, s: &str) -> Result<Self, Error> {
-        Context::new(index, s).parse()
+    pub fn parse(
+        index: &symbols::Index,
+        s: &str,
+        cursor: usize,
+    ) -> Result<Self, Error> {
+        Context::new(index, s, cursor).parse()
     }
 }
 
@@ -243,7 +281,7 @@ mod tests {
         ($expr:expr, $expected:expr) => {{
             let index = symbols::Index::new();
 
-            match Command::parse(&index, $expr) {
+            match Command::parse(&index, $expr, 0) {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
                 Ok(parsed) => assert_eq!(parsed, $expected)
             }
@@ -258,7 +296,7 @@ mod tests {
                 index.insert($addr, f);
             )*
 
-            match Command::parse(&index, $expr) {
+            match Command::parse(&index, $expr, 0) {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
                 Ok(parsed) => assert_eq!(parsed, $expected)
             }

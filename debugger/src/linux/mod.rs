@@ -1,12 +1,12 @@
-use std::ffi::CString;
+use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::sys::{personality, ptrace};
+use nix::sys::ptrace;
 use nix::unistd::{execvpe, fork, ForkResult};
 use procfs::process::MemoryMap;
 
@@ -58,9 +58,16 @@ fn read_memory_maps(proc: &procfs::process::Process) -> Result<Vec<MemoryMap>, E
         .0)
 }
 
+fn executable_name(path: &Path) -> String {
+    path.file_name()
+        .unwrap_or(std::ffi::OsStr::new("unknown"))
+        .to_string_lossy()
+        .into_owned()
+}
+
 pub struct Process {
     id: Pid,
-    module: Arc<Processor>,
+    ident: String, // name of the process, usually it's executable
     state: State,
     unprocessed_signal: Option<Signal>,
     print_next_syscall: bool,
@@ -69,10 +76,10 @@ pub struct Process {
 }
 
 impl Process {
-    fn stopped(pid: Pid, module: Arc<Processor>) -> Result<Self, Error> {
+    fn stopped(pid: Pid, ident: String) -> Result<Self, Error> {
         Ok(Self {
             id: pid,
-            module,
+            ident,
             state: State::WaitingForInit,
             unprocessed_signal: None,
             print_next_syscall: true,
@@ -166,6 +173,26 @@ impl Tracing for Process {
         Ok(())
     }
 
+    fn write_protected_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error> {
+        assert!(
+            data.len() % 4 == 0,
+            "Can't write data that isn't 4 byte aligned"
+        );
+
+        for (offset, chunk) in data.chunks_exact(4).enumerate() {
+            let addr = (addr + offset) as *mut c_void;
+            let chunk = u32::from_ne_bytes(chunk.try_into().unwrap());
+
+            unsafe {
+                dbg!(addr);
+                ptrace::write(self.id, addr, chunk as *mut c_void)
+                    .map_err(Error::Kernel)?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr {
         for map in &self.memory_maps {
             let (start, end) = (map.address.0 as usize, map.address.1 as usize);
@@ -221,6 +248,9 @@ pub struct Debugger {
     /// Processes being traced.
     procs: Tree<Process>,
 
+    /// Root process processor.
+    _module: Arc<Processor>,
+
     /// Whether or not the process should be killed on detaching.
     remote: bool,
 
@@ -238,7 +268,7 @@ pub struct Debugger {
 
     /// Prevent [`Debugger`] from implementing Send.
     #[doc(hidden)]
-    _not_send: PhantomData<*mut ()>,
+    _not_send: PhantomData<*mut c_void>,
 }
 
 impl Debugger {
@@ -253,7 +283,12 @@ impl Debugger {
         );
 
         Ok(Debugger {
-            procs: Tree::new(root, Process::stopped(root, desc.module)?),
+            procs: {
+                let ident = executable_name(&desc.module.path);
+                let root_proc = Process::stopped(root, ident)?;
+                Tree::new(root, root_proc)
+            },
+            _module: desc.module,
             remote: false,
             print_buf: String::new(),
             tracing: settings.tracing,
@@ -261,19 +296,6 @@ impl Debugger {
             exit_code: 0,
             _not_send: PhantomData,
         })
-    }
-
-    fn parse_module_or_reuse(&self, path: PathBuf) -> Option<Arc<Processor>> {
-        let full_path = path.canonicalize().ok();
-        let proc_with_module = self
-            .procs
-            .values()
-            .find(|proc| proc.module.path.canonicalize().ok() == full_path);
-
-        match proc_with_module {
-            Some(proc) => Some(Arc::clone(&proc.module)),
-            None => Processor::parse_unknown(path).ok().map(Arc::new),
-        }
     }
 
     fn handle_ptrace_status(&mut self, status: WaitStatus) -> Result<(), Error> {
@@ -295,26 +317,20 @@ impl Debugger {
                 let sysno = trace::Sysno::from(nr as i32);
 
                 if sysno == trace::Sysno::execveat {
-                    let proc = self.procs.get(pid)?;
+                    let proc = self.procs.get_mut(pid)?;
 
                     let dirfd = args[0];
                     if let Ok(mut path) = std::fs::read_link(format!("/proc/{pid}/fd/{dirfd}")) {
                         let relative = trace::read_c_str_slow(proc, args[1]);
                         path.push(relative);
-
-                        if let Some(module) = self.parse_module_or_reuse(path) {
-                            self.procs.get_mut(pid)?.module = module
-                        }
+                        proc.ident = executable_name(&path);
                     }
                 }
 
                 if sysno == trace::Sysno::execve {
-                    let proc = self.procs.get(pid)?;
+                    let proc = self.procs.get_mut(pid)?;
                     let path = PathBuf::from(trace::read_c_str_slow(proc, args[0]));
-
-                    if let Some(module) = self.parse_module_or_reuse(path) {
-                        self.procs.get_mut(pid)?.module = module;
-                    }
+                    proc.ident = executable_name(&path);
                 }
 
                 let proc = self.procs.get_mut(pid)?;
@@ -377,9 +393,9 @@ impl Debugger {
                     let created_pid = ptrace::getevent(pid).map_err(Error::Kernel)?;
                     let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
 
-                    // find module and add it to process
-                    let module = Arc::clone(&self.procs.get(pid)?.module);
-                    let mut proc = Process::stopped(created_pid, module)?;
+                    let parent_proc = self.procs.get_mut(pid)?;
+                    let ident = parent_proc.ident.clone();
+                    let mut proc = Process::stopped(created_pid, ident)?;
 
                     proc.tracing = self.follow_children;
                     proc.attach();
@@ -389,8 +405,8 @@ impl Debugger {
                     self.procs.push_child(&pid, created_pid, proc);
                 }
 
-                let proc = self.procs.get_mut(pid)?;
-                proc.kontinue();
+                let parent_proc = self.procs.get_mut(pid)?;
+                parent_proc.kontinue();
             }
             _ => unreachable!("{status:?}"),
         }
@@ -429,7 +445,7 @@ impl Debugger {
                     }
                     DebugeeEvent::Exit => {
                         self.end_processes();
-                        ctx.breakpoints.write().unwrap().clear();
+                        ctx.breakpoints.write().unwrap().mapping.clear();
                         break 'event_loop;
                     }
                 }
@@ -437,7 +453,7 @@ impl Debugger {
 
             let breakpoints = &mut ctx.breakpoints.write().unwrap();
             let mut up_for_removal = Vec::new();
-            for bp in breakpoints.values_mut() {
+            for bp in breakpoints.mapping.values_mut() {
                 match bp.op.take() {
                     Some(BreakpointOp::Create) => {
                         bp.set(self.procs.root())?;
@@ -495,9 +511,6 @@ impl Debuggable for Debugger {
         }
 
         let mut exec_child = || {
-            // disable ASLR
-            personality::set(personality::Persona::ADDR_NO_RANDOMIZE)?;
-
             // signal child process to be traced
             ptrace::traceme()?;
 
@@ -550,7 +563,7 @@ impl Debuggable for Debugger {
             self.end_processes();
         }
 
-        ctx.breakpoints.write().unwrap().clear();
+        ctx.breakpoints.write().unwrap().mapping.clear();
         ctx.queue.pushd(DebuggerEvent::Exited(self.exit_code));
         ctx.deattach();
         result

@@ -43,7 +43,7 @@ macro_rules! impl_recursion {
             );
 
             // guessing an average of 5 byte long instructions
-            log::PROGRESS.set("decoding instructions", section.bytes.len() / width_guess);
+            log::PROGRESS.set("Decoding instructions", section.bytes.len() / width_guess);
 
             loop {
                 match $decoder.decode(&mut reader) {
@@ -286,7 +286,6 @@ impl Processor {
 
         symbols.parse_debug(&obj).map_err(Error::IncompleteSymbolTable)?;
         symbols.parse_imports(&binary[..], &obj).map_err(Error::IncompleteImportTable)?;
-        symbols.label();
 
         let mut instructions = Vec::new();
         let mut errors = Vec::new();
@@ -431,7 +430,7 @@ impl Processor {
             tokens.push(Token::from_str(" | ", colors::WHITE));
 
             if let Some(module) = symbol.module() {
-                tokens.push(module);
+                tokens.push(Token::from_string(module.to_string(), colors::MAGENTA));
                 tokens.push(Token::from_str("!", colors::GRAY60));
             }
 

@@ -7,5 +7,6 @@ edition = "2021"
 log = { path = "../log" }
 tokenizing = { path = "../tokenizing" }
 bitflags = "2"
+radix_trie = "0.2"
 object = { workspace = true }
 pdb = { workspace = true }
