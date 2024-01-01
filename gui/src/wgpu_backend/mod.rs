@@ -85,13 +85,19 @@ impl Instance {
                 .unwrap_or(default_format)
         };
 
+        let present_mode = surface_capabilities
+            .present_modes
+            .into_iter()
+            .find(|&mode| mode == wgpu::PresentMode::Mailbox)
+            .unwrap_or(wgpu::PresentMode::Fifo);
+
         let size = window.inner_size();
         let surface_cfg = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode,
             alpha_mode,
             view_formats: Vec::new(),
         };
