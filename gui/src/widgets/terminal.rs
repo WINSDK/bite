@@ -1,6 +1,9 @@
 use crate::common::*;
 use crate::widgets::TextSelection;
+use crate::style::EGUI;
+use tokenizing::colors;
 
+use egui::text::LayoutJob;
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 
@@ -36,6 +39,7 @@ pub struct Terminal {
     command_position: usize,
     cursor_position: usize, // byte offset
     reset_cursor: bool,
+    suggestion: String,
 }
 
 impl Terminal {
@@ -60,6 +64,7 @@ impl Terminal {
             commands_unprocessed: 0,
             cursor_position: 0,
             reset_cursor: true,
+            suggestion: String::new(),
         }
     }
 
@@ -70,6 +75,7 @@ impl Terminal {
     pub fn set_current_line(&mut self, line: String) {
         self.commands[self.command_position] = line;
         self.move_to_end();
+        self.suggest();
     }
 
     pub fn cursor_position(&self) -> usize {
@@ -79,15 +85,20 @@ impl Terminal {
     pub fn reset_line(&mut self) {
         self.cursor_position = 0;
         self.commands[self.command_position].clear();
+        self.suggestion = String::new();
     }
 
     pub fn clear(&mut self) {
-        self.reset_line();
         self.prompt.clear();
+        self.suggestion = String::new();
+        self.commands = vec![String::new()];
+        self.cursor_position = 0;
+        self.command_position = 0;
+        let _ = self.save_command_history();
     }
 
     /// Search through newer commands, finding one that isn't empty.
-    pub fn scroll_to_next_cmd(&mut self) {
+    fn scroll_to_next_cmd(&mut self) {
         while self.command_position != self.commands.len() - 1 {
             self.command_position += 1;
             self.cursor_position = self.current_line().len();
@@ -96,10 +107,12 @@ impl Terminal {
                 break;
             }
         }
+
+        self.suggestion = String::new();
     }
 
     /// Search through older commands, finding one that isn't empty.
-    pub fn scroll_to_prev_cmd(&mut self) {
+    fn scroll_to_prev_cmd(&mut self) {
         while self.command_position != 0 {
             self.command_position -= 1;
             self.cursor_position = self.current_line().len();
@@ -108,6 +121,14 @@ impl Terminal {
                 break;
             }
         }
+
+        self.suggestion = String::new();
+    }
+
+    fn autocomplete(&mut self) {
+        self.commands[self.command_position].push_str(&self.suggestion);
+        self.move_to_end();
+        self.suggestion = String::new();
     }
 
     /// Byte position of a UTF-8 codepoint.
@@ -126,20 +147,25 @@ impl Terminal {
             .count()
     }
 
-    pub fn move_left(&mut self) {
+    fn move_left(&mut self) {
         if self.cursor_position != 0 {
             self.cursor_position = self.byte_position(self.char_position() - 1);
         }
     }
 
-    pub fn move_right(&mut self) {
+    fn move_right(&mut self) {
+        if !self.suggestion.is_empty() {
+            self.autocomplete();
+            return;
+        }
+
         if self.cursor_position < self.current_line().len() {
             self.cursor_position = self.byte_position(self.char_position() + 1);
         }
     }
 
     /// Moves the cursor to the start of the previous word.
-    pub fn move_left_next_word(&mut self) {
+    fn move_left_next_word(&mut self) {
         let current_line = self.current_line();
         let mut is_in_whitespace = true;
         let mut new_position = None;
@@ -160,7 +186,7 @@ impl Terminal {
     }
 
     /// Moves the cursor to the start of the next word.
-    pub fn move_right_next_word(&mut self) {
+    fn move_right_next_word(&mut self) {
         let current_line = self.current_line();
         let mut is_in_whitespace = true;
         let mut new_position = None;
@@ -180,31 +206,57 @@ impl Terminal {
         self.cursor_position = new_position.unwrap_or(current_line.len());
     }
 
-    pub fn move_to_start(&mut self) {
+    fn move_to_start(&mut self) {
         self.cursor_position = 0;
     }
 
-    pub fn move_to_end(&mut self) {
+    fn move_to_end(&mut self) {
         self.cursor_position = self.current_line().len();
     }
 
-    pub fn backspace(&mut self) {
+    fn backspace(&mut self) {
         if self.cursor_position == 0 {
             return;
         }
 
         self.move_left();
         self.commands[self.command_position].remove(self.cursor_position);
+        self.suggest();
     }
 
-    pub fn append(&mut self, characters: &str) {
+    fn append(&mut self, characters: &str) {
         let characters = characters.escape_debug().to_string();
         self.commands[self.command_position].insert_str(self.cursor_position, &characters);
         self.cursor_position += characters.len();
+        self.suggest();
+    }
+
+    fn suggest(&mut self) {
+        let cmd = &self.commands[self.command_position];
+
+        if cmd.is_empty() {
+            self.suggestion = String::new();
+            return;
+        }
+
+        self.suggestion = self
+            .commands
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(idx, scmd)| {
+                if idx == self.command_position {
+                    return None;
+                }
+
+                scmd.strip_prefix(cmd)
+            })
+            .unwrap_or_default()
+            .to_string();
     }
 
     /// Commence a command to be run.
-    pub fn commit(&mut self) {
+    fn commit(&mut self) {
         // if we're using a command previously used, replace the top command
         // with the currently selected one
         if self.command_position != self.commands.len() - 1 {
@@ -216,6 +268,7 @@ impl Terminal {
         self.commands_unprocessed += 1;
         self.cursor_position = 0;
         self.command_position = self.commands.len() - 1;
+        self.suggestion = String::new();
     }
 
     /// Consumes terminal commands recorded since last frame.
@@ -225,14 +278,13 @@ impl Terminal {
         &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
     }
 
-    fn read_command_history() -> std::io::Result<Vec<String>> {
+    pub fn read_command_history() -> std::io::Result<Vec<String>> {
         let data = std::fs::read_to_string(&*HISTORY_PATH)?;
-
         Ok(data.lines().map(ToString::to_string).collect())
     }
 
     /// Appends newly recorded command's to `DATA_DIR/bite_history`.
-    pub fn save_command_history(&mut self) -> std::io::Result<()> {
+    fn save_command_history(&mut self) -> std::io::Result<()> {
         let cmds: Vec<&str> = self
             .commands
             .iter()
@@ -267,7 +319,7 @@ impl Terminal {
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => {},
+                } => {}
                 egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
@@ -289,37 +341,67 @@ impl Terminal {
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    modifiers:
+                        egui::Modifiers {
+                            ctrl: true,
+                            shift: false,
+                            ..
+                        },
                     ..
                 } => self.reset_line(),
                 egui::Event::Key {
                     key: egui::Key::A,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    modifiers:
+                        egui::Modifiers {
+                            ctrl: true,
+                            shift: false,
+                            ..
+                        },
                     ..
                 } => self.move_to_start(),
                 egui::Event::Key {
                     key: egui::Key::E,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    modifiers:
+                        egui::Modifiers {
+                            ctrl: true,
+                            shift: false,
+                            ..
+                        },
                     ..
                 } => self.move_to_end(),
                 egui::Event::Key {
                     key: egui::Key::L,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    modifiers:
+                        egui::Modifiers {
+                            ctrl: true,
+                            shift: false,
+                            ..
+                        },
                     ..
                 } => self.clear(),
                 egui::Event::Key {
                     key: egui::Key::ArrowLeft,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    modifiers:
+                        egui::Modifiers {
+                            ctrl: true,
+                            shift: false,
+                            ..
+                        },
                     ..
                 } => self.move_left_next_word(),
                 egui::Event::Key {
                     key: egui::Key::ArrowRight,
                     pressed: true,
-                    modifiers: egui::Modifiers { ctrl: true, shift: false, .. },
+                    modifiers:
+                        egui::Modifiers {
+                            ctrl: true,
+                            shift: false,
+                            ..
+                        },
                     ..
                 } => self.move_right_next_word(),
                 egui::Event::Key {
@@ -347,7 +429,7 @@ impl Terminal {
                     events_processed += 1;
                     prev_consumed = false;
                     return true;
-                },
+                }
                 _ => {
                     prev_consumed = false;
                     return true;
@@ -378,11 +460,27 @@ impl Terminal {
         area.show(ui, |ui| {
             let title = "(bite) ";
             let input = self.current_line();
+            let color = EGUI.noninteractive().fg_stroke.color;
 
-            let mut text_area = TextSelection::new(FONT);
-            text_area.append(&self.prompt);
-            text_area.append(title);
-            text_area.append(input);
+            let mut output = LayoutJob::default();
+            let mut append = |s: &str, color: egui::Color32| {
+                output.append(
+                    &s,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: FONT,
+                        color,
+                        ..Default::default()
+                    }
+                );
+            };
+
+            append(&self.prompt, color);
+            append(title, color);
+            append(input, color);
+            append(&self.suggestion, colors::GRAY60);
+
+            let mut text_area = TextSelection::precomputed(FONT, &output);
 
             if self.reset_cursor {
                 let abs_position = self.prompt.len() + title.len() + self.cursor_position;
@@ -397,6 +495,7 @@ impl Terminal {
 
 impl std::fmt::Write for Terminal {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        // TODO: sanitize input here for stuff like symbols being printed
         self.prompt.push_str(s);
         Ok(())
     }

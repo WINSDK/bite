@@ -200,11 +200,12 @@ impl<'src> Context<'src> {
             return Ok(path);
         }
 
+        self.autocomplete_path(start, s);
+
         if path.exists() {
             return Err(Error::PathIsntFile(path));
         }
 
-        self.autocomplete_path(start, s);
         Err(Error::PathDoesntExist(path))
     }
 
@@ -217,11 +218,12 @@ impl<'src> Context<'src> {
             return Ok(path);
         }
 
+        self.autocomplete_path(start, s);
+
         if path.exists() {
             return Err(Error::PathIsntDir(path));
         }
 
-        self.autocomplete_path(start, s);
         Err(Error::PathDoesntExist(path))
     }
 
@@ -278,6 +280,15 @@ impl<'src> Context<'src> {
 
                 if let Some(path) = path.to_str() {
                     self.suggestions.push(self.src[..start].to_string() + path);
+                }
+            }
+        }
+
+        // no suggestions but we can at least autocomplete a '/' for directories
+        if self.suggestions.is_empty() {
+            if path == subpath && !s.ends_with("/") {
+                if let Some(path) = collapse_homedir(path).to_str() {
+                    self.suggestions.push(self.src[..start].to_string() + path + "/");
                 }
             }
         }
