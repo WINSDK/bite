@@ -55,41 +55,27 @@ impl fmt::Display for Error {
 }
 
 fn expand_homedir(path: PathBuf) -> PathBuf {
-    if !path.starts_with("~") {
-        return path;
-    }
-
-    let mut home_dir = match dirs::home_dir() {
-        Some(dir) => dir,
-        None => return path,
-    };
-
-    if path == Path::new("~") {
-        return home_dir;
-    }
-
-    if home_dir == Path::new("/") {
-        // Corner case: `home_dir` root directory;
-        // don't prepend extra `/`, just drop the tilde.
-        path.strip_prefix("~").unwrap().to_path_buf()
-    } else {
-        home_dir.push(path.strip_prefix("~/").unwrap());
-        home_dir
-    }
-}
-
-fn collapse_homedir(path: PathBuf) -> PathBuf{
     let home_dir = match dirs::home_dir() {
         Some(dir) => dir,
         None => return path,
     };
 
-    let collapsed_path = match (path.to_str(), home_dir.to_str()) {
-        (Some(path), Some(home_dir)) => path.replacen(home_dir, "~", 1),
-        _ => return path,
+    match path.strip_prefix("~") {
+        Ok(relative_path) => home_dir.join(relative_path),
+        Err(_) => path
+    }
+}
+
+fn collapse_homedir(path: PathBuf) -> PathBuf {
+    let home_dir = match dirs::home_dir() {
+        Some(dir) => dir,
+        None => return path,
     };
 
-    PathBuf::from(collapsed_path)
+    match path.strip_prefix(&home_dir) {
+        Ok(relative_path) => Path::new("~").join(relative_path),
+        Err(_) => path
+    }
 }
 
 fn possible_command(unknown: &str) -> Option<&str> {
@@ -281,13 +267,15 @@ impl<'src> Context<'src> {
                 path.pop();
                 path.push(&entry);
 
+                let is_dir = path.is_dir();
+                let mut path = collapse_homedir(path);
+
                 // append '/' to suggestion to allow easier navigation through directories
-                if path.is_dir() {
+                if is_dir {
                     path.pop();
                     path.push(entry.to_string() + "/");
                 }
 
-                let path = collapse_homedir(path);
                 if let Some(path) = path.to_str() {
                     self.suggestions.push(self.src[..start].to_string() + path);
                 }
