@@ -270,9 +270,6 @@ impl Index {
         // count the number of function's that aren't compiler intrinsics
         self.named_len = self.tree.iter().filter(|(_, func)| func.is_intrinsics).count();
 
-        // keep tree sorted so it can be binary searched
-        self.tree.sort_unstable_by_key(|(addr, _)| *addr);
-
         // only keep one symbol per address
         self.tree.dedup_by_key(|(addr, _)| *addr);
 
@@ -282,9 +279,15 @@ impl Index {
         // insert entrypoint
         self.insert(entrypoint, entry_func);
 
+        // keep tree sorted so it can be binary searched
+        self.tree.sort_unstable_by_key(|(addr, _)| *addr);
+
+        log::PROGRESS.set("Building prefix tree", self.tree.len());
+
         // radix-prefix tree for fast lookups
         for (_, func) in self.tree.iter() {
             self.trie.insert(func.name_as_str.clone(), func.clone());
+            log::PROGRESS.step();
         }
 
         log::complex!(
@@ -511,17 +514,54 @@ impl Index {
             .map(|(addr, func)| (*addr, func.clone()))
     }
 
-    pub fn prefix_match(&self, prefix: &str) -> Option<impl Iterator<Item = &Arc<Function>> + '_> {
-        let prefix = ArcStr {
-            inner: Arc::from(prefix),
-        };
+    pub fn prefix_match(&self, prefix: &str) -> Option<String> {
+        let arc_prefix = ArcStr { inner: Arc::from(prefix) };
 
-        self.trie.get_raw_descendant(&prefix).map(|desc| desc.values())
+        self.trie.get_raw_descendant(&arc_prefix).and_then(|desc| {
+            let desc: Vec<&ArcStr> = desc.keys().collect();
+            find_shortest_match(&desc, prefix)
+        })
     }
 
     pub fn insert(&mut self, addr: usize, function: Function) {
         self.tree.push((addr, Arc::new(function)));
     }
+}
+
+fn find_shortest_match(space: &[&ArcStr], prefix: &str) -> Option<String> {
+    let mut shortest_match: Option<&str> = None;
+
+    for possible in space {
+        if possible.starts_with(prefix) {
+            let mut extended_prefix = prefix;
+
+            // find the extended prefix for the current string
+            for (idx, _) in possible.char_indices().skip(prefix.chars().count()) {
+                extended_prefix = &possible[..=idx];
+                let all_match = space
+                    .iter()
+                    .filter(|s| s.starts_with(prefix))
+                    .all(|s| s.starts_with(&extended_prefix));
+
+                if !all_match {
+                    // if all strings don't match, break and use the previous extended prefix
+                    extended_prefix = &possible[..idx];
+                    break;
+                }
+            }
+
+            // update shortest_match if it's None or found a shorter match
+            match &shortest_match {
+                None => shortest_match = Some(extended_prefix),
+                Some(shortest) if extended_prefix.len() < shortest.len() => {
+                    shortest_match = Some(extended_prefix)
+                }
+                _ => {},
+            }
+        }
+    }
+
+    shortest_match.map(str::to_string)
 }
 
 fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(usize, &'sym str)> {

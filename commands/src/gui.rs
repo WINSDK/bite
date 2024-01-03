@@ -184,14 +184,17 @@ impl<'src> Context<'src> {
         Ok(s)
     }
 
-    fn parse_path(&mut self) -> Result<PathBuf, Error> {
+    fn parse_path(&mut self) -> Result<Result<PathBuf, String>, Error> {
         let s = self.parse_arg("path").unwrap_or("~");
         let path = expand_homedir(PathBuf::from(s));
+
+        // TODO guess path here
+
         if !path.exists() {
             return Err(Error::PathDoesntExist(path));
         }
 
-        Ok(path)
+        Ok(Ok(path))
     }
 
     fn parse_env(&mut self) -> Result<String, Error> {
@@ -224,9 +227,15 @@ impl<'src> Context<'src> {
 
     fn parse(&mut self) -> Result<Command, Error> {
         let name = match self.parse_next("command")? {
-            "exec" | "e" => Command::Load(self.parse_path()?),
+            "exec" | "e" => match self.parse_path()? {
+                Ok(path) => Command::Load(path),
+                Err(suggestion) => Command::Suggestion(suggestion),
+            }
             "pwd" => Command::PrintPath,
-            "cd" => Command::ChangeDir(self.parse_path()?),
+            "cd" => match self.parse_path()? {
+                Ok(path) => Command::ChangeDir(path),
+                Err(suggestion) => Command::Suggestion(suggestion),
+            },
             "quit" | "q" => Command::Quit,
             "run" | "r" => {
                 let mut args = Vec::new();

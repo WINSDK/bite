@@ -18,10 +18,12 @@
 // TODO: Implement binary presidence (10 + 10 * 10 == 110).
 //       This likely requires parsing in two steps where we first generate tokens.
 
-use std::{fmt, ops::Range};
+use std::fmt;
 use symbols::Index;
 
 const MAX_DEPTH: usize = 256;
+
+type Span = std::ops::Range<usize>;
 
 /// Trait for indicating that any error has to be propagated up.
 trait Failing: Sized {
@@ -62,7 +64,7 @@ struct Context<'src> {
     is_failing: bool,
 
     /// Arena of expressions.
-    pool: Vec<Expr>,
+    children: Vec<Expr>,
 }
 
 /// Error with line number and context.
@@ -95,7 +97,7 @@ impl<'src> Context<'src> {
             offset: 0,
             depth: 0,
             is_failing: false,
-            pool: Vec::with_capacity(16),
+            children: Vec::with_capacity(16),
         }
     }
 
@@ -106,8 +108,8 @@ impl<'src> Context<'src> {
 
     /// Adds expression to arena.
     fn store(&mut self, expr: Expr) -> ExprRef {
-        let idx = self.pool.len();
-        self.pool.push(expr);
+        let idx = self.children.len();
+        self.children.push(expr);
         ExprRef(idx)
     }
 
@@ -309,22 +311,6 @@ impl<'src> Context<'src> {
             }
         }
 
-        // generic is missing a opening bracket
-        if depth < 0 {
-            return Err(Error {
-                offset: Some(self.src.find(">").unwrap()),
-                msg: "Mismatching brackets".to_string(),
-            });
-        }
-
-        // generic is missing a closing bracket
-        if depth > 0 {
-            return Err(Error {
-                offset: Some(self.src.rfind("<").unwrap()),
-                msg: "Mismatching brackets".to_string(),
-            });
-        }
-
         Ok(&self.src[start..self.offset])
     }
 
@@ -341,7 +327,7 @@ impl<'src> Context<'src> {
             let end = self.offset;
             return Ok(Expr::Symbol {
                 val: sym.to_string(),
-                span: Range { start, end },
+                span: Span { start, end },
             });
         }
 
@@ -463,7 +449,7 @@ enum Expr {
     Number(isize),
     Symbol {
         val: String,
-        span: Range<usize>,
+        span: Span,
     },
     Compound {
         lhs: ExprRef,
@@ -476,7 +462,7 @@ enum Expr {
 #[derive(Debug, PartialEq)]
 pub struct CompleteExpr {
     /// Arena of expressions.
-    pool: Vec<Expr>,
+    children: Vec<Expr>,
 
     /// Parsed expression.
     root: Expr,
@@ -485,7 +471,7 @@ pub struct CompleteExpr {
 impl CompleteExpr {
     /// Retrieves expression from arena.
     fn load(&self, expr_ref: ExprRef) -> &Expr {
-        &self.pool[expr_ref.0]
+        &self.children[expr_ref.0]
     }
 
     fn eval_recursive(&self, node: &Expr, index: &Index) -> Result<isize, Error> {
@@ -528,7 +514,7 @@ impl CompleteExpr {
         &'src self,
         node: &'src Expr,
         cursor: usize,
-    ) -> Option<(&'src str, Range<usize>)> {
+    ) -> Option<(&'src str, Span)> {
         match node {
             Expr::Symbol { val, span } => (span.end == cursor).then_some((val, span.clone())),
             Expr::Compound { lhs, rhs, .. } => {
@@ -546,16 +532,9 @@ impl CompleteExpr {
         }
     }
 
-    pub fn autocomplete(
-        &self,
-        index: &Index,
-        cursor: usize,
-    ) -> Option<(String, Range<usize>)> {
+    pub fn autocomplete(&self, index: &Index, cursor: usize) -> Option<(String, Span)> {
         let (prefix, span) = self.find_matching_symbol(&self.root, cursor)?;
-        index
-            .prefix_match(prefix)?
-            .next()
-            .map(|func| (func.as_str().to_string(), span))
+        index.prefix_match(prefix).map(|func| (func, span))
     }
 
     pub fn parse(s: &str) -> Result<Self, Error> {
@@ -568,7 +547,7 @@ impl CompleteExpr {
 
         let mut ctx = Context::new(s);
         ctx.expr().map(|expr| CompleteExpr {
-            pool: ctx.pool,
+            children: ctx.children,
             root: expr,
         })
     }
@@ -628,7 +607,10 @@ mod tests {
     fn name_span_pair(name: &str) -> Expr {
         Expr::Symbol {
             val: name.to_string(),
-            span: Range { start: 0, end: name.len() }
+            span: Span {
+                start: 0,
+                end: name.len(),
+            },
         }
     }
 
@@ -668,19 +650,6 @@ mod tests {
         );
         ast_eq!(
             "abc::f<dyn Debug + Clone>",
-            name_span_pair("abc::f<dyn Debug + Clone>")
-        );
-    }
-
-    #[test]
-    #[should_panic]
-    fn mismatched_generic() {
-        ast_eq!(
-            "abc::f<dyn Debug> + Clone>",
-            name_span_pair("abc::f<dyn Debug + Clone>")
-        );
-        ast_eq!(
-            "abc::f<dyn Debug< + Clone>",
             name_span_pair("abc::f<dyn Debug + Clone>")
         );
     }
