@@ -20,7 +20,6 @@ pub enum Command {
     Clear,
     Trace,
     FollowChildren,
-    Suggestion(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -28,6 +27,8 @@ pub enum Error {
     Missing(&'static str),
     UnknownName(String),
     PathDoesntExist(PathBuf),
+    PathIsntFile(PathBuf),
+    PathIsntDir(PathBuf),
     InvalidEnv,
     Debugger(crate::debug::Error),
 }
@@ -45,6 +46,8 @@ impl fmt::Display for Error {
             Self::PathDoesntExist(path) => {
                 f.write_fmt(format_args!("Path {path:?} doesn't exist."))
             }
+            Self::PathIsntFile(path) => f.write_fmt(format_args!("Path {path:?} isn't a file.")),
+            Self::PathIsntDir(path) => f.write_fmt(format_args!("Path {path:?} isn't a directory.")),
             Self::InvalidEnv => f.write_str("Invalid environmental variable pair."),
             Self::Debugger(err) => err.fmt(f),
         }
@@ -120,6 +123,9 @@ struct Context<'src> {
 
     /// Cursor position in bytes.
     cursor: usize,
+
+    /// Command suggestions on failure.
+    suggestions: Vec<String>,
 }
 
 impl<'src> Context<'src> {
@@ -130,6 +136,7 @@ impl<'src> Context<'src> {
             index,
             offset: 0,
             cursor,
+            suggestions: Vec::new(),
         }
     }
 
@@ -184,17 +191,92 @@ impl<'src> Context<'src> {
         Ok(s)
     }
 
-    fn parse_path(&mut self) -> Result<Result<PathBuf, String>, Error> {
-        let s = self.parse_arg("path").unwrap_or("~");
+    fn parse_file_path(&mut self) -> Result<PathBuf, Error> {
+        let start = self.offset;
+        let s = self.parse_arg("path").unwrap_or_default();
         let path = expand_homedir(PathBuf::from(s));
 
-        // TODO guess path here
-
-        if !path.exists() {
-            return Err(Error::PathDoesntExist(path));
+        if path.is_file() {
+            return Ok(path);
         }
 
-        Ok(Ok(path))
+        if path.exists() {
+            return Err(Error::PathIsntFile(path));
+        }
+
+        self.autocomplete_path(start, s);
+        Err(Error::PathDoesntExist(path))
+    }
+
+    fn parse_dir_path(&mut self) -> Result<PathBuf, Error> {
+        let start = self.offset;
+        let s = self.parse_arg("path").unwrap_or_default();
+        let path = expand_homedir(PathBuf::from(s));
+
+        if path.is_dir() {
+            return Ok(path);
+        }
+
+        if path.exists() {
+            return Err(Error::PathIsntDir(path));
+        }
+
+        self.autocomplete_path(start, s);
+        Err(Error::PathDoesntExist(path))
+    }
+
+    fn autocomplete_path(&mut self, start: usize, s: &str) {
+        let mut path = PathBuf::from(s);
+        let subpath = path.components().fold(PathBuf::from("."), |mut valid_path, comp| {
+            valid_path.push(comp);
+            if !valid_path.exists() {
+                valid_path.pop();
+            }
+            valid_path
+        });
+
+        fn last_path_component(path: &Path) -> &str {
+            path.components()
+                .last()
+                .and_then(|comp| comp.as_os_str().to_str())
+                .unwrap_or_default()
+        }
+
+        let last_comp = if s == "./" {
+            s.to_string()
+        } else {
+            last_path_component(&path).to_string()
+        };
+
+        if let Ok(dir) = subpath.read_dir() {
+            let mut entries: Vec<PathBuf> = dir
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .collect();
+
+            entries.sort_unstable();
+
+            for entry in entries {
+                let entry = last_path_component(&entry).to_string();
+
+                if !entry.starts_with(&last_comp) {
+                    continue;
+                }
+
+                path.pop();
+                path.push(&entry);
+
+                // append '/' to suggestion to allow easier navigation through directories
+                if path.is_dir() {
+                    path.pop();
+                    path.push(entry.to_string() + "/");
+                }
+
+                if let Some(path) = path.to_str() {
+                    self.suggestions.push(self.src[..start].to_string() + path);
+                }
+            }
+        }
     }
 
     fn parse_env(&mut self) -> Result<String, Error> {
@@ -203,22 +285,25 @@ impl<'src> Context<'src> {
         Ok(format!("{var}={val}"))
     }
 
-    fn parse_debug_expr(&mut self) -> Result<Result<usize, String>, Error> {
+    fn parse_debug_expr(&mut self) -> Result<usize, Error> {
         let offset = self.offset;
         let s = self.parse_arg("expr")?;
         let expr = CompleteExpr::parse(s).map_err(Error::Debugger)?;
 
         let err = match expr.eval(self.index) {
-            Ok(val) => return Ok(Ok(val as usize)),
+            Ok(val) => return Ok(val as usize),
             Err(err) => err,
         };
 
         if let Some(relative_cursor) = self.cursor.checked_sub(offset) {
             if let Some((suggestion, span)) = expr.autocomplete(self.index, relative_cursor) {
                 let mut src = self.src.to_string();
-                let span = Range { start: span.start + offset, end: span.end + offset };
+                let span = Range {
+                    start: span.start + offset,
+                    end: span.end + offset,
+                };
                 src.replace_range(span, &suggestion);
-                return Ok(Err(src));
+                self.suggestions.push(src);
             }
         }
 
@@ -227,15 +312,9 @@ impl<'src> Context<'src> {
 
     fn parse(&mut self) -> Result<Command, Error> {
         let name = match self.parse_next("command")? {
-            "exec" | "e" => match self.parse_path()? {
-                Ok(path) => Command::Load(path),
-                Err(suggestion) => Command::Suggestion(suggestion),
-            }
+            "exec" | "e" => Command::Load(self.parse_file_path()?),
             "pwd" => Command::PrintPath,
-            "cd" => match self.parse_path()? {
-                Ok(path) => Command::ChangeDir(path),
-                Err(suggestion) => Command::Suggestion(suggestion),
-            },
+            "cd" => Command::ChangeDir(self.parse_dir_path()?),
             "quit" | "q" => Command::Quit,
             "run" | "r" => {
                 let mut args = Vec::new();
@@ -247,18 +326,9 @@ impl<'src> Context<'src> {
                 Command::Run(args)
             }
             "set" => Command::SetEnv(self.parse_env()?),
-            "goto" | "g" => match self.parse_debug_expr()? {
-                Ok(addr) => Command::Goto(addr),
-                Err(suggestion) => Command::Suggestion(suggestion),
-            },
-            "break" | "b" => match self.parse_debug_expr()? {
-                Ok(addr) => Command::Break(addr),
-                Err(suggestion) => Command::Suggestion(suggestion)
-            }
-            "delete" | "bd" => match self.parse_debug_expr()? {
-                Ok(addr) => Command::BreakDelete(addr),
-                Err(suggestion) => Command::Suggestion(suggestion)
-            }
+            "goto" | "g" => Command::Goto(self.parse_debug_expr()?),
+            "break" | "b" => Command::Break(self.parse_debug_expr()?),
+            "delete" | "bd" => Command::BreakDelete(self.parse_debug_expr()?),
             "stop" | "s" => Command::Stop,
             "continue" | "c" => Command::Continue,
             "clear" => Command::Clear,
@@ -276,8 +346,9 @@ impl Command {
         index: &symbols::Index,
         s: &str,
         cursor: usize,
-    ) -> Result<Self, Error> {
-        Context::new(index, s, cursor).parse()
+    ) -> Result<Self, (Error, Vec<String>)> {
+        let mut ctx = Context::new(index, s, cursor);
+        ctx.parse().map_err(|err| (err, ctx.suggestions))
     }
 }
 

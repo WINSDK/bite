@@ -112,17 +112,23 @@ impl<Arch: crate::Target> super::UI<Arch> {
                 if self.dbg_ctx.attached() {
                     tprint!(self.panels.terminal(), "Debugger already running.");
                 } else if self.dbg_settings.follow_children == false {
-                    tprint!(self.panels.terminal(), "Enabled syscall tracing of children.");
+                    tprint!(
+                        self.panels.terminal(),
+                        "Enabled syscall tracing of children."
+                    );
                     self.dbg_settings.follow_children = true;
                 } else if self.dbg_settings.follow_children == true {
-                    tprint!(self.panels.terminal(), "Disabled syscall tracing of children.");
+                    tprint!(
+                        self.panels.terminal(),
+                        "Disabled syscall tracing of children."
+                    );
                     self.dbg_settings.follow_children = false;
                 }
-            },
-            Ok(Command::Suggestion(_)) => {},
-            Err(CommandError::Missing("command")) => {}
-            Err(err) => {
-                tprint!(self.panels.terminal(), "{err}");
+            }
+            Err((err, _)) => {
+                if err != CommandError::Missing("command") {
+                    tprint!(self.panels.terminal(), "{err}");
+                }
             }
         }
 

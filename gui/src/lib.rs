@@ -274,7 +274,7 @@ impl<Arch: Target> UI<Arch> {
 
             let events = self.platform.unprocessed_events();
 
-            // this should all probably be done in the terminal widget 
+            // this should all probably be done in the terminal widget
             let tab_event = egui::Event::Key {
                 key: egui::Key::Tab,
                 pressed: true,
@@ -284,11 +284,15 @@ impl<Arch: Target> UI<Arch> {
             if events.contains(&tab_event) {
                 let line = self.panels.terminal().current_line().to_string();
                 let cursor = self.panels.terminal().cursor_position();
-                if let Some(listing) = self.panels.listing() {
-                    let index = listing.disassembly.processor.symbols();
-                    let cmd = Command::parse(index, &line, cursor);
+                let empty_index = disassembler::Index::new();
+                let index = self
+                    .panels
+                    .listing()
+                    .map(|l| l.disassembly.processor.symbols())
+                    .unwrap_or(&empty_index);
 
-                    if let Ok(Command::Suggestion(suggestion)) = cmd {
+                if let Err((_, suggestions)) = Command::parse(index, &line, cursor) {
+                    if let Some(suggestion) = suggestions.into_iter().next() {
                         self.panels.terminal().set_current_line(suggestion);
                     }
                 }
