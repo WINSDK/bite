@@ -54,14 +54,14 @@ impl fmt::Display for Error {
     }
 }
 
-fn expand_homedir(path: PathBuf) -> std::path::PathBuf {
+fn expand_homedir(path: PathBuf) -> PathBuf {
     if !path.starts_with("~") {
-        return path.to_path_buf();
+        return path;
     }
 
     let mut home_dir = match dirs::home_dir() {
         Some(dir) => dir,
-        None => return path.to_path_buf(),
+        None => return path,
     };
 
     if path == Path::new("~") {
@@ -76,6 +76,20 @@ fn expand_homedir(path: PathBuf) -> std::path::PathBuf {
         home_dir.push(path.strip_prefix("~/").unwrap());
         home_dir
     }
+}
+
+fn collapse_homedir(path: PathBuf) -> PathBuf{
+    let home_dir = match dirs::home_dir() {
+        Some(dir) => dir,
+        None => return path,
+    };
+
+    let collapsed_path = match (path.to_str(), home_dir.to_str()) {
+        (Some(path), Some(home_dir)) => path.replacen(home_dir, "~", 1),
+        _ => return path,
+    };
+
+    PathBuf::from(collapsed_path)
 }
 
 fn possible_command(unknown: &str) -> Option<&str> {
@@ -226,7 +240,7 @@ impl<'src> Context<'src> {
     }
 
     fn autocomplete_path(&mut self, start: usize, s: &str) {
-        let mut path = PathBuf::from(s);
+        let path = expand_homedir(PathBuf::from(s));
         let subpath = path.components().fold(PathBuf::from("."), |mut valid_path, comp| {
             valid_path.push(comp);
             if !valid_path.exists() {
@@ -243,9 +257,9 @@ impl<'src> Context<'src> {
         }
 
         let last_comp = if s == "./" {
-            s.to_string()
+            s
         } else {
-            last_path_component(&path).to_string()
+            last_path_component(&path)
         };
 
         if let Ok(dir) = subpath.read_dir() {
@@ -263,6 +277,7 @@ impl<'src> Context<'src> {
                     continue;
                 }
 
+                let mut path = path.clone();
                 path.pop();
                 path.push(&entry);
 
@@ -272,6 +287,7 @@ impl<'src> Context<'src> {
                     path.push(entry.to_string() + "/");
                 }
 
+                let path = collapse_homedir(path);
                 if let Some(path) = path.to_str() {
                     self.suggestions.push(self.src[..start].to_string() + path);
                 }
