@@ -125,6 +125,9 @@ impl<Arch: crate::Target> super::UI<Arch> {
                     self.dbg_settings.follow_children = false;
                 }
             }
+            Ok(Command::Help) => {
+                tprint!(self.panels.terminal(), "{}", commands::CMD_HELP);
+            }
             Err((err, _)) => {
                 if err != CommandError::Missing("command") {
                     tprint!(self.panels.terminal(), "{err}");

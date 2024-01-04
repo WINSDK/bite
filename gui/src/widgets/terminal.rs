@@ -278,7 +278,7 @@ impl Terminal {
         &self.commands[self.commands.len() - ncmds - 1..][..ncmds]
     }
 
-    pub fn read_command_history() -> std::io::Result<Vec<String>> {
+    fn read_command_history() -> std::io::Result<Vec<String>> {
         let data = std::fs::read_to_string(&*HISTORY_PATH)?;
         Ok(data.lines().map(ToString::to_string).collect())
     }
@@ -496,6 +496,7 @@ impl Terminal {
 impl std::fmt::Write for Terminal {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         // TODO: sanitize input here for stuff like symbols being printed
+        self.reset_cursor = true;
         self.prompt.push_str(s);
         Ok(())
     }

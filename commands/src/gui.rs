@@ -4,6 +4,24 @@ use std::path::{Path, PathBuf};
 
 use crate::debug::CompleteExpr;
 
+pub const HELP: &str = "\
+Available commands:
+    exec <path>        -- Load a binary from the specified path
+    pwd                -- Display the current path
+    cd <path>          -- Change the current directory to the specified path
+    quit               -- Exit the program
+    run [--] [<args>]  -- Execute the program with specified arguments
+    goto <expr>        -- Jump to code/data at the specified expression
+    break <expr>       -- Set a breakpoint at the specified expression
+    breakdelete <expr> -- Remove a breakpoint at the specified expression
+    setenv <var>=<val> -- Set an environment variable
+    stop               -- Stop the program execution temporarily
+    continue           -- Resume the program execution
+    clear              -- Clear the console and it's history
+    trace              -- Trace syscalls executed by target
+    follow-children    -- Also trace syscalls of any spawned children
+    help               -- Display this help message";
+
 #[derive(Debug, PartialEq)]
 pub enum Command {
     Load(PathBuf),
@@ -20,6 +38,7 @@ pub enum Command {
     Clear,
     Trace,
     FollowChildren,
+    Help,
 }
 
 #[derive(Debug, PartialEq)]
@@ -94,6 +113,7 @@ fn possible_command(unknown: &str) -> Option<&str> {
         "clear",
         "trace",
         "follow-children",
+        "help",
     ];
 
     let mut distance = u32::MAX;
@@ -349,6 +369,7 @@ impl<'src> Context<'src> {
             "clear" => Command::Clear,
             "trace" => Command::Trace,
             "follow-children" => Command::FollowChildren,
+            "help" | "?" => Command::Help,
             name => return Err(Error::UnknownName(name.to_string())),
         };
 

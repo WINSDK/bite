@@ -184,7 +184,6 @@ impl Tracing for Process {
             let chunk = u32::from_ne_bytes(chunk.try_into().unwrap());
 
             unsafe {
-                dbg!(addr);
                 ptrace::write(self.id, addr, chunk as *mut c_void)
                     .map_err(Error::Kernel)?;
             }
