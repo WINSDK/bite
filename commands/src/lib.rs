@@ -1,9 +1,9 @@
 mod cli;
-mod gui;
 mod debug;
+mod gui;
 
-use once_cell::sync::Lazy;
 pub use cli::Cli;
 pub use gui::{Command, Error as CommandError, HELP as CMD_HELP};
+use once_cell::sync::Lazy;
 
 pub static ARGS: Lazy<cli::Cli> = Lazy::new(cli::Cli::parse);

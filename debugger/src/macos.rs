@@ -1,6 +1,6 @@
+use crate::{Context, Debuggable, PhysAddr, Tracing, VirtAddr};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use crate::{Tracing, Debuggable, VirtAddr, PhysAddr, Context};
 
 pub type Pid = isize;
 
@@ -20,7 +20,7 @@ impl Debuggable for Debugger {
     fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
         _: P,
         _: Vec<A>,
-        _: DebuggerDescriptor
+        _: DebuggerDescriptor,
     ) -> Result<Self, Error> {
         todo!("spawn");
     }

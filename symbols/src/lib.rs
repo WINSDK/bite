@@ -515,7 +515,9 @@ impl Index {
     }
 
     pub fn prefix_match(&self, prefix: &str) -> Option<String> {
-        let arc_prefix = ArcStr { inner: Arc::from(prefix) };
+        let arc_prefix = ArcStr {
+            inner: Arc::from(prefix),
+        };
 
         self.trie.get_raw_descendant(&arc_prefix).and_then(|desc| {
             let desc: Vec<&ArcStr> = desc.keys().collect();
@@ -556,7 +558,7 @@ fn find_shortest_match(space: &[&ArcStr], prefix: &str) -> Option<String> {
                 Some(shortest) if extended_prefix.len() < shortest.len() => {
                     shortest_match = Some(extended_prefix)
                 }
-                _ => {},
+                _ => {}
             }
         }
     }

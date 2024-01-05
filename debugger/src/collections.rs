@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
+use crate::{Error, Pid};
 use std::collections::HashMap;
 use std::fmt;
-use crate::{Pid, Error};
 
 pub struct Node<K, V> {
     value: V,
@@ -59,16 +59,11 @@ impl<V> Tree<V> {
     }
 
     pub fn get(&mut self, key: Pid) -> Result<&V, Error> {
-        self
-            .nodes
-            .get_mut(&key)
-            .map(|node| &node.value)
-            .ok_or(Error::ProcessLost(key))
+        self.nodes.get_mut(&key).map(|node| &node.value).ok_or(Error::ProcessLost(key))
     }
 
     pub fn get_mut(&mut self, key: Pid) -> Result<&mut V, Error> {
-        self
-            .nodes
+        self.nodes
             .get_mut(&key)
             .map(|node| &mut node.value)
             .ok_or(Error::ProcessLost(key))

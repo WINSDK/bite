@@ -62,12 +62,8 @@ impl egui_dock::TabViewer for Tabs {
                     .stick_to_bottom(true);
 
                 area.show(ui, |ui| {
-                    let font = egui::FontId {
-                        size: 12.0,
-                        family: egui::FontFamily::Monospace,
-                    };
                     let layout = log::LOGGER.lock().unwrap().format();
-                    let text_area = TextSelection::precomputed(font, &layout);
+                    let text_area = TextSelection::precomputed(&layout);
                     ui.add(text_area);
                 });
             }
@@ -151,6 +147,16 @@ impl Panels {
         if let Some(path) = rfd::FileDialog::new().pick_file() {
             self.ui_queue.push(crate::UIEvent::BinaryRequested(path));
         }
+    }
+
+    pub fn handle_events(&mut self, events: &mut Vec<egui::Event>) {
+        let empty_index = disassembler::Index::new();
+        let index = match self.tabs.mapping.get_mut(DISASSEMBLY) {
+            Some(PanelKind::Disassembly(listing)) => listing.disassembly.processor.symbols(),
+            _ => &empty_index,
+        };
+
+        self.tabs.terminal.record_input(events, index);
     }
 
     /// Show some close/maximize/minimize buttons for the native window.
@@ -282,10 +288,13 @@ impl Panels {
         dock_area.show(ctx, |ui| {
             if self.loading {
                 ui.spacing_mut().item_spacing.y = 20.0;
-                ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
-                    self.tabs.donut.show(ui);
-                    log::PROGRESS.show(ui);
-                });
+                ui.with_layout(
+                    egui::Layout::top_down_justified(egui::Align::Center),
+                    |ui| {
+                        self.tabs.donut.show(ui);
+                        log::PROGRESS.show(ui);
+                    },
+                );
             } else {
                 let style = crate::style::DOCK.clone();
 

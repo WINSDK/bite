@@ -101,7 +101,7 @@ impl Display for Listing {
                     self.max_row = max_row;
                 }
 
-                let text_area = TextSelection::precomputed(FONT, &self.lines);
+                let text_area = TextSelection::precomputed(&self.lines);
                 ui.add(text_area);
             });
         });

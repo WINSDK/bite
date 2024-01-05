@@ -1,6 +1,6 @@
 //! Consumes decoder crates and provides an interface to interact with the decoders.
-mod fs;
 mod fmt;
+mod fs;
 mod processor;
 
 use std::borrow::Cow;
@@ -267,7 +267,12 @@ impl DisassemblyView {
     }
 
     /// Read's a [`Block`] at `addr` and also returns how many bytes were read.
-    fn read_block(&mut self, disassembly: &Disassembly, section: &Section, addr: PhysAddr) -> usize {
+    fn read_block(
+        &mut self,
+        disassembly: &Disassembly,
+        section: &Section,
+        addr: PhysAddr,
+    ) -> usize {
         let mut tokens = Vec::new();
         let mut line_count = 0;
 

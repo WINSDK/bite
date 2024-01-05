@@ -32,7 +32,7 @@ fn spawn_sleep_invalid() {
     };
     let desc = DebuggerDescriptor {
         module: Arc::new(Processor::parse_unknown("/bin/sleep").unwrap()),
-        args: vec![]
+        args: vec![],
     };
     let session = Debugger::spawn(settings, desc).unwrap();
 

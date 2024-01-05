@@ -124,7 +124,6 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
 
         styles.insert(TextStyle::Heading, FontId::new(18.0, FontFamily::Monospace));
         styles.insert(TextStyle::Body, FontId::new(16.0, FontFamily::Monospace));
-        styles.insert(TextStyle::Monospace, FontId::new(16.0, FontFamily::Monospace));
         styles.insert(TextStyle::Button, FontId::new(14.0, FontFamily::Monospace));
         styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Monospace));
         styles
@@ -203,7 +202,7 @@ pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
             ..Default::default()
         },
         hline_below_active_tab_name: false,
-        minimum_width: None
+        minimum_width: None,
     },
     overlay: egui_dock::OverlayStyle {
         selection_color: STYLE.primary_background,

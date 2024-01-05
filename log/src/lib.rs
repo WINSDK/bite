@@ -1,9 +1,9 @@
 mod progress;
 
-use std::sync::Mutex;
 use egui::text::LayoutJob;
-pub use rfd::{MessageDialog, MessageLevel};
 pub use progress::ProgressBar;
+pub use rfd::{MessageDialog, MessageLevel};
+use std::sync::Mutex;
 
 pub static PROGRESS: ProgressBar = ProgressBar::unset();
 

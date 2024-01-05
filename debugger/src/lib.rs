@@ -161,7 +161,7 @@ impl Breakpoints {
                 bp.op = Some(BreakpointOp::Delete);
                 true
             }
-            None => false
+            None => false,
         }
     }
 }

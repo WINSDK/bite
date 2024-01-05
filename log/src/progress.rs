@@ -1,5 +1,5 @@
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::RwLock;
 
 pub struct ProgressBar {
     desc: RwLock<&'static str>,
@@ -18,7 +18,7 @@ impl ProgressBar {
             step_count: AtomicUsize::new(0),
             size: egui::vec2(300.0, 18.0),
             bg_col: egui::Color32::from_gray(66),
-            fg_col: egui::Color32::from_rgb(0x34, 0x73, 0xcf)
+            fg_col: egui::Color32::from_rgb(0x34, 0x73, 0xcf),
         }
     }
 
@@ -63,16 +63,17 @@ impl ProgressBar {
         let t = ui.input(|i| i.time);
         let r = circles_rect.height() / 2.1;
         let speed = 1.5;
-        let offsets = [
-            speed * 0.0,
-            speed * 0.333,
-            speed * 0.666,
-        ];
+        let offsets = [speed * 0.0, speed * 0.333, speed * 0.666];
 
         // draw dots
         for offset in offsets {
-            let o = (circles_rect.width() + r) as f64 * (t + offset - speed * ((t + offset) / speed).floor()) / speed;
-            let circle_center = egui::Pos2::new(circles_rect.max.x - o as f32, (circles_rect.min.y + circles_rect.max.y) / 2.0);
+            let o = (circles_rect.width() + r) as f64
+                * (t + offset - speed * ((t + offset) / speed).floor())
+                / speed;
+            let circle_center = egui::Pos2::new(
+                circles_rect.max.x - o as f32,
+                (circles_rect.min.y + circles_rect.max.y) / 2.0,
+            );
             painter.circle_filled(circle_center, r, self.bg_col);
         }
 
@@ -81,11 +82,14 @@ impl ProgressBar {
 
         // draw centered text
         ui.allocate_ui_at_rect(bot_rect, |ui| {
-            ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                let steps_done = steps_done.clamp(0, step_count);
-                let status = format!("{desc} {steps_done}/{step_count}");
-                ui.label(egui::RichText::new(status).size(top_rect.height() * 1.3))
-            });
+            ui.with_layout(
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| {
+                    let steps_done = steps_done.clamp(0, step_count);
+                    let status = format!("{desc} {steps_done}/{step_count}");
+                    ui.label(egui::RichText::new(status).size(top_rect.height() * 1.3))
+                },
+            );
         });
     }
 }

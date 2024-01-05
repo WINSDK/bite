@@ -66,7 +66,9 @@ impl fmt::Display for Error {
                 f.write_fmt(format_args!("Path {path:?} doesn't exist."))
             }
             Self::PathIsntFile(path) => f.write_fmt(format_args!("Path {path:?} isn't a file.")),
-            Self::PathIsntDir(path) => f.write_fmt(format_args!("Path {path:?} isn't a directory.")),
+            Self::PathIsntDir(path) => {
+                f.write_fmt(format_args!("Path {path:?} isn't a directory."))
+            }
             Self::InvalidEnv => f.write_str("Invalid environmental variable pair."),
             Self::Debugger(err) => err.fmt(f),
         }
@@ -81,7 +83,7 @@ fn expand_homedir(path: PathBuf) -> PathBuf {
 
     match path.strip_prefix("~") {
         Ok(relative_path) => home_dir.join(relative_path),
-        Err(_) => path
+        Err(_) => path,
     }
 }
 
@@ -93,7 +95,7 @@ fn collapse_homedir(path: PathBuf) -> PathBuf {
 
     match path.strip_prefix(&home_dir) {
         Ok(relative_path) => Path::new("~").join(relative_path),
-        Err(_) => path
+        Err(_) => path,
     }
 }
 

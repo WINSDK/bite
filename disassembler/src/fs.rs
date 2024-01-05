@@ -12,9 +12,7 @@ fn read_to_end<R: Read>(
 
     // optionally read in chunks of 16
     let max_read_size = size_hint.and_then(|s| {
-        s.checked_div(16)?
-            .checked_add(1024)?
-            .checked_next_multiple_of(DEFAULT_BUF_SIZE)
+        s.checked_div(16)?.checked_add(1024)?.checked_next_multiple_of(DEFAULT_BUF_SIZE)
     });
 
     if let Some(size) = size_hint {

@@ -1,6 +1,7 @@
 use crate::common::*;
-use crate::widgets::TextSelection;
 use crate::style::EGUI;
+use crate::widgets::TextSelection;
+use disassembler::Index;
 use tokenizing::colors;
 
 use egui::text::LayoutJob;
@@ -72,17 +73,11 @@ impl Terminal {
         &self.commands[self.command_position]
     }
 
-    pub fn set_current_line(&mut self, line: String) {
-        self.commands[self.command_position] = line;
-        self.move_to_end();
-        self.suggest();
-    }
-
     pub fn cursor_position(&self) -> usize {
         self.cursor_position
     }
 
-    pub fn reset_line(&mut self) {
+    pub fn clear_line(&mut self) {
         self.cursor_position = 0;
         self.commands[self.command_position].clear();
         self.suggestion = String::new();
@@ -90,9 +85,8 @@ impl Terminal {
 
     pub fn clear(&mut self) {
         self.prompt.clear();
-        self.suggestion = String::new();
+        self.clear_line();
         self.commands = vec![String::new()];
-        self.cursor_position = 0;
         self.command_position = 0;
         let _ = self.save_command_history();
     }
@@ -221,17 +215,30 @@ impl Terminal {
 
         self.move_left();
         self.commands[self.command_position].remove(self.cursor_position);
-        self.suggest();
+        self.term_suggest();
     }
 
     fn append(&mut self, characters: &str) {
         let characters = characters.escape_debug().to_string();
         self.commands[self.command_position].insert_str(self.cursor_position, &characters);
         self.cursor_position += characters.len();
-        self.suggest();
+        self.term_suggest();
     }
 
-    fn suggest(&mut self) {
+    fn cmd_suggest(&mut self, index: &Index) {
+        let line = self.current_line().to_string();
+        let cursor = self.cursor_position();
+
+        if let Err((_, suggestions)) = commands::Command::parse(index, &line, cursor) {
+            if let Some(suggestion) = suggestions.into_iter().next() {
+                self.commands[self.command_position] = suggestion;
+                self.move_to_end();
+                self.term_suggest();
+            }
+        }
+    }
+
+    fn term_suggest(&mut self) {
         let cmd = &self.commands[self.command_position];
 
         if cmd.is_empty() {
@@ -303,7 +310,7 @@ impl Terminal {
 
     /// Process all character having been entered.
     /// Returns how many events were processed.
-    pub fn record_input(&mut self, events: &mut Vec<egui::Event>) -> usize {
+    pub fn record_input(&mut self, events: &mut Vec<egui::Event>, index: &Index) -> usize {
         let mut events_processed = 0;
         let mut prev_consumed = false;
 
@@ -319,7 +326,7 @@ impl Terminal {
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => {}
+                } => self.cmd_suggest(index),
                 egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
@@ -337,7 +344,7 @@ impl Terminal {
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => self.reset_line(),
+                } => self.clear_line(),
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,
@@ -348,7 +355,7 @@ impl Terminal {
                             ..
                         },
                     ..
-                } => self.reset_line(),
+                } => self.clear_line(),
                 egui::Event::Key {
                     key: egui::Key::A,
                     pressed: true,
@@ -471,7 +478,7 @@ impl Terminal {
                         font_id: FONT,
                         color,
                         ..Default::default()
-                    }
+                    },
                 );
             };
 
@@ -480,7 +487,7 @@ impl Terminal {
             append(input, color);
             append(&self.suggestion, colors::GRAY60);
 
-            let mut text_area = TextSelection::precomputed(FONT, &output);
+            let mut text_area = TextSelection::precomputed(&output);
 
             if self.reset_cursor {
                 let abs_position = self.prompt.len() + title.len() + self.cursor_position;

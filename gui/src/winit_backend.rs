@@ -360,7 +360,8 @@ fn find_cjk_font() -> Option<String> {
         .ok()?;
 
     let stdout = std::str::from_utf8(&output.stdout).ok()?;
-    let font_line = stdout.lines()
+    let font_line = stdout
+        .lines()
         .find_map(|line| line.split_once("\tfile: \""))
         .and_then(|(_, line)| line.rfind("\"").map(|idx| &line[..idx]));
 

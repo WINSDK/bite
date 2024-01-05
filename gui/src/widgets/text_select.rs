@@ -38,9 +38,9 @@
 use crate::style::EGUI;
 use crate::widgets::TextEdit;
 
-use egui::FontId;
 use egui::text::LayoutJob;
 use egui::text::{CCursor, CCursorRange};
+use egui::FontId;
 
 type Layouter<'l> = &'l mut dyn FnMut(&str) -> LayoutJob;
 
@@ -63,7 +63,8 @@ impl<'l> TextSelection<'l> {
         }
     }
 
-    pub fn precomputed(font: FontId, layoutjob: &'l LayoutJob) -> Self {
+    pub fn precomputed(layoutjob: &'l LayoutJob) -> Self {
+        let font = layoutjob.sections.first().map(|s| s.format.font_id.clone()).unwrap_or_default();
         let mut this = Self::new(font);
         this.precomputed = Some(layoutjob);
         this

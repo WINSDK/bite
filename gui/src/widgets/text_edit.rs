@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use std::sync::Arc;
 use egui::mutex::Mutex;
+use std::sync::Arc;
 
 use egui::epaint::text::{cursor::*, Galley, LayoutJob};
-use egui::{output::OutputEvent, *};
 use egui::widgets::text_edit::{CCursorRange, CursorRange};
+use egui::{output::OutputEvent, *};
 
 type Undoer = egui::util::undoer::Undoer<(CCursorRange, String)>;
 
@@ -29,7 +29,6 @@ pub struct TextEditOutput {
     /// Where the text cursor is.
     pub cursor_range: Option<CursorRange>,
 }
-
 
 /// The text edit state stored between frames.
 ///
@@ -87,10 +86,8 @@ impl TextEditState {
 
     /// The the currently selected range of characters.
     pub fn ccursor_range(&self) -> Option<CCursorRange> {
-        self.ccursor_range.or_else(|| {
-            self.cursor_range
-                .map(|cursor_range| cursor_range.as_ccursor_range())
-        })
+        self.ccursor_range
+            .or_else(|| self.cursor_range.map(|cursor_range| cursor_range.as_ccursor_range()))
     }
 
     /// Sets the currently selected range of characters.
@@ -765,9 +762,7 @@ impl<'t> TextEdit<'t> {
                 }
             }
 
-            offset_x = offset_x
-                .at_most(galley.size().x - desired_size.x)
-                .at_least(0.0);
+            offset_x = offset_x.at_most(galley.size().x - desired_size.x).at_least(0.0);
 
             state.singleline_offset = offset_x;
             text_draw_pos -= vec2(offset_x, 0.0);
@@ -890,7 +885,6 @@ fn mask_if_password(is_password: bool, text: &str) -> String {
 }
 
 // ----------------------------------------------------------------------------
-
 
 /// Check for (keyboard) events to edit the cursor and/or text.
 #[allow(clippy::too_many_arguments)]
@@ -1161,10 +1155,7 @@ fn paint_cursor_end(
 
     // Create a rectangle that represents the block cursor.
     // It covers the width and height of a character at the cursor position.
-    let cursor_rect = Rect::from_min_size(
-        cursor_pos.min,
-        vec2(cursor_width, cursor_height),
-    );
+    let cursor_rect = Rect::from_min_size(cursor_pos.min, vec2(cursor_width, cursor_height));
 
     // Draw the block cursor as a filled rectangle.
     painter.rect_filled(cursor_rect, 0.0, stroke.color);
@@ -1627,11 +1618,7 @@ fn decrease_indentation(ccursor: &mut CCursor, text: &mut dyn TextBuffer) {
 
     let remove_len = if text.as_str()[line_start.index..].starts_with('\t') {
         Some(1)
-    } else if text.as_str()[line_start.index..]
-        .chars()
-        .take(text::TAB_SIZE)
-        .all(|c| c == ' ')
-    {
+    } else if text.as_str()[line_start.index..].chars().take(text::TAB_SIZE).all(|c| c == ' ') {
         Some(text::TAB_SIZE)
     } else {
         None

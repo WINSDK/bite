@@ -10,7 +10,6 @@ pub mod widgets;
 pub mod windows;
 mod winit_backend;
 
-use commands::Command;
 use copypasta::ClipboardProvider;
 use debugger::{
     DebugeeEvent, Debuggable, Debugger, DebuggerDescriptor, DebuggerEvent, DebuggerSettings,
@@ -273,32 +272,7 @@ impl<Arch: Target> UI<Arch> {
             self.handle_dbg_events();
 
             let events = self.platform.unprocessed_events();
-
-            // this should all probably be done in the terminal widget
-            let tab_event = egui::Event::Key {
-                key: egui::Key::Tab,
-                pressed: true,
-                modifiers: egui::Modifiers::NONE,
-                repeat: false,
-            };
-            if events.contains(&tab_event) {
-                let line = self.panels.terminal().current_line().to_string();
-                let cursor = self.panels.terminal().cursor_position();
-                let empty_index = disassembler::Index::new();
-                let index = self
-                    .panels
-                    .listing()
-                    .map(|l| l.disassembly.processor.symbols())
-                    .unwrap_or(&empty_index);
-
-                if let Err((_, suggestions)) = Command::parse(index, &line, cursor) {
-                    if let Some(suggestion) = suggestions.into_iter().next() {
-                        self.panels.terminal().set_current_line(suggestion);
-                    }
-                }
-            }
-
-            self.panels.terminal().record_input(events);
+            self.panels.handle_events(events);
 
             let cmds = self.panels.terminal().take_commands().to_vec();
             if !self.process_commands(&cmds) {

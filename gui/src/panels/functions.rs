@@ -1,9 +1,9 @@
 use crate::common::*;
 use crate::widgets::TextSelection;
 
+use disassembler::Processor;
 use egui::text::LayoutJob;
 use std::sync::Arc;
-use disassembler::Processor;
 
 pub struct Functions {
     processor: Arc<Processor>,
@@ -40,7 +40,7 @@ impl Display for Functions {
                 self.max_row = row_range.end;
             }
 
-            let text_area = TextSelection::precomputed(FONT, &self.lines);
+            let text_area = TextSelection::precomputed(&self.lines);
             ui.add(text_area);
         });
     }

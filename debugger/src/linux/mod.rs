@@ -4,9 +4,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use nix::sys::ptrace;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::sys::ptrace;
 use nix::unistd::{execvpe, fork, ForkResult};
 use procfs::process::MemoryMap;
 
@@ -184,8 +184,7 @@ impl Tracing for Process {
             let chunk = u32::from_ne_bytes(chunk.try_into().unwrap());
 
             unsafe {
-                ptrace::write(self.id, addr, chunk as *mut c_void)
-                    .map_err(Error::Kernel)?;
+                ptrace::write(self.id, addr, chunk as *mut c_void).map_err(Error::Kernel)?;
             }
         }
 
