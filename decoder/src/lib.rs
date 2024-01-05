@@ -255,15 +255,20 @@ pub fn encode_hex(mut imm: i64) -> String {
 /// Encode bytes as 2 digit hex number separated by a space with a leading space.
 pub fn encode_hex_bytes(bytes: &[u8]) -> String {
     unsafe {
-        let mut buffer = Vec::with_capacity(bytes.len() * 3);
+        let len = bytes.len() * 3;
+        let mut buffer = Vec::with_capacity(len);
         let slice = &mut buffer[..];
         let mut idx = 0;
 
         for byte in bytes {
             *slice.get_unchecked_mut(idx) = HEX_NUGGET[(byte >> 4) as usize];
             *slice.get_unchecked_mut(idx + 1) = HEX_NUGGET[(byte & 0b1111) as usize];
-            *slice.get_unchecked_mut(idx + 2) = b' ';
-            idx += 3;
+            idx += 2;
+
+            if idx + 1 != len {
+                *slice.get_unchecked_mut(idx) = b' ';
+                idx += 1;
+            }
         }
 
         buffer.set_len(idx);
@@ -272,12 +277,13 @@ pub fn encode_hex_bytes(bytes: &[u8]) -> String {
 }
 
 /// Truncates string past the max width with a '..'.
-pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize) -> String {
+pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize, is_padded: bool) -> String {
     unsafe {
         assert!(max_width > 2, "max width most be at least 2");
 
-        let pad = max_width.saturating_sub(bytes.len() * 3);
-        let mut buffer = Vec::with_capacity(bytes.len() * 3 + pad);
+        let len = bytes.len() * 3;
+        let pad = is_padded as usize * max_width.saturating_sub(len);
+        let mut buffer = Vec::with_capacity(len + pad);
         let slice = &mut buffer[..];
         let mut idx = 0;
 
@@ -288,15 +294,23 @@ pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize) -> String {
             for byte in bytes {
                 *slice.get_unchecked_mut(idx) = HEX_NUGGET[(byte >> 4) as usize];
                 *slice.get_unchecked_mut(idx + 1) = HEX_NUGGET[(byte & 0b1111) as usize];
-                *slice.get_unchecked_mut(idx + 2) = b' ';
-                idx += 3;
+                idx += 2;
+
+                if idx + 1 != len || is_padded {
+                    *slice.get_unchecked_mut(idx) = b' ';
+                    idx += 1;
+                }
             }
 
             *slice.get_unchecked_mut(idx) = b'.';
             *slice.get_unchecked_mut(idx + 1) = b'.';
-            *slice.get_unchecked_mut(idx + 2) = b' ';
-            *slice.get_unchecked_mut(idx + 3) = b' ';
-            idx += 4;
+            idx += 2;
+
+            if is_padded {
+                *slice.get_unchecked_mut(idx) = b' ';
+                *slice.get_unchecked_mut(idx + 1) = b' ';
+                idx += 2;
+            }
 
             buffer.set_len(idx);
             return String::from_utf8_unchecked(buffer);
@@ -305,8 +319,12 @@ pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize) -> String {
         for byte in bytes {
             *slice.get_unchecked_mut(idx) = HEX_NUGGET[(byte >> 4) as usize];
             *slice.get_unchecked_mut(idx + 1) = HEX_NUGGET[(byte & 0b1111) as usize];
-            *slice.get_unchecked_mut(idx + 2) = b' ';
-            idx += 3;
+            idx += 2;
+
+            if idx + 1 != len || is_padded {
+                *slice.get_unchecked_mut(idx) = b' ';
+                idx += 1;
+            }
         }
 
         for _ in 0..pad {
@@ -334,33 +352,38 @@ mod tests {
 
     #[test]
     fn encode_hex_bytes() {
-        assert_eq!(super::encode_hex_bytes(&[0x10, 0x12, 0x3]), "10 12 03 ");
-        assert_eq!(super::encode_hex_bytes(&[0x10]), "10 ");
+        assert_eq!(super::encode_hex_bytes(&[0x10, 0x12, 0x3]), "10 12 03");
+        assert_eq!(super::encode_hex_bytes(&[0x10]), "10");
         assert_eq!(
             super::encode_hex_bytes(&[0xff, 0x1, 0x1, 0x1]),
-            "ff 01 01 01 "
+            "ff 01 01 01"
         );
     }
 
     #[test]
     fn encode_hex_bytes_truncted() {
         assert_eq!(
-            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 6),
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 6, false),
+            "10 .."
+        );
+
+        assert_eq!(
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 6, true),
             "10 ..  "
         );
 
         assert_eq!(
-            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 9),
-            "10 12 03 "
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 9, false),
+            "10 12 03"
         );
 
         assert_eq!(
-            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 10),
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 10, true),
             "10 12 03  "
         );
 
         assert_eq!(
-            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 11),
+            super::encode_hex_bytes_truncated(&[0x10, 0x12, 0x3], 11, true),
             "10 12 03   "
         );
     }

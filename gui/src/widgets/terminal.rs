@@ -69,15 +69,11 @@ impl Terminal {
         }
     }
 
-    pub fn current_line(&self) -> &str {
+    fn current_line(&self) -> &str {
         &self.commands[self.command_position]
     }
 
-    pub fn cursor_position(&self) -> usize {
-        self.cursor_position
-    }
-
-    pub fn clear_line(&mut self) {
+    fn clear_line(&mut self) {
         self.cursor_position = 0;
         self.commands[self.command_position].clear();
         self.suggestion = String::new();
@@ -227,7 +223,7 @@ impl Terminal {
 
     fn cmd_suggest(&mut self, index: &Index) {
         let line = self.current_line().to_string();
-        let cursor = self.cursor_position();
+        let cursor = self.cursor_position;
 
         if let Err((_, suggestions)) = commands::Command::parse(index, &line, cursor) {
             if let Some(suggestion) = suggestions.into_iter().next() {
@@ -299,6 +295,7 @@ impl Terminal {
             .map(|cmd| cmd as &str)
             .collect();
 
+        // only save the last 300 commands
         let mut cmds = cmds[cmds.len().saturating_sub(300)..].join("\n");
 
         if cmds.len() > 0 {

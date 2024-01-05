@@ -375,8 +375,15 @@ impl Processor {
     }
 
     /// Format address relative to a given section.
-    pub fn format_bytes(&self, addr: PhysAddr, len: usize, section: &Section) -> Option<String> {
-        section.format_bytes(addr, len, self.max_instruction_width * 3 + 1)
+    #[inline]
+    pub fn format_bytes(
+        &self,
+        addr: PhysAddr,
+        len: usize,
+        section: &Section,
+        is_padded: bool,
+    ) -> Option<String> {
+        section.format_bytes(addr, len, self.max_instruction_width * 3 + 1, is_padded)
     }
 
     pub fn instruction_tokens(&self, instruction: &Instruction) -> Vec<Token> {

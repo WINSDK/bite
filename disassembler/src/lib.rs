@@ -51,12 +51,20 @@ impl Section {
         (self.start..=self.end).contains(&addr)
     }
 
-    pub fn format_bytes(&self, addr: PhysAddr, len: usize, max_len: usize) -> Option<String> {
+    pub fn format_bytes(
+        &self,
+        addr: PhysAddr,
+        len: usize,
+        max_len: usize,
+        is_padded: bool,
+    ) -> Option<String> {
         let rva = addr.checked_sub(self.start)?;
         let bytes = self.bytes.get(rva..)?;
         let bytes = &bytes[..std::cmp::min(bytes.len(), len)];
 
-        Some(decoder::encode_hex_bytes_truncated(bytes, max_len))
+        Some(decoder::encode_hex_bytes_truncated(
+            bytes, max_len, is_padded,
+        ))
     }
 }
 
@@ -307,7 +315,7 @@ impl DisassemblyView {
             ));
 
             tokens.push(Token::from_string(
-                disassembly.processor.format_bytes(addr, err.size(), section).unwrap(),
+                disassembly.processor.format_bytes(addr, err.size(), section, true).unwrap(),
                 colors::GREEN,
             ));
 
@@ -336,7 +344,7 @@ impl DisassemblyView {
             ));
 
             tokens.push(Token::from_string(
-                disassembly.processor.format_bytes(addr, width, section).unwrap(),
+                disassembly.processor.format_bytes(addr, width, section, true).unwrap(),
                 colors::GREEN,
             ));
 
@@ -379,7 +387,7 @@ impl DisassemblyView {
         }
 
         // if we have bytes left in the section to print
-        if let Some(bytes) = disassembly.processor.format_bytes(addr, dx, section) {
+        if let Some(bytes) = disassembly.processor.format_bytes(addr, dx, section, false) {
             tokens.push(Token::from_string(
                 format!("{addr:0>10X}  "),
                 colors::GRAY40,
