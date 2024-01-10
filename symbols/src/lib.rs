@@ -105,10 +105,6 @@ pub struct Function {
 }
 
 fn is_name_an_intrinsic(name: &str) -> bool {
-    if name.is_empty() {
-        return true;
-    }
-
     if name.starts_with("GCC_except_table") {
         return true;
     }
@@ -268,7 +264,7 @@ impl Index {
         });
 
         // count the number of function's that aren't compiler intrinsics
-        self.named_len = self.tree.iter().filter(|(_, func)| func.is_intrinsics).count();
+        self.named_len = self.tree.iter().filter(|(_, func)| !func.intrinsic()).count();
 
         // only keep one symbol per address
         self.tree.dedup_by_key(|(addr, _)| *addr);
