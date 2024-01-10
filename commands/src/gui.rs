@@ -251,13 +251,14 @@ impl<'src> Context<'src> {
 
     fn autocomplete_path(&mut self, start: usize, s: &str) {
         let path = expand_homedir(PathBuf::from(s));
-        let subpath = path.components().fold(PathBuf::from("."), |mut valid_path, comp| {
-            valid_path.push(comp);
-            if !valid_path.exists() {
-                valid_path.pop();
+        let mut subpath = path.clone();
+
+        if !subpath.exists() {
+            match subpath.parent() {
+                Some(parent) if parent.exists() => { subpath.pop(); },
+                _ => subpath = PathBuf::from("."),
             }
-            valid_path
-        });
+        }
 
         fn last_path_component(path: &Path) -> &str {
             path.components()
@@ -266,11 +267,8 @@ impl<'src> Context<'src> {
                 .unwrap_or_default()
         }
 
-        let last_comp = if s == "./" {
-            s
-        } else {
-            last_path_component(&path)
-        };
+        let list_all = path.canonicalize().ok() == subpath.canonicalize().ok();
+        let last_comp = last_path_component(&path);
 
         if let Ok(dir) = subpath.read_dir() {
             let mut entries: Vec<PathBuf> = dir
@@ -279,23 +277,25 @@ impl<'src> Context<'src> {
                 .collect();
 
             entries.sort_unstable();
+            entries.reverse();
 
             for entry in entries {
-                let entry = last_path_component(&entry).to_string();
-
-                if !entry.starts_with(&last_comp) {
+                let entry = last_path_component(&entry);
+                if !entry.starts_with(last_comp) && !list_all {
                     continue;
                 }
 
                 let mut path = path.clone();
-                path.pop();
+                if !list_all {
+                    path.pop();
+                }
                 path.push(&entry);
 
                 let is_dir = path.is_dir();
                 let mut path = collapse_homedir(path);
 
                 // append '/' to suggestion to allow easier navigation through directories
-                if is_dir {
+                if is_dir && !path.ends_with("/") {
                     path.pop();
                     path.push(entry.to_string() + "/");
                 }
@@ -308,10 +308,17 @@ impl<'src> Context<'src> {
 
         // no suggestions but we can at least autocomplete a '/' for directories
         if self.suggestions.is_empty() {
-            if path == subpath && !s.ends_with("/") {
-                if let Some(path) = collapse_homedir(path).to_str() {
-                    self.suggestions.push(self.src[..start].to_string() + path + "/");
-                }
+            let is_dir = path.is_dir();
+            let mut path = collapse_homedir(path);
+
+            if is_dir && !path.ends_with("/") {
+                let last_comp = last_path_component(&path).to_string();
+                path.pop();
+                path.push(last_comp + "/");
+            }
+
+            if let Some(path) = path.to_str() {
+                self.suggestions.push(self.src[..start].to_string() + path);
             }
         }
     }
@@ -333,13 +340,15 @@ impl<'src> Context<'src> {
         };
 
         if let Some(relative_cursor) = self.cursor.checked_sub(offset) {
-            if let Some((suggestion, span)) = expr.autocomplete(self.index, relative_cursor) {
+            let (suggestions, span) = expr.autocomplete(self.index, relative_cursor);
+            let span = Range {
+                start: span.start + offset,
+                end: span.end + offset,
+            };
+
+            for suggestion in suggestions {
                 let mut src = self.src.to_string();
-                let span = Range {
-                    start: span.start + offset,
-                    end: span.end + offset,
-                };
-                src.replace_range(span, &suggestion);
+                src.replace_range(span.clone(), &suggestion);
                 self.suggestions.push(src);
             }
         }

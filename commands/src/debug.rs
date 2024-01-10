@@ -532,9 +532,9 @@ impl CompleteExpr {
         }
     }
 
-    pub fn autocomplete(&self, index: &Index, cursor: usize) -> Option<(String, Span)> {
-        let (prefix, span) = self.find_matching_symbol(&self.root, cursor)?;
-        index.prefix_match(prefix).map(|func| (func, span))
+    pub fn autocomplete(&self, index: &Index, cursor: usize) -> (Vec<String>, Span) {
+        let (prefix, span) = self.find_matching_symbol(&self.root, cursor).unwrap();
+        (index.prefix_match(prefix), span)
     }
 
     pub fn parse(s: &str) -> Result<Self, Error> {

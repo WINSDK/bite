@@ -33,6 +33,76 @@ const HISTORY_PATH: Lazy<PathBuf> = Lazy::new(|| {
     path
 });
 
+#[derive(Default)]
+struct Autocomplete {
+    cmd: usize,
+    cmd_suggestions: Vec<String>,
+    term: usize,
+    term_suggestions: Vec<String>,
+}
+
+impl Autocomplete {
+    fn update_term_suggestion(&mut self, command: usize, commands: &[String]) {
+        let cmd = &commands[command];
+        if cmd.is_empty() {
+            self.term_suggestions = Vec::new();
+            return;
+        }
+
+        // maybe do a fuzzy find instead here
+        self.term_suggestions = commands
+            .iter()
+            .enumerate()
+            .rev()
+            .filter_map(|(idx, scmd)| {
+                if idx == command {
+                    return None;
+                }
+
+                scmd.strip_prefix(cmd)
+            })
+            .map(str::to_string)
+            .collect();
+    }
+
+    fn update_cmd_suggestion(&mut self, line: &str, index: &Index, cursor: usize) {
+        if let Err((_, suggestions)) = commands::Command::parse(index, &line, cursor) {
+            self.cmd_suggestions = suggestions;
+        }
+    }
+
+    fn cmd_suggestion(&self) -> Option<&str> {
+        self.cmd_suggestions.get(self.cmd).map(|x| x.as_str())
+    }
+
+    fn term_suggestion(&self) -> Option<&str> {
+        self.term_suggestions.get(self.term).map(|x| x.as_str())
+    }
+
+    fn next_cmd(&mut self, command: usize, commands: &[String]) {
+        self.cmd += 1;
+        if self.cmd >= self.cmd_suggestions.len() {
+            self.cmd = 0;
+        }
+
+        self.update_term_suggestion(command, commands);
+    }
+
+    #[allow(dead_code)]
+    fn next_term(&mut self, line: &str, index: &Index, cursor: usize) {
+        self.term += 1;
+        if self.term >= self.term_suggestions.len() {
+            self.term = 0;
+        }
+
+        self.update_cmd_suggestion(line, index, cursor);
+    }
+
+    fn clear(&mut self) {
+        *self = Autocomplete::default();
+    }
+}
+
 pub struct Terminal {
     prompt: String,
     commands: Vec<String>,
@@ -40,7 +110,7 @@ pub struct Terminal {
     command_position: usize,
     cursor_position: usize, // byte offset
     reset_cursor: bool,
-    suggestion: String,
+    autocomplete: Autocomplete,
 }
 
 impl Terminal {
@@ -65,7 +135,7 @@ impl Terminal {
             commands_unprocessed: 0,
             cursor_position: 0,
             reset_cursor: true,
-            suggestion: String::new(),
+            autocomplete: Autocomplete::default(),
         }
     }
 
@@ -76,15 +146,12 @@ impl Terminal {
     fn clear_line(&mut self) {
         self.cursor_position = 0;
         self.commands[self.command_position].clear();
-        self.suggestion = String::new();
+        self.autocomplete.clear();
     }
 
     pub fn clear(&mut self) {
         self.prompt.clear();
         self.clear_line();
-        self.commands = vec![String::new()];
-        self.command_position = 0;
-        let _ = self.save_command_history();
     }
 
     /// Search through newer commands, finding one that isn't empty.
@@ -98,7 +165,7 @@ impl Terminal {
             }
         }
 
-        self.suggestion = String::new();
+        self.autocomplete.clear();
     }
 
     /// Search through older commands, finding one that isn't empty.
@@ -112,13 +179,13 @@ impl Terminal {
             }
         }
 
-        self.suggestion = String::new();
+        self.autocomplete.clear();
     }
 
-    fn autocomplete(&mut self) {
-        self.commands[self.command_position].push_str(&self.suggestion);
-        self.move_to_end();
-        self.suggestion = String::new();
+    fn update_autocomplete(&mut self, index: &Index) {
+        let line = &self.commands[self.command_position];
+        self.autocomplete.update_cmd_suggestion(line, index, self.cursor_position);
+        self.autocomplete.update_term_suggestion(self.command_position, &self.commands);
     }
 
     /// Byte position of a UTF-8 codepoint.
@@ -144,8 +211,10 @@ impl Terminal {
     }
 
     fn move_right(&mut self) {
-        if !self.suggestion.is_empty() {
-            self.autocomplete();
+        if let Some(suggestion) = self.autocomplete.term_suggestion() {
+            self.commands[self.command_position].push_str(suggestion);
+            self.move_to_end();
+            self.autocomplete.clear();
             return;
         }
 
@@ -204,58 +273,21 @@ impl Terminal {
         self.cursor_position = self.current_line().len();
     }
 
-    fn backspace(&mut self) {
+    fn backspace(&mut self, index: &Index) {
         if self.cursor_position == 0 {
             return;
         }
 
         self.move_left();
         self.commands[self.command_position].remove(self.cursor_position);
-        self.term_suggest();
+        self.update_autocomplete(index);
     }
 
-    fn append(&mut self, characters: &str) {
+    fn append(&mut self, characters: &str, index: &Index) {
         let characters = characters.escape_debug().to_string();
         self.commands[self.command_position].insert_str(self.cursor_position, &characters);
         self.cursor_position += characters.len();
-        self.term_suggest();
-    }
-
-    fn cmd_suggest(&mut self, index: &Index) {
-        let line = self.current_line().to_string();
-        let cursor = self.cursor_position;
-
-        if let Err((_, suggestions)) = commands::Command::parse(index, &line, cursor) {
-            if let Some(suggestion) = suggestions.into_iter().next() {
-                self.commands[self.command_position] = suggestion;
-                self.move_to_end();
-                self.term_suggest();
-            }
-        }
-    }
-
-    fn term_suggest(&mut self) {
-        let cmd = &self.commands[self.command_position];
-
-        if cmd.is_empty() {
-            self.suggestion = String::new();
-            return;
-        }
-
-        self.suggestion = self
-            .commands
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(idx, scmd)| {
-                if idx == self.command_position {
-                    return None;
-                }
-
-                scmd.strip_prefix(cmd)
-            })
-            .unwrap_or_default()
-            .to_string();
+        self.update_autocomplete(index);
     }
 
     /// Commence a command to be run.
@@ -271,7 +303,6 @@ impl Terminal {
         self.commands_unprocessed += 1;
         self.cursor_position = 0;
         self.command_position = self.commands.len() - 1;
-        self.suggestion = String::new();
     }
 
     /// Consumes terminal commands recorded since last frame.
@@ -315,7 +346,7 @@ impl Terminal {
             match event {
                 egui::Event::Text(received) => {
                     if !prev_consumed {
-                        self.append(received);
+                        self.append(received, index);
                     }
                 }
                 egui::Event::Key {
@@ -323,13 +354,25 @@ impl Terminal {
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => self.cmd_suggest(index),
+                } => {
+                    // continue autocompleting if we found an exact match
+                    if self.autocomplete.cmd_suggestions.len() == 1 {
+                        self.update_autocomplete(index);
+                    }
+
+                    if let Some(suggestion) = self.autocomplete.cmd_suggestion() {
+                        self.commands[self.command_position] = suggestion.to_string();
+                        self.move_to_end();
+                    }
+
+                    self.autocomplete.next_cmd(self.command_position, &self.commands);
+                }
                 egui::Event::Key {
                     key: egui::Key::Backspace,
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                     ..
-                } => self.backspace(),
+                } => self.backspace(index),
                 egui::Event::Key {
                     key: egui::Key::Enter,
                     pressed: true,
@@ -482,7 +525,10 @@ impl Terminal {
             append(&self.prompt, color);
             append(title, color);
             append(input, color);
-            append(&self.suggestion, colors::GRAY60);
+
+            if let Some(suggestion) = self.autocomplete.term_suggestion() {
+                append(suggestion, colors::GRAY60);
+            }
 
             let mut text_area = TextSelection::precomputed(&output);
 

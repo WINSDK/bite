@@ -514,15 +514,17 @@ impl Index {
             .map(|(addr, func)| (*addr, func.clone()))
     }
 
-    pub fn prefix_match(&self, prefix: &str) -> Option<String> {
+    pub fn prefix_match(&self, prefix: &str) -> Vec<String> {
         let arc_prefix = ArcStr {
             inner: Arc::from(prefix),
         };
 
-        self.trie.get_raw_descendant(&arc_prefix).and_then(|desc| {
-            let desc: Vec<&ArcStr> = desc.keys().collect();
-            find_shortest_match(&desc, prefix)
-        })
+        let desc = match self.trie.get_raw_descendant(&arc_prefix) {
+            Some(desc) => desc.keys().collect(),
+            None => Vec::new()
+        };
+
+        sort_by_shortest_match(&desc, prefix)
     }
 
     pub fn insert(&mut self, addr: usize, function: Function) {
@@ -530,40 +532,23 @@ impl Index {
     }
 }
 
-fn find_shortest_match(space: &[&ArcStr], prefix: &str) -> Option<String> {
-    let mut shortest_match: Option<&str> = None;
+/// Sort the first 100 strings by length if they have a matching prefix.
+fn sort_by_shortest_match(input: &[&ArcStr], prefix: &str) -> Vec<String> {
+    let mut matches: Vec<String> = Vec::new();
 
-    for possible in space {
+    for possible in input {
+        if matches.len() == 100 {
+            break;
+        }
+
         if possible.starts_with(prefix) {
-            let mut extended_prefix = prefix;
-
-            // find the extended prefix for the current string
-            for (idx, _) in possible.char_indices().skip(prefix.chars().count()) {
-                extended_prefix = &possible[..=idx];
-                let all_match = space
-                    .iter()
-                    .filter(|s| s.starts_with(prefix))
-                    .all(|s| s.starts_with(&extended_prefix));
-
-                if !all_match {
-                    // if all strings don't match, break and use the previous extended prefix
-                    extended_prefix = &possible[..idx];
-                    break;
-                }
-            }
-
-            // update shortest_match if it's None or found a shorter match
-            match &shortest_match {
-                None => shortest_match = Some(extended_prefix),
-                Some(shortest) if extended_prefix.len() < shortest.len() => {
-                    shortest_match = Some(extended_prefix)
-                }
-                _ => {}
-            }
+            matches.push(possible.to_string());
         }
     }
 
-    shortest_match.map(str::to_string)
+    // sort the matches by length
+    matches.sort_by(|a, b| a.len().cmp(&b.len()));
+    matches
 }
 
 fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(usize, &'sym str)> {
