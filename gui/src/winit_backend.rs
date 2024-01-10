@@ -379,7 +379,7 @@ fn find_cjk_font() -> Option<String> {
 fn find_cjk_font() -> Option<String> {
     let font_file = {
         // C:/Windows/Fonts/msyh.ttc
-        let mut font_path = PathBuf::from(std::env::var("SystemRoot").ok()?);
+        let mut font_path = std::path::PathBuf::from(std::env::var("SystemRoot").ok()?);
         font_path.push("Fonts");
         font_path.push("msyh.ttc");
         font_path.to_str()?.to_string().replace("\\", "/")

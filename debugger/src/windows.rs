@@ -1,4 +1,4 @@
-use crate::{Context, Debuggable, PhysAddr, Tracing, VirtAddr};
+use crate::{Context, Debuggable, PhysAddr, Tracing, VirtAddr, DebuggerSettings, DebuggerDescriptor};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -9,23 +9,24 @@ pub enum Error {
     ProcessLost(Pid),
 }
 
-pub struct DebuggerDescriptor {}
-
 pub struct Debugger {
     /// Prevent [`Debugger`] implementing Send.
     _not_send: PhantomData<*mut ()>,
 }
 
 impl Debuggable for Debugger {
-    fn spawn<P: AsRef<std::path::Path>, A: Into<Vec<u8>>>(
-        _: P,
-        _: Vec<A>,
-        _: DebuggerDescriptor,
+    fn spawn<S: Into<Vec<u8>>>(
+        _: DebuggerSettings<S>,
+        _: DebuggerDescriptor<S>,
     ) -> Result<Self, Error> {
         todo!("spawn");
     }
 
-    fn attach(_: Pid, _: DebuggerDescriptor) -> Result<Self, Error> {
+    fn attach<S: Into<Vec<u8>>>(
+        _: Pid,
+        _: DebuggerSettings<S>,
+        _: DebuggerDescriptor<S>,
+    ) -> Result<Self, Error> {
         todo!("attach");
     }
 
@@ -34,7 +35,10 @@ impl Debuggable for Debugger {
     }
 }
 
-impl Tracing for Debugger {
+pub struct Process {
+}
+
+impl Tracing for Process {
     fn attach(&mut self) {
         todo!("detach");
     }
@@ -60,7 +64,11 @@ impl Tracing for Debugger {
     }
 
     fn write_memory(&mut self, _: VirtAddr, _: &[u8]) -> Result<(), Error> {
-        todo!("process_memory");
+        todo!("write_memory");
+    }
+
+    fn write_protected_memory(&mut self, _: VirtAddr, _: &[u8]) -> Result<(), Error> {
+        todo!("write_protected_memory");
     }
 
     fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr {

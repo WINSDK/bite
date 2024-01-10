@@ -207,10 +207,6 @@ impl<Arch: Target> UI<Arch> {
         };
 
         std::thread::spawn(move || {
-            #[cfg(any(target_os = "windows", target_os = "macos"))]
-            let desc = DebuggerDescriptor {};
-
-            #[cfg(target_os = "linux")]
             let desc = DebuggerDescriptor { args, module };
 
             let session = match Debugger::spawn(settings, desc) {
@@ -296,7 +292,10 @@ impl<Arch: Target> UI<Arch> {
                             log::warning!("{err:?}");
                         }
                     }
-                    WindowEvent::Resized(size) => self.instance.resize(size.width, size.height),
+                    WindowEvent::Resized(size) => {
+                        self.instance.resize(size.width, size.height);
+                        self.window.request_redraw();
+                    }
                     WindowEvent::DroppedFile(path) => self.offload_binary_processing(path),
                     WindowEvent::CloseRequested => target.exit(),
                     _ => {}

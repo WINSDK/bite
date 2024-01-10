@@ -12,7 +12,7 @@ use procfs::process::MemoryMap;
 
 use crate::{
     collections::Tree, BreakpointOp, Context, DebugeeEvent, Debuggable, DebuggerEvent, ExitCode,
-    PhysAddr, Tracing, VirtAddr,
+    PhysAddr, Tracing, VirtAddr, DebuggerSettings, DebuggerDescriptor
 };
 use disassembler::Processor;
 
@@ -217,29 +217,6 @@ impl Tracing for Process {
         // failed to translate the address
         addr
     }
-}
-
-/// Optional settings related to creating a [`Debugger`].
-#[derive(Clone)]
-pub struct DebuggerSettings<S: Into<Vec<u8>>> {
-    /// Environmental variables set for the target.
-    pub env: Vec<S>,
-
-    /// Whether or not to trace syscalls.
-    pub tracing: bool,
-
-    /// Whether or not syscall tracing should apply to children.
-    pub follow_children: bool,
-}
-
-/// Required options related to creating a [`Debugger`].
-#[derive(Clone)]
-pub struct DebuggerDescriptor<S: Into<Vec<u8>>> {
-    /// Process arguments.
-    pub args: Vec<S>,
-
-    /// Processes that have been disassembled.
-    pub module: Arc<Processor>,
 }
 
 pub struct Debugger {

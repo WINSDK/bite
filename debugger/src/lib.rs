@@ -1,5 +1,5 @@
 use crossbeam_queue::SegQueue;
-use disassembler::{PhysAddr, VirtAddr};
+use disassembler::{PhysAddr, VirtAddr, Processor};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -25,6 +25,29 @@ pub use macos::*;
 pub use windows::*;
 
 pub type ExitCode = i32;
+
+/// Optional settings related to creating a [`Debugger`].
+#[derive(Clone)]
+pub struct DebuggerSettings<S: Into<Vec<u8>>> {
+    /// Environmental variables set for the target.
+    pub env: Vec<S>,
+
+    /// Whether or not to trace syscalls.
+    pub tracing: bool,
+
+    /// Whether or not syscall tracing should apply to children.
+    pub follow_children: bool,
+}
+
+/// Required options related to creating a [`Debugger`].
+#[derive(Clone)]
+pub struct DebuggerDescriptor<S: Into<Vec<u8>>> {
+    /// Process arguments.
+    pub args: Vec<S>,
+
+    /// Processes that have been disassembled.
+    pub module: Arc<Processor>,
+}
 
 /// Behaviour related to creating starting a debug session.
 pub trait Debuggable
