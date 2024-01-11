@@ -23,7 +23,7 @@ use symbols::Index;
 
 const MAX_DEPTH: usize = 256;
 
-type Span = std::ops::Range<usize>;
+type Span = std::ops::RangeInclusive<usize>;
 
 /// Trait for indicating that any error has to be propagated up.
 trait Failing: Sized {
@@ -327,7 +327,7 @@ impl<'src> Context<'src> {
             let end = self.offset;
             return Ok(Expr::Symbol {
                 val: sym.to_string(),
-                span: Span { start, end },
+                span: start..=end,
             });
         }
 
@@ -516,7 +516,7 @@ impl CompleteExpr {
         cursor: usize,
     ) -> Option<(&'src str, Span)> {
         match node {
-            Expr::Symbol { val, span } => (span.end == cursor).then_some((val, span.clone())),
+            Expr::Symbol { val, span } => span.contains(&cursor).then_some((val, span.clone())),
             Expr::Compound { lhs, rhs, .. } => {
                 if let Some(matching) = self.find_matching_symbol(self.load(*lhs), cursor) {
                     return Some(matching);
@@ -607,10 +607,7 @@ mod tests {
     fn name_span_pair(name: &str) -> Expr {
         Expr::Symbol {
             val: name.to_string(),
-            span: Span {
-                start: 0,
-                end: name.len(),
-            },
+            span: 0..=name.len(),
         }
     }
 

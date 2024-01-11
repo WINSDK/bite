@@ -269,8 +269,18 @@ impl Index {
         // only keep one symbol per address
         self.tree.dedup_by_key(|(addr, _)| *addr);
 
-        // only keep symbols with a non-empty name
-        self.tree.retain(|(_, func)| !func.as_str().is_empty());
+        // only keep valid symbols
+        self.tree.retain(|(addr, func)| {
+            if *addr == 0 {
+                return false;
+            }
+
+            if func.as_str().is_empty() {
+                return false;
+            }
+
+            true
+        });
 
         // insert entrypoint
         self.insert(entrypoint, entry_func);

@@ -1,5 +1,4 @@
 use std::fmt;
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use crate::debug::CompleteExpr;
@@ -339,18 +338,14 @@ impl<'src> Context<'src> {
             Err(err) => err,
         };
 
-        if let Some(relative_cursor) = self.cursor.checked_sub(offset) {
-            let (suggestions, span) = expr.autocomplete(self.index, relative_cursor);
-            let span = Range {
-                start: span.start + offset,
-                end: span.end + offset,
-            };
+        let relative_cursor = self.cursor - offset;
+        let (suggestions, span) = expr.autocomplete(self.index, relative_cursor);
+        let span = span.start() + offset..span.end() + offset;
 
-            for suggestion in suggestions {
-                let mut src = self.src.to_string();
-                src.replace_range(span.clone(), &suggestion);
-                self.suggestions.push(src);
-            }
+        for suggestion in suggestions {
+            let mut src = self.src.to_string();
+            src.replace_range(span.clone(), &suggestion);
+            self.suggestions.push(src);
         }
 
         Err(Error::Debugger(err))
