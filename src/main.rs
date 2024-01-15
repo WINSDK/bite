@@ -43,8 +43,8 @@ fn main() {
     if ARGS.libs {
         let mut index = symbols::Index::default();
 
-        if let Err(err) = index.parse_imports(&binary, &obj) {
-            eprintln!("Failed to parse import table ({err:?})");
+        if let Err(err) = index.parse_imports(&obj) {
+            eprintln!("{err}");
             std::process::exit(0);
         }
 
@@ -53,6 +53,7 @@ fn main() {
             std::process::exit(0);
         }
 
+        index.complete();
         println!("{path}:");
 
         for function in index.symbols() {
@@ -70,10 +71,16 @@ fn main() {
         let mut index = symbols::Index::default();
 
         if let Err(err) = index.parse_symbols(&obj) {
-            eprintln!("Failed to parse symbol table ({err:?})");
+            eprintln!("{err}");
             std::process::exit(1);
         }
 
+        if let Err(err) = index.parse_pdb(&obj) {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+
+        index.complete();
         if index.is_empty() {
             eprintln!("Object \"{path}\" doesn't seem to export any symbols.");
             std::process::exit(0);

@@ -7,13 +7,10 @@ use std::sync::{Arc, RwLock};
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
 use object::endian::Endian;
 use object::read::elf::{ElfFile, FileHeader};
-use object::read::macho::MachHeader;
+use object::read::macho::{MachHeader, MachOFile};
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
-use object::BigEndian as BE;
 use object::LittleEndian as LE;
-use object::{
-    BinaryFormat, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind,
-};
+use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind};
 
 use crossbeam_queue::SegQueue;
 use helper::{parallel_compute, ArcStr};
@@ -151,7 +148,7 @@ pub struct FileAttr {
 pub struct Index {
     /// Mapping from addresses starting at the header base to functions.
     /// The addresses are sorted.
-    symbols: Vec<(PhysAddr, Arc<Function>)>,
+    functions: Vec<(PhysAddr, Arc<Function>)>,
 
     /// Mapping from addresses starting at the header base to source files.
     file_attrs: Vec<(PhysAddr, FileAttr)>,
@@ -233,14 +230,38 @@ fn read_comp_unit(
     Ok(())
 }
 
+fn demangle_names(names: Vec<(PhysAddr, &str)>) -> Vec<(PhysAddr, Arc<Function>)> {
+    let mut functions = Vec::new();
+
+    log::PROGRESS.set("Demangling symbols", names.len());
+
+    // insert defined symbols
+    parallel_compute(names, &mut functions, |(addr, symbol)| {
+        let func = Function::new(parser(symbol), None);
+        log::PROGRESS.step();
+        (*addr, Arc::new(func))
+    });
+
+    // only keep one symbol per address
+    functions.dedup_by_key(|(addr, _)| *addr);
+
+    // only keep valid symbols
+    functions.retain(|(addr, func)| {
+        if *addr == 0 {
+            return false;
+        }
+
+        if func.as_str().is_empty() {
+            return false;
+        }
+
+        true
+    });
+
+    functions
+}
+
 impl Index {
-    fn pdb_file(obj: &object::File<'_>) -> Option<std::fs::File> {
-        let pdb = obj.pdb_info().ok()??;
-        let path = std::str::from_utf8(pdb.path()).ok()?;
-
-        std::fs::File::open(path).ok()
-    }
-
     pub fn parse_dwarf(
         &mut self,
         obj: &object::File<'_>,
@@ -313,9 +334,14 @@ impl Index {
         Ok(())
     }
 
-    pub fn parse_symbols(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
-        let mut symbols: Vec<(usize, &str)> = obj.symbols().filter_map(symbol_addr_name).collect();
+    fn pdb_file(obj: &object::File<'_>) -> Option<std::fs::File> {
+        let pdb = obj.pdb_info().ok()??;
+        let path = std::str::from_utf8(pdb.path()).ok()?;
+        std::fs::File::open(path).ok()
+    }
 
+    pub fn parse_pdb(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
+        let mut names = Vec::new();
         let base_addr = obj.relative_address_base() as usize;
         let pdb_table;
 
@@ -341,116 +367,71 @@ impl Index {
 
                 if let Some(addr) = symbol.offset.to_rva(&address_map) {
                     if let Ok(name) = std::str::from_utf8(symbol.name.as_bytes()) {
-                        symbols.push((base_addr + addr.0 as usize, name));
+                        names.push((base_addr + addr.0 as usize, name));
                     }
                 }
             }
         }
+
+        // insert defined symbols
+        self.functions.extend(demangle_names(names));
+
+        Ok(())
+    }
+
+    pub fn parse_symbols(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
+        let names = obj.symbols().filter_map(symbol_addr_name).collect();
+
+        // insert defined symbols
+        self.functions.extend(demangle_names(names));
 
         // insert entrypoint into known symbols
         let entrypoint = obj.entry() as usize;
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
-        log::PROGRESS.set("Demangling symbols", symbols.len());
-
-        // insert defined symbols
-        parallel_compute(symbols, &mut self.symbols, |(addr, symbol)| {
-            let func = Function::new(parser(symbol), None);
-            log::PROGRESS.step();
-            (*addr, Arc::new(func))
-        });
-
-        // count the number of function's that aren't compiler intrinsics
-        self.named_len = self.symbols.iter().filter(|(_, func)| !func.intrinsic()).count();
-
-        // only keep one symbol per address
-        self.symbols.dedup_by_key(|(addr, _)| *addr);
-
-        // only keep valid symbols
-        self.symbols.retain(|(addr, func)| {
-            if *addr == 0 {
-                return false;
-            }
-
-            if func.as_str().is_empty() {
-                return false;
-            }
-
-            true
-        });
-
         // insert entrypoint
         self.insert(entrypoint, entry_func);
 
-        // keep tree sorted so it can be binary searched
-        self.symbols.sort_unstable_by_key(|(addr, _)| *addr);
+        Ok(())
+    }
 
-        log::PROGRESS.set("Building prefix tree", self.symbols.len());
+    pub fn complete(&mut self) {
+        // count the number of function's that aren't compiler intrinsics
+        self.named_len = self.functions.iter().filter(|(_, func)| !func.intrinsic()).count();
+
+        // keep tree sorted so it can be binary searched
+        self.functions.sort_unstable_by_key(|(addr, _)| *addr);
+
+        log::PROGRESS.set("Building prefix tree", self.functions.len());
 
         // radix-prefix tree for fast lookups
-        for (_, func) in self.symbols.iter() {
+        for (_, func) in self.functions.iter() {
             self.trie.insert(func.name_as_str.clone(), func.clone());
             log::PROGRESS.step();
         }
 
         log::complex!(
-            w "[index::parse_debug] found ",
-            g self.symbols.len().to_string(),
+            w "[index::complete] found ",
+            g self.functions.len().to_string(),
             w " symbols."
         );
-
-        Ok(())
     }
 
-    pub fn parse_imports(&mut self, binary: &[u8], obj: &object::File<'_>) -> Result<(), Error> {
-        match obj.format() {
-            BinaryFormat::Pe => {
-                if obj.is_64() {
-                    self.parse_pe_imports::<object::pe::ImageNtHeaders64>(binary)?
-                } else {
-                    self.parse_pe_imports::<object::pe::ImageNtHeaders32>(binary)?
-                }
-            }
-            BinaryFormat::Elf => {
-                if obj.is_64() {
-                    if obj.is_little_endian() {
-                        self.parse_elf_imports::<object::elf::FileHeader64<LE>>(binary)?
-                    } else {
-                        self.parse_elf_imports::<object::elf::FileHeader64<BE>>(binary)?
-                    }
-                } else {
-                    if obj.is_little_endian() {
-                        self.parse_elf_imports::<object::elf::FileHeader32<LE>>(binary)?
-                    } else {
-                        self.parse_elf_imports::<object::elf::FileHeader32<BE>>(binary)?
-                    }
-                }
-            }
-            BinaryFormat::MachO => {
-                if obj.is_64() {
-                    if obj.is_little_endian() {
-                        self.parse_macho_imports::<object::macho::MachHeader64<LE>>(binary)?
-                    } else {
-                        self.parse_macho_imports::<object::macho::MachHeader64<BE>>(binary)?
-                    }
-                } else {
-                    if obj.is_little_endian() {
-                        self.parse_macho_imports::<object::macho::MachHeader32<LE>>(binary)?
-                    } else {
-                        self.parse_macho_imports::<object::macho::MachHeader32<BE>>(binary)?
-                    }
-                }
-            }
+    pub fn parse_imports(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
+        match obj {
+            object::File::Pe32(obj) => self.parse_pe_imports(obj)?,
+            object::File::Pe64(obj) => self.parse_pe_imports(obj)?,
+            object::File::Elf32(obj) => self.parse_elf_imports(obj)?,
+            object::File::Elf64(obj) => self.parse_elf_imports(obj)?,
+            object::File::MachO32(obj) => self.parse_macho_imports(obj)?,
+            object::File::MachO64(obj) => self.parse_macho_imports(obj)?,
             _ => {}
-        };
+        }
 
-        self.symbols.sort_unstable_by_key(|k| k.0);
         Ok(())
     }
 
-    fn parse_pe_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> Result<(), Error> {
-        let obj = PeFile::<H>::parse(binary)?;
-
+    fn parse_pe_imports<H: ImageNtHeaders>(&mut self, obj: &PeFile<H>) -> Result<(), Error> {
         if let Some(import_table) = obj.import_table()? {
             let mut import_descs = import_table.descriptors()?;
             while let Some(import_desc) = import_descs.next()? {
@@ -511,9 +492,7 @@ impl Index {
         Ok(())
     }
 
-    fn parse_elf_imports<H: FileHeader>(&mut self, binary: &[u8]) -> Result<(), Error> {
-        let obj = ElfFile::<H>::parse(binary)?;
-
+    fn parse_elf_imports<H: FileHeader>(&mut self, obj: &ElfFile<H>) -> Result<(), Error> {
         let relocations = match obj.dynamic_relocations() {
             Some(relocations) => relocations,
             None => return Ok(()),
@@ -577,20 +556,20 @@ impl Index {
         Ok(())
     }
 
-    fn parse_macho_imports<H: MachHeader>(&mut self, _binary: &[u8]) -> Result<(), Error> {
+    fn parse_macho_imports<H: MachHeader>(&mut self, _obj: &MachOFile<H>) -> Result<(), Error> {
         Ok(())
     }
 
     pub fn symbols(&self) -> impl Iterator<Item = &Arc<Function>> {
-        self.symbols.iter().map(|x| &x.1)
+        self.functions.iter().map(|x| &x.1)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.symbols.is_empty()
+        self.functions.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.symbols.len()
+        self.functions.len()
     }
 
     pub fn named_len(&self) -> usize {
@@ -598,7 +577,7 @@ impl Index {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &(usize, Arc<Function>)> {
-        self.symbols.iter()
+        self.functions.iter()
     }
 
     pub fn get_file(&self, addr: usize) -> Option<&FileAttr> {
@@ -611,16 +590,16 @@ impl Index {
     }
 
     pub fn get_by_addr(&self, addr: PhysAddr) -> Option<Arc<Function>> {
-        let search = self.symbols.binary_search_by(|x| x.0.cmp(&addr));
+        let search = self.functions.binary_search_by(|x| x.0.cmp(&addr));
 
         match search {
-            Ok(idx) => Some(self.symbols[idx].1.clone()),
+            Ok(idx) => Some(self.functions[idx].1.clone()),
             Err(..) => None,
         }
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<(usize, Arc<Function>)> {
-        self.symbols
+        self.functions
             .iter()
             .find(|(_, func)| func.as_str() == name)
             .map(|(addr, func)| (*addr, func.clone()))
@@ -637,7 +616,7 @@ impl Index {
     }
 
     pub fn insert(&mut self, addr: PhysAddr, function: Function) {
-        self.symbols.push((addr, Arc::new(function)));
+        self.functions.push((addr, Arc::new(function)));
     }
 }
 

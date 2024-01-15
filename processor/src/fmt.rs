@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Display};
 
 impl fmt::Debug for super::Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

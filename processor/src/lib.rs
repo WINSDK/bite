@@ -296,8 +296,10 @@ impl Processor {
         let mut index = symbols::Index::default();
 
         index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?;
+        index.parse_pdb(&obj).map_err(Error::Symbol)?;
         index.parse_symbols(&obj).map_err(Error::Symbol)?;
-        index.parse_imports(&binary[..], &obj).map_err(Error::Symbol)?;
+        index.parse_imports(&obj).map_err(Error::Symbol)?;
+        index.complete();
 
         let mut instructions = Vec::new();
         let mut errors = Vec::new();

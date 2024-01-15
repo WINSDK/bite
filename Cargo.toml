@@ -43,8 +43,10 @@ members = [
     "decoder-riscv",
     "decoder-mips",
     "symbols",
-    "debugger"
-, "processor", "processor_types"]
+    "debugger",
+    "processor",
+    "processor_types"
+]
 
 [workspace.dependencies]
 egui = { version = "0.24", features = ["bytemuck"], default-features = false }
