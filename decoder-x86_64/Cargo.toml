@@ -7,6 +7,3 @@ edition = "2021"
 decoder = { path = "../decoder" }
 tokenizing = { path = "../tokenizing" }
 symbols = { path = "../symbols" }
-
-[dev-dependencies]
-rand = "0.8.4"

@@ -21,4 +21,6 @@ log = { path = "../log" }
 commands = { path = "../commands" }
 tokenizing = { path = "../tokenizing" }
 debugger = { path = "../debugger" }
-disassembler = { path = "../disassembler" }
+symbols = { path = "../symbols" }
+processor = { path = "../processor" }
+processor_types = { path = "../processor_types" }

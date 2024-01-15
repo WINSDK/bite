@@ -11,6 +11,7 @@ Available commands:
     quit               -- Exit the program
     run [--] [<args>]  -- Execute the program with specified arguments
     goto <expr>        -- Jump to code/data at the specified expression
+    goto-source <expr> -- Open source code at the specified expression
     break <expr>       -- Set a breakpoint at the specified expression
     breakdelete <expr> -- Remove a breakpoint at the specified expression
     setenv <var>=<val> -- Set an environment variable
@@ -29,6 +30,7 @@ pub enum Command {
     Quit,
     Run(Vec<String>),
     Goto(usize),
+    GotoSource(usize),
     Break(usize),
     BreakDelete(usize),
     SetEnv(String),
@@ -254,7 +256,9 @@ impl<'src> Context<'src> {
 
         if !subpath.exists() {
             match subpath.parent() {
-                Some(parent) if parent.exists() => { subpath.pop(); },
+                Some(parent) if parent.exists() => {
+                    subpath.pop();
+                }
                 _ => subpath = PathBuf::from("."),
             }
         }
@@ -270,10 +274,8 @@ impl<'src> Context<'src> {
         let last_comp = last_path_component(&path);
 
         if let Ok(dir) = subpath.read_dir() {
-            let mut entries: Vec<PathBuf> = dir
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.path())
-                .collect();
+            let mut entries: Vec<PathBuf> =
+                dir.filter_map(|entry| entry.ok()).map(|entry| entry.path()).collect();
 
             entries.sort_unstable();
             entries.reverse();
@@ -338,14 +340,19 @@ impl<'src> Context<'src> {
             Err(err) => err,
         };
 
-        let relative_cursor = self.cursor - offset;
-        let (suggestions, span) = expr.autocomplete(self.index, relative_cursor);
-        let span = span.start() + offset..span.end() + offset;
+        let relative_cursor = match self.cursor.checked_sub(offset) {
+            Some(relative) => relative,
+            None => return Err(Error::Debugger(err))
+        };
 
-        for suggestion in suggestions {
-            let mut src = self.src.to_string();
-            src.replace_range(span.clone(), &suggestion);
-            self.suggestions.push(src);
+        if let Some((suggestions, span)) = expr.autocomplete(self.index, relative_cursor) {
+            let span = span.start() + offset..span.end() + offset;
+
+            for suggestion in suggestions {
+                let mut src = self.src.to_string();
+                src.replace_range(span.clone(), &suggestion);
+                self.suggestions.push(src);
+            }
         }
 
         Err(Error::Debugger(err))
@@ -367,6 +374,7 @@ impl<'src> Context<'src> {
                 Command::Run(args)
             }
             "set" => Command::SetEnv(self.parse_env()?),
+            "goto-src" | "gs" => Command::GotoSource(self.parse_debug_expr()?),
             "goto" | "g" => Command::Goto(self.parse_debug_expr()?),
             "break" | "b" => Command::Break(self.parse_debug_expr()?),
             "delete" | "bd" => Command::BreakDelete(self.parse_debug_expr()?),
@@ -401,7 +409,7 @@ mod tests {
 
     macro_rules! eval_eq {
         ($expr:expr, $expected:expr) => {{
-            let index = symbols::Index::new();
+            let index = symbols::Index::default();
 
             match Command::parse(&index, $expr, 0) {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
@@ -411,7 +419,7 @@ mod tests {
 
         ([$($function:expr; $addr:expr),*], $expr:expr, $expected:expr) => {{
             #[allow(unused_mut)]
-            let mut index = symbols::Index::new();
+            let mut index = symbols::Index::default();
 
             $(
                 let f = Function::new(TokenStream::simple($function), None);

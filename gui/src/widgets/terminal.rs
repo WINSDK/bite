@@ -1,7 +1,8 @@
 use crate::common::*;
 use crate::style::EGUI;
 use crate::widgets::TextSelection;
-use disassembler::Index;
+
+use symbols::Index;
 use tokenizing::colors;
 
 use egui::text::LayoutJob;
@@ -137,6 +138,11 @@ impl Terminal {
             reset_cursor: true,
             autocomplete: Autocomplete::default(),
         }
+    }
+
+    /// Call before drawing to figure out whether the terminal requires focus.
+    pub fn should_reset_cursor(&self) -> bool {
+        self.reset_cursor
     }
 
     fn current_line(&self) -> &str {
@@ -497,14 +503,14 @@ impl Terminal {
         events_processed
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let area = egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .drag_to_scroll(false)
             .stick_to_bottom(true)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
-        area.show(ui, |ui| {
+        let response = area.show(ui, |ui| {
             let title = "(bite) ";
             let input = self.current_line();
             let color = EGUI.noninteractive().fg_stroke.color;
@@ -538,8 +544,10 @@ impl Terminal {
                 self.reset_cursor = false;
             }
 
-            ui.add_sized(ui.available_size(), text_area);
+            ui.add_sized(ui.available_size(), text_area)
         });
+
+        response.inner
     }
 }
 

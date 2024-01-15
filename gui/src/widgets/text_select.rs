@@ -164,8 +164,6 @@ impl egui::Widget for TextSelection<'_> {
                 let ccursor = CCursor::new(position);
                 state.set_ccursor_range(Some(CCursorRange::one(ccursor)));
                 state.store(ui.ctx(), text_edit_id);
-                // give focus back to the `TextEdit`.
-                ui.ctx().memory_mut(|m| m.request_focus(text_edit_id));
             }
         }
 

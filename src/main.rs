@@ -41,7 +41,7 @@ fn main() {
     let path = ARGS.path.as_ref().unwrap().display();
 
     if ARGS.libs {
-        let mut index = symbols::Index::new();
+        let mut index = symbols::Index::default();
 
         if let Err(err) = index.parse_imports(&binary, &obj) {
             eprintln!("Failed to parse import table ({err:?})");
@@ -67,9 +67,9 @@ fn main() {
     }
 
     if ARGS.names {
-        let mut index = symbols::Index::new();
+        let mut index = symbols::Index::default();
 
-        if let Err(err) = index.parse_debug(&obj) {
+        if let Err(err) = index.parse_symbols(&obj) {
             eprintln!("Failed to parse symbol table ({err:?})");
             std::process::exit(1);
         }

@@ -1,7 +1,10 @@
-use crate::{Error, PhysAddr, Section, Segment, VirtAddr};
+mod fmt;
+mod fs;
+
 use decoder::{Decodable, Decoded};
 use object::{Object, ObjectSegment};
-use tokenizing::{colors, Token};
+use processor_types::{PhysAddr, Section, Segment, VirtAddr};
+use tokenizing::Token;
 
 use object::{Architecture, BinaryFormat, ObjectSection, SectionKind};
 use x86_64::long_mode as x64;
@@ -9,6 +12,15 @@ use x86_64::protected_mode as x86;
 
 use std::borrow::Cow;
 use std::mem::ManuallyDrop;
+
+pub enum Error {
+    IO(std::io::Error),
+    Object(object::Error),
+    Symbol(symbols::Error),
+    NotAnExecutable,
+    DecompressionFailed(object::Error),
+    UnknownArchitecture(object::Architecture),
+}
 
 pub union Instruction {
     x86: ManuallyDrop<x86_64::protected_mode::Instruction>,
@@ -76,8 +88,14 @@ macro_rules! impl_recursion {
 
 /// Architecture agnostic analysis of a module.
 pub struct Processor {
+    /// Where execution start. Might be zero in case of libraries.
+    pub entrypoint: PhysAddr,
+
     /// Where the binary is located.
     pub path: std::path::PathBuf,
+
+    /// Symbol lookup by physical address.
+    pub index: symbols::Index,
 
     /// Object's sections sorted by address.
     sections: Vec<Section>,
@@ -93,9 +111,6 @@ pub struct Processor {
     /// Sorted by address.
     instructions: Vec<(PhysAddr, Instruction)>,
 
-    /// Symbol lookup by physical address.
-    symbols: symbols::Index,
-
     /// How many bytes an instruction given the architecture.
     max_instruction_width: usize,
 
@@ -110,18 +125,20 @@ pub struct Processor {
 }
 
 impl Processor {
-    /// Parse module that doesn't have an associated [`object::File`] yet.
-    pub fn parse_unknown<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
-        let binary = std::fs::read(&path).map_err(Error::IO)?;
-        let obj = object::File::parse(&binary[..]).map_err(Error::IncompleteObject)?;
-        Self::parse(path, &binary[..], &obj)
-    }
+    pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
+        let binary = fs::read(&path).map_err(Error::IO)?;
+        let obj = object::File::parse(&binary[..]).map_err(Error::Object)?;
+        let entrypoint = obj.entry() as usize;
 
-    pub fn parse<P: AsRef<std::path::Path>>(
-        path: P,
-        binary: &[u8],
-        obj: &object::File<'_>,
-    ) -> Result<Self, Error> {
+        if entrypoint != 0 {
+            log::complex!(
+                w "[disassembly::parse] entrypoint ",
+                g format!("{entrypoint:#X}"),
+                w ".",
+            );
+        }
+
+        let path = path.as_ref().to_path_buf();
         let now = std::time::Instant::now();
 
         let mut sections = Vec::new();
@@ -149,15 +166,21 @@ impl Processor {
         }
 
         for section in obj.sections() {
-            // there appear to be sections that aren't meant to be conventionally loaded
-            // they appear to be sections meant for the debugger to load
-            if section.address() == 0 {
-                continue;
-            }
-
             let name = match section.name() {
                 Ok(name) => Cow::Owned(name.to_string()),
                 _ => Cow::Borrowed("unnamed"),
+            };
+
+            let bytes = match section.uncompressed_data() {
+                Ok(uncompressed) => uncompressed,
+                Err(..) => {
+                    log::complex!(
+                        w "[processor::new] ",
+                        y format!("failed to decompress section {name}.")
+                    );
+
+                    continue;
+                }
             };
 
             const DWARF_SECTIONS: [&str; 22] = [
@@ -185,27 +208,14 @@ impl Processor {
                 ".debug_types",
             ];
 
-            if DWARF_SECTIONS.contains(&&*name) {
-                continue;
-            }
-
-            let bytes = match section.uncompressed_data() {
-                Ok(uncompressed) => uncompressed,
-                Err(..) => {
-                    log::complex!(
-                        w "[processor::new] ",
-                        y format!("failed to decompress section {name}.")
-                    );
-
-                    continue;
-                }
-            };
-
             let start = section.address() as PhysAddr;
             let end = bytes.len() + start;
+            let loaded = !DWARF_SECTIONS.contains(&&*name) && section.address() != 0;
+
             let section = Section {
                 name,
                 kind: section.kind(),
+                loaded,
                 bytes: bytes.into_owned(),
                 addr: section.address() as VirtAddr,
                 start,
@@ -228,6 +238,7 @@ impl Processor {
             let section = Section {
                 name: Cow::Borrowed("flat (generated)"),
                 kind: SectionKind::Text,
+                loaded: true,
                 bytes: binary[rva..].to_vec(),
                 addr,
                 start,
@@ -282,10 +293,11 @@ impl Processor {
             }
         };
 
-        let mut symbols = symbols::Index::new();
+        let mut index = symbols::Index::default();
 
-        symbols.parse_debug(&obj).map_err(Error::IncompleteSymbolTable)?;
-        symbols.parse_imports(&binary[..], &obj).map_err(Error::IncompleteImportTable)?;
+        index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?;
+        index.parse_symbols(&obj).map_err(Error::Symbol)?;
+        index.parse_imports(&binary[..], &obj).map_err(Error::Symbol)?;
 
         let mut instructions = Vec::new();
         let mut errors = Vec::new();
@@ -294,7 +306,7 @@ impl Processor {
         match arch {
             Architecture::Riscv32 => {
                 impl_recursion!(
-                    &symbols,
+                    &index,
                     &mut errors,
                     &mut instructions,
                     &mut sections,
@@ -305,7 +317,7 @@ impl Processor {
             }
             Architecture::Riscv64 => {
                 impl_recursion!(
-                    &symbols,
+                    &index,
                     &mut errors,
                     &mut instructions,
                     &mut sections,
@@ -316,7 +328,7 @@ impl Processor {
             }
             Architecture::Mips | Architecture::Mips64 => {
                 impl_recursion!(
-                    &symbols,
+                    &index,
                     &mut errors,
                     &mut instructions,
                     &mut sections,
@@ -327,7 +339,7 @@ impl Processor {
             }
             Architecture::X86_64_X32 | Architecture::I386 => {
                 impl_recursion!(
-                    &symbols,
+                    &index,
                     &mut errors,
                     &mut instructions,
                     &mut sections,
@@ -338,7 +350,7 @@ impl Processor {
             }
             Architecture::X86_64 => {
                 impl_recursion!(
-                    &symbols,
+                    &index,
                     &mut errors,
                     &mut instructions,
                     &mut sections,
@@ -357,16 +369,17 @@ impl Processor {
             w "[processor::parse] took ",
             y format!("{:#?}", now.elapsed()),
             w " to parse ",
-            w format!("{:?}.", path.as_ref())
+            w format!("{path:?}.")
         );
 
         Ok(Self {
-            path: path.as_ref().to_path_buf(),
+            entrypoint,
+            path,
             sections,
             segments,
             errors,
             instructions,
-            symbols,
+            index,
             max_instruction_width,
             instruction_tokens,
             instruction_width,
@@ -412,43 +425,16 @@ impl Processor {
         self.segments.iter()
     }
 
+    /// Iterate through all non-debug sections.
     pub fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
-        self.sections.iter()
+        self.sections.iter().filter(|section| section.loaded)
     }
 
-    pub fn symbols(&self) -> &symbols::Index {
-        &self.symbols
-    }
-
-    pub fn functions(&self, range: std::ops::Range<usize>) -> Vec<Token> {
-        let mut tokens: Vec<Token> = Vec::new();
-
-        let lines_to_read = range.end - range.start;
-        let lines = self
-            .symbols()
+    pub fn section_name(&self, addr: PhysAddr) -> Option<&str> {
+        self.sections
             .iter()
-            .filter(|(_, func)| !func.intrinsic())
-            .skip(range.start)
-            .take(lines_to_read + 10);
-
-        // for each instruction
-        for (addr, symbol) in lines {
-            tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
-            tokens.push(Token::from_str(" | ", colors::WHITE));
-
-            if let Some(module) = symbol.module() {
-                tokens.push(Token::from_string(module.to_string(), colors::MAGENTA));
-                tokens.push(Token::from_str("!", colors::GRAY60));
-            }
-
-            for token in symbol.name() {
-                tokens.push(token.clone());
-            }
-
-            tokens.push(Token::from_str("\n", colors::WHITE));
-        }
-
-        tokens
+            .find(|s| (s.start..=s.end).contains(&addr))
+            .map(|s| &s.name as &str)
     }
 }
 

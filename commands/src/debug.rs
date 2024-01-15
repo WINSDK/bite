@@ -532,9 +532,9 @@ impl CompleteExpr {
         }
     }
 
-    pub fn autocomplete(&self, index: &Index, cursor: usize) -> (Vec<String>, Span) {
-        let (prefix, span) = self.find_matching_symbol(&self.root, cursor).unwrap();
-        (index.prefix_match(prefix), span)
+    pub fn autocomplete(&self, index: &Index, cursor: usize) -> Option<(Vec<String>, Span)> {
+        self.find_matching_symbol(&self.root, cursor)
+            .map(|(prefix, span)| (index.prefix_match(prefix), span))
     }
 
     pub fn parse(s: &str) -> Result<Self, Error> {
@@ -564,7 +564,7 @@ mod tests {
 
     macro_rules! eval_eq {
         ($expr:expr, $expected:expr) => {{
-            let index = symbols::Index::new();
+            let index = symbols::Index::default();
 
             match parse(&index, $expr) {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
@@ -574,7 +574,7 @@ mod tests {
 
         ([$($function:expr; $addr:expr),*], $expr:expr, $expected:expr) => {{
             #[allow(unused_mut)]
-            let mut index = symbols::Index::new();
+            let mut index = symbols::Index::default();
 
             $(
                 let f = Function::new(TokenStream::simple($function), None);

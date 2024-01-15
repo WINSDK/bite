@@ -6,7 +6,10 @@ edition = "2021"
 [dependencies]
 log = { path = "../log" }
 tokenizing = { path = "../tokenizing" }
+processor_types = { path = "../processor_types" }
 bitflags = "2"
 radix_trie = "0.2"
-object = { workspace = true }
+gimli = { workspace = true }
 pdb = { workspace = true }
+object = { workspace = true }
+crossbeam-queue = { workspace = true }

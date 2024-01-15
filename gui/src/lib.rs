@@ -73,8 +73,8 @@ pub enum WinitEvent {
 pub enum UIEvent {
     DebuggerFailed(debugger::Error),
     BinaryRequested(std::path::PathBuf),
-    BinaryFailed(disassembler::Error),
-    BinaryLoaded(disassembler::Disassembly),
+    BinaryFailed(processor::Error),
+    BinaryLoaded(processor::Processor),
 }
 
 #[derive(Clone)]
@@ -181,7 +181,7 @@ impl<Arch: Target> UI<Arch> {
         let ui_queue = self.ui_queue.clone();
 
         std::thread::spawn(move || {
-            match disassembler::Disassembly::parse(&path) {
+            match processor::Processor::parse(&path) {
                 Ok(diss) => ui_queue.push(UIEvent::BinaryLoaded(diss)),
                 Err(err) => ui_queue.push(UIEvent::BinaryFailed(err)),
             };
@@ -198,8 +198,8 @@ impl<Arch: Target> UI<Arch> {
         let dbg_ctx = self.dbg_ctx.clone();
         let ui_queue = self.ui_queue.clone();
         let settings = self.dbg_settings.clone();
-        let module = match self.panels.listing() {
-            Some(listing) => Arc::clone(&listing.disassembly.processor),
+        let module = match self.panels.processor() {
+            Some(processor) => Arc::clone(processor),
             None => {
                 tprint!(self.panels.terminal(), "Missing binary to run.");
                 return;

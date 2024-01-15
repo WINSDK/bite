@@ -1,170 +1,9 @@
-//! Consumes decoder crates and provides an interface to interact with the decoders.
-mod fmt;
-mod fs;
-mod processor;
-
-use std::borrow::Cow;
-use std::sync::Arc;
-
-use object::{Object, SectionKind};
+use processor::Processor;
+use processor_types::{PhysAddr, Section};
 use tokenizing::{colors, Token};
 
-pub use processor::Processor;
-pub use symbols::Index;
-
-pub type VirtAddr = usize;
-pub type PhysAddr = usize;
-
-pub enum Error {
-    IO(std::io::Error),
-    NotAnExecutable,
-    DecompressionFailed(object::Error),
-    IncompleteObject(object::Error),
-    IncompleteImportTable(object::Error),
-    IncompleteSymbolTable(pdb::Error),
-    UnknownArchitecture(object::Architecture),
-}
-
-#[derive(Debug)]
-pub struct Section {
-    /// Section identifier.
-    pub name: Cow<'static, str>,
-
-    /// What kind of data the section holds.
-    pub kind: SectionKind,
-
-    /// Uncompressed data.
-    pub bytes: Vec<u8>,
-
-    /// Virtual address.
-    pub addr: VirtAddr,
-
-    /// Address where section starts.
-    pub start: PhysAddr,
-
-    /// Section start + size of uncompressed data.
-    pub end: PhysAddr,
-}
-
-impl Section {
-    pub fn contains(&self, addr: PhysAddr) -> bool {
-        (self.start..=self.end).contains(&addr)
-    }
-
-    pub fn format_bytes(
-        &self,
-        addr: PhysAddr,
-        len: usize,
-        max_len: usize,
-        is_padded: bool,
-    ) -> Option<String> {
-        let rva = addr.checked_sub(self.start)?;
-        let bytes = self.bytes.get(rva..)?;
-        let bytes = &bytes[..std::cmp::min(bytes.len(), len)];
-
-        Some(decoder::encode_hex_bytes_truncated(
-            bytes, max_len, is_padded,
-        ))
-    }
-}
-
-#[derive(Debug)]
-pub struct Segment {
-    /// Segment identifier.
-    pub name: Cow<'static, str>,
-
-    /// Virtual address.
-    pub addr: VirtAddr,
-
-    /// Offset of physical file.
-    pub start: PhysAddr,
-
-    /// Segment start + size.
-    pub end: PhysAddr,
-}
-
-/// A singular address.
-///
-/// NOTE: `line_count` must be valid and `tokens` must not be empty.
-struct Block {
-    addr: PhysAddr,
-    tokens: Vec<Token>,
-    line_count: usize,
-}
-
-impl Block {
-    /// (Token offset, offset into token).
-    fn with_offset(&self, mut line: usize) -> Option<(usize, usize)> {
-        // line is out of range
-        if line >= self.line_count {
-            return None;
-        }
-
-        for (idx, token) in self.tokens.iter().enumerate() {
-            for (jdx, chr) in token.text.bytes().enumerate() {
-                if line == 0 {
-                    return Some((idx, jdx));
-                }
-
-                if chr == b'\n' {
-                    line -= 1;
-                }
-            }
-        }
-
-        None
-    }
-}
-
-/// Everything necessary to display a ASM listing.
-#[derive(Clone)]
-pub struct Disassembly {
-    /// Where execution start.
-    pub entrypoint: PhysAddr,
-
-    /// Everything related to a module.
-    pub processor: Arc<Processor>,
-}
-
-impl Disassembly {
-    pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
-        let binary = crate::fs::read(&path).map_err(Error::IO)?;
-        let obj = object::File::parse(&binary[..]).map_err(Error::IncompleteObject)?;
-
-        if obj.entry() == 0 {
-            return Err(Error::NotAnExecutable);
-        }
-
-        let entrypoint = obj.entry();
-        log::complex!(
-            w "[disassembly::parse] entrypoint ",
-            g format!("{entrypoint:#X}"),
-            w ".",
-        );
-
-        let path = path.as_ref().to_path_buf();
-        let processor = Processor::parse(path, &binary[..], &obj)?;
-
-        Ok(Self {
-            entrypoint: entrypoint as usize,
-            processor: Arc::new(processor),
-        })
-    }
-
-    pub fn section_name(&self, addr: PhysAddr) -> Option<&str> {
-        self.processor
-            .sections()
-            .find(|s| (s.start..=s.end).contains(&addr))
-            .map(|s| &s.name as &str)
-    }
-
-    fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
-        self.processor.sections()
-    }
-}
-
-/// Window into a [`Disassembly`], just a reference essentially.
-pub struct DisassemblyView {
+/// Window into a [`Processor`], just a reference essentially.
+pub struct ProcessorView {
     /// Address of the current block.
     addr: PhysAddr,
 
@@ -187,7 +26,7 @@ pub struct DisassemblyView {
     max_lines: usize,
 }
 
-impl DisassemblyView {
+impl ProcessorView {
     pub fn new() -> Self {
         Self {
             addr: 0,
@@ -207,10 +46,8 @@ impl DisassemblyView {
     /// Jump to address, returning whether it succeeded.
     ///
     /// Try an address range of +- 32 bytes.
-    pub fn jump(&mut self, disassembly: &Disassembly, addr: PhysAddr) -> bool {
-        let processor = &disassembly.processor;
-
-        if !disassembly.sections().any(|s| s.contains(addr)) {
+    pub fn jump(&mut self, processor: &Processor, addr: PhysAddr) -> bool {
+        if !processor.sections().any(|s| s.contains(addr)) {
             return false;
         }
 
@@ -220,14 +57,14 @@ impl DisassemblyView {
             if let Some(_) = processor.error_by_addr(addr) {
                 self.addr = addr;
                 self.block_line_offset = 0;
-                self.update(disassembly);
+                self.update(processor);
                 return true;
             }
 
             if let Some(_) = processor.instruction_by_addr(addr) {
                 self.addr = addr;
                 self.block_line_offset = 0;
-                self.update(disassembly);
+                self.update(processor);
                 return true;
             }
         }
@@ -238,14 +75,14 @@ impl DisassemblyView {
             if let Some(_) = processor.error_by_addr(addr) {
                 self.addr = addr;
                 self.block_line_offset = 0;
-                self.update(disassembly);
+                self.update(processor);
                 return true;
             }
 
             if let Some(_) = processor.instruction_by_addr(addr) {
                 self.addr = addr;
                 self.block_line_offset = 0;
-                self.update(disassembly);
+                self.update(processor);
                 return true;
             }
         }
@@ -254,20 +91,20 @@ impl DisassemblyView {
         // as there might be some bytes to inspect instead
         self.addr = addr;
         self.block_line_offset = 0;
-        self.update(disassembly);
+        self.update(processor);
         true
     }
 
     /// Set's and update's the number of blocks if it changed.
-    pub fn set_max_lines(&mut self, count: usize, disassembly: &Disassembly) {
+    pub fn set_max_lines(&mut self, count: usize, processor: &Processor) {
         log::complex!(
-            w "[disassembly::set_block_size] updating listing window to ",
+            w "[processor::set_block_size] updating listing window to ",
             g count.to_string(),
             w " entries."
         );
 
         self.max_lines = count + count / 10; // FIXME: count isn't enough to fill window
-        self.update(disassembly);
+        self.update(processor);
     }
 
     pub fn no_code(&self) -> bool {
@@ -275,18 +112,13 @@ impl DisassemblyView {
     }
 
     /// Read's a [`Block`] at `addr` and also returns how many bytes were read.
-    fn read_block(
-        &mut self,
-        disassembly: &Disassembly,
-        section: &Section,
-        addr: PhysAddr,
-    ) -> usize {
+    fn read_block(&mut self, processor: &Processor, section: &Section, addr: PhysAddr) -> usize {
         let mut tokens = Vec::new();
         let mut line_count = 0;
 
-        let mut error = disassembly.processor.error_by_addr(addr);
-        let mut instruction = disassembly.processor.instruction_by_addr(addr);
-        let function = disassembly.processor.symbols().get_by_addr(addr);
+        let mut error = processor.error_by_addr(addr);
+        let mut instruction = processor.instruction_by_addr(addr);
+        let function = processor.index.get_by_addr(addr);
 
         // annotations require one line spacing
         if section.start == addr || function.is_some() {
@@ -315,7 +147,7 @@ impl DisassemblyView {
             ));
 
             tokens.push(Token::from_string(
-                disassembly.processor.format_bytes(addr, err.size(), section, true).unwrap(),
+                processor.format_bytes(addr, err.size(), section, true).unwrap(),
                 colors::GREEN,
             ));
 
@@ -335,8 +167,8 @@ impl DisassemblyView {
         }
 
         if let Some(instruction) = instruction {
-            let width = disassembly.processor.instruction_width(&instruction);
-            let instruction = disassembly.processor.instruction_tokens(&instruction);
+            let width = processor.instruction_width(&instruction);
+            let instruction = processor.instruction_tokens(&instruction);
 
             tokens.push(Token::from_string(
                 format!("{addr:0>10X}  "),
@@ -344,7 +176,7 @@ impl DisassemblyView {
             ));
 
             tokens.push(Token::from_string(
-                disassembly.processor.format_bytes(addr, width, section, true).unwrap(),
+                processor.format_bytes(addr, width, section, true).unwrap(),
                 colors::GREEN,
             ));
 
@@ -375,8 +207,8 @@ impl DisassemblyView {
             }
 
             // decode at new offset
-            error = disassembly.processor.error_by_addr(addr + dx);
-            instruction = disassembly.processor.instruction_by_addr(addr + dx);
+            error = processor.error_by_addr(addr + dx);
+            instruction = processor.instruction_by_addr(addr + dx);
 
             // if there is something at the current address
             if error.is_some() || instruction.is_some() {
@@ -387,7 +219,7 @@ impl DisassemblyView {
         }
 
         // if we have bytes left in the section to print
-        if let Some(bytes) = disassembly.processor.format_bytes(addr, dx, section, false) {
+        if let Some(bytes) = processor.format_bytes(addr, dx, section, false) {
             tokens.push(Token::from_string(
                 format!("{addr:0>10X}  "),
                 colors::GRAY40,
@@ -408,9 +240,9 @@ impl DisassemblyView {
         dx
     }
 
-    fn read_sections(&mut self, disassembly: &Disassembly) {
+    fn read_sections(&mut self, processor: &Processor) {
         let mut addr = self.addr;
-        let mut sections = disassembly.sections();
+        let mut sections = processor.sections();
         let mut section = sections.find(|s| s.contains(addr)).unwrap();
 
         loop {
@@ -433,7 +265,7 @@ impl DisassemblyView {
                 };
             }
 
-            let bytes_read = self.read_block(disassembly, section, addr);
+            let bytes_read = self.read_block(processor, section, addr);
             addr = match addr.checked_add(bytes_read) {
                 Some(next_addr) => next_addr,
                 None => break,
@@ -441,19 +273,19 @@ impl DisassemblyView {
         }
     }
 
-    pub fn update(&mut self, disassembly: &Disassembly) {
+    pub fn update(&mut self, processor: &Processor) {
         self.blocks.clear();
         self.block_offset = 0;
         self.line_count = 0;
 
         // check if address is unknown
-        if !disassembly.sections().any(|s| s.contains(self.addr)) {
+        if !processor.sections().any(|s| s.contains(self.addr)) {
             // set address to the first section
-            let section = disassembly.sections().next().unwrap();
+            let section = processor.sections().next().unwrap();
             self.addr = section.start;
         }
 
-        self.read_sections(disassembly);
+        self.read_sections(processor);
 
         // set block offset to the first same addr
         self.block_offset = self.blocks.iter().position(|b| b.addr == self.addr).unwrap_or(0);
@@ -465,7 +297,7 @@ impl DisassemblyView {
 
     // NOTE: there is some bug here on cross-section boundaries
     //       where raw bytes aren't being shown accurately
-    pub fn scroll_up(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
+    pub fn scroll_up(&mut self, processor: &Processor, mut lines_to_scroll: usize) {
         if self.blocks.is_empty() {
             return;
         }
@@ -476,9 +308,9 @@ impl DisassemblyView {
             return;
         }
 
-        fn item_exists(disassembly: &Disassembly, addr: PhysAddr) -> bool {
-            let err = disassembly.processor.error_by_addr(addr);
-            let inst = disassembly.processor.instruction_by_addr(addr);
+        fn item_exists(processor: &Processor, addr: PhysAddr) -> bool {
+            let err = processor.error_by_addr(addr);
+            let inst = processor.instruction_by_addr(addr);
             err.is_some() || inst.is_some()
         }
 
@@ -488,7 +320,7 @@ impl DisassemblyView {
             while dx < 15 {
                 let addr = self.addr.saturating_sub(dx);
 
-                if item_exists(disassembly, addr) {
+                if item_exists(processor, addr) {
                     break;
                 }
 
@@ -501,24 +333,24 @@ impl DisassemblyView {
             }
 
             self.addr = self.addr.saturating_sub(dx);
-            self.update(disassembly);
+            self.update(processor);
 
             // if there is a next block
             let block = &self.blocks[0];
 
             if lines_to_scroll < block.line_count {
                 self.block_line_offset = block.line_count - lines_to_scroll;
-                self.update(disassembly);
+                self.update(processor);
                 break;
             } else {
                 lines_to_scroll -= block.line_count;
                 self.block_line_offset = 0;
-                self.update(disassembly);
+                self.update(processor);
             }
         }
     }
 
-    pub fn scroll_down(&mut self, disassembly: &Disassembly, mut lines_to_scroll: usize) {
+    pub fn scroll_down(&mut self, processor: &Processor, mut lines_to_scroll: usize) {
         if self.blocks.is_empty() {
             return;
         }
@@ -536,12 +368,12 @@ impl DisassemblyView {
 
                 if lines_to_scroll < block.line_count {
                     self.block_line_offset = lines_to_scroll - 1;
-                    self.update(disassembly);
+                    self.update(processor);
                     break;
                 } else {
                     lines_to_scroll -= block.line_count;
                     self.block_line_offset = 0;
-                    self.update(disassembly);
+                    self.update(processor);
                 }
             } else {
                 break;
@@ -582,8 +414,40 @@ impl DisassemblyView {
     }
 }
 
+/// A singular address.
+/// Important detail is that `line_count` must be valid and `tokens` must not be empty.
+struct Block {
+    addr: PhysAddr,
+    tokens: Vec<Token>,
+    line_count: usize,
+}
+
+impl Block {
+    /// (Token offset, offset into token).
+    fn with_offset(&self, mut line: usize) -> Option<(usize, usize)> {
+        // line is out of range
+        if line >= self.line_count {
+            return None;
+        }
+
+        for (idx, token) in self.tokens.iter().enumerate() {
+            for (jdx, chr) in token.text.bytes().enumerate() {
+                if line == 0 {
+                    return Some((idx, jdx));
+                }
+
+                if chr == b'\n' {
+                    line -= 1;
+                }
+            }
+        }
+
+        None
+    }
+}
+
 #[cfg(test)]
-mod test {
+mod tests {
     use super::Block;
     use tokenizing::Token;
 

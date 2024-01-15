@@ -1,9 +1,11 @@
 mod functions;
 mod listing;
+mod source_code;
 
 use crate::common::*;
 use crate::style::{EGUI, STYLE};
 use crate::widgets::{Donut, Terminal, TextSelection};
+use processor::Processor;
 
 use egui::{Button, RichText};
 use egui_dock::{DockArea, DockState};
@@ -13,7 +15,7 @@ use std::sync::Arc;
 
 pub type Identifier = &'static str;
 
-// pub const SOURCE: Identifier = crate::icon!(EMBED2, " Source");
+pub const SOURCE: Identifier = crate::icon!(EMBED2, " Source");
 pub const DISASSEMBLY: Identifier = crate::icon!(PARAGRAPH_LEFT, " Disassembly");
 pub const FUNCTIONS: Identifier = crate::icon!(LIGATURE, " Functions");
 pub const LOGGING: Identifier = crate::icon!(TERMINAL, " Logs");
@@ -21,12 +23,14 @@ pub const LOGGING: Identifier = crate::icon!(TERMINAL, " Logs");
 enum PanelKind {
     Disassembly(listing::Listing),
     Functions(functions::Functions),
+    Source(source_code::Source),
     Logging,
 }
 
 pub struct Tabs {
     mapping: BTreeMap<Identifier, PanelKind>,
     terminal: Terminal,
+    processor: Option<Arc<Processor>>,
     donut: Donut,
 }
 
@@ -39,6 +43,7 @@ impl Tabs {
                 mapping
             },
             terminal: Terminal::new(),
+            processor: None,
             donut: Donut::new(false),
         }
     }
@@ -55,6 +60,7 @@ impl egui_dock::TabViewer for Tabs {
         match self.mapping.get_mut(title) {
             Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
             Some(PanelKind::Functions(functions)) => functions.show(ui),
+            Some(PanelKind::Source(src)) => src.show(ui),
             Some(PanelKind::Logging) => {
                 let area = egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -111,6 +117,12 @@ impl Panels {
         })
     }
 
+    #[inline]
+    pub fn processor(&mut self) -> Option<&Arc<Processor>> {
+        self.tabs.processor.as_ref()
+    }
+
+    #[inline]
     pub fn terminal(&mut self) -> &mut Terminal {
         &mut self.tabs.terminal
     }
@@ -129,18 +141,34 @@ impl Panels {
         self.loading = false;
     }
 
-    pub fn load_binary(&mut self, disassembly: disassembler::Disassembly) {
-        let processor = Arc::clone(&disassembly.processor);
+    pub fn load_source(&mut self, addr: usize) {
+        let file_attr = match self.processor().and_then(|proc| proc.index.get_file(addr)) {
+            Some(file_attr) => file_attr,
+            None => return,
+        };
+
+        if let Ok(data) = std::fs::read(&file_attr.path) {
+            let src = String::from_utf8_lossy(&data);
+            let src = source_code::Source::new(src, file_attr.line);
+            self.tabs.mapping.insert(SOURCE, PanelKind::Source(src));
+            self.goto_window(SOURCE);
+        }
+    }
+
+    pub fn load_binary(&mut self, processor: Processor) {
+        let processor = Arc::new(processor);
 
         self.tabs.mapping.insert(
             DISASSEMBLY,
-            PanelKind::Disassembly(listing::Listing::new(disassembly)),
+            PanelKind::Disassembly(listing::Listing::new(processor.clone())),
         );
 
         self.tabs.mapping.insert(
             FUNCTIONS,
-            PanelKind::Functions(functions::Functions::new(processor)),
+            PanelKind::Functions(functions::Functions::new(processor.clone())),
         );
+
+        self.tabs.processor = Some(processor);
     }
 
     fn ask_for_binary(&self) {
@@ -150,11 +178,8 @@ impl Panels {
     }
 
     pub fn handle_events(&mut self, events: &mut Vec<egui::Event>) {
-        let empty_index = disassembler::Index::new();
-        let index = match self.tabs.mapping.get_mut(DISASSEMBLY) {
-            Some(PanelKind::Disassembly(listing)) => listing.disassembly.processor.symbols(),
-            _ => &empty_index,
-        };
+        let empty_index = symbols::Index::default();
+        let index = self.tabs.processor.as_ref().map(|proc| &proc.index).unwrap_or(&empty_index);
 
         self.tabs.terminal.record_input(events, index);
     }
@@ -184,6 +209,13 @@ impl Panels {
         }
     }
 
+    fn goto_window(&mut self, title: Identifier) {
+        match self.layout.find_tab(&title) {
+            Some(tab) => self.layout.set_active_tab(tab),
+            None => self.layout.push_to_first_leaf(title),
+        }
+    }
+
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let bar = egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -199,23 +231,23 @@ impl Panels {
             });
 
             ui.menu_button("Windows", |ui| {
-                let mut goto_window = |title| match self.layout.find_tab(&title) {
-                    Some(tab) => self.layout.set_active_tab(tab),
-                    None => self.layout.push_to_first_leaf(title),
-                };
-
                 if ui.button(DISASSEMBLY).clicked() {
-                    goto_window(DISASSEMBLY);
+                    self.goto_window(DISASSEMBLY);
                     ui.close_menu();
                 }
 
                 if ui.button(FUNCTIONS).clicked() {
-                    goto_window(FUNCTIONS);
+                    self.goto_window(FUNCTIONS);
+                    ui.close_menu();
+                }
+
+                if ui.button(SOURCE).clicked() {
+                    self.goto_window(SOURCE);
                     ui.close_menu();
                 }
 
                 if ui.button(LOGGING).clicked() {
-                    goto_window(LOGGING);
+                    self.goto_window(LOGGING);
                     ui.close_menu();
                 }
             });
@@ -278,6 +310,39 @@ impl Panels {
 
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
 
+        // terminal needs to be rendered last as it can take focus away from other panels
+        let terminal = egui::TopBottomPanel::bottom("terminal")
+            .min_height(80.0)
+            .max_height(510.0)
+            .resizable(true)
+            .frame({
+                egui::Frame::default()
+                    .inner_margin(egui::Margin::same(STYLE.separator_width * 2.0))
+                    .fill(tokenizing::colors::GRAY35)
+            });
+
+        let mut visuals = EGUI.visuals.clone();
+
+        // set alternative background color
+        visuals.extreme_bg_color = STYLE.primary_background;
+        // disable on-hover highlighting for terminal
+        visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;
+
+        ctx.set_visuals(visuals);
+
+        let request_focus = self.terminal().should_reset_cursor();
+        let term_response = terminal.show(ctx, |ui| {
+            let response = ui
+                .with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                    self.tabs.terminal.show(ui)
+                });
+
+            response.inner
+        });
+
+        ctx.set_visuals(EGUI.visuals.clone());
+
         let dock_area = egui::CentralPanel::default().frame({
             egui::Frame::default().inner_margin(egui::Margin {
                 top: crate::style::STYLE.separator_width,
@@ -306,42 +371,11 @@ impl Panels {
                     .tab_context_menus(false)
                     .show_inside(ui, &mut self.tabs);
             }
+
+            // give focus to terminal if any valid keyboard input happened
+            if request_focus {
+                ui.ctx().memory_mut(|m| m.request_focus(term_response.inner.id));
+            }
         });
-
-        // terminal needs to be rendered last as it can take focus away from other panels
-        let terminal = egui::TopBottomPanel::bottom("terminal")
-            .min_height(80.0)
-            .max_height(510.0)
-            .resizable(true)
-            .frame({
-                let mut margin = crate::style::EGUI.spacing.window_margin;
-                margin.top = crate::style::STYLE.separator_width * 2.0;
-
-                egui::Frame::default()
-                    .outer_margin(egui::Margin {
-                        top: crate::style::STYLE.separator_width * 2.0,
-                        ..Default::default()
-                    })
-                    .inner_margin(margin)
-                    .fill(tokenizing::colors::GRAY35)
-            });
-
-        let mut visuals = EGUI.visuals.clone();
-
-        // set alternative background color
-        visuals.extreme_bg_color = STYLE.primary_background;
-        // disable on-hover highlighting for terminal
-        visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;
-
-        ctx.set_visuals(visuals);
-
-        terminal.show(ctx, |ui| {
-            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                self.tabs.terminal.show(ui);
-            })
-        });
-
-        ctx.set_visuals(EGUI.visuals.clone());
     }
 }

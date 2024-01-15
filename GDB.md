@@ -18,6 +18,7 @@
 * s/stop
 * trace
 * follow-children
+* !n <cmd> # repeat <cmd> n number of times
 
 ## Small details
 

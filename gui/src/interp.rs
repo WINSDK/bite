@@ -9,14 +9,13 @@ impl<Arch: crate::Target> super::UI<Arch> {
 
     /// Runs a singular commands, returning if it should exit the process.
     fn process_cmd(&mut self, cmd: &str) -> bool {
-        let empty_index = disassembler::Index::new();
-        let index = self
-            .panels
-            .listing()
-            .map(|l| l.disassembly.processor.symbols())
-            .unwrap_or(&empty_index);
+        let empty_index = symbols::Index::default();
+        let index = self.panels.processor().map(|proc| &proc.index).unwrap_or(&empty_index);
 
         match Command::parse(index, cmd, 0) {
+            Ok(Command::GotoSource(addr)) => {
+                self.panels.load_source(addr);
+            }
             Ok(Command::Load(path)) => self.offload_binary_processing(path),
             Ok(Command::PrintPath) => match std::env::current_dir() {
                 Ok(path) => tprint!(
@@ -48,14 +47,14 @@ impl<Arch: crate::Target> super::UI<Arch> {
             Ok(Command::Run(args)) => self.offload_debugging(args),
             Ok(Command::Goto(addr)) => {
                 let listing = match self.panels.listing() {
-                    Some(dissasembly) => dissasembly,
+                    Some(listing) => listing,
                     None => {
                         tprint!(self.panels.terminal(), "There are no targets to inspect.");
                         return true;
                     }
                 };
 
-                if listing.disassembly_view.jump(&listing.disassembly, addr) {
+                if listing.jump(addr) {
                     listing.update();
                     tprint!(self.panels.terminal(), "Jumped to address {addr:#X}.");
                 } else {

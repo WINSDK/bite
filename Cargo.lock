@@ -182,7 +182,6 @@ version = "0.13.0"
 dependencies = [
  "commands",
  "decoder",
- "disassembler",
  "gui",
  "libc 0.2.150",
  "log 0.0.0",
@@ -519,9 +518,10 @@ name = "debugger"
 version = "0.0.0"
 dependencies = [
  "crossbeam-queue",
- "disassembler",
  "log 0.0.0",
  "nix 0.26.1",
+ "processor",
+ "processor_types",
  "procfs",
  "symbols",
  "syscalls",
@@ -555,23 +555,6 @@ dependencies = [
  "option-ext",
  "redox_users",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "disassembler"
-version = "0.0.0"
-dependencies = [
- "arm",
- "decoder",
- "egui",
- "log 0.0.0",
- "mips",
- "object",
- "pdb",
- "riscv",
- "symbols",
- "tokenizing",
- "x86_64",
 ]
 
 [[package]]
@@ -687,6 +670,12 @@ name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
+
+[[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "fdeflate"
@@ -816,6 +805,11 @@ name = "gimli"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fb8d784f27acf97159b40fc4db5ecd8aa23b9ad5ef69cdd136d3bc80665f0c0"
+dependencies = [
+ "fallible-iterator 0.3.0",
+ "indexmap",
+ "stable_deref_trait",
+]
 
 [[package]]
 name = "gio-sys"
@@ -964,14 +958,16 @@ dependencies = [
  "crossbeam-queue",
  "debugger",
  "dirs",
- "disassembler",
  "egui",
  "egui_dock",
  "log 0.0.0",
  "once_cell",
  "png",
  "pollster",
+ "processor",
+ "processor_types",
  "rfd",
+ "symbols",
  "tokenizing",
  "wgpu",
  "winit",
@@ -1552,7 +1548,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82040a392923abe6279c00ab4aff62d5250d1c8555dc780e4b02783a7aa74863"
 dependencies = [
- "fallible-iterator",
+ "fallible-iterator 0.2.0",
  "scroll",
  "uuid",
 ]
@@ -1615,12 +1611,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22686f4785f02a4fcc856d3b3bb19bf6c8160d103f7a99cc258bddd0251dc7f2"
 
 [[package]]
-name = "ppv-lite86"
-version = "0.2.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
-
-[[package]]
 name = "presser"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1666,6 +1656,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18fb31db3f9bddb2ea821cde30a9f70117e3f119938b5ee630b7403aa6e2ead9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "processor"
+version = "0.0.0"
+dependencies = [
+ "arm",
+ "decoder",
+ "log 0.0.0",
+ "mips",
+ "object",
+ "processor_types",
+ "riscv",
+ "symbols",
+ "tokenizing",
+ "x86_64",
+]
+
+[[package]]
+name = "processor_types"
+version = "0.0.0"
+dependencies = [
+ "object",
 ]
 
 [[package]]
@@ -1723,36 +1736,6 @@ checksum = "c069c179fcdc6a2fe24d8d18305cf085fdbd4f922c041943e203685d6a1c58fd"
 dependencies = [
  "endian-type",
  "nibble_vec",
-]
-
-[[package]]
-name = "rand"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
-dependencies = [
- "libc 0.2.150",
- "rand_chacha",
- "rand_core",
-]
-
-[[package]]
-name = "rand_chacha"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
-dependencies = [
- "ppv-lite86",
- "rand_core",
-]
-
-[[package]]
-name = "rand_core"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
-dependencies = [
- "getrandom",
 ]
 
 [[package]]
@@ -2051,6 +2034,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "stable_deref_trait"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2067,9 +2056,12 @@ name = "symbols"
 version = "0.0.0"
 dependencies = [
  "bitflags 2.4.0",
+ "crossbeam-queue",
+ "gimli",
  "log 0.0.0",
  "object",
  "pdb",
+ "processor_types",
  "radix_trie",
  "tokenizing",
 ]
@@ -2966,7 +2958,6 @@ name = "x86_64"
 version = "0.0.0"
 dependencies = [
  "decoder",
- "rand",
  "symbols",
  "tokenizing",
 ]

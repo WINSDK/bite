@@ -1,20 +1,24 @@
+use std::sync::Arc;
+
 use crate::common::*;
-use crate::widgets::TextSelection;
+use crate::widgets::{ProcessorView, TextSelection};
 use egui::text::LayoutJob;
+use processor::Processor;
+use processor_types::PhysAddr;
 
 pub struct Listing {
-    pub disassembly: disassembler::Disassembly,
-    pub disassembly_view: disassembler::DisassemblyView,
+    pub processor_view: ProcessorView,
+    processor: Arc<Processor>,
     lines: LayoutJob,
     min_row: usize,
     max_row: usize,
 }
 
 impl Listing {
-    pub fn new(disassembly: disassembler::Disassembly) -> Self {
+    pub fn new(processor: Arc<Processor>) -> Self {
         Self {
-            disassembly,
-            disassembly_view: disassembler::DisassemblyView::new(),
+            processor_view: ProcessorView::new(),
+            processor,
             lines: LayoutJob::default(),
             min_row: 0,
             max_row: 0,
@@ -24,15 +28,19 @@ impl Listing {
     /// Force refresh listing.
     /// Force refresh listing.
     pub fn update(&mut self) {
-        let instructions = self.disassembly_view.format();
+        let instructions = self.processor_view.format();
         self.lines = tokens_to_layoutjob(instructions);
+    }
+
+    pub fn jump(&mut self, addr: PhysAddr) -> bool {
+        self.processor_view.jump(&self.processor, addr)
     }
 }
 
 impl Display for Listing {
     fn show(&mut self, ui: &mut egui::Ui) {
-        if !self.disassembly_view.no_code() {
-            if let Some(text) = self.disassembly.section_name(self.disassembly_view.addr()) {
+        if !self.processor_view.no_code() {
+            if let Some(text) = self.processor.section_name(self.processor_view.addr()) {
                 let max_width = ui.available_width();
                 let size = egui::vec2(9.0 * text.len() as f32, 25.0);
                 let offset = egui::pos2(20.0, 60.0);
@@ -80,7 +88,7 @@ impl Display for Listing {
                 ui.skip_ahead_auto_ids(min_row);
 
                 if row_change > 1 {
-                    self.disassembly_view.set_max_lines(max_row - min_row, &self.disassembly);
+                    self.processor_view.set_max_lines(max_row - min_row, &self.processor);
                     self.update();
                     self.min_row = min_row;
                     self.max_row = max_row;
@@ -88,14 +96,14 @@ impl Display for Listing {
                 }
 
                 if min_row < self.min_row {
-                    self.disassembly_view.scroll_up(&self.disassembly, self.min_row - min_row);
+                    self.processor_view.scroll_up(&self.processor, self.min_row - min_row);
                     self.update();
                     self.min_row = min_row;
                     self.max_row = max_row;
                 }
 
                 if min_row > self.min_row {
-                    self.disassembly_view.scroll_down(&self.disassembly, min_row - self.min_row);
+                    self.processor_view.scroll_down(&self.processor, min_row - self.min_row);
                     self.update();
                     self.min_row = min_row;
                     self.max_row = max_row;

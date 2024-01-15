@@ -1,6 +1,8 @@
 //! Symbol demangler for common mangling schemes.
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
 use object::endian::Endian;
@@ -13,14 +15,28 @@ use object::{
     BinaryFormat, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind,
 };
 
+use crossbeam_queue::SegQueue;
+use helper::{parallel_compute, ArcStr};
 use pdb::FallibleIterator;
-use radix_trie::{Trie, TrieCommon, TrieKey};
+use processor_types::Section;
+use radix_trie::{Trie, TrieCommon};
 use tokenizing::{Color, ColorScheme, Colors, Token};
 
+mod error;
+mod helper;
 pub mod itanium;
 pub mod msvc;
 pub mod rust;
 pub mod rust_legacy;
+
+type PhysAddr = usize;
+
+pub enum Error {
+    Object(object::Error),
+    Dwarf(gimli::Error),
+    Pdb(pdb::Error),
+    Imports(object::Error),
+}
 
 fn parser(s: &str) -> TokenStream {
     // symbols without leading underscores are accepted as
@@ -52,48 +68,6 @@ fn parser(s: &str) -> TokenStream {
 
     // return the original mangled symbol on failure
     TokenStream::simple(s)
-}
-
-fn parallel_compute<In, Out, F>(items: Vec<In>, output: &mut Vec<Out>, transformer: F)
-where
-    F: FnOnce(&In) -> Out,
-    F: Send + Copy,
-    In: Sync,
-    Out: Send + Sync,
-{
-    let thread_count = std::thread::available_parallelism().unwrap().get();
-
-    // for small item counts, perform single-threaded
-    if items.len() < thread_count {
-        for item in items.iter() {
-            output.push(transformer(item));
-        }
-
-        return;
-    }
-
-    // multithreaded
-    std::thread::scope(|s| {
-        let mut chunks = items.chunks(items.len() / thread_count);
-        let mut threads = Vec::with_capacity(thread_count);
-
-        while let Some(chunk) = chunks.next() {
-            let thread = s.spawn(move || {
-                let mut result = Vec::with_capacity(chunk.len());
-                for item in chunk {
-                    result.push(transformer(item));
-                }
-                result
-            });
-
-            threads.push(thread);
-        }
-
-        for thread in threads {
-            let chunk = thread.join().unwrap();
-            output.extend(chunk);
-        }
-    });
 }
 
 #[derive(Debug)]
@@ -128,9 +102,7 @@ impl Function {
     pub fn new(name: TokenStream, module: Option<String>) -> Self {
         let is_intrinsics = is_name_an_intrinsic(name.inner());
         let name_as_str = String::from_iter(name.tokens().iter().map(|t| &t.text[..]));
-        let name_as_str = ArcStr {
-            inner: Arc::from(name_as_str),
-        };
+        let name_as_str = ArcStr::new(&name_as_str);
 
         Self {
             name_as_str,
@@ -169,46 +141,99 @@ impl PartialEq for Function {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ArcStr {
-    inner: Arc<str>,
-}
-
-impl std::ops::Deref for ArcStr {
-    type Target = Arc<str>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl TrieKey for ArcStr {
-    #[inline]
-    fn encode_bytes(&self) -> Vec<u8> {
-        self.as_bytes().encode_bytes()
-    }
-}
-
 #[derive(Debug)]
-pub struct Index {
-    /// Mapping from address starting at the header base to functions.
-    tree: Vec<(usize, Arc<Function>)>,
+pub struct FileAttr {
+    pub path: Arc<Path>,
+    pub line: usize,
+}
 
+#[derive(Default, Debug)]
+pub struct Index {
+    /// Mapping from addresses starting at the header base to functions.
+    /// The addresses are sorted.
+    symbols: Vec<(PhysAddr, Arc<Function>)>,
+
+    /// Mapping from addresses starting at the header base to source files.
+    file_attrs: Vec<(PhysAddr, FileAttr)>,
+
+    /// Prefix tree for finding symbols.
     trie: Trie<ArcStr, Arc<Function>>,
 
     /// Number of named compiler artifacts.
     named_len: usize,
 }
 
-impl Index {
-    pub fn new() -> Self {
-        Self {
-            tree: Vec::new(),
-            trie: Trie::new(),
-            named_len: 0,
+type GimliSlice<'a> = gimli::EndianSlice<'a, gimli::RunTimeEndian>;
+
+fn read_comp_unit(
+    path_cache: &Arc<RwLock<HashSet<Arc<Path>>>>,
+    dwarf: &Arc<gimli::Dwarf<GimliSlice>>,
+    header: gimli::UnitHeader<GimliSlice>,
+    file_attrs: &mut Vec<(PhysAddr, FileAttr)>,
+) -> Result<(), gimli::Error> {
+    let unit = dwarf.unit(header)?;
+    let program = match unit.line_program {
+        Some(ref program) => program.clone(),
+        None => return Ok(()),
+    };
+
+    let comp_dir = unit
+        .comp_dir
+        .map(|dir| PathBuf::from(dir.to_string().unwrap_or_default()))
+        .unwrap_or_default();
+
+    // iterate over the line program rows
+    let mut rows = program.rows();
+    while let Some((header, row)) = rows.next_row()? {
+        // end of sequence indicates a possible gap in addresses
+        if row.end_sequence() {
+            continue;
         }
+
+        let (file, line) = match (row.file(header), row.line()) {
+            (Some(file), Some(line)) => (file, line),
+            _ => continue,
+        };
+
+        let mut path = comp_dir.clone();
+
+        // the directory index 0 is defined to correspond to the compilation
+        // unit directory
+        if file.directory_index() != 0 {
+            if let Some(dir) = file.directory(header) {
+                path.push(dwarf.attr_string(&unit, dir)?.to_string_lossy().as_ref());
+            }
+        }
+
+        path.push(dwarf.attr_string(&unit, file.path_name())?.to_string_lossy().as_ref());
+
+        // println!("{:#X} {}:{}", row.address(), path.display(), line.get());
+
+        // either grab the path out of the cache or add it to the cache
+        let cache = path_cache.read().unwrap();
+        let path = match cache.get(path.as_path()) {
+            Some(cached_path) => Arc::clone(cached_path),
+            None => {
+                let path = Arc::from(path);
+                drop(cache);
+                path_cache.write().unwrap().insert(Arc::clone(&path));
+                path
+            }
+        };
+
+        file_attrs.push((
+            row.address() as PhysAddr,
+            FileAttr {
+                path,
+                line: line.get() as usize,
+            },
+        ))
     }
 
+    Ok(())
+}
+
+impl Index {
     fn pdb_file(obj: &object::File<'_>) -> Option<std::fs::File> {
         let pdb = obj.pdb_info().ok()??;
         let path = std::str::from_utf8(pdb.path()).ok()?;
@@ -216,7 +241,79 @@ impl Index {
         std::fs::File::open(path).ok()
     }
 
-    pub fn parse_debug(&mut self, obj: &object::File<'_>) -> pdb::Result<()> {
+    pub fn parse_dwarf(
+        &mut self,
+        obj: &object::File<'_>,
+        sections: &[Section],
+    ) -> Result<(), Error> {
+        let endian = if obj.is_little_endian() {
+            gimli::RunTimeEndian::Little
+        } else {
+            gimli::RunTimeEndian::Big
+        };
+
+        // load an already decompressed and read section
+        let load_section = |id: gimli::SectionId| -> Result<&[u8], gimli::Error> {
+            let target_name = id.name();
+            match sections.iter().find(|section| section.name == target_name) {
+                Some(ref section) => Ok(&section.bytes[..]),
+                None => Ok(&[]),
+            }
+        };
+
+        // load all of the sections
+        let dwarf_ref = gimli::Dwarf::load(&load_section)?;
+
+        // create `EndianSlice`s for all of the sections
+        let dwarf = Arc::new(dwarf_ref.borrow(|section| gimli::EndianSlice::new(section, endian)));
+
+        // performance on all of this could be better, about 2x right now
+        std::thread::scope(|s| -> Result<_, gimli::Error> {
+            let path_cache = Arc::new(RwLock::new(HashSet::new()));
+
+            // iterate over the compilation units
+            let header_queue = Arc::new(SegQueue::new());
+            let mut iter = dwarf.units();
+            while let Some(header) = iter.next()? {
+                header_queue.push(header);
+            }
+
+            log::PROGRESS.set("Parsing dwarf.", header_queue.len());
+
+            let thread_count = std::thread::available_parallelism().unwrap().get();
+            let threads: Vec<_> = (0..thread_count)
+                .map(|_| {
+                    let path_cache = Arc::clone(&path_cache);
+                    let dwarf = Arc::clone(&dwarf);
+                    let header_queue = Arc::clone(&header_queue);
+
+                    s.spawn(move || -> Result<_, gimli::Error> {
+                        let mut file_attrs = Vec::new();
+
+                        while let Some(header) = header_queue.pop() {
+                            read_comp_unit(&path_cache, &dwarf, header, &mut file_attrs)?;
+                            log::PROGRESS.step();
+                        }
+
+                        Ok(file_attrs)
+                    })
+                })
+                .collect();
+
+            for thread in threads {
+                self.file_attrs.extend(thread.join().unwrap()?);
+            }
+
+            Ok(())
+        })?;
+
+        // keep files sorted so they can be binary searched
+        self.file_attrs.sort_unstable_by_key(|(addr, _)| *addr);
+
+        Ok(())
+    }
+
+    pub fn parse_symbols(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
         let mut symbols: Vec<(usize, &str)> = obj.symbols().filter_map(symbol_addr_name).collect();
 
         let base_addr = obj.relative_address_base() as usize;
@@ -257,20 +354,20 @@ impl Index {
         log::PROGRESS.set("Demangling symbols", symbols.len());
 
         // insert defined symbols
-        parallel_compute(symbols, &mut self.tree, |(addr, symbol)| {
+        parallel_compute(symbols, &mut self.symbols, |(addr, symbol)| {
             let func = Function::new(parser(symbol), None);
             log::PROGRESS.step();
             (*addr, Arc::new(func))
         });
 
         // count the number of function's that aren't compiler intrinsics
-        self.named_len = self.tree.iter().filter(|(_, func)| !func.intrinsic()).count();
+        self.named_len = self.symbols.iter().filter(|(_, func)| !func.intrinsic()).count();
 
         // only keep one symbol per address
-        self.tree.dedup_by_key(|(addr, _)| *addr);
+        self.symbols.dedup_by_key(|(addr, _)| *addr);
 
         // only keep valid symbols
-        self.tree.retain(|(addr, func)| {
+        self.symbols.retain(|(addr, func)| {
             if *addr == 0 {
                 return false;
             }
@@ -286,26 +383,26 @@ impl Index {
         self.insert(entrypoint, entry_func);
 
         // keep tree sorted so it can be binary searched
-        self.tree.sort_unstable_by_key(|(addr, _)| *addr);
+        self.symbols.sort_unstable_by_key(|(addr, _)| *addr);
 
-        log::PROGRESS.set("Building prefix tree", self.tree.len());
+        log::PROGRESS.set("Building prefix tree", self.symbols.len());
 
         // radix-prefix tree for fast lookups
-        for (_, func) in self.tree.iter() {
+        for (_, func) in self.symbols.iter() {
             self.trie.insert(func.name_as_str.clone(), func.clone());
             log::PROGRESS.step();
         }
 
         log::complex!(
             w "[index::parse_debug] found ",
-            g self.tree.len().to_string(),
+            g self.symbols.len().to_string(),
             w " symbols."
         );
 
         Ok(())
     }
 
-    pub fn parse_imports(&mut self, binary: &[u8], obj: &object::File<'_>) -> object::Result<()> {
+    pub fn parse_imports(&mut self, binary: &[u8], obj: &object::File<'_>) -> Result<(), Error> {
         match obj.format() {
             BinaryFormat::Pe => {
                 if obj.is_64() {
@@ -347,11 +444,11 @@ impl Index {
             _ => {}
         };
 
-        self.tree.sort_unstable_by_key(|k| k.0);
+        self.symbols.sort_unstable_by_key(|k| k.0);
         Ok(())
     }
 
-    fn parse_pe_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> object::Result<()> {
+    fn parse_pe_imports<H: ImageNtHeaders>(&mut self, binary: &[u8]) -> Result<(), Error> {
         let obj = PeFile::<H>::parse(binary)?;
 
         if let Some(import_table) = obj.import_table()? {
@@ -414,7 +511,7 @@ impl Index {
         Ok(())
     }
 
-    fn parse_elf_imports<H: FileHeader>(&mut self, binary: &[u8]) -> object::Result<()> {
+    fn parse_elf_imports<H: FileHeader>(&mut self, binary: &[u8]) -> Result<(), Error> {
         let obj = ElfFile::<H>::parse(binary)?;
 
         let relocations = match obj.dynamic_relocations() {
@@ -480,20 +577,20 @@ impl Index {
         Ok(())
     }
 
-    fn parse_macho_imports<H: MachHeader>(&mut self, _binary: &[u8]) -> object::Result<()> {
+    fn parse_macho_imports<H: MachHeader>(&mut self, _binary: &[u8]) -> Result<(), Error> {
         Ok(())
     }
 
     pub fn symbols(&self) -> impl Iterator<Item = &Arc<Function>> {
-        self.tree.iter().map(|x| &x.1)
+        self.symbols.iter().map(|x| &x.1)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tree.is_empty()
+        self.symbols.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.tree.len()
+        self.symbols.len()
     }
 
     pub fn named_len(&self) -> usize {
@@ -501,40 +598,46 @@ impl Index {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &(usize, Arc<Function>)> {
-        self.tree.iter()
+        self.symbols.iter()
     }
 
-    pub fn get_by_addr(&self, addr: usize) -> Option<Arc<Function>> {
-        let search = self.tree.binary_search_by(|x| x.0.cmp(&addr));
+    pub fn get_file(&self, addr: usize) -> Option<&FileAttr> {
+        let search = self.file_attrs.binary_search_by(|x| x.0.cmp(&addr));
 
         match search {
-            Ok(idx) => Some(self.tree[idx].1.clone()),
+            Ok(idx) => Some(&self.file_attrs[idx].1),
+            Err(..) => None,
+        }
+    }
+
+    pub fn get_by_addr(&self, addr: PhysAddr) -> Option<Arc<Function>> {
+        let search = self.symbols.binary_search_by(|x| x.0.cmp(&addr));
+
+        match search {
+            Ok(idx) => Some(self.symbols[idx].1.clone()),
             Err(..) => None,
         }
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<(usize, Arc<Function>)> {
-        self.tree
+        self.symbols
             .iter()
             .find(|(_, func)| func.as_str() == name)
             .map(|(addr, func)| (*addr, func.clone()))
     }
 
     pub fn prefix_match(&self, prefix: &str) -> Vec<String> {
-        let arc_prefix = ArcStr {
-            inner: Arc::from(prefix),
-        };
-
+        let arc_prefix = ArcStr::new(prefix);
         let desc = match self.trie.get_raw_descendant(&arc_prefix) {
             Some(desc) => desc.keys().collect(),
-            None => Vec::new()
+            None => Vec::new(),
         };
 
         sort_by_shortest_match(&desc, prefix)
     }
 
-    pub fn insert(&mut self, addr: usize, function: Function) {
-        self.tree.push((addr, Arc::new(function)));
+    pub fn insert(&mut self, addr: PhysAddr, function: Function) {
+        self.symbols.push((addr, Arc::new(function)));
     }
 }
 

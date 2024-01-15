@@ -1,12 +1,12 @@
 [package]
-name = "disassembler"
+name = "processor"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-pdb = "0.8"
 object = { workspace = true }
 log = { path = "../log" }
+processor_types = { path = "../processor_types" }
 tokenizing = { path = "../tokenizing" }
 symbols = { path = "../symbols" }
 decoder = { path = "../decoder" }
@@ -14,6 +14,3 @@ arm = { path = "../decoder-arm" }
 x86_64 = { path = "../decoder-x86_64" }
 riscv = { path = "../decoder-riscv" }
 mips = { path = "../decoder-mips" }
-
-[dev-dependencies]
-egui = { workspace = true }
