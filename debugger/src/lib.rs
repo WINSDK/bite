@@ -1,5 +1,6 @@
 use crossbeam_queue::SegQueue;
-use disassembler::{PhysAddr, VirtAddr, Processor};
+use processor::Processor;
+use processor_types::{PhysAddr, VirtAddr};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -74,7 +75,7 @@ where
 /// Common behaviour shared amongst debugging sessions.
 pub trait Tracing {
     /// Create debugger's hooks onto process.
-    fn attach(&mut self);
+    fn attach(&mut self) -> Result<(), Error>;
 
     /// Remove debugger's hooks from process, releasing it's control.
     fn detach(&mut self);

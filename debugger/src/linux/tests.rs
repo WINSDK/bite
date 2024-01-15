@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::*;
-use disassembler::Processor;
+use processor::Processor;
 
 #[test]
 fn spawn_sh() {
@@ -13,7 +13,7 @@ fn spawn_sh() {
     };
     let desc = DebuggerDescriptor {
         args: vec!["-c", "echo 10"],
-        module: Arc::new(Processor::parse_unknown("/bin/sh").unwrap()),
+        module: Arc::new(Processor::parse("/bin/sh").unwrap()),
     };
     let session = Debugger::spawn(settings, desc).unwrap();
 
@@ -31,7 +31,7 @@ fn spawn_sleep_invalid() {
         env: Vec::<String>::new(),
     };
     let desc = DebuggerDescriptor {
-        module: Arc::new(Processor::parse_unknown("/bin/sleep").unwrap()),
+        module: Arc::new(Processor::parse("/bin/sleep").unwrap()),
         args: vec![],
     };
     let session = Debugger::spawn(settings, desc).unwrap();

@@ -1,6 +1,7 @@
+use super::Error;
 use std::fmt;
 
-impl fmt::Debug for super::Error {
+impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidPathName => f.write_str("There appears to be a '\\0' in the path name."),
@@ -14,7 +15,20 @@ impl fmt::Debug for super::Error {
             Self::IncompleteWrite(req, res) => f.write_fmt(format_args!(
                 "Tried to write {req} bytes, only wrote {res}."
             )),
+            Self::Procfs(err) => f.write_fmt(format_args!("Debugger failed with {err}.")),
             Self::Kernel(err) => f.write_fmt(format_args!("Debugger failed with {err}")),
         }
+    }
+}
+
+impl From<nix::Error> for Error {
+    fn from(error: nix::Error) -> Self {
+        Error::Kernel(error)
+    }
+}
+
+impl From<procfs::ProcError> for Error {
+    fn from(error: procfs::ProcError) -> Self {
+        Error::Procfs(error)
     }
 }

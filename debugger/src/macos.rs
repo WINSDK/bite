@@ -1,4 +1,6 @@
-use crate::{Context, Debuggable, PhysAddr, Tracing, VirtAddr, DebuggerSettings, DebuggerDescriptor};
+use crate::{
+    Context, Debuggable, DebuggerDescriptor, DebuggerSettings, PhysAddr, Tracing, VirtAddr,
+};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -35,8 +37,7 @@ impl Debuggable for Debugger {
     }
 }
 
-pub struct Process {
-}
+pub struct Process {}
 
 impl Tracing for Process {
     fn attach(&mut self) {

@@ -11,12 +11,12 @@ use nix::unistd::{execvpe, fork, ForkResult};
 use procfs::process::MemoryMap;
 
 use crate::{
-    collections::Tree, BreakpointOp, Context, DebugeeEvent, Debuggable, DebuggerEvent, ExitCode,
-    PhysAddr, Tracing, VirtAddr, DebuggerSettings, DebuggerDescriptor
+    collections::Tree, BreakpointOp, Context, DebugeeEvent, Debuggable, DebuggerDescriptor,
+    DebuggerEvent, DebuggerSettings, ExitCode, PhysAddr, Tracing, VirtAddr,
 };
-use disassembler::Processor;
+use processor::Processor;
 
-mod fmt;
+mod error;
 mod ioctl;
 mod tests;
 mod trace;
@@ -24,13 +24,13 @@ mod trace;
 pub type Tid = nix::unistd::Pid;
 pub type Pid = nix::unistd::Pid;
 
-#[derive(PartialEq)]
 pub enum Error {
     InvalidPathName,
     PermissionDenied,
     ProcessLost(Pid),
     IncompleteRead(usize, usize),
     IncompleteWrite(usize, usize),
+    Procfs(procfs::ProcError),
     Kernel(nix::errno::Errno),
 }
 
@@ -43,19 +43,11 @@ enum State {
 }
 
 fn procfs_process(pid: Pid) -> Result<procfs::process::Process, Error> {
-    match procfs::process::Process::new(pid.as_raw()) {
-        Err(procfs::ProcError::PermissionDenied(_)) => return Err(Error::PermissionDenied),
-        Err(procfs::ProcError::NotFound(_)) => return Err(Error::ProcessLost(pid)),
-        Err(..) => unreachable!(),
-        Ok(proc) => Ok(proc),
-    }
+    Ok(procfs::process::Process::new(pid.as_raw())?)
 }
 
 fn read_memory_maps(proc: &procfs::process::Process) -> Result<Vec<MemoryMap>, Error> {
-    Ok(proc
-        .maps()
-        .unwrap_or_else(|_| panic!("Failed to open memory map of {proc:?}"))
-        .0)
+    Ok(proc.maps().map(|map| map.0)?)
 }
 
 fn executable_name(path: &Path) -> String {
@@ -101,7 +93,7 @@ impl Process {
             // distinguish regular SIGTRAP's from syscalls
             | ptrace::Options::PTRACE_O_TRACESYSGOOD;
 
-        ptrace::setoptions(self.id, options).map_err(Error::Kernel)?;
+        ptrace::setoptions(self.id, options)?;
         self.state = State::Running;
 
         Ok(())
@@ -109,8 +101,8 @@ impl Process {
 }
 
 impl Tracing for Process {
-    fn attach(&mut self) {
-        let _ = ptrace::attach(self.id);
+    fn attach(&mut self) -> Result<(), Error> {
+        Ok(ptrace::attach(self.id)?)
     }
     fn detach(&mut self) {
         // ignore the result since detaching can't fail
@@ -133,7 +125,7 @@ impl Tracing for Process {
         let sig = std::mem::take(&mut self.unprocessed_signal);
 
         // ignore the result since continuing a process can't fail
-        let _ = ptrace::syscall(self.id, sig).unwrap();
+        let _ = ptrace::syscall(self.id, sig);
     }
 
     fn read_memory(&self, addr: VirtAddr, len: usize) -> Result<Vec<u8>, Error> {
@@ -144,8 +136,7 @@ impl Tracing for Process {
         let local = std::io::IoSliceMut::new(uninit);
         let remote = nix::sys::uio::RemoteIoVec { base: addr, len };
 
-        let bytes_read = nix::sys::uio::process_vm_readv(self.id, &mut [local], &[remote])
-            .map_err(Error::Kernel)?;
+        let bytes_read = nix::sys::uio::process_vm_readv(self.id, &mut [local], &[remote])?;
 
         if len != bytes_read {
             return Err(Error::IncompleteRead(len, bytes_read));
@@ -163,8 +154,7 @@ impl Tracing for Process {
             len: data.len(),
         };
 
-        let bytes_wrote = nix::sys::uio::process_vm_writev(self.id, &[local], &[remote])
-            .map_err(Error::Kernel)?;
+        let bytes_wrote = nix::sys::uio::process_vm_writev(self.id, &[local], &[remote])?;
 
         if data.len() != bytes_wrote {
             return Err(Error::IncompleteWrite(data.len(), bytes_wrote));
@@ -184,7 +174,7 @@ impl Tracing for Process {
             let chunk = u32::from_ne_bytes(chunk.try_into().unwrap());
 
             unsafe {
-                ptrace::write(self.id, addr, chunk as *mut c_void).map_err(Error::Kernel)?;
+                ptrace::write(self.id, addr, chunk as *mut c_void)?;
             }
         }
 
@@ -285,7 +275,7 @@ impl Debugger {
     }
 
     fn handle_syscall(&mut self, pid: Pid) -> Result<(), Error> {
-        let syscall = ptrace::getsyscallinfo(pid).map_err(Error::Kernel)?;
+        let syscall = ptrace::getsyscallinfo(pid)?;
 
         match syscall.op {
             ptrace::SyscallInfoOp::Entry { nr, args } => {
@@ -352,7 +342,7 @@ impl Debugger {
             }
             WaitStatus::Signaled(pid, signal, ..) => {
                 self.procs.remove(pid);
-                log::trace!("[debugger::event] child exited by signal: {signal:?}.");
+                log::trace!("[debugger::event] child exited by signal {signal}.");
             }
             WaitStatus::Exited(pid, code) => {
                 self.exit_code = code;
@@ -365,19 +355,22 @@ impl Debugger {
 
                 // if a new child was created, store it as the child of it's parent
                 if event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK {
-                    let created_pid = ptrace::getevent(pid).map_err(Error::Kernel)?;
+                    let created_pid = ptrace::getevent(pid)?;
                     let created_pid = nix::unistd::Pid::from_raw(created_pid as i32);
 
-                    let parent_proc = self.procs.get_mut(pid)?;
-                    let ident = parent_proc.ident.clone();
+                    let ident = {
+                        let parent_proc = self.procs.get_mut(pid)?;
+                        parent_proc.ident.clone()
+                    };
                     let mut proc = Process::stopped(created_pid, ident)?;
+                    dbg!(pid, created_pid);
 
                     proc.tracing = self.follow_children;
-                    proc.attach();
+                    proc.attach()?;
                     proc.configure()?;
                     proc.kontinue();
 
-                    self.procs.push_child(&pid, created_pid, proc);
+                    self.procs.push_child(pid, created_pid, proc);
                 }
 
                 let parent_proc = self.procs.get_mut(pid)?;
@@ -448,8 +441,7 @@ impl Debugger {
             // wait for child to give send a message
             let pids: Vec<Pid> = self.procs.values().map(|proc| proc.id).collect();
             for pid in pids {
-                let status = waitpid(pid, Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED))
-                    .map_err(Error::Kernel)?;
+                let status = waitpid(pid, Some(WaitPidFlag::WNOHANG | WaitPidFlag::WSTOPPED))?;
 
                 if status == WaitStatus::StillAlive {
                     continue;
@@ -503,7 +495,7 @@ impl Debuggable for Debugger {
             execvpe(&c_path, &c_args, &c_env)
         };
 
-        match unsafe { fork().map_err(Error::Kernel)? } {
+        match unsafe { fork()? } {
             ForkResult::Parent { child } => Debugger::new(child, settings, desc),
             ForkResult::Child => {
                 let _ = exec_child();
@@ -519,7 +511,7 @@ impl Debuggable for Debugger {
         settings: DebuggerSettings<S>,
         desc: DebuggerDescriptor<S>,
     ) -> Result<Self, Error> {
-        ptrace::attach(pid).map_err(Error::Kernel)?;
+        ptrace::attach(pid)?;
         let mut debugger = Debugger::new(pid, settings, desc)?;
         debugger.remote = true;
         Ok(debugger)

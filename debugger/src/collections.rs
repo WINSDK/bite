@@ -51,8 +51,8 @@ impl<V> Tree<V> {
         self.root.as_ref().and_then(|root| self.nodes.get_mut(root)).unwrap()
     }
 
-    pub fn push_child(&mut self, parent: &Pid, key: Pid, value: V) {
-        let parent_node = self.nodes.get_mut(parent).expect("Failed to find parent.");
+    pub fn push_child(&mut self, parent: Pid, key: Pid, value: V) {
+        let parent_node = self.nodes.get_mut(&parent).expect("Failed to find parent.");
 
         parent_node.children.push(key);
         self.nodes.insert(key, Node::new(value));
