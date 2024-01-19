@@ -22,7 +22,6 @@ pub struct Source {
 
 struct Line {
     number: String,
-    highlighted: bool,
     sections: Vec<HighlightedSection>,
 }
 
@@ -44,7 +43,8 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
                 if let Some(style) = styles.last() {
                     sections.push(HighlightedSection {
                         range: start..end,
-                        color: CONFIG.colors.get_by_style(style),
+                        fg_color: CONFIG.colors.get_by_style(style),
+                        bg_color: Color32::TRANSPARENT,
                     });
                 }
             }
@@ -69,7 +69,8 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
             // this is a non-highlighted section
             sections.push(HighlightedSection {
                 range: last_end..section.range.start,
-                color: Color32::WHITE,
+                fg_color: Color32::WHITE,
+                bg_color: Color32::TRANSPARENT,
             });
         }
         last_end = section_end;
@@ -79,7 +80,8 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
     if last_end < src.len() {
         sections.push(HighlightedSection {
             range: last_end..src.len(),
-            color: Color32::WHITE,
+            fg_color: Color32::WHITE,
+            bg_color: Color32::TRANSPARENT,
         });
     }
 
@@ -93,16 +95,15 @@ fn find_matching_sections(
     sections: &[HighlightedSection],
 ) -> Vec<HighlightedSection> {
     let line_end = offset + line.len() + 1;
-
     sections
         .iter()
         .filter(|s| {
-            // Check if there is any overlap between the section and the current line
+            // check if there is any overlap between the section and the current line
             s.range.start < line_end && s.range.end > offset
         })
         .cloned()
         .map(|mut s| {
-            // Adjust the range of the section to fit within the current line
+            // adjust the range of the section to fit within the current line
             s.range.start = s.range.start.max(offset);
             s.range.end = s.range.end.min(line_end);
             s
@@ -114,18 +115,25 @@ impl Source {
     pub fn new(src: String, file_attr: &FileAttr) -> Self {
         let max_width = (src.lines().count().ilog10() + 1) as usize;
         let mut lines = Vec::new();
-
         let sections = compute_sections(&file_attr.path, &src);
 
         let mut offset = 0;
         for (idx, line) in src.lines().enumerate() {
-            let idx = idx + 1;
-            lines.push(Line {
+            let line_nr = idx + 1;
+            let line_len = line.len();
+            let mut line = Line {
                 number: format!("{idx:max_width$} \n"),
-                highlighted: idx == file_attr.line,
                 sections: find_matching_sections(line, offset, &sections),
-            });
-            offset += line.len() + 1;
+            };
+
+            if line_nr == file_attr.line {
+                for section in line.sections.iter_mut() {
+                    section.bg_color = Color32::RED;
+                }
+            }
+
+            lines.push(line);
+            offset += line_len + 1;
         }
 
         Self {
@@ -146,7 +154,8 @@ impl Source {
                     &self.src[section.range.clone()],
                     0.0,
                     egui::TextFormat {
-                        color: section.color,
+                        color: section.fg_color,
+                        background: section.bg_color,
                         font_id: FONT,
                         ..Default::default()
                     },
@@ -248,7 +257,8 @@ impl LanguageConfig<'_> {
 #[derive(Clone, Debug)]
 struct HighlightedSection {
     range: Range<usize>,
-    color: Color32,
+    fg_color: Color32,
+    bg_color: Color32,
 }
 
 impl PartialOrd for HighlightedSection {
