@@ -1,40 +1,5 @@
 #![allow(dead_code)]
 
-// Example highlighting code:
-//
-// ```
-// #[derive(Default)]
-// struct Highlighter {
-//     tokens: Vec<Token>,
-// }
-// pub fn highlight(ctx: &egui::Context, s: &str, tokens: &[Token]) -> LayoutJob {
-//     impl egui::util::cache::ComputerMut<(&str, &[Token]), LayoutJob> for Highlighter {
-//         fn compute(&mut self, (_, tokens): (&str, &[Token])) -> LayoutJob {
-//             let mut output = LayoutJob::default();
-//             for token in tokens {
-//                 output.append(
-//                     &*token.text,
-//                     0.0,
-//                     egui::TextFormat {
-//                         color: token.color,
-//                         ..Default::default()
-//                     }
-//                 );
-//             }
-//             output
-//         }
-//     }
-//
-//     type HighlightCache = egui::util::cache::FrameCache<LayoutJob, Highlighter>;
-//
-//     ctx.memory_mut(|mem| {
-//         mem.caches
-//             .cache::<HighlightCache>()
-//             .get((s, tokens))
-//     })
-// }
-// ```
-
 use crate::style::EGUI;
 use crate::widgets::TextEdit;
 

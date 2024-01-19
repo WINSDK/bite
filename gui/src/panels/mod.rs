@@ -147,9 +147,8 @@ impl Panels {
             None => return,
         };
 
-        if let Ok(data) = std::fs::read(&file_attr.path) {
-            let src = String::from_utf8_lossy(&data);
-            let src = source_code::Source::new(src, file_attr.line);
+        if let Ok(src) = std::fs::read_to_string(&file_attr.path) {
+            let src = source_code::Source::new(src, file_attr);
             self.tabs.mapping.insert(SOURCE, PanelKind::Source(src));
             self.goto_window(SOURCE);
         }

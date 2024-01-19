@@ -45,7 +45,6 @@ fn main() {
 
         if let Err(err) = index.parse_imports(&obj) {
             eprintln!("{err}");
-            std::process::exit(0);
         }
 
         if index.is_empty() {
@@ -72,12 +71,10 @@ fn main() {
 
         if let Err(err) = index.parse_symbols(&obj) {
             eprintln!("{err}");
-            std::process::exit(1);
         }
 
         if let Err(err) = index.parse_pdb(&obj) {
             eprintln!("{err}");
-            std::process::exit(1);
         }
 
         index.complete();

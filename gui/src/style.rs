@@ -203,6 +203,7 @@ pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
         },
         hline_below_active_tab_name: false,
         minimum_width: None,
+        ..Default::default()
     },
     overlay: egui_dock::OverlayStyle {
         selection_color: STYLE.primary_background,

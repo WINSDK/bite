@@ -7,4 +7,9 @@ edition = "2021"
 triple_accel = "0.4"
 dirs = "5"
 symbols = { path = "../symbols" }
+log = { path = "../log" }
 once_cell = { workspace = true }
+egui = { workspace = true }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"

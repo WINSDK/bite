@@ -10,12 +10,18 @@ bytemuck = { version = "1.14", default-features = false }
 winit = { version = "0.29", features = ["rwh_05"] } # remove this feature when gpu 0.19 comes out
 wgpu = { version = "0.18" }
 egui = { workspace = true }
-egui_dock = "0.9"
+egui_dock = "0.10"
 copypasta = "0.10"
 once_cell = { workspace = true }
 png = "0.17"
 pollster = "0.3.0"
 crossbeam-queue = { workspace = true }
+
+tree-sitter = "0.20"
+tree-sitter-c = "0.20"
+tree-sitter-cpp = "0.20"
+tree-sitter-rust = "0.20"
+tree-sitter-highlight = "0.20"
 
 log = { path = "../log" }
 commands = { path = "../commands" }
@@ -24,3 +30,6 @@ debugger = { path = "../debugger" }
 symbols = { path = "../symbols" }
 processor = { path = "../processor" }
 processor_types = { path = "../processor_types" }
+
+[build-dependencies]
+cc = "1" # tree-sitter requirement
