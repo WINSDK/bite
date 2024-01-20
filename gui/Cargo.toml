@@ -20,7 +20,7 @@ crossbeam-queue = { workspace = true }
 tree-sitter = "0.20"
 tree-sitter-c = "0.20"
 tree-sitter-cpp = "0.20"
-tree-sitter-rust = "0.20"
+tree-sitter-rust = { version = "0.20", git = "https://github.com/WINSDK/tree-sitter-rust" }
 tree-sitter-highlight = "0.20"
 
 log = { path = "../log" }

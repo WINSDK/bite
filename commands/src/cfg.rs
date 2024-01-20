@@ -1,6 +1,6 @@
-use serde::Deserialize;
-use serde::de::{self, Deserializer, Visitor};
 use egui::Color32;
+use serde::de::{self, Deserializer, Visitor};
+use serde::Deserialize;
 use std::fmt;
 
 #[derive(Deserialize)]
@@ -11,43 +11,67 @@ pub struct Config {
 #[derive(Deserialize)]
 pub struct Colors {
     #[serde(default = "defaults::keyword", deserialize_with = "color32")]
-    pub keyword: Color32,
-    #[serde(default = "defaults::tipe", deserialize_with = "color32", rename = "type")]
-    pub tipe: Color32,
-    #[serde(default = "defaults::constructor", deserialize_with = "color32")]
-    pub constructor: Color32,
-    #[serde(default = "defaults::constructor", deserialize_with = "color32")]
-    pub property: Color32,
+    keyword: Color32,
+    #[serde(default = "defaults::tipe", deserialize_with = "color32")]
+    tipe: Color32,
+    #[serde(default = "defaults::field", deserialize_with = "color32")]
+    field: Color32,
     #[serde(default = "defaults::function", deserialize_with = "color32")]
-    pub function: Color32,
+    function: Color32,
     #[serde(default = "defaults::delimiter", deserialize_with = "color32")]
-    pub delimiter: Color32,
+    delimiter: Color32,
+    #[serde(default = "defaults::operator", deserialize_with = "color32")]
+    operator: Color32,
+    #[serde(default = "defaults::comment", deserialize_with = "color32")]
+    comment: Color32,
+    #[serde(default = "defaults::string", deserialize_with = "color32")]
+    string: Color32,
+    #[serde(default = "defaults::variable", deserialize_with = "color32")]
+    variable: Color32,
+    #[serde(default = "defaults::constant", deserialize_with = "color32")]
+    constant: Color32,
 }
 
 impl Colors {
     pub fn get_by_style(&self, style: &str) -> Color32 {
+        if style.starts_with("none") {
+            return defaults::anything();
+        }
         if style.starts_with("keyword") {
             return self.keyword;
         }
-
         if style.starts_with("function") {
             return self.function;
         }
-
         if style.starts_with("type") {
             return self.tipe;
         }
-
-        if style.starts_with("constructor") {
-            return self.constructor;
-        }
-
-        if style.starts_with("property") {
-            return self.property;
-        }
-
         if style.starts_with("punctuation") {
             return self.delimiter;
+        }
+        if style.starts_with("operator") {
+            return self.operator;
+        }
+        if style.starts_with("comment") {
+            return self.comment;
+        }
+        if style.starts_with("string") {
+            return self.string;
+        }
+        if style.starts_with("variable.member") {
+            return self.field;
+        }
+        if style.starts_with("variable.builtin") {
+            return self.variable;
+        }
+        if style.starts_with("variable") {
+            return self.variable;
+        }
+        if style.starts_with("escape") {
+            return self.string;
+        }
+        if style.starts_with("number") || style == "boolean" {
+            return self.constant;
         }
 
         log::complex!(
@@ -55,27 +79,46 @@ impl Colors {
             y format!("{style} is missing a highlighting implementation."),
         );
 
-        Color32::WHITE
+        defaults::anything()
     }
 }
 
 mod defaults {
     use egui::Color32;
 
+    pub fn anything() -> Color32 {
+        Color32::from_rgb(200, 200, 200)
+    }
+
     pub fn keyword() -> Color32 {
-        Color32::LIGHT_RED
+        Color32::from_hex("#FF5900").unwrap()
     }
     pub fn tipe() -> Color32 {
-        Color32::YELLOW
+        Color32::from_hex("#FAA51B").unwrap()
     }
-    pub fn constructor() -> Color32 {
-        Color32::LIGHT_BLUE
+    pub fn field() -> Color32 {
+        Color32::from_hex("#288CC7").unwrap()
     }
     pub fn function() -> Color32 {
-        Color32::GREEN
+        Color32::from_hex("#02ED6E").unwrap()
     }
     pub fn delimiter() -> Color32 {
         Color32::GRAY
+    }
+    pub fn operator() -> Color32 {
+        Color32::from_hex("#FFA500").unwrap()
+    }
+    pub fn comment() -> Color32 {
+        Color32::GRAY
+    }
+    pub fn string() -> Color32 {
+        Color32::from_hex("#02ED6E").unwrap()
+    }
+    pub fn variable() -> Color32 {
+        Color32::from_hex("#D46CCB").unwrap()
+    }
+    pub fn constant() -> Color32 {
+        Color32::from_hex("#9B51C2").unwrap()
     }
 }
 

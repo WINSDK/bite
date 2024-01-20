@@ -26,12 +26,33 @@ struct Line {
 }
 
 fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSection> {
-    let lang_cfg = LanguageConfig::guess(path).expect("Failed to guess langauge");
-    let highlight_cfg = lang_cfg.highlight_cfg().unwrap();
+    let lang_cfg = match LanguageConfig::guess(path) {
+        Some(cfg) => cfg,
+        None => {
+            log::complex!(
+                w "[source::compute_sections] ",
+                y "failed to guess source code language."
+            );
 
+            return Vec::new();
+        }
+    };
+
+    let highlight_cfg = lang_cfg.highlight_cfg().unwrap();
     let mut highlighter = Highlighter::new();
-    let highlight_events =
-        highlighter.highlight(&highlight_cfg, src.as_bytes(), None, |_| None).unwrap();
+
+    let highlight_events = highlighter.highlight(&highlight_cfg, src.as_bytes(), None, |_| None);
+    let highlight_events = match highlight_events {
+        Ok(events) => events,
+        Err(err) => {
+            log::complex!(
+                w "[source::compute_sections] ",
+                y format!("source code highlighting failed: '{err}'.")
+            );
+
+            return Vec::new();
+        }
+    };
 
     let names = highlight_cfg.names();
     let mut styles = Vec::<&str>::new();
@@ -54,7 +75,7 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
             Ok(HighlightEvent::HighlightEnd) => {
                 styles.pop();
             }
-            Err(err) => eprintln!("{err}"),
+            Err(_) => {}
         }
     }
 
@@ -69,7 +90,7 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
             // this is a non-highlighted section
             sections.push(HighlightedSection {
                 range: last_end..section.range.start,
-                fg_color: Color32::WHITE,
+                fg_color: CONFIG.colors.get_by_style("none"),
                 bg_color: Color32::TRANSPARENT,
             });
         }
@@ -122,7 +143,7 @@ impl Source {
             let line_nr = idx + 1;
             let line_len = line.len();
             let mut line = Line {
-                number: format!("{idx:max_width$} \n"),
+                number: format!("{line_nr:max_width$} \n"),
                 sections: find_matching_sections(line, offset, &sections),
             };
 
@@ -208,7 +229,6 @@ struct LanguageConfig<'a> {
     highlights_query: &'a str,
     injection_query: Option<&'a str>,
     locals_query: Option<&'a str>,
-    names_override: &'a [&'a str],
 }
 
 impl LanguageConfig<'_> {
@@ -218,22 +238,19 @@ impl LanguageConfig<'_> {
                 lang: tree_sitter_rust::language(),
                 highlights_query: tree_sitter_rust::HIGHLIGHT_QUERY,
                 injection_query: Some(tree_sitter_rust::INJECTIONS_QUERY),
-                locals_query: None,
-                names_override: &[],
+                locals_query: Some(tree_sitter_rust::LOCALS_QUERY),
             },
             Some("c") => Self {
                 lang: tree_sitter_c::language(),
                 highlights_query: tree_sitter_c::HIGHLIGHT_QUERY,
                 injection_query: None,
                 locals_query: None,
-                names_override: &[],
             },
             Some("cc" | "cpp" | "h" | "hh" | "hpp" | "cxx" | "cu") => Self {
                 lang: tree_sitter_cpp::language(),
                 highlights_query: tree_sitter_cpp::HIGHLIGHT_QUERY,
                 injection_query: None,
                 locals_query: None,
-                names_override: &[],
             },
             None | Some(_) => return None,
         })
@@ -246,10 +263,7 @@ impl LanguageConfig<'_> {
             self.injection_query.unwrap_or_default(),
             self.locals_query.unwrap_or_default(),
         )?;
-        match &self.names_override {
-            &[_, ..] => cfg.configure(self.names_override),
-            &[] => cfg.configure(&cfg.query.capture_names().to_vec()),
-        }
+        cfg.configure(&cfg.query.capture_names().to_vec());
         Ok(cfg)
     }
 }
