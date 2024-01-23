@@ -243,14 +243,14 @@ impl LanguageConfig<'_> {
             Some("c") => Self {
                 lang: tree_sitter_c::language(),
                 highlights_query: tree_sitter_c::HIGHLIGHT_QUERY,
-                injection_query: None,
-                locals_query: None,
+                injection_query: Some(tree_sitter_c::INJECTIONS_QUERY),
+                locals_query: Some(tree_sitter_c::LOCALS_QUERY),
             },
             Some("cc" | "cpp" | "h" | "hh" | "hpp" | "cxx" | "cu") => Self {
                 lang: tree_sitter_cpp::language(),
                 highlights_query: tree_sitter_cpp::HIGHLIGHT_QUERY,
-                injection_query: None,
-                locals_query: None,
+                injection_query: Some(tree_sitter_cpp::INJECTIONS_QUERY),
+                locals_query: Some(tree_sitter_cpp::LOCALS_QUERY),
             },
             None | Some(_) => return None,
         })

@@ -5,6 +5,7 @@ use std::fmt;
 
 #[derive(Deserialize)]
 pub struct Config {
+    #[serde(default = "defaults::colors")]
     pub colors: Colors,
 }
 
@@ -34,16 +35,16 @@ pub struct Colors {
 
 impl Colors {
     pub fn get_by_style(&self, style: &str) -> Color32 {
-        if style.starts_with("none") {
+        if style.starts_with("none") || style == "_parent" {
             return defaults::anything();
         }
-        if style.starts_with("keyword") {
+        if style.starts_with("keyword") || style.starts_with("module") {
             return self.keyword;
         }
         if style.starts_with("function") {
             return self.function;
         }
-        if style.starts_with("type") {
+        if style.starts_with("type") || style.starts_with("property") {
             return self.tipe;
         }
         if style.starts_with("punctuation") {
@@ -58,19 +59,13 @@ impl Colors {
         if style.starts_with("string") {
             return self.string;
         }
-        if style.starts_with("variable.member") {
-            return self.field;
-        }
-        if style.starts_with("variable.builtin") {
-            return self.variable;
-        }
-        if style.starts_with("variable") {
+        if style.starts_with("variable"){
             return self.variable;
         }
         if style.starts_with("escape") {
             return self.string;
         }
-        if style.starts_with("number") || style == "boolean" {
+        if style.starts_with("number") || style.starts_with("constant") || style == "boolean" {
             return self.constant;
         }
 
@@ -85,6 +80,10 @@ impl Colors {
 
 mod defaults {
     use egui::Color32;
+
+    pub fn colors() -> super::Colors {
+        serde_yaml::from_str("").unwrap()
+    }
 
     pub fn anything() -> Color32 {
         Color32::from_rgb(200, 200, 200)
