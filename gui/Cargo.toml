@@ -7,8 +7,8 @@ edition = "2021"
 rfd = "0.12"
 dirs = "5"
 bytemuck = { version = "1.14", default-features = false }
-winit = { version = "0.29", features = ["rwh_05"] } # remove this feature when gpu 0.19 comes out
-wgpu = { version = "0.18" }
+winit = { version = "0.29"}
+wgpu = { version = "0.19" }
 egui = { workspace = true }
 egui_dock = "0.10"
 copypasta = "0.10"

@@ -102,10 +102,10 @@ impl UIQueue {
 
 pub struct UI<Arch: Target> {
     arch: Arch,
-    window: Arc<Window>,
+    window: &'static Window, // Box::leak'd
     event_loop: Option<EventLoop<WinitEvent>>,
     panels: panels::Panels,
-    instance: wgpu_backend::Instance,
+    instance: wgpu_backend::Instance<'static>,
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
     ui_queue: Arc<UIQueue>,
@@ -119,7 +119,8 @@ impl<Arch: Target> UI<Arch> {
             .build()
             .map_err(Error::EventLoopCreation)?;
 
-        let window = Arc::new(Arch::create_window("bite", 1200, 800, &event_loop)?);
+        let window = Arch::create_window("bite", 1200, 800, &event_loop)?;
+        let window: &'static Window = Box::leak(Box::new(window));
 
         #[cfg(target_family = "windows")]
         let arch = Arch::new(windows::ArchDescriptor {

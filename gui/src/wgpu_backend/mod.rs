@@ -22,16 +22,16 @@ impl ScreenDescriptor {
     }
 }
 
-pub struct Instance {
+pub struct Instance<'a> {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'a>,
     surface_cfg: wgpu::SurfaceConfiguration,
     staging_belt: wgpu::util::StagingBelt,
 }
 
-impl Instance {
-    pub fn new(window: &crate::Window) -> Result<Self, Error> {
+impl<'window> Instance<'window> {
+    pub fn new(window: &'window crate::Window) -> Result<Self, Error> {
         let backends = if cfg!(target_os = "windows") || cfg!(target_os = "linux") {
             wgpu::Backends::VULKAN
         } else {
@@ -45,7 +45,10 @@ impl Instance {
         }
     }
 
-    fn new_with_backends(window: &crate::Window, backends: wgpu::Backends) -> Result<Self, Error> {
+    fn new_with_backends(
+        window: &'window crate::Window,
+        backends: wgpu::Backends,
+    ) -> Result<Self, Error> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
@@ -53,7 +56,7 @@ impl Instance {
             gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
 
-        let surface = unsafe { instance.create_surface(&window).map_err(Error::SurfaceCreation)? };
+        let surface = instance.create_surface(window).map_err(Error::SurfaceCreation)?;
 
         let adapter_options = wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -66,8 +69,8 @@ impl Instance {
 
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("bite::gui device"),
-            features: wgpu::Features::empty(),
-            limits: wgpu::Limits::downlevel_defaults(),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
         };
 
         let (device, queue) = pollster::block_on(adapter.request_device(&device_desc, None))
@@ -100,6 +103,7 @@ impl Instance {
             present_mode,
             alpha_mode,
             view_formats: Vec::new(),
+            desired_maximum_frame_latency: 2,
         };
 
         surface.configure(&device, &surface_cfg);
