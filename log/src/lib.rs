@@ -290,29 +290,38 @@ macro_rules! complex {
     }};
 }
 
-pub static LOGGER: Mutex<Logger<300>> = Mutex::new(Logger::new());
+pub static LOGGER: Mutex<Logger<1000>> = Mutex::new(Logger::new());
 
-type Line = (String, Color);
+type Segment = (String, Color);
 
 pub struct Logger<const N: usize> {
-    lines: [Line; N],
+    segments: [Segment; N],
     head: usize,
     len: usize,
 }
 
 impl<const N: usize> Logger<N> {
     const fn new() -> Self {
-        const EMPTY_LINE: Line = (String::new(), Color::White);
+        const EMPTY_SEGMENT: Segment = (String::new(), Color::White);
 
         Self {
-            lines: [EMPTY_LINE; N],
+            segments: [EMPTY_SEGMENT; N],
             head: 0,
             len: 0,
         }
     }
 
     pub fn append(&mut self, line: impl Into<String>, color: Color) {
-        self.lines[self.head] = (line.into(), color);
+        let line = line.into();
+
+        // if a line of the same length is being appended
+        if self.segments[self.head.saturating_sub(1)].0.len() == line.len() {
+            if self.segments[self.head.saturating_sub(1)].0 == line {
+                return;
+            }
+        }
+
+        self.segments[self.head] = (line, color);
         self.head = (self.head + 1) % N;
         self.len += 1;
     }
@@ -322,12 +331,12 @@ impl<const N: usize> Logger<N> {
         self.head = 0;
     }
 
-    fn lines(&self) -> impl Iterator<Item = &Line> {
+    fn segments(&self) -> impl Iterator<Item = &Segment> {
         let (a, b) = if self.len < N {
-            (Default::default(), &self.lines[..self.len])
+            (Default::default(), &self.segments[..self.len])
         } else {
             // wrapped around, so we need to return two slices
-            self.lines.split_at(self.head)
+            self.segments.split_at(self.head)
         };
 
         b.iter().chain(a)
@@ -336,7 +345,7 @@ impl<const N: usize> Logger<N> {
     pub fn format(&self) -> LayoutJob {
         let mut layout = LayoutJob::default();
 
-        for (line, color) in self.lines() {
+        for (line, color) in self.segments() {
             layout.append(
                 line,
                 0.0,

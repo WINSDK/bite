@@ -120,7 +120,7 @@ fn find_matching_sections(
         .iter()
         .filter(|s| {
             // check if there is any overlap between the section and the current line
-            s.range.start < line_end && s.range.end > offset
+            s.range.end > offset && s.range.start < line_end
         })
         .cloned()
         .map(|mut s| {
@@ -149,7 +149,8 @@ impl Source {
 
             if line_nr == file_attr.line {
                 for section in line.sections.iter_mut() {
-                    section.bg_color = Color32::RED;
+                    section.bg_color = Color32::from_rgba_unmultiplied(255, 100, 0, 120);
+                    section.fg_color = Color32::WHITE;
                 }
             }
 

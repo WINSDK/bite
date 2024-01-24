@@ -1,6 +1,7 @@
 //! Symbol demangler for common mangling schemes.
 
 use std::collections::HashSet;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -14,7 +15,7 @@ use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationK
 
 use crossbeam_queue::SegQueue;
 use helper::{parallel_compute, ArcStr};
-use pdb::FallibleIterator;
+use pdb::{SymbolData, FallibleIterator};
 use processor_types::Section;
 use radix_trie::{Trie, TrieCommon};
 use tokenizing::{Color, ColorScheme, Colors, Token};
@@ -198,13 +199,15 @@ fn read_comp_unit(
         // unit directory
         if file.directory_index() != 0 {
             if let Some(dir) = file.directory(header) {
-                path.push(dwarf.attr_string(&unit, dir)?.to_string_lossy().as_ref());
+                if let Ok(path_comp) = dwarf.attr_string(&unit, dir)?.to_string() {
+                    path.push(path_comp);
+                }
             }
         }
 
-        path.push(dwarf.attr_string(&unit, file.path_name())?.to_string_lossy().as_ref());
-
-        // println!("{:#X} {}:{}", row.address(), path.display(), line.get());
+        if let Ok(path_comp) = dwarf.attr_string(&unit, file.path_name())?.to_string() {
+            path.push(path_comp);
+        }
 
         // either grab the path out of the cache or add it to the cache
         let cache = path_cache.read().unwrap();
@@ -228,37 +231,6 @@ fn read_comp_unit(
     }
 
     Ok(())
-}
-
-fn demangle_names(names: Vec<(PhysAddr, &str)>) -> Vec<(PhysAddr, Arc<Function>)> {
-    let mut functions = Vec::new();
-
-    log::PROGRESS.set("Demangling symbols", names.len());
-
-    // insert defined symbols
-    parallel_compute(names, &mut functions, |(addr, symbol)| {
-        let func = Function::new(parser(symbol), None);
-        log::PROGRESS.step();
-        (*addr, Arc::new(func))
-    });
-
-    // only keep one symbol per address
-    functions.dedup_by_key(|(addr, _)| *addr);
-
-    // only keep valid symbols
-    functions.retain(|(addr, func)| {
-        if *addr == 0 {
-            return false;
-        }
-
-        if func.as_str().is_empty() {
-            return false;
-        }
-
-        true
-    });
-
-    functions
 }
 
 impl Index {
@@ -325,65 +297,169 @@ impl Index {
                 self.file_attrs.extend(thread.join().unwrap()?);
             }
 
+            log::complex!(
+                w "[index::parse_dwarf] indexed ",
+                g path_cache.read().unwrap().len().to_string(),
+                w " source files."
+            );
+
             Ok(())
         })?;
-
-        // keep files sorted so they can be binary searched
-        self.file_attrs.sort_unstable_by_key(|(addr, _)| *addr);
 
         Ok(())
     }
 
-    fn pdb_file(obj: &object::File<'_>) -> Option<std::fs::File> {
-        let pdb = obj.pdb_info().ok()??;
-        let path = std::str::from_utf8(pdb.path()).ok()?;
-        std::fs::File::open(path).ok()
+    pub fn parse_pdb(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
+        fn open_pdb(obj: &object::File<'_>) -> Option<File> {
+            let pdb = obj.pdb_info().ok()??;
+            let path = std::str::from_utf8(pdb.path()).ok()?;
+            std::fs::File::open(path).ok()
+        }
+
+        if let Some(file) = open_pdb(obj) {
+            self.parse_pdb_impl(obj, file)?;
+        }
+
+        Ok(())
     }
 
-    pub fn parse_pdb(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
+    fn parse_pdb_impl<'a>(&mut self, obj: &object::File<'_>, file: File) -> Result<(), Error> {
+        log::PROGRESS.set("Parsing pdb", 1);
+
         let mut names = Vec::new();
-        let base_addr = obj.relative_address_base() as usize;
-        let pdb_table;
+        let base_addr = obj.relative_address_base() as PhysAddr;
 
-        if let Some(file) = Self::pdb_file(obj) {
-            let mut pdb = pdb::PDB::open(file)?;
+        let mut pdb = pdb::PDB::open(file)?;
+        let address_map = pdb.address_map()?;
+        let string_table = pdb.string_table()?;
 
-            // get symbol table
-            pdb_table = pdb.global_symbols()?;
+        let dbi = pdb.debug_information()?;
+        let mut modules = dbi.modules()?;
 
-            // iterate through symbols collected earlier
-            let mut symbol_table = pdb_table.iter();
+        let mut path_cache = HashSet::new();
 
-            // retrieve addresses of symbols
-            let address_map = pdb.address_map()?;
+        // locals symbols
+        while let Some(module) = modules.next()? {
+            let info = match pdb.module_info(&module)? {
+                Some(info) => info,
+                None => continue,
+            };
 
-            while let Some(symbol) = symbol_table.next()? {
-                let symbol = symbol.parse()?;
+            let program = info.line_program()?;
+            let mut symbols = info.symbols()?;
 
-                let symbol = match symbol {
-                    pdb::SymbolData::Public(symbol) if symbol.function => symbol,
-                    _ => continue,
-                };
+            while let Some(symbol) = symbols.next()? {
+                match symbol.parse() {
+                    Ok(SymbolData::Public(symbol)) if symbol.function => {
+                        let addr = match symbol.offset.to_rva(&address_map) {
+                            Some(rva) => rva.0 as PhysAddr,
+                            None => continue,
+                        };
 
-                if let Some(addr) = symbol.offset.to_rva(&address_map) {
-                    if let Ok(name) = std::str::from_utf8(symbol.name.as_bytes()) {
-                        names.push((base_addr + addr.0 as usize, name));
+                        let name: &'a str = match std::str::from_utf8(symbol.name.as_bytes()) {
+                            Ok(name) => unsafe { std::mem::transmute(name) },
+                            Err(_) => continue,
+                        };
+
+                        names.push((base_addr + addr, name));
+                    },
+                    Ok(SymbolData::Procedure(proc)) => {
+                        let mut lines = program.lines_for_symbol(proc.offset);
+                        while let Some(line_info) = lines.next()? {
+                            let addr = match line_info.offset.to_rva(&address_map) {
+                                Some(rva) => rva.0 as PhysAddr,
+                                None => continue,
+                            };
+
+                            let file_info = program.get_file_info(line_info.file_index)?;
+                            let file_name = file_info.name.to_raw_string(&string_table)?;
+                            let path = match std::str::from_utf8(file_name.as_bytes()) {
+                                Ok(file_name) => Path::new(file_name),
+                                Err(_) => continue,
+                            };
+
+                            // try to use cached path if possible, prevents extra allocations
+                            let path = match path_cache.get(path) {
+                                Some(cached_path) => Arc::clone(cached_path),
+                                None => {
+                                    let path = Arc::from(path);
+                                    path_cache.insert(Arc::clone(&path));
+                                    path
+                                }
+                            };
+
+                            let file_attr = FileAttr { path, line: line_info.line_start as usize};
+                            self.file_attrs.push((base_addr + addr, file_attr));
+                        }
                     }
+                    Ok(_) => {}
+                    Err(err) => log::complex!(
+                        w "[index::parse_pdb] ",
+                        y format!("{err}."),
+                    )
                 }
             }
         }
 
+        log::complex!(
+            w "[index::parse_pdb] indexed ",
+            g path_cache.len().to_string(),
+            w " source files."
+        );
+
+        // global symbols
+        let global_symbols = pdb.global_symbols()?;
+
+        // iterate through symbols collected earlier
+        let mut symbol_table = global_symbols.iter();
+
+        // retrieve addresses of symbols
+        let address_map = pdb.address_map()?;
+
+        while let Some(symbol) = symbol_table.next()? {
+            match symbol.parse() {
+                Ok(SymbolData::Public(symbol)) if symbol.function => {
+                    let addr = match symbol.offset.to_rva(&address_map) {
+                        Some(rva) => rva.0 as PhysAddr,
+                        None => continue,
+                    };
+
+                    let name = match std::str::from_utf8(symbol.name.as_bytes()) {
+                        Ok(name) => name,
+                        Err(_) => continue,
+                    };
+
+                    names.push((base_addr + addr, name));
+                }
+                Ok(_) => {},
+                Err(err) => log::complex!(
+                    w "[index::parse_pdb] ",
+                    y format!("{err}."),
+                )
+            };
+        }
+
         // insert defined symbols
-        self.functions.extend(demangle_names(names));
+        log::PROGRESS.set("parsing pdb symbol", names.len());
+        parallel_compute(names, &mut self.functions, |(addr, symbol)| {
+            let func = Function::new(parser(symbol), None);
+            log::PROGRESS.step();
+            (*addr, Arc::new(func))
+        });
 
         Ok(())
     }
 
     pub fn parse_symbols(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
-        let names = obj.symbols().filter_map(symbol_addr_name).collect();
+        let names: Vec<_> = obj.symbols().filter_map(symbol_addr_name).collect();
 
         // insert defined symbols
-        self.functions.extend(demangle_names(names));
+        log::PROGRESS.set("parsing debug symbol", names.len());
+        parallel_compute(names, &mut self.functions, |(addr, symbol)| {
+            let func = Function::new(parser(symbol), None);
+        log::PROGRESS.step();
+            (*addr, Arc::new(func))
+        });
 
         // insert entrypoint into known symbols
         let entrypoint = obj.entry() as usize;
@@ -393,28 +469,6 @@ impl Index {
         self.insert(entrypoint, entry_func);
 
         Ok(())
-    }
-
-    pub fn complete(&mut self) {
-        // count the number of function's that aren't compiler intrinsics
-        self.named_len = self.functions.iter().filter(|(_, func)| !func.intrinsic()).count();
-
-        // keep tree sorted so it can be binary searched
-        self.functions.sort_unstable_by_key(|(addr, _)| *addr);
-
-        log::PROGRESS.set("Building prefix tree", self.functions.len());
-
-        // radix-prefix tree for fast lookups
-        for (_, func) in self.functions.iter() {
-            self.trie.insert(func.name_as_str.clone(), func.clone());
-            log::PROGRESS.step();
-        }
-
-        log::complex!(
-            w "[index::complete] found ",
-            g self.functions.len().to_string(),
-            w " symbols."
-        );
     }
 
     pub fn parse_imports(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
@@ -558,6 +612,47 @@ impl Index {
 
     fn parse_macho_imports<H: MachHeader>(&mut self, _obj: &MachOFile<H>) -> Result<(), Error> {
         Ok(())
+    }
+
+    pub fn complete(&mut self) {
+        // only keep one symbol per address
+        self.functions.dedup_by_key(|(addr, _)| *addr);
+
+        // only keep valid symbols
+        self.functions.retain(|(addr, func)| {
+            if *addr == 0 {
+                return false;
+            }
+
+            if func.as_str().is_empty() {
+                return false;
+            }
+
+            true
+        });
+
+        // keep files sorted so they can be binary searched
+        self.file_attrs.sort_unstable_by_key(|(addr, _)| *addr);
+
+        // count the number of function's that aren't compiler intrinsics
+        self.named_len = self.functions.iter().filter(|(_, func)| !func.intrinsic()).count();
+
+        // keep tree sorted so it can be binary searched
+        self.functions.sort_unstable_by_key(|(addr, _)| *addr);
+
+        log::PROGRESS.set("Building prefix tree", self.functions.len());
+
+        // radix-prefix tree for fast lookups
+        for (_, func) in self.functions.iter() {
+            self.trie.insert(func.name_as_str.clone(), func.clone());
+            log::PROGRESS.step();
+        }
+
+        log::complex!(
+            w "[index::complete] found ",
+            g self.functions.len().to_string(),
+            w " functions."
+        );
     }
 
     pub fn symbols(&self) -> impl Iterator<Item = &Arc<Function>> {

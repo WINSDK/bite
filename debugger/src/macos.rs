@@ -40,7 +40,7 @@ impl Debuggable for Debugger {
 pub struct Process {}
 
 impl Tracing for Process {
-    fn attach(&mut self) {
+    fn attach(&mut self) -> Result<(), Error> {
         todo!("detach");
     }
 

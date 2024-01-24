@@ -132,7 +132,7 @@ impl Processor {
 
         if entrypoint != 0 {
             log::complex!(
-                w "[disassembly::parse] entrypoint ",
+                w "[processor::parse] entrypoint ",
                 g format!("{entrypoint:#X}"),
                 w ".",
             );
