@@ -19,7 +19,7 @@ fn main() {
     // ).expect("set up the subscriber");
 
     #[cfg(target_os = "linux")]
-    if unsafe { libc::getuid() } == 0 {
+    if nix::unistd::getuid() == 0.into() {
         wayland::set_env();
     }
 

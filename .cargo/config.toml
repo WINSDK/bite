@@ -3,5 +3,5 @@ rustflags = [
     "-Aclippy::unusual_byte_groupings",
     "-Aclippy::upper_case_acronyms",
     "-Aclippy::needless_range_loop",
-    "-Ctarget-cpu=native"
+    "-Ctarget-cpu=native",
 ]

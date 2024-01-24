@@ -12,8 +12,7 @@ crossbeam-queue = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.16", default-features = false }
-# fork that includes `getsyscallinfo`
-nix = { git = "https://github.com/mbyzhang/nix" }
+nix = { workspace = true }
 
 [target.'cfg(all(target_os="linux", target_arch="x86_64"))'.dependencies]
 syscalls = { version = "0.6", features = ["x86_64"], default-features = false }

@@ -70,7 +70,7 @@ impl<'window> Instance<'window> {
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("bite::gui device"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults(),
+            required_limits: wgpu::Limits::default(),
         };
 
         let (device, queue) = pollster::block_on(adapter.request_device(&device_desc, None))

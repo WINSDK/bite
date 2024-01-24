@@ -59,7 +59,13 @@ impl Colors {
         if style.starts_with("string") {
             return self.string;
         }
-        if style.starts_with("variable"){
+        if style.starts_with("variable.member") {
+            return self.field;
+        }
+        if style.starts_with("variable.builtin") {
+            return self.variable;
+        }
+        if style.starts_with("variable") {
             return self.variable;
         }
         if style.starts_with("escape") {

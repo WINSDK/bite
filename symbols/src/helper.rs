@@ -21,10 +21,10 @@ where
 
     // multithreaded
     std::thread::scope(|s| {
-        let mut chunks = items.chunks(items.len() / thread_count);
+        let chunks = items.chunks(items.len() / thread_count);
         let mut threads = Vec::with_capacity(thread_count);
 
-        while let Some(chunk) = chunks.next() {
+        for chunk in chunks {
             let thread = s.spawn(move || {
                 let mut result = Vec::with_capacity(chunk.len());
                 for item in chunk {

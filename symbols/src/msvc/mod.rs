@@ -1333,7 +1333,7 @@ impl<'a> Demangle<'a> for Intrinsics {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         let literal = match *self {
             Intrinsics::Ctor => {
-                match ctx.scope.0.get(0) {
+                match ctx.scope.0.first() {
                     Some(path) => path.demangle(ctx, backrefs),
                     _ => {
                         ctx.stream.push("`", Colors::brackets());
@@ -1346,7 +1346,7 @@ impl<'a> Demangle<'a> for Intrinsics {
             Intrinsics::Dtor => {
                 ctx.stream.push("~", Colors::item());
 
-                match ctx.scope.0.get(0) {
+                match ctx.scope.0.first() {
                     Some(path) => path.demangle(ctx, backrefs),
                     _ => {
                         ctx.stream.push("`", Colors::brackets());
@@ -2414,7 +2414,7 @@ impl Parse for Symbol {
         // no type
         if ctx.peek().is_none() {
             ctx.ascent();
-            return Some(path).map(Path::into);
+            return Some(Path::into(path));
         }
 
         ctx.parsing_qualifiers = false;

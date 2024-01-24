@@ -1,7 +1,7 @@
 //! Symbol demangler for common mangling schemes.
 
-use std::collections::HashSet;
 use std::fs::File;
+use std::collections::{HashSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -162,9 +162,11 @@ pub struct Index {
 }
 
 type GimliSlice<'a> = gimli::EndianSlice<'a, gimli::RunTimeEndian>;
+type Cache = Arc<RwLock<HashMap<u64, Arc<Path>>>>;
 
 fn read_comp_unit(
-    path_cache: &Arc<RwLock<HashSet<Arc<Path>>>>,
+    header_id: u64,
+    path_cache: &Cache,
     dwarf: &Arc<gimli::Dwarf<GimliSlice>>,
     header: gimli::UnitHeader<GimliSlice>,
     file_attrs: &mut Vec<(PhysAddr, FileAttr)>,
@@ -193,30 +195,33 @@ fn read_comp_unit(
             _ => continue,
         };
 
-        let mut path = comp_dir.clone();
+        let key = header_id << 48 | (row.file_index() as u64) << 24 | file.directory_index() as u64;
+        let cache = path_cache.read().unwrap();
+        let path = match cache.get(&key) {
+            Some(cached_path) => {
+                let path = Arc::clone(cached_path);
+                drop(cache);
+                path
+            }
+            None => {
+                drop(cache);
+                let mut path = comp_dir.clone();
 
-        // the directory index 0 is defined to correspond to the compilation
-        // unit directory
-        if file.directory_index() != 0 {
-            if let Some(dir) = file.directory(header) {
-                if let Ok(path_comp) = dwarf.attr_string(&unit, dir)?.to_string() {
+                let dir_idx = file.directory_index() as usize;
+                if dir_idx != 0 {
+                    if let Some(dir) = file.directory(header) {
+                        if let Ok(path_comp) = dwarf.attr_string(&unit, dir)?.to_string() {
+                            path.push(path_comp);
+                        }
+                    }
+                }
+
+                if let Ok(path_comp) = dwarf.attr_string(&unit, file.path_name())?.to_string() {
                     path.push(path_comp);
                 }
-            }
-        }
 
-        if let Ok(path_comp) = dwarf.attr_string(&unit, file.path_name())?.to_string() {
-            path.push(path_comp);
-        }
-
-        // either grab the path out of the cache or add it to the cache
-        let cache = path_cache.read().unwrap();
-        let path = match cache.get(path.as_path()) {
-            Some(cached_path) => Arc::clone(cached_path),
-            None => {
                 let path = Arc::from(path);
-                drop(cache);
-                path_cache.write().unwrap().insert(Arc::clone(&path));
+                path_cache.write().unwrap().insert(key, Arc::clone(&path));
                 path
             }
         };
@@ -236,7 +241,7 @@ fn read_comp_unit(
 impl Index {
     pub fn parse_dwarf(
         &mut self,
-        obj: &object::File<'_>,
+        obj: &object::File,
         sections: &[Section],
     ) -> Result<(), Error> {
         let endian = if obj.is_little_endian() {
@@ -249,7 +254,7 @@ impl Index {
         let load_section = |id: gimli::SectionId| -> Result<&[u8], gimli::Error> {
             let target_name = id.name();
             match sections.iter().find(|section| section.name == target_name) {
-                Some(ref section) => Ok(&section.bytes[..]),
+                Some(section) => Ok(&section.bytes[..]),
                 None => Ok(&[]),
             }
         };
@@ -262,13 +267,15 @@ impl Index {
 
         // performance on all of this could be better, about 2x right now
         std::thread::scope(|s| -> Result<_, gimli::Error> {
-            let path_cache = Arc::new(RwLock::new(HashSet::new()));
+            let path_cache = Cache::default();
 
             // iterate over the compilation units
             let header_queue = Arc::new(SegQueue::new());
             let mut iter = dwarf.units();
+            let mut idx = 0;
             while let Some(header) = iter.next()? {
-                header_queue.push(header);
+                header_queue.push((idx, header));
+                idx += 1;
             }
 
             log::PROGRESS.set("Parsing dwarf.", header_queue.len());
@@ -283,8 +290,14 @@ impl Index {
                     s.spawn(move || -> Result<_, gimli::Error> {
                         let mut file_attrs = Vec::new();
 
-                        while let Some(header) = header_queue.pop() {
-                            read_comp_unit(&path_cache, &dwarf, header, &mut file_attrs)?;
+                        while let Some((header_id, header)) = header_queue.pop() {
+                            read_comp_unit(
+                                header_id,
+                                &path_cache,
+                                &dwarf,
+                                header,
+                                &mut file_attrs
+                            )?;
                             log::PROGRESS.step();
                         }
 
@@ -450,14 +463,14 @@ impl Index {
         Ok(())
     }
 
-    pub fn parse_symbols(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
+    pub fn parse_symbols(&mut self, obj: &object::File) -> Result<(), Error> {
         let names: Vec<_> = obj.symbols().filter_map(symbol_addr_name).collect();
 
         // insert defined symbols
         log::PROGRESS.set("parsing debug symbol", names.len());
         parallel_compute(names, &mut self.functions, |(addr, symbol)| {
             let func = Function::new(parser(symbol), None);
-        log::PROGRESS.step();
+            log::PROGRESS.step();
             (*addr, Arc::new(func))
         });
 
@@ -471,18 +484,16 @@ impl Index {
         Ok(())
     }
 
-    pub fn parse_imports(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
+    pub fn parse_imports(&mut self, obj: &object::File) -> Result<(), Error> {
         match obj {
-            object::File::Pe32(obj) => self.parse_pe_imports(obj)?,
-            object::File::Pe64(obj) => self.parse_pe_imports(obj)?,
-            object::File::Elf32(obj) => self.parse_elf_imports(obj)?,
-            object::File::Elf64(obj) => self.parse_elf_imports(obj)?,
-            object::File::MachO32(obj) => self.parse_macho_imports(obj)?,
-            object::File::MachO64(obj) => self.parse_macho_imports(obj)?,
-            _ => {}
+            object::File::Pe32(obj) => self.parse_pe_imports(obj),
+            object::File::Pe64(obj) => self.parse_pe_imports(obj),
+            object::File::Elf32(obj) => self.parse_elf_imports(obj),
+            object::File::Elf64(obj) => self.parse_elf_imports(obj),
+            object::File::MachO32(obj) => self.parse_macho_imports(obj),
+            object::File::MachO64(obj) => self.parse_macho_imports(obj),
+            _ => Ok(())
         }
-
-        Ok(())
     }
 
     fn parse_pe_imports<H: ImageNtHeaders>(&mut self, obj: &PeFile<H>) -> Result<(), Error> {
@@ -730,7 +741,7 @@ fn sort_by_shortest_match(input: &[&ArcStr], prefix: &str) -> Vec<String> {
     }
 
     // sort the matches by length
-    matches.sort_by(|a, b| a.len().cmp(&b.len()));
+    matches.sort_by_key(|a| a.len());
     matches
 }
 
