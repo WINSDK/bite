@@ -13,3 +13,4 @@ gimli = { workspace = true }
 pdb = { workspace = true }
 object = { workspace = true }
 crossbeam-queue = { workspace = true }
+dashmap = "5.5.3"

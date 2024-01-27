@@ -1,9 +1,9 @@
 //! Symbol demangler for common mangling schemes.
 
 use std::fs::File;
-use std::collections::{HashSet, HashMap};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
 use object::endian::Endian;
@@ -14,6 +14,7 @@ use object::LittleEndian as LE;
 use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind};
 
 use crossbeam_queue::SegQueue;
+use dashmap::DashMap;
 use helper::{parallel_compute, ArcStr};
 use pdb::{SymbolData, FallibleIterator};
 use processor_types::Section;
@@ -162,7 +163,7 @@ pub struct Index {
 }
 
 type GimliSlice<'a> = gimli::EndianSlice<'a, gimli::RunTimeEndian>;
-type Cache = Arc<RwLock<HashMap<u64, Arc<Path>>>>;
+type Cache = Arc<DashMap<u64, Arc<Path>>>;
 
 fn read_comp_unit(
     header_id: u64,
@@ -196,15 +197,12 @@ fn read_comp_unit(
         };
 
         let key = header_id << 48 | (row.file_index() as u64) << 24 | file.directory_index() as u64;
-        let cache = path_cache.read().unwrap();
-        let path = match cache.get(&key) {
+        let path = match path_cache.get(&key) {
             Some(cached_path) => {
-                let path = Arc::clone(cached_path);
-                drop(cache);
+                let path = Arc::clone(&cached_path);
                 path
             }
             None => {
-                drop(cache);
                 let mut path = comp_dir.clone();
 
                 let dir_idx = file.directory_index() as usize;
@@ -221,7 +219,7 @@ fn read_comp_unit(
                 }
 
                 let path = Arc::from(path);
-                path_cache.write().unwrap().insert(key, Arc::clone(&path));
+                path_cache.insert(key, Arc::clone(&path));
                 path
             }
         };
@@ -265,10 +263,10 @@ impl Index {
         // create `EndianSlice`s for all of the sections
         let dwarf = Arc::new(dwarf_ref.borrow(|section| gimli::EndianSlice::new(section, endian)));
 
-        // performance on all of this could be better, about 2x right now
-        std::thread::scope(|s| -> Result<_, gimli::Error> {
-            let path_cache = Cache::default();
+        // create concurrent hashmap for caching file path's
+        let path_cache = Cache::default();
 
+        std::thread::scope(|s| -> Result<_, gimli::Error> {
             // iterate over the compilation units
             let header_queue = Arc::new(SegQueue::new());
             let mut iter = dwarf.units();
@@ -312,7 +310,7 @@ impl Index {
 
             log::complex!(
                 w "[index::parse_dwarf] indexed ",
-                g path_cache.read().unwrap().len().to_string(),
+                g path_cache.len().to_string(),
                 w " source files."
             );
 

@@ -24,7 +24,7 @@ symbols = { path = "./symbols" }
 
 [profile.release]
 # strip = true
-# debug = true
+debug = true
 # lto = "thin"
 
 [target.'cfg(windows)'.build-dependencies]
