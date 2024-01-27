@@ -27,6 +27,10 @@ fn query_hwnd(window: &Window) -> HWND {
     }
 }
 
+const STYLE: isize = WS_BORDER | WS_CLIPSIBLINGS | WS_SYSMENU | WS_VISIBLE | WS_POPUP;
+const STYLE_MAXIMIZED: isize = WS_VISIBLE | WS_OVERLAPPED;
+const STYLE_EX: isize = WS_EX_ACCEPTFILES | WS_EX_WINDOWEDGE;
+
 impl crate::Target for Arch {
     fn new(arch_desc: ArchDescriptor) -> Self {
         Self {
@@ -63,16 +67,13 @@ impl crate::Target for Arch {
         let hwnd = query_hwnd(&window);
 
         unsafe {
-            let style = WS_BORDER | WS_CLIPSIBLINGS | WS_SYSMENU | WS_VISIBLE | WS_THICKFRAME;
-            let style_ex = WS_EX_ACCEPTFILES | WS_EX_WINDOWEDGE;
-
             // set basic window attributes
-            if SetWindowLongPtrW(hwnd, GWL_STYLE, style) == 0 {
+            if SetWindowLongPtrW(hwnd, GWL_STYLE, STYLE) == 0 {
                 return Err(Error::WindowCreation);
             }
 
             // set extended window attributes
-            if SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style_ex) == 0 {
+            if SetWindowLongPtrW(hwnd, GWL_EXSTYLE, STYLE_EX) == 0 {
                 return Err(Error::WindowCreation);
             }
 
@@ -109,12 +110,10 @@ impl crate::Target for Arch {
 
             // check if the window is fullscreen borderless
             if width == work_area_width && height == work_area_height {
-                let attr = WS_VISIBLE | WS_THICKFRAME | WS_POPUP;
-
-                SetWindowLongPtrW(hwnd, GWL_STYLE, attr);
+                SetWindowLongPtrW(hwnd, GWL_STYLE, STYLE);
                 SetWindowPos(
                     hwnd,
-                    HWND_TOP,
+                    0,
                     self.unwindowed_pos.x as u32,
                     self.unwindowed_pos.y as u32,
                     self.unwindowed_size.width,
@@ -122,15 +121,13 @@ impl crate::Target for Arch {
                     SWP_NOZORDER,
                 );
             } else {
-                let attr = WS_VISIBLE | WS_OVERLAPPED;
-
                 self.unwindowed_size = window.outer_size();
                 self.unwindowed_pos = window.outer_position().unwrap_or_default();
 
-                SetWindowLongPtrW(hwnd, GWL_STYLE, attr);
+                SetWindowLongPtrW(hwnd, GWL_STYLE, STYLE_MAXIMIZED);
                 SetWindowPos(
                     hwnd,
-                    HWND_TOP,
+                    0,
                     info.work_area.left,
                     info.work_area.top,
                     work_area_width,
@@ -144,7 +141,6 @@ impl crate::Target for Arch {
 
 const GWL_EXSTYLE: i32 = -20;
 const GWL_STYLE: i32 = -16;
-const HWND_TOP: isize = 0;
 
 const WS_OVERLAPPED: isize = 0x00000000;
 const WS_POPUP: isize = 0x80000000;
@@ -152,7 +148,6 @@ const WS_VISIBLE: isize = 0x10000000;
 const WS_CLIPSIBLINGS: isize = 0x04000000;
 const WS_BORDER: isize = 0x00800000;
 const WS_SYSMENU: isize = 0x00080000;
-const WS_THICKFRAME: isize = 0x00040000;
 const WS_EX_ACCEPTFILES: isize = 0x00000010;
 const WS_EX_WINDOWEDGE: isize = 0x00000100;
 
