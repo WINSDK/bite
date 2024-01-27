@@ -93,7 +93,7 @@ impl<Arch: crate::Target> super::UI<Arch> {
                 self.dbg_ctx.queue.push(debugger::DebugeeEvent::Continue);
             }
             Ok(Command::Clear) => {
-                log::LOGGER.lock().unwrap().clear();
+                log::LOGGER.write().unwrap().clear();
                 self.panels.terminal().clear();
             }
             Ok(Command::Trace) => {

@@ -196,12 +196,9 @@ fn parse_dwarf_unit(
         };
 
         // try to use cached path if possible, prevents extra allocations
-        let key = header_id << 48 | (row.file_index() as u64) << 24 | file.directory_index() as u64;
+        let key = header_id << 48 | row.file_index() << 24 | file.directory_index();
         let path = match path_cache.get(&key) {
-            Some(cached_path) => {
-                let path = Arc::clone(&cached_path);
-                path
-            }
+            Some(cached_path) => Arc::clone(&cached_path),
             None => {
                 // compute path for the given line
                 let mut path = comp_dir.clone();
@@ -323,6 +320,7 @@ impl Index {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_pdb_module<'a>(
     module_id: u64,
     base_addr: PhysAddr,
@@ -339,7 +337,7 @@ fn parse_pdb_module<'a>(
     while let Some(symbol) = symbols.next()? {
         match symbol.parse() {
             Ok(SymbolData::Public(symbol)) if symbol.function => {
-                let addr = match symbol.offset.to_rva(&address_map) {
+                let addr = match symbol.offset.to_rva(address_map) {
                     Some(rva) => rva.0 as PhysAddr,
                     None => continue,
                 };
@@ -354,7 +352,7 @@ fn parse_pdb_module<'a>(
             Ok(SymbolData::Procedure(proc)) => {
                 let mut lines = program.lines_for_symbol(proc.offset);
                 while let Some(line_info) = lines.next()? {
-                    let addr = match line_info.offset.to_rva(&address_map) {
+                    let addr = match line_info.offset.to_rva(address_map) {
                         Some(rva) => rva.0 as PhysAddr,
                         None => continue,
                     };
@@ -366,7 +364,7 @@ fn parse_pdb_module<'a>(
                         None => {
                             // compute path for the given line
                             let file_info = program.get_file_info(line_info.file_index)?;
-                            let file_name = file_info.name.to_raw_string(&string_table)?;
+                            let file_name = file_info.name.to_raw_string(string_table)?;
                             let path = match std::str::from_utf8(file_name.as_bytes()) {
                                 Ok(file_name) => Arc::from(Path::new(file_name)),
                                 Err(_) => continue,
@@ -384,6 +382,7 @@ fn parse_pdb_module<'a>(
             Ok(_) => {
                 // TODO: implement support for other types of symbols
             }
+            Err(pdb::Error::UnimplementedSymbolKind(_)) => {},
             Err(err) => log::complex!(
                 w "[index::parse_pdb] ",
                 y format!("{err}."),
@@ -516,6 +515,7 @@ impl Index {
                 Ok(_) => {
                     // TODO: implement support for other types of symbols
                 },
+                Err(pdb::Error::UnimplementedSymbolKind(_)) => {},
                 Err(err) => log::complex!(
                     w "[index::parse_pdb] ",
                     y format!("{err}."),

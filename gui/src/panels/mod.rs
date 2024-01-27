@@ -68,7 +68,7 @@ impl egui_dock::TabViewer for Tabs {
                     .stick_to_bottom(true);
 
                 area.show(ui, |ui| {
-                    let layout = log::LOGGER.lock().unwrap().format();
+                    let layout = log::LOGGER.read().unwrap().format();
                     let text_area = TextSelection::precomputed(&layout);
                     ui.add(text_area);
                 });

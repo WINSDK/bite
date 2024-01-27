@@ -3,7 +3,7 @@ mod progress;
 use egui::text::LayoutJob;
 pub use progress::ProgressBar;
 pub use rfd::{MessageDialog, MessageLevel};
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 pub static PROGRESS: ProgressBar = ProgressBar::unset();
 
@@ -146,7 +146,7 @@ macro_rules! complex_recurse {
     }};
 
     (g $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Green,
         );
@@ -158,7 +158,7 @@ macro_rules! complex_recurse {
     }};
 
     (b $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Blue,
         );
@@ -170,7 +170,7 @@ macro_rules! complex_recurse {
     }};
 
     (y $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Yellow,
         );
@@ -182,7 +182,7 @@ macro_rules! complex_recurse {
     }};
 
     (w $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::White,
         );
@@ -198,14 +198,14 @@ macro_rules! complex_recurse {
 #[macro_export]
 macro_rules! complex {
     () => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             "\n".into(),
             $crate::Color::White,
         );
     };
 
     (r $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Red,
         );
@@ -215,14 +215,14 @@ macro_rules! complex {
         $crate::complex!(r $arg,);
         $crate::complex_recurse!($($args)+);
 
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             "\n",
             $crate::Color::White,
         );
     }};
 
     (g $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Green,
         );
@@ -232,14 +232,14 @@ macro_rules! complex {
         $crate::complex!(g $arg,);
         $crate::complex_recurse!($($args)+);
 
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             "\n",
             $crate::Color::Green,
         );
     }};
 
     (b $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Blue,
         );
@@ -249,14 +249,14 @@ macro_rules! complex {
         $crate::complex!(b $arg,);
         $crate::complex_recurse!($($args)+);
 
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             "\n",
             $crate::Color::White,
         );
     }};
 
     (y $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Yellow,
         );
@@ -266,14 +266,14 @@ macro_rules! complex {
         $crate::complex!(y $arg,);
         $crate::complex_recurse!($($args)+);
 
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             "\n",
             $crate::Color::White,
         );
     }};
 
     (w $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::White,
         );
@@ -283,14 +283,14 @@ macro_rules! complex {
         $crate::complex!(w $arg,);
         $crate::complex_recurse!($($args)+);
 
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             "\n",
             $crate::Color::White,
         );
     }};
 }
 
-pub static LOGGER: Mutex<Logger<1000>> = Mutex::new(Logger::new());
+pub static LOGGER: RwLock<Logger<1000>> = RwLock::new(Logger::new());
 
 type Segment = (String, Color);
 
@@ -312,16 +312,7 @@ impl<const N: usize> Logger<N> {
     }
 
     pub fn append(&mut self, line: impl Into<String>, color: Color) {
-        let line = line.into();
-
-        // if a line of the same length is being appended
-        if self.segments[self.head.saturating_sub(1)].0.len() == line.len() {
-            if self.segments[self.head.saturating_sub(1)].0 == line {
-                return;
-            }
-        }
-
-        self.segments[self.head] = (line, color);
+        self.segments[self.head] = (line.into(), color);
         self.head = (self.head + 1) % N;
         self.len += 1;
     }
