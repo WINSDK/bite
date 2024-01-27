@@ -5,7 +5,7 @@ pub use progress::ProgressBar;
 pub use rfd::{MessageDialog, MessageLevel};
 use std::sync::RwLock;
 
-pub static PROGRESS: ProgressBar = ProgressBar::unset();
+pub static PROGRESS: ProgressBar = ProgressBar::new();
 
 /// Time a given expression.
 #[macro_export]

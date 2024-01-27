@@ -11,7 +11,7 @@ pub struct ProgressBar {
 }
 
 impl ProgressBar {
-    pub const fn unset() -> Self {
+    pub const fn new() -> Self {
         Self {
             desc: RwLock::new("???"),
             steps_done: AtomicUsize::new(0),
@@ -22,7 +22,16 @@ impl ProgressBar {
         }
     }
 
+    pub fn unset(&self) {
+        *self.desc.write().unwrap() = "???";
+    }
+
     pub fn set(&self, desc: &'static str, step_count: usize) {
+        // this can't be a valid progress bar
+        if step_count == 0 {
+            return;
+        }
+
         *self.desc.write().unwrap() = desc;
         self.step_count.store(step_count, Ordering::SeqCst);
         self.steps_done.store(0, Ordering::SeqCst);

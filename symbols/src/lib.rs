@@ -440,7 +440,7 @@ impl Index {
             idx += 1;
         }
 
-        log::PROGRESS.set("parsing pdb.", module_info_queue.len());
+        log::PROGRESS.set("Parsing pdb.", module_info_queue.len());
 
         // parse local symbols
         std::thread::scope(|s| -> Result<_, pdb::Error> {
@@ -524,7 +524,7 @@ impl Index {
         }
 
         // insert defined symbols
-        log::PROGRESS.set("parsing pdb symbol", names.len());
+        log::PROGRESS.set("Parsing symbols.", names.len());
         parallel_compute(names, &mut self.functions, |(addr, symbol)| {
             let func = Function::new(parser(symbol), None);
             log::PROGRESS.step();
@@ -540,7 +540,7 @@ impl Index {
         let names: Vec<_> = obj.symbols().filter_map(symbol_addr_name).collect();
 
         // insert defined symbols
-        log::PROGRESS.set("parsing debug symbol", names.len());
+        log::PROGRESS.set("Parsing symbols.", names.len());
         parallel_compute(names, &mut self.functions, |(addr, symbol)| {
             let func = Function::new(parser(symbol), None);
             log::PROGRESS.step();
