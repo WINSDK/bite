@@ -1559,8 +1559,7 @@ checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 [[package]]
 name = "pdb"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82040a392923abe6279c00ab4aff62d5250d1c8555dc780e4b02783a7aa74863"
+source = "git+https://github.com/WINSDK/pdb-rs#c51a01dc6b8d41afcbb6ed3df5ee2ec4ddec401e"
 dependencies = [
  "fallible-iterator 0.2.0",
  "scroll",

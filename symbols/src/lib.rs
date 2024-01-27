@@ -1,7 +1,6 @@
 //! Symbol demangler for common mangling schemes.
 
 use std::fs::File;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -165,10 +164,10 @@ pub struct Index {
 type GimliSlice<'a> = gimli::EndianSlice<'a, gimli::RunTimeEndian>;
 type Cache = Arc<DashMap<u64, Arc<Path>>>;
 
-fn read_comp_unit(
+fn parse_dwarf_unit(
     header_id: u64,
     path_cache: &Cache,
-    dwarf: &Arc<gimli::Dwarf<GimliSlice>>,
+    dwarf: &gimli::Dwarf<GimliSlice>,
     header: gimli::UnitHeader<GimliSlice>,
     file_attrs: &mut Vec<(PhysAddr, FileAttr)>,
 ) -> Result<(), gimli::Error> {
@@ -196,6 +195,7 @@ fn read_comp_unit(
             _ => continue,
         };
 
+        // try to use cached path if possible, prevents extra allocations
         let key = header_id << 48 | (row.file_index() as u64) << 24 | file.directory_index() as u64;
         let path = match path_cache.get(&key) {
             Some(cached_path) => {
@@ -203,6 +203,7 @@ fn read_comp_unit(
                 path
             }
             None => {
+                // compute path for the given line
                 let mut path = comp_dir.clone();
 
                 let dir_idx = file.directory_index() as usize;
@@ -263,21 +264,20 @@ impl Index {
         // create `EndianSlice`s for all of the sections
         let dwarf = Arc::new(dwarf_ref.borrow(|section| gimli::EndianSlice::new(section, endian)));
 
+        // iterate over the compilation units and store them in a queue
+        let header_queue = Arc::new(SegQueue::new());
+        let mut iter = dwarf.units();
+        let mut idx = 0;
+        while let Some(header) = iter.next()? {
+            header_queue.push((idx, header));
+            idx += 1;
+        }
+
         // create concurrent hashmap for caching file path's
         let path_cache = Cache::default();
 
+        log::PROGRESS.set("Parsing dwarf.", header_queue.len());
         std::thread::scope(|s| -> Result<_, gimli::Error> {
-            // iterate over the compilation units
-            let header_queue = Arc::new(SegQueue::new());
-            let mut iter = dwarf.units();
-            let mut idx = 0;
-            while let Some(header) = iter.next()? {
-                header_queue.push((idx, header));
-                idx += 1;
-            }
-
-            log::PROGRESS.set("Parsing dwarf.", header_queue.len());
-
             let thread_count = std::thread::available_parallelism().unwrap().get();
             let threads: Vec<_> = (0..thread_count)
                 .map(|_| {
@@ -289,7 +289,7 @@ impl Index {
                         let mut file_attrs = Vec::new();
 
                         while let Some((header_id, header)) = header_queue.pop() {
-                            read_comp_unit(
+                            parse_dwarf_unit(
                                 header_id,
                                 &path_cache,
                                 &dwarf,
@@ -308,20 +308,95 @@ impl Index {
                 self.file_attrs.extend(thread.join().unwrap()?);
             }
 
+            Ok(())
+        })?;
+
+        if !path_cache.is_empty() {
             log::complex!(
                 w "[index::parse_dwarf] indexed ",
                 g path_cache.len().to_string(),
                 w " source files."
             );
-
-            Ok(())
-        })?;
+        }
 
         Ok(())
     }
+}
 
-    pub fn parse_pdb(&mut self, obj: &object::File<'_>) -> Result<(), Error> {
-        fn open_pdb(obj: &object::File<'_>) -> Option<File> {
+fn parse_pdb_module<'a>(
+    module_id: u64,
+    base_addr: PhysAddr,
+    path_cache: &Cache,
+    module_info: pdb::ModuleInfo,
+    address_map: &pdb::AddressMap,
+    string_table: &pdb::StringTable<'a>,
+    names: &mut Vec<(PhysAddr, &'a str)>,
+    file_attrs: &mut Vec<(PhysAddr, FileAttr)>,
+) -> Result<(), pdb::Error> {
+    let program = module_info.line_program()?;
+    let mut symbols = module_info.symbols()?;
+
+    while let Some(symbol) = symbols.next()? {
+        match symbol.parse() {
+            Ok(SymbolData::Public(symbol)) if symbol.function => {
+                let addr = match symbol.offset.to_rva(&address_map) {
+                    Some(rva) => rva.0 as PhysAddr,
+                    None => continue,
+                };
+
+                let name: &'a str = match std::str::from_utf8(symbol.name.as_bytes()) {
+                    Ok(name) => unsafe { std::mem::transmute(name) },
+                    Err(_) => continue,
+                };
+
+                names.push((base_addr + addr, name));
+            },
+            Ok(SymbolData::Procedure(proc)) => {
+                let mut lines = program.lines_for_symbol(proc.offset);
+                while let Some(line_info) = lines.next()? {
+                    let addr = match line_info.offset.to_rva(&address_map) {
+                        Some(rva) => rva.0 as PhysAddr,
+                        None => continue,
+                    };
+
+                    // try to use cached path if possible, prevents extra allocations
+                    let key = module_id << 48 | line_info.file_index.0 as u64;
+                    let path = match path_cache.get(&key) {
+                        Some(cached_path) => Arc::clone(&cached_path),
+                        None => {
+                            // compute path for the given line
+                            let file_info = program.get_file_info(line_info.file_index)?;
+                            let file_name = file_info.name.to_raw_string(&string_table)?;
+                            let path = match std::str::from_utf8(file_name.as_bytes()) {
+                                Ok(file_name) => Arc::from(Path::new(file_name)),
+                                Err(_) => continue,
+                            };
+
+                            path_cache.insert(key, Arc::clone(&path));
+                            path
+                        }
+                    };
+
+                    let file_attr = FileAttr { path, line: line_info.line_start as usize};
+                    file_attrs.push((base_addr + addr, file_attr));
+                }
+            }
+            Ok(_) => {
+                // TODO: implement support for other types of symbols
+            }
+            Err(err) => log::complex!(
+                w "[index::parse_pdb] ",
+                y format!("{err}."),
+            )
+        }
+    }
+
+    Ok(())
+}
+
+impl Index {
+    pub fn parse_pdb(&mut self, obj: &object::File) -> Result<(), Error> {
+        fn open_pdb(obj: &object::File) -> Option<File> {
             let pdb = obj.pdb_info().ok()??;
             let path = std::str::from_utf8(pdb.path()).ok()?;
             std::fs::File::open(path).ok()
@@ -334,99 +409,95 @@ impl Index {
         Ok(())
     }
 
-    fn parse_pdb_impl<'a>(&mut self, obj: &object::File<'_>, file: File) -> Result<(), Error> {
-        log::PROGRESS.set("Parsing pdb", 1);
-
+    fn parse_pdb_impl(&mut self, obj: &object::File, file: File) -> Result<(), Error> {
         let mut names = Vec::new();
         let base_addr = obj.relative_address_base() as PhysAddr;
 
         let mut pdb = pdb::PDB::open(file)?;
-        let address_map = pdb.address_map()?;
-        let string_table = pdb.string_table()?;
 
+        // mapping from offset's to rva's
+        let address_map = Arc::new(pdb.address_map()?);
+
+        // mapping from string ref's to strings
+        let string_table = Arc::new(pdb.string_table()?);
+
+        // pdb module's
         let dbi = pdb.debug_information()?;
         let mut modules = dbi.modules()?;
 
-        let mut path_cache = HashSet::new();
+        // create concurrent hashmap for caching file path's
+        let path_cache = Cache::default();
 
-        // locals symbols
+        // iterate over the modules and store them in a queue
+        let module_info_queue = Arc::new(SegQueue::new());
+        let mut idx = 0;
         while let Some(module) = modules.next()? {
-            let info = match pdb.module_info(&module)? {
+            let module_info = match pdb.module_info(&module)? {
                 Some(info) => info,
                 None => continue,
             };
 
-            let program = info.line_program()?;
-            let mut symbols = info.symbols()?;
-
-            while let Some(symbol) = symbols.next()? {
-                match symbol.parse() {
-                    Ok(SymbolData::Public(symbol)) if symbol.function => {
-                        let addr = match symbol.offset.to_rva(&address_map) {
-                            Some(rva) => rva.0 as PhysAddr,
-                            None => continue,
-                        };
-
-                        let name: &'a str = match std::str::from_utf8(symbol.name.as_bytes()) {
-                            Ok(name) => unsafe { std::mem::transmute(name) },
-                            Err(_) => continue,
-                        };
-
-                        names.push((base_addr + addr, name));
-                    },
-                    Ok(SymbolData::Procedure(proc)) => {
-                        let mut lines = program.lines_for_symbol(proc.offset);
-                        while let Some(line_info) = lines.next()? {
-                            let addr = match line_info.offset.to_rva(&address_map) {
-                                Some(rva) => rva.0 as PhysAddr,
-                                None => continue,
-                            };
-
-                            let file_info = program.get_file_info(line_info.file_index)?;
-                            let file_name = file_info.name.to_raw_string(&string_table)?;
-                            let path = match std::str::from_utf8(file_name.as_bytes()) {
-                                Ok(file_name) => Path::new(file_name),
-                                Err(_) => continue,
-                            };
-
-                            // try to use cached path if possible, prevents extra allocations
-                            let path = match path_cache.get(path) {
-                                Some(cached_path) => Arc::clone(cached_path),
-                                None => {
-                                    let path = Arc::from(path);
-                                    path_cache.insert(Arc::clone(&path));
-                                    path
-                                }
-                            };
-
-                            let file_attr = FileAttr { path, line: line_info.line_start as usize};
-                            self.file_attrs.push((base_addr + addr, file_attr));
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(err) => log::complex!(
-                        w "[index::parse_pdb] ",
-                        y format!("{err}."),
-                    )
-                }
-            }
+            module_info_queue.push((idx, module_info));
+            idx += 1;
         }
 
-        log::complex!(
-            w "[index::parse_pdb] indexed ",
-            g path_cache.len().to_string(),
-            w " source files."
-        );
+        log::PROGRESS.set("parsing pdb.", module_info_queue.len());
 
-        // global symbols
+        // parse local symbols
+        std::thread::scope(|s| -> Result<_, pdb::Error> {
+            let thread_count = std::thread::available_parallelism().unwrap().get();
+            let threads: Vec<_> = (0..thread_count)
+                .map(|_| {
+                    let path_cache = Arc::clone(&path_cache);
+                    let address_map = Arc::clone(&address_map);
+                    let string_table = Arc::clone(&string_table);
+                    let module_info_queue = Arc::clone(&module_info_queue);
+
+                    s.spawn(move || -> Result<_, pdb::Error> {
+                        let mut names = Vec::new();
+                        let mut file_attrs = Vec::new();
+
+                        while let Some((module_id, module_info)) = module_info_queue.pop() {
+                            parse_pdb_module(
+                                module_id,
+                                base_addr,
+                                &path_cache,
+                                module_info,
+                                &address_map,
+                                &string_table,
+                                &mut names,
+                                &mut file_attrs
+                            )?;
+                            log::PROGRESS.step();
+                        }
+
+                        Ok((file_attrs, names))
+                    })
+                })
+                .collect();
+
+            for thread in threads {
+                let (file_attrs, part_names) = thread.join().unwrap()?;
+                self.file_attrs.extend(file_attrs);
+                names.extend(part_names);
+            }
+
+            Ok(())
+        })?;
+
+        if !path_cache.is_empty() {
+            log::complex!(
+                w "[index::parse_pdb] indexed ",
+                g path_cache.len().to_string(),
+                w " source files."
+            );
+        }
+
+        // iterate through global symbols
         let global_symbols = pdb.global_symbols()?;
-
-        // iterate through symbols collected earlier
         let mut symbol_table = global_symbols.iter();
 
-        // retrieve addresses of symbols
-        let address_map = pdb.address_map()?;
-
+        // parse global symbols
         while let Some(symbol) = symbol_table.next()? {
             match symbol.parse() {
                 Ok(SymbolData::Public(symbol)) if symbol.function => {
@@ -442,7 +513,9 @@ impl Index {
 
                     names.push((base_addr + addr, name));
                 }
-                Ok(_) => {},
+                Ok(_) => {
+                    // TODO: implement support for other types of symbols
+                },
                 Err(err) => log::complex!(
                     w "[index::parse_pdb] ",
                     y format!("{err}."),
@@ -460,7 +533,9 @@ impl Index {
 
         Ok(())
     }
+}
 
+impl Index {
     pub fn parse_symbols(&mut self, obj: &object::File) -> Result<(), Error> {
         let names: Vec<_> = obj.symbols().filter_map(symbol_addr_name).collect();
 
