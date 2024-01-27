@@ -58,7 +58,6 @@ impl Platform {
 
         context.set_fonts(fonts);
         context.set_style(crate::style::EGUI.clone());
-        context.set_pixels_per_point(scale_factor * 2.0);
 
         let raw_input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -140,18 +139,26 @@ impl Platform {
                         }
                     }
                 }
-                WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                &mut WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                     // update the window's size
                     let new_inner_size = window.inner_size();
                     let new_inner_size = PhysicalSize {
-                        width: new_inner_size.width * *scale_factor as u32,
-                        height: new_inner_size.height * *scale_factor as u32,
+                        width: new_inner_size.width * scale_factor as u32,
+                        height: new_inner_size.height * scale_factor as u32,
                     };
 
                     let _ = window.request_inner_size(new_inner_size);
 
-                    self.scale_factor = *scale_factor as f32;
-                    self.context.set_pixels_per_point(*scale_factor as f32);
+                    self.scale_factor = scale_factor as f32;
+
+                    // update primary viewport's ppp
+                    self.raw_input
+                        .viewports
+                        .get_mut(&egui::ViewportId::ROOT)
+                        .unwrap()
+                        .native_pixels_per_point = Some(scale_factor as f32);
+
+                    // update egui's available area
                     self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                         Default::default(),
                         vec2(new_inner_size.width as f32, new_inner_size.height as f32)
