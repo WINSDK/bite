@@ -123,7 +123,7 @@ macro_rules! trace {
     () => {};
 
     ($($arg:tt)*) => {{
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             format!($($arg)*) + "\n",
             $crate::Color::White,
         );
@@ -134,7 +134,7 @@ macro_rules! trace {
 #[macro_export]
 macro_rules! complex_recurse {
     (r $arg:expr $(,)?) => {
-        $crate::LOGGER.lock().unwrap().append(
+        $crate::LOGGER.write().unwrap().append(
             $arg,
             $crate::Color::Red,
         );
