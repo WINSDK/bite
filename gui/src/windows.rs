@@ -1,7 +1,7 @@
 #![cfg(target_os = "windows")]
 
 use copypasta::{ClipboardContext, ClipboardProvider};
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::dpi::{PhysicalPosition, PhysicalSize, LogicalSize};
 use winit::platform::windows::HMONITOR;
 use winit::platform::windows::HWND;
 use winit::platform::windows::{MonitorHandleExtWindows, WindowBuilderExtWindows};
@@ -53,43 +53,32 @@ impl crate::Target for Arch {
 
         let window = winit::window::WindowBuilder::new()
             .with_title(title)
-            .with_visible(false)
-            .with_decorations(true)
             .with_taskbar_icon(icon.clone())
             .with_window_icon(icon)
-            .with_inner_size(winit::dpi::LogicalSize { width, height })
+            .with_inner_size(LogicalSize { width, height })
+            .with_min_inner_size(LogicalSize { width: width / 3, height: height / 3 })
             .build(event_loop)
             .map_err(|_| Error::WindowCreation)?;
-
-        let PhysicalSize { width, height } =
-            window.current_monitor().ok_or(Error::WindowCreation)?.size();
 
         let hwnd = query_hwnd(&window);
 
         unsafe {
-            let width = width * 2 / 5;
-            let height = height * 2 / 3;
+            let style = WS_BORDER | WS_CLIPSIBLINGS | WS_SYSMENU | WS_VISIBLE | WS_THICKFRAME;
+            let style_ex = WS_EX_ACCEPTFILES | WS_EX_WINDOWEDGE;
 
             // set basic window attributes
-            let attr = WS_THICKFRAME | WS_POPUP;
-            if SetWindowLongPtrW(hwnd, GWL_STYLE, attr) == 0 {
+            if SetWindowLongPtrW(hwnd, GWL_STYLE, style) == 0 {
                 return Err(Error::WindowCreation);
             }
 
             // set extended window attributes
-            if SetWindowLongPtrW(hwnd, GWL_EXSTYLE, WS_EX_ACCEPTFILES) == 0 {
+            if SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style_ex) == 0 {
                 return Err(Error::WindowCreation);
             }
 
-            // resize window to some reasonable dimensions, whilst applying the window attributes
-            if SetWindowPos(hwnd, HWND_TOP, 0, 0, width, height, SWP_NOZORDER) == 0 {
-                return Err(Error::WindowCreation);
-            }
-
-            // set window visibility
-            if SetWindowLongPtrW(hwnd, GWL_STYLE, attr | WS_VISIBLE) == 0 {
-                return Err(Error::WindowCreation);
-            }
+            // apply updated attributes, required by windows
+            let flags = SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED;
+            SetWindowPos(hwnd, 0, 0, 0, 0, 0, flags);
         }
 
         Ok(window)
@@ -153,15 +142,24 @@ impl crate::Target for Arch {
     }
 }
 
-pub const GWL_EXSTYLE: i32 = -20;
-pub const GWL_STYLE: i32 = -16;
-pub const SWP_NOZORDER: i32 = 4;
-pub const WS_POPUP: isize = 2147483648;
-pub const WS_VISIBLE: isize = 268435456;
-pub const WS_THICKFRAME: isize = 262144;
-pub const WS_EX_ACCEPTFILES: isize = 16;
-pub const WS_OVERLAPPED: isize = 0;
-pub const HWND_TOP: isize = 0;
+const GWL_EXSTYLE: i32 = -20;
+const GWL_STYLE: i32 = -16;
+const HWND_TOP: isize = 0;
+
+const WS_OVERLAPPED: isize = 0x00000000;
+const WS_POPUP: isize = 0x80000000;
+const WS_VISIBLE: isize = 0x10000000;
+const WS_CLIPSIBLINGS: isize = 0x04000000;
+const WS_BORDER: isize = 0x00800000;
+const WS_SYSMENU: isize = 0x00080000;
+const WS_THICKFRAME: isize = 0x00040000;
+const WS_EX_ACCEPTFILES: isize = 0x00000010;
+const WS_EX_WINDOWEDGE: isize = 0x00000100;
+
+const SWP_NOSIZE: i32 = 0x0001;
+const SWP_NOMOVE: i32 = 0x0002;
+const SWP_NOZORDER: i32 = 0x0004;
+const SWP_FRAMECHANGED: i32 = 0x0020;
 
 #[repr(C)]
 #[derive(Default)]
@@ -181,8 +179,8 @@ pub struct MonitorInfo {
 }
 
 extern "system" {
-    pub fn SetWindowLongPtrW(handle: HWND, idx: i32, dw_new_long: isize) -> isize;
-    pub fn SetWindowPos(
+    fn SetWindowLongPtrW(handle: HWND, idx: i32, dw_new_long: isize) -> isize;
+    fn SetWindowPos(
         handle: HWND,
         insert_after: HWND,
         x: u32,
@@ -191,5 +189,5 @@ extern "system" {
         cy: u32,
         flags: i32,
     ) -> i32;
-    pub fn GetMonitorInfoW(monitor: HMONITOR, info: &mut MonitorInfo) -> i32;
+    fn GetMonitorInfoW(monitor: HMONITOR, info: &mut MonitorInfo) -> i32;
 }
