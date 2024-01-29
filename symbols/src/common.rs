@@ -1,5 +1,6 @@
+use dashmap::DashMap;
 use radix_trie::TrieKey;
-use std::sync::Arc;
+use std::{hash::Hash, sync::Arc};
 
 pub fn parallel_compute<In, Out, F>(items: Vec<In>, output: &mut Vec<Out>, transformer: F)
 where
@@ -70,5 +71,35 @@ impl TrieKey for ArcStr {
     #[inline]
     fn encode_bytes(&self) -> Vec<u8> {
         self.as_bytes().encode_bytes()
+    }
+}
+
+pub struct InternPoolMap<K, V: ?Sized> {
+    map: DashMap<K, Arc<V>>,
+}
+
+impl<K: Hash + Eq, V: ?Sized> InternPoolMap<K, V> {
+    pub fn new() -> Self {
+        Self {
+            map: DashMap::new(),
+        }
+    }
+
+    pub fn add<VV>(&self, key: K, value: &VV) -> Arc<V>
+    where
+        for<'a> &'a VV: Into<Arc<V>>,
+        VV: ?Sized,
+    {
+        let value = value.into();
+        self.map.insert(key, Arc::clone(&value));
+        value
+    }
+
+    pub fn get(&self, key: &K) -> Option<Arc<V>> {
+        self.map.get(key).map(|v| v.clone())
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
     }
 }

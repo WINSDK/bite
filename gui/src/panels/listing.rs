@@ -4,7 +4,7 @@ use crate::common::*;
 use crate::widgets::{ProcessorView, TextSelection};
 use egui::text::LayoutJob;
 use processor::Processor;
-use processor_types::PhysAddr;
+use processor_shared::PhysAddr;
 
 pub struct Listing {
     pub processor_view: ProcessorView,

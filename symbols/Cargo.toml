@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 log = { path = "../log" }
 tokenizing = { path = "../tokenizing" }
-processor_types = { path = "../processor_types" }
+processor_shared = { path = "../processor_shared" }
 bitflags = "2"
 radix_trie = "0.2"
 gimli = { workspace = true }

@@ -1,5 +1,5 @@
 [package]
-name = "processor_types"
+name = "processor_shared"
 version = "0.0.0"
 edition = "2021"
 

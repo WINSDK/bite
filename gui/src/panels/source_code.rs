@@ -149,7 +149,7 @@ impl Source {
 
             if line_nr == file_attr.line {
                 for section in line.sections.iter_mut() {
-                    section.bg_color = Color32::from_rgba_unmultiplied(255, 100, 0, 120);
+                    section.bg_color = CONFIG.colors.highlight;
                     section.fg_color = Color32::WHITE;
                 }
             }

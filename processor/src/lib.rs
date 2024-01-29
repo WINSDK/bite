@@ -3,7 +3,7 @@ mod fs;
 
 use decoder::{Decodable, Decoded};
 use object::{Object, ObjectSegment};
-use processor_types::{PhysAddr, Section, Segment, VirtAddr};
+use processor_shared::{PhysAddr, Section, Segment, VirtAddr};
 use tokenizing::Token;
 
 use object::{Architecture, BinaryFormat, ObjectSection, SectionKind};
@@ -295,7 +295,7 @@ impl Processor {
 
         let mut index = symbols::Index::default();
 
-        index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?;
+        log::time!(index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?);
         index.parse_pdb(&obj).map_err(Error::Symbol)?;
         index.parse_symbols(&obj).map_err(Error::Symbol)?;
         index.parse_imports(&obj).map_err(Error::Symbol)?;

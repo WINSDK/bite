@@ -544,7 +544,7 @@ dependencies = [
  "log 0.0.0",
  "nix 0.26.1",
  "processor",
- "processor_types",
+ "processor_shared",
  "procfs",
  "symbols",
  "syscalls",
@@ -983,7 +983,7 @@ dependencies = [
  "png",
  "pollster",
  "processor",
- "processor_types",
+ "processor_shared",
  "rfd",
  "symbols",
  "tokenizing",
@@ -1680,7 +1680,7 @@ dependencies = [
  "log 0.0.0",
  "mips",
  "object",
- "processor_types",
+ "processor_shared",
  "riscv",
  "symbols",
  "tokenizing",
@@ -1688,7 +1688,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "processor_types"
+name = "processor_shared"
 version = "0.0.0"
 dependencies = [
  "object",
@@ -2098,7 +2098,7 @@ dependencies = [
  "log 0.0.0",
  "object",
  "pdb",
- "processor_types",
+ "processor_shared",
  "radix_trie",
  "tokenizing",
 ]

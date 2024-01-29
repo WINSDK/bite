@@ -1,0 +1,14 @@
+# should be put at $HOME/.local/share/bite/config.yaml 
+
+colors:
+  keyword: "#000000"
+  tipe: "#000000"
+  field: "#000000"
+  function: "#000000"
+  delimiter: "#000000"
+  operator: "#000000"
+  comment: "#000000"
+  string: "#000000"
+  variable: "#000000"
+  constant: "#000000"
+  highlight: "#000000"

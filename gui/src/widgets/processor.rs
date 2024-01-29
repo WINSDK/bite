@@ -1,5 +1,5 @@
 use processor::Processor;
-use processor_types::{PhysAddr, Section};
+use processor_shared::{PhysAddr, Section};
 use tokenizing::{colors, Token};
 
 /// Window into a [`Processor`], just a reference essentially.

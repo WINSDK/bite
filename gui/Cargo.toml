@@ -29,7 +29,7 @@ tokenizing = { path = "../tokenizing" }
 debugger = { path = "../debugger" }
 symbols = { path = "../symbols" }
 processor = { path = "../processor" }
-processor_types = { path = "../processor_types" }
+processor_shared = { path = "../processor_shared" }
 
 [build-dependencies]
 cc = "1" # tree-sitter requirement

@@ -13,15 +13,14 @@ use object::LittleEndian as LE;
 use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind};
 
 use crossbeam_queue::SegQueue;
-use dashmap::DashMap;
-use helper::{parallel_compute, ArcStr};
+use common::*;
 use pdb::{SymbolData, FallibleIterator};
-use processor_types::Section;
+use processor_shared::Section;
 use radix_trie::{Trie, TrieCommon};
 use tokenizing::{Color, ColorScheme, Colors, Token};
 
 mod error;
-mod helper;
+mod common;
 pub mod itanium;
 pub mod msvc;
 pub mod rust;
@@ -162,11 +161,10 @@ pub struct Index {
 }
 
 type GimliSlice<'a> = gimli::EndianSlice<'a, gimli::RunTimeEndian>;
-type Cache = Arc<DashMap<u64, Arc<Path>>>;
 
 fn parse_dwarf_unit(
     header_id: u64,
-    path_cache: &Cache,
+    path_cache: &Arc<InternPoolMap<u64, Path>>,
     dwarf: &gimli::Dwarf<GimliSlice>,
     header: gimli::UnitHeader<GimliSlice>,
     file_attrs: &mut Vec<(PhysAddr, FileAttr)>,
@@ -198,7 +196,7 @@ fn parse_dwarf_unit(
         // try to use cached path if possible, prevents extra allocations
         let key = header_id << 48 | row.file_index() << 24 | file.directory_index();
         let path = match path_cache.get(&key) {
-            Some(cached_path) => Arc::clone(&cached_path),
+            Some(cached_path) => cached_path,
             None => {
                 // compute path for the given line
                 let mut path = comp_dir.clone();
@@ -216,9 +214,7 @@ fn parse_dwarf_unit(
                     path.push(path_comp);
                 }
 
-                let path = Arc::from(path);
-                path_cache.insert(key, Arc::clone(&path));
-                path
+                path_cache.add(key, &path)
             }
         };
 
@@ -271,7 +267,7 @@ impl Index {
         }
 
         // create concurrent hashmap for caching file path's
-        let path_cache = Cache::default();
+        let path_cache = Arc::new(InternPoolMap::new());
 
         log::PROGRESS.set("Parsing dwarf.", header_queue.len());
         std::thread::scope(|s| -> Result<_, gimli::Error> {
@@ -308,7 +304,7 @@ impl Index {
             Ok(())
         })?;
 
-        if !path_cache.is_empty() {
+        if path_cache.len() != 0 {
             log::complex!(
                 w "[index::parse_dwarf] indexed ",
                 g path_cache.len().to_string(),
@@ -324,7 +320,7 @@ impl Index {
 fn parse_pdb_module<'a>(
     module_id: u64,
     base_addr: PhysAddr,
-    path_cache: &Cache,
+    path_cache: &Arc<InternPoolMap<u64, Path>>,
     module_info: pdb::ModuleInfo,
     address_map: &pdb::AddressMap,
     string_table: &pdb::StringTable<'a>,
@@ -360,7 +356,7 @@ fn parse_pdb_module<'a>(
                     // try to use cached path if possible, prevents extra allocations
                     let key = module_id << 48 | line_info.file_index.0 as u64;
                     let path = match path_cache.get(&key) {
-                        Some(cached_path) => Arc::clone(&cached_path),
+                        Some(cached_path) => cached_path,
                         None => {
                             // compute path for the given line
                             let file_info = program.get_file_info(line_info.file_index)?;
@@ -370,8 +366,7 @@ fn parse_pdb_module<'a>(
                                 Err(_) => continue,
                             };
 
-                            path_cache.insert(key, Arc::clone(&path));
-                            path
+                            path_cache.add(key, &path)
                         }
                     };
 
@@ -425,7 +420,7 @@ impl Index {
         let mut modules = dbi.modules()?;
 
         // create concurrent hashmap for caching file path's
-        let path_cache = Cache::default();
+        let path_cache = Arc::new(InternPoolMap::new());
 
         // iterate over the modules and store them in a queue
         let module_info_queue = Arc::new(SegQueue::new());
@@ -484,7 +479,7 @@ impl Index {
             Ok(())
         })?;
 
-        if !path_cache.is_empty() {
+        if path_cache.len() != 0 {
             log::complex!(
                 w "[index::parse_pdb] indexed ",
                 g path_cache.len().to_string(),
@@ -728,7 +723,7 @@ impl Index {
 
         // radix-prefix tree for fast lookups
         for (_, func) in self.functions.iter() {
-            self.trie.insert(func.name_as_str.clone(), func.clone());
+            self.trie.insert(func.name_as_str.clone(), Arc::clone(&func));
             log::PROGRESS.step();
         }
 

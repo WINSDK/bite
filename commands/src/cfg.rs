@@ -3,34 +3,36 @@ use serde::de::{self, Deserializer, Visitor};
 use serde::Deserialize;
 use std::fmt;
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Config {
     #[serde(default = "defaults::colors")]
     pub colors: Colors,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Colors {
     #[serde(default = "defaults::keyword", deserialize_with = "color32")]
-    keyword: Color32,
+    pub keyword: Color32,
     #[serde(default = "defaults::tipe", deserialize_with = "color32")]
-    tipe: Color32,
+    pub tipe: Color32,
     #[serde(default = "defaults::field", deserialize_with = "color32")]
-    field: Color32,
+    pub field: Color32,
     #[serde(default = "defaults::function", deserialize_with = "color32")]
-    function: Color32,
+    pub function: Color32,
     #[serde(default = "defaults::delimiter", deserialize_with = "color32")]
-    delimiter: Color32,
+    pub delimiter: Color32,
     #[serde(default = "defaults::operator", deserialize_with = "color32")]
-    operator: Color32,
+    pub operator: Color32,
     #[serde(default = "defaults::comment", deserialize_with = "color32")]
-    comment: Color32,
+    pub comment: Color32,
     #[serde(default = "defaults::string", deserialize_with = "color32")]
-    string: Color32,
+    pub string: Color32,
     #[serde(default = "defaults::variable", deserialize_with = "color32")]
-    variable: Color32,
+    pub variable: Color32,
     #[serde(default = "defaults::constant", deserialize_with = "color32")]
-    constant: Color32,
+    pub constant: Color32,
+    #[serde(default = "defaults::highlight", deserialize_with = "color32")]
+    pub highlight: Color32,
 }
 
 impl Colors {
@@ -87,6 +89,10 @@ impl Colors {
 mod defaults {
     use egui::Color32;
 
+    pub fn config() -> super::Config {
+        serde_yaml::from_str("").unwrap()
+    }
+
     pub fn colors() -> super::Colors {
         serde_yaml::from_str("").unwrap()
     }
@@ -96,47 +102,59 @@ mod defaults {
     }
 
     pub fn keyword() -> Color32 {
-        Color32::from_hex("#FF5900").unwrap()
+        Color32::from_rgb(0xff, 0x59, 0x00)
     }
     pub fn tipe() -> Color32 {
-        Color32::from_hex("#FAA51B").unwrap()
+        Color32::from_rgb(0xfa, 0xa5, 0x1b)
     }
     pub fn field() -> Color32 {
-        Color32::from_hex("#288CC7").unwrap()
+        Color32::from_rgb(0x28, 0x8c, 0xc7)
     }
     pub fn function() -> Color32 {
-        Color32::from_hex("#02ED6E").unwrap()
+        Color32::from_rgb(0x02, 0xed, 0x6e)
     }
     pub fn delimiter() -> Color32 {
         Color32::GRAY
     }
     pub fn operator() -> Color32 {
-        Color32::from_hex("#FFA500").unwrap()
+        Color32::from_rgb(0xff, 0xa5, 0x00)
     }
     pub fn comment() -> Color32 {
         Color32::GRAY
     }
     pub fn string() -> Color32 {
-        Color32::from_hex("#02ED6E").unwrap()
+        Color32::from_rgb(0x02, 0xed, 0x6e)
     }
     pub fn variable() -> Color32 {
-        Color32::from_hex("#D46CCB").unwrap()
+        Color32::from_rgb(0xd4, 0x6c, 0xcb)
     }
     pub fn constant() -> Color32 {
-        Color32::from_hex("#9B51C2").unwrap()
+        Color32::from_rgb(0x9b, 0x51, 0xc2)
+    }
+    pub fn highlight() -> Color32 {
+        Color32::from_rgba_unmultiplied(255, 100, 0, 120)
     }
 }
 
 impl Config {
     pub fn parse() -> Self {
-        let raw = std::fs::read_to_string("./config.yaml").unwrap_or_default();
+        let path = match dirs::data_dir() {
+            Some(mut dir) => {
+                dir.push("bite");
+                dir.push("config.yaml");
+                dir
+            },
+            None => log::error!("You must have a data directory set."),
+        };
+
+        let raw = std::fs::read_to_string(path).unwrap_or_default();
         match serde_yaml::from_str(&raw) {
             Ok(parsed) => parsed,
             Err(err) => {
-                log::warning!("{err}");
+                log::warning!("Failed to parse config.\nError: {err}.");
 
                 // parse everything as default
-                serde_yaml::from_str("").unwrap()
+                defaults::config()
             }
         }
     }

@@ -1,6 +1,6 @@
 use crossbeam_queue::SegQueue;
 use processor::Processor;
-use processor_types::{PhysAddr, VirtAddr};
+use processor_shared::{PhysAddr, VirtAddr};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};

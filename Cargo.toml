@@ -45,7 +45,7 @@ members = [
     "symbols",
     "debugger",
     "processor",
-    "processor_types"
+    "processor_shared"
 ]
 
 [workspace.dependencies]

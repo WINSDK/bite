@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 object = { workspace = true }
 log = { path = "../log" }
-processor_types = { path = "../processor_types" }
+processor_shared = { path = "../processor_shared" }
 tokenizing = { path = "../tokenizing" }
 symbols = { path = "../symbols" }
 decoder = { path = "../decoder" }

@@ -7,7 +7,7 @@ edition = "2021"
 log = { path = "../log" }
 symbols = { path = "../symbols" }
 processor = { path = "../processor" }
-processor_types = { path = "../processor_types" }
+processor_shared = { path = "../processor_shared" }
 crossbeam-queue = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

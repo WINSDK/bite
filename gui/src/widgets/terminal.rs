@@ -12,7 +12,7 @@ use std::path::PathBuf;
 const HISTORY_PATH: Lazy<PathBuf> = Lazy::new(|| {
     let mut path = match dirs::data_dir() {
         Some(dir) => dir,
-        None => log::error!("You must have a home directory set."),
+        None => log::error!("You must have a data directory set."),
     };
 
     path.push("bite");
