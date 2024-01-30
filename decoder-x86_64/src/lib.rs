@@ -11,6 +11,7 @@ pub mod long_mode;
 pub mod protected_mode;
 mod safer_unchecked;
 
+use symbols::Index;
 use tokenizing::{ColorScheme, Colors};
 
 const MEM_SIZE_STRINGS: [&str; 64] = [
@@ -25,7 +26,7 @@ const MEM_SIZE_STRINGS: [&str; 64] = [
 struct Number(i32);
 
 impl decoder::ToTokens for Number {
-    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream, _: &Index) {
         if self.0 == i32::MIN {
             stream.push(" - ", Colors::expr());
             stream.push("0x7fffffff", Colors::immediate());

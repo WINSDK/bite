@@ -34,9 +34,10 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
         write!(hex, "{:02x}", b).unwrap();
     }
     let mut reader = Reader::new(data);
+    let symbols = symbols::Index::default();
     match dekoder.decode(&mut reader) {
         Ok(instr) => {
-            instr.tokenize(&mut stream);
+            instr.tokenize(&mut stream, &symbols);
             let text = stream.to_string();
 
             assert!(

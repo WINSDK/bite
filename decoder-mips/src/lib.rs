@@ -3,6 +3,7 @@
 mod tests;
 
 use decoder::{Error, ErrorKind};
+use symbols::Index;
 use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
 
@@ -66,15 +67,16 @@ struct TableInstruction {
 #[derive(Debug, Clone)]
 pub struct Instruction {
     mnemomic: &'static str,
-    operands: [std::borrow::Cow<'static, str>; 3],
+    operands: [Cow<'static, str>; 3],
     operand_count: usize,
 }
 
 impl decoder::Decoded for Instruction {
-    #[inline]
     fn width(&self) -> usize {
         4
     }
+
+    fn update_rel_addrs(&mut self, _: usize) {}
 }
 
 #[derive(Default)]
@@ -242,7 +244,7 @@ fn decode(reader: &mut decoder::Reader) -> Result<Instruction, ErrorKind> {
 }
 
 impl decoder::ToTokens for Instruction {
-    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream, _: &Index) {
         stream.push(self.mnemomic, Colors::opcode());
 
         // there are operands

@@ -65,11 +65,12 @@ macro_rules! decode_instructions {
         let mut reader = decoder::Reader::new(&binary[..]);
         let mut line = decoder::TokenStream::new();
         let decoder = crate::Decoder { is_64: true };
+        let symbols = symbols::Index::default();
 
         loop {
             match decoder.decode(&mut reader) {
                 Ok(inst) => {
-                    inst.tokenize(&mut line);
+                    inst.tokenize(&mut line, &symbols);
                     decoded.push(line.to_string());
                     line = decoder::TokenStream::new();
                 }

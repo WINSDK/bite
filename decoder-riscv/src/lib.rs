@@ -2,9 +2,9 @@
 
 mod tests;
 
-use decoder::{Error, ErrorKind};
+use decoder::{Error, ErrorKind, ToTokens};
+use symbols::Index;
 use once_cell::sync::Lazy;
-use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
 
 macro_rules! operands {
@@ -403,6 +403,31 @@ pub enum Opcode {
     C_SDSP,
 }
 
+impl Opcode {
+    fn is_relative(&self) -> bool {
+        matches!(
+            self,
+            Self::JAL |
+            Self::JALR |
+            Self::BEQ |
+            Self::BNE |
+            Self::BLT |
+            Self::BGE |
+            Self::BLTU |
+            Self::BGEU |
+            Self::BEQZ |
+            Self::BNEZ |
+            Self::BLEZ |
+            Self::BGEZ |
+            Self::BLTZ |
+            Self::BGTZ |
+            Self::C_JAL |
+            Self::C_BEQZ |
+            Self::C_BNEZ
+        )
+    }
+}
+
 static OPCODE_NAMES: [&str; 284] = [
     "invalid",
     "la",
@@ -704,11 +729,20 @@ pub enum Operand {
     Immediate(i32),
 }
 
-impl Operand {
-    pub fn to_str(&self) -> Cow<'static, str> {
+impl ToTokens for Operand {
+    fn tokenize(&self, stream: &mut decoder::TokenStream, symbols: &Index) {
         match self {
-            Self::Register(reg) => Cow::Borrowed(reg.as_str()),
-            Self::Immediate(imm) => Cow::Owned(imm.to_string()),
+            Self::Register(reg) => stream.push(reg.as_str(), Colors::register()),
+            Self::Immediate(imm) => {
+                match symbols.get_by_addr(*imm as usize) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => stream.push_owned(imm.to_string(), Colors::immediate()),
+                }
+            }
             Self::Nothing => unreachable!("empty operand encountered"),
         }
     }
@@ -725,6 +759,20 @@ pub struct Instruction {
 impl decoder::Decoded for Instruction {
     fn width(&self) -> usize {
         self.len
+    }
+
+    fn update_rel_addrs(&mut self, addr: usize) {
+        if !self.opcode.is_relative() {
+            return;
+        }
+
+        for operand in &mut self.operands[..self.operand_count] {
+            if let Operand::Immediate(imm) = operand {
+                // questionable at best.
+                // ensuring all the i64 conversion are correct is hard
+                *imm = imm.saturating_add_unsigned(addr as u32);
+            }
+        }
     }
 }
 
@@ -921,8 +969,8 @@ fn decode(reader: &mut decoder::Reader, decoder: &Decoder) -> Result<Instruction
     decoded_inst.map(map_to_psuedo)
 }
 
-impl decoder::ToTokens for Instruction {
-    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+impl ToTokens for Instruction {
+    fn tokenize(&self, stream: &mut decoder::TokenStream, symbols: &Index) {
         stream.push(self.opcode.as_str(), Colors::opcode());
 
         // there are operands
@@ -931,12 +979,7 @@ impl decoder::ToTokens for Instruction {
 
             // iterate through operands
             for idx in 0..self.operand_count {
-                let operand = self.operands[idx];
-
-                match operand.to_str() {
-                    Cow::Owned(s) => stream.push_owned(s, Colors::immediate()),
-                    Cow::Borrowed(s) => stream.push(s, Colors::register()),
-                };
+                self.operands[idx].tokenize(stream, symbols);
 
                 // separator
                 if idx != self.operand_count - 1 {

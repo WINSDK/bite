@@ -1290,6 +1290,7 @@ name = "mips"
 version = "0.0.0"
 dependencies = [
  "decoder",
+ "symbols",
  "tokenizing",
 ]
 
@@ -1864,6 +1865,7 @@ dependencies = [
  "decoder",
  "object",
  "once_cell",
+ "symbols",
  "tokenizing",
 ]
 

@@ -4,6 +4,7 @@ mod fs;
 use decoder::{Decodable, Decoded};
 use object::{Object, ObjectSegment};
 use processor_shared::{PhysAddr, Section, Segment, VirtAddr};
+use symbols::Index;
 use tokenizing::Token;
 
 use object::{Architecture, BinaryFormat, ObjectSection, SectionKind};
@@ -42,7 +43,7 @@ macro_rules! impl_recursion {
 
         for section in $sections.iter().filter(|s| s.kind == SectionKind::Text) {
             let mut reader = decoder::Reader::new(&section.bytes);
-            let mut addr = section.start;
+            let mut ip = section.start;
 
             log::complex!(
                 w "[processor::recurse] analyzing section ",
@@ -60,14 +61,14 @@ macro_rules! impl_recursion {
             loop {
                 match $decoder.decode(&mut reader) {
                     Ok(mut instruction) => {
-                        instruction.find_xrefs(addr, $symbols);
+                        instruction.update_rel_addrs(ip);
 
                         let width = instruction.width();
-                        $instructions.push((addr, Instruction {
+                        $instructions.push((ip, Instruction {
                             $arch: std::mem::ManuallyDrop::new(instruction)
                         }));
 
-                        addr += width;
+                        ip += width;
                     }
                     Err(error) => {
                         if error.kind == decoder::ErrorKind::ExhaustedInput {
@@ -75,8 +76,8 @@ macro_rules! impl_recursion {
                         }
 
                         let width = error.size();
-                        $errors.push((addr, error));
-                        addr += width;
+                        $errors.push((ip, error));
+                        ip += width;
                     }
                 }
 
@@ -115,7 +116,7 @@ pub struct Processor {
     max_instruction_width: usize,
 
     /// Function pointer to an [`Instruction`]'s implementation of [`Decoded::tokens`].
-    instruction_tokens: fn(&Instruction) -> Vec<Token>,
+    instruction_tokens: fn(&Instruction, &Index) -> Vec<Token>,
 
     /// Function pointer to an [`Instruction`]'s implementation of [`Decoded::width`].
     instruction_width: fn(&Instruction) -> usize,
@@ -295,7 +296,7 @@ impl Processor {
 
         let mut index = symbols::Index::default();
 
-        log::time!(index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?);
+        index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?;
         index.parse_pdb(&obj).map_err(Error::Symbol)?;
         index.parse_symbols(&obj).map_err(Error::Symbol)?;
         index.parse_imports(&obj).map_err(Error::Symbol)?;
@@ -401,12 +402,14 @@ impl Processor {
         section.format_bytes(addr, len, self.max_instruction_width * 3 + 1, is_padded)
     }
 
-    pub fn instruction_tokens(&self, instruction: &Instruction) -> Vec<Token> {
-        (self.instruction_tokens)(&instruction)
+    /// Relatively slow tokenization of an [`Instruction`].
+    /// Xref's get resolved which requires some extra computation.
+    pub fn instruction_tokens(&self, instruction: &Instruction, symbols: &Index) -> Vec<Token> {
+        (self.instruction_tokens)(instruction, symbols)
     }
 
     pub fn instruction_width(&self, instruction: &Instruction) -> usize {
-        (self.instruction_width)(&instruction)
+        (self.instruction_width)(instruction)
     }
 
     pub fn error_by_addr(&self, addr: PhysAddr) -> Option<&decoder::Error> {

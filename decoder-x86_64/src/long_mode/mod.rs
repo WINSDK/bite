@@ -11,7 +11,8 @@ use std::hash::{Hash, Hasher};
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 pub use crate::MemoryAccessSize;
 
-use decoder::{Decodable, Error, ErrorKind, Reader, ToTokens, Xref};
+use decoder::{Decodable, Error, ErrorKind, Reader, ToTokens};
+use symbols::Index;
 use tokenizing::{ColorScheme, Colors};
 
 /// an `x86_64` register, including its number and type. if `fmt` is enabled, name too.
@@ -588,7 +589,7 @@ impl SaeMode {
 }
 
 impl ToTokens for SaeMode {
-    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream, _: &Index) {
         stream.push("{", Colors::brackets());
         stream.push(
             match self {
@@ -2611,7 +2612,7 @@ pub struct Instruction {
     disp: u64,
     opcode: Opcode,
     mem_size: u8,
-    shadowing: [Option<Xref>; 4],
+    imm_override: bool,
 }
 
 impl fmt::Debug for Instruction {
@@ -2626,6 +2627,7 @@ impl fmt::Debug for Instruction {
             .field("disp", &self.disp)
             .field("opcode", &self.opcode)
             .field("mem_size", &self.mem_size)
+            .field("imm_override", &self.imm_override)
             .finish()
     }
 }
@@ -2636,90 +2638,102 @@ impl decoder::Decoded for Instruction {
         self.length as usize
     }
 
-    fn find_xrefs(&mut self, addr: usize, symbols: &symbols::Index) {
+    fn update_rel_addrs(&mut self, addr: usize) {
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
-            let shadow = &mut self.shadowing[idx];
+            let addr = addr as u64;
             let addr = match operand {
                 Operand::ImmediateI8(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
+                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
                 }
                 Operand::ImmediateU8(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
+                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
                 }
                 Operand::ImmediateI16(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
+                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
                 }
                 Operand::ImmediateU16(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
+                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
                 }
                 Operand::ImmediateI32(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
+                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
                 }
                 Operand::ImmediateU32(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
+                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
                 }
                 Operand::ImmediateI64(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
+                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
                 }
                 Operand::ImmediateU64(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
+                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
                 }
-                Operand::DisplacementU32(imm) => addr.saturating_add(imm as usize),
-                Operand::DisplacementU64(imm) => addr.saturating_add(imm as usize),
+                Operand::DisplacementU32(imm) => addr.saturating_add(imm as u64),
+                Operand::DisplacementU64(imm) => addr.saturating_add(imm),
                 Operand::RegDisp(RegSpec::RIP, disp) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(disp as isize)
+                    addr.saturating_add(self.length as u64).saturating_add_signed(disp as i64)
+                }
+                Operand::RegScale(RegSpec::RIP, scale) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(scale as u64)
                 }
                 Operand::RegScaleDisp(RegSpec::RIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(scale as usize).saturating_add_signed(disp as isize)
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(scale as u64).saturating_add_signed(disp as i64)
+                }
+                Operand::RegIndexBase(RegSpec::RIP, RegSpec::RIP) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(2)
+                }
+                Operand::RegIndexBaseDisp(RegSpec::RIP, RegSpec::RIP, disp) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_add_signed(disp as i64)
                 }
                 Operand::RegIndexBaseScale(RegSpec::RIP, RegSpec::RIP, scale) => {
-                    let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(2 * scale as usize)
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(2 * scale as u64)
                 }
                 Operand::RegIndexBaseScaleDisp(RegSpec::RIP, RegSpec::RIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(2 * scale as usize).saturating_add_signed(disp as isize)
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(2 * scale as u64).saturating_add_signed(disp as i64)
+                }
+                Operand::RegDispMasked(RegSpec::RIP, disp, _) => {
+                    addr.saturating_add(self.length as u64).saturating_add_signed(disp as i64)
+                }
+                Operand::RegScaleMasked(RegSpec::RIP, scale, _) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(scale as u64)
+                }
+                Operand::RegScaleDispMasked(RegSpec::RIP, scale, disp, _) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(scale as u64).saturating_add_signed(disp as i64)
+                }
+                Operand::RegIndexBaseMasked(RegSpec::RIP, RegSpec::RIP, _) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(2)
+                }
+                Operand::RegIndexBaseDispMasked(RegSpec::RIP, RegSpec::RIP, disp, _) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_add_signed(disp as i64)
+                }
+                Operand::RegIndexBaseScaleMasked(RegSpec::RIP, RegSpec::RIP, scale, _) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(2 * scale as u64)
+                }
+                Operand::RegIndexBaseScaleDispMasked(
+                    RegSpec::RIP,
+                    RegSpec::RIP,
+                    scale,
+                    disp,
+                    _,
+                ) => {
+                    let ip = addr.saturating_add(self.length as u64);
+                    ip.saturating_mul(2 * scale as u64).saturating_add_signed(disp as i64)
                 }
                 _ => continue,
             };
 
-            const RELATIVE_BRANCHES: [Opcode; 21] = [
-                Opcode::JMP,
-                Opcode::JRCXZ,
-                Opcode::LOOP,
-                Opcode::LOOPZ,
-                Opcode::LOOPNZ,
-                Opcode::JO,
-                Opcode::JNO,
-                Opcode::JB,
-                Opcode::JNB,
-                Opcode::JZ,
-                Opcode::JNZ,
-                Opcode::JNA,
-                Opcode::JA,
-                Opcode::JS,
-                Opcode::JNS,
-                Opcode::JP,
-                Opcode::JNP,
-                Opcode::JL,
-                Opcode::JGE,
-                Opcode::JLE,
-                Opcode::JG,
-            ];
-
-            // resolve relative jumps
-            if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
-                && RELATIVE_BRANCHES.contains(&self.opcode)
-            {
-                self.operands[0] = OperandSpec::ImmI64;
-                self.imm = addr as u64;
-            }
-
-            if let Some(text) = symbols.get_by_addr(addr) {
-                *shadow = Some(decoder::Xref { addr, text });
-            }
+            self.imm = addr;
+            self.imm_override = true;
         }
     }
 }
@@ -4372,7 +4386,7 @@ impl Instruction {
             imm: 0,
             operand_count: 0,
             operands: [OperandSpec::Nothing; 4],
-            shadowing: Default::default(),
+            imm_override: false,
         }
     }
 

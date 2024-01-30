@@ -1,7 +1,7 @@
 //! Shared behaviour required between decoder crates.
 
 use std::fmt::Debug;
-use std::sync::Arc;
+use symbols::Index;
 use tokenizing::{Color, Token};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -51,17 +51,17 @@ pub enum ErrorKind {
 }
 
 pub trait ToTokens {
-    fn tokenize(&self, stream: &mut TokenStream);
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index);
 }
 
 pub trait Decoded: ToTokens {
     fn width(&self) -> usize;
-    fn tokens(&self) -> Vec<Token> {
+    fn tokens(&self, symbols: &Index) -> Vec<Token> {
         let mut stream = TokenStream::new();
-        self.tokenize(&mut stream);
-        stream.into_tokens()
+        self.tokenize(&mut stream, symbols);
+        stream.inner
     }
-    fn find_xrefs(&mut self, _addr: usize, _symbols: &symbols::Index) {}
+    fn update_rel_addrs(&mut self, addr: usize);
 }
 
 pub trait Decodable {
@@ -69,12 +69,6 @@ pub trait Decodable {
 
     fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Error>;
     fn max_width(&self) -> usize;
-}
-
-#[derive(Clone)]
-pub struct Xref {
-    pub addr: usize,
-    pub text: Arc<symbols::Function>,
 }
 
 #[derive(Debug)]
@@ -99,10 +93,6 @@ impl TokenStream {
 
     pub fn push_owned(&mut self, text: String, color: Color) {
         self.push_token(Token::from_string(text, color));
-    }
-
-    pub fn into_tokens(self) -> Vec<Token> {
-        self.inner
     }
 }
 

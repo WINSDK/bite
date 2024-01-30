@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 decoder = { path = "../decoder" }
 tokenizing = { path = "../tokenizing" }
+symbols = { path = "../symbols" }

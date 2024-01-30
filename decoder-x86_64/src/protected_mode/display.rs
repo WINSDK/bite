@@ -7,6 +7,7 @@ use crate::safer_unchecked::GetSaferUnchecked as _;
 use crate::{Number, MEM_SIZE_STRINGS};
 
 use decoder::ToTokens;
+use symbols::Index;
 use tokenizing::{ColorScheme, Colors};
 
 impl fmt::Display for Decoder {
@@ -249,8 +250,389 @@ impl fmt::Display for RegSpec {
     }
 }
 
-impl ToTokens for Operand {
-    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+impl Operand {
+    fn tokenize_symbolic(
+        &self,
+        stream: &mut decoder::TokenStream,
+        symbols: &Index,
+        addr: usize,
+    ) -> bool {
+        match *self {
+            Operand::ImmediateI8(_) => match symbols.get_by_addr(addr) {
+                Some(symbol) => {
+                    for token in symbol.name() {
+                        stream.push_token(token.clone());
+                    }
+                }
+                None => {
+                    let text = decoder::encode_hex(addr as i64);
+                    stream.push_owned(text, Colors::immediate());
+                }
+            },
+            Operand::ImmediateU8(_) => match symbols.get_by_addr(addr) {
+                Some(symbol) => {
+                    for token in symbol.name() {
+                        stream.push_token(token.clone());
+                    }
+                }
+                None => {
+                    let text = decoder::encode_hex(addr as i64);
+                    stream.push_owned(text, Colors::immediate());
+                }
+            },
+            Operand::ImmediateI16(_) => match symbols.get_by_addr(addr) {
+                Some(symbol) => {
+                    for token in symbol.name() {
+                        stream.push_token(token.clone());
+                    }
+                }
+                None => {
+                    let text = decoder::encode_hex(addr as i64);
+                    stream.push_owned(text, Colors::immediate());
+                }
+            },
+            Operand::ImmediateU16(_) => match symbols.get_by_addr(addr) {
+                Some(symbol) => {
+                    for token in symbol.name() {
+                        stream.push_token(token.clone());
+                    }
+                }
+                None => {
+                    let text = decoder::encode_hex(addr as i64);
+                    stream.push_owned(text, Colors::immediate());
+                }
+            },
+            Operand::ImmediateI32(_) => match symbols.get_by_addr(addr) {
+                Some(symbol) => {
+                    for token in symbol.name() {
+                        stream.push_token(token.clone());
+                    }
+                }
+                None => {
+                    let text = decoder::encode_hex(addr as i64);
+                    stream.push_owned(text, Colors::immediate());
+                }
+            },
+            Operand::ImmediateU32(_) => match symbols.get_by_addr(addr) {
+                Some(symbol) => {
+                    for token in symbol.name() {
+                        stream.push_token(token.clone());
+                    }
+                }
+                None => {
+                    let text = decoder::encode_hex(addr as i64);
+                    stream.push_owned(text, Colors::immediate());
+                }
+            },
+            Operand::DisplacementU32(_) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        dbg!(symbol.as_str());
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        let text = decoder::encode_hex(addr as i64);
+                        stream.push_owned(text, Colors::immediate());
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegDisp(ref spec, disp) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(spec), Colors::register());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegScale(ref spec, scale) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(spec), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::immediate());
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegScaleDisp(ref spec, scale, disp) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(spec), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(format!("{scale}"), Colors::immediate());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegIndexBase(ref base, ref index) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegIndexBaseDisp(ref base, ref index, disp) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegIndexBaseScale(ref base, ref index, scale) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::immediate());
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegIndexBaseScaleDisp(ref base, ref index, scale, disp) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+            }
+            Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(spec), Colors::register());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
+            }
+            Operand::RegScaleMasked(ref spec, scale, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(spec), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::register());
+                    }
+                }
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
+            }
+            Operand::RegScaleDispMasked(ref spec, scale, disp, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(spec), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::register());
+                        stream.push(" ", Colors::spacing());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
+            }
+            Operand::RegIndexBaseMasked(ref base, ref index, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                    }
+                }
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
+            }
+            Operand::RegIndexBaseDispMasked(ref base, ref index, disp, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(" ", Colors::spacing());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
+            }
+            Operand::RegIndexBaseScaleMasked(ref base, ref index, scale, ref mask_reg) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::immediate());
+                    }
+                }
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
+            }
+            Operand::RegIndexBaseScaleDispMasked(
+                ref base,
+                ref index,
+                scale,
+                disp,
+                ref mask_reg,
+            ) => {
+                stream.push("[", Colors::brackets());
+                match symbols.get_by_addr(addr) {
+                    Some(symbol) => {
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                    }
+                    None => {
+                        stream.push(regspec_label(base), Colors::register());
+                        stream.push(" + ", Colors::expr());
+                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(" * ", Colors::expr());
+                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        Number(disp).tokenize(stream, symbols);
+                    }
+                }
+                stream.push("]", Colors::brackets());
+
+                stream.push("{", Colors::brackets());
+                stream.push(regspec_label(mask_reg), Colors::register());
+                stream.push("}", Colors::brackets());
+            }
+            _ => return false,
+        }
+
+        true
+    }
+}
+
+impl Operand {
+    fn tokenize(
+        &self,
+        stream: &mut decoder::TokenStream,
+        symbols: &Index,
+        imm_override: Option<usize>,
+    ) {
+        if let Some(addr) = imm_override {
+            // if we we've done a symbolic version of tokenizing
+            if self.tokenize_symbolic(stream, symbols, addr) {
+                return;
+            }
+        }
+
         match *self {
             Operand::ImmediateU8(imm) => {
                 let text = decoder::encode_hex(imm as i64);
@@ -312,7 +694,7 @@ impl ToTokens for Operand {
                     stream.push("}", Colors::brackets());
                 }
 
-                sae_mode.tokenize(stream);
+                sae_mode.tokenize(stream, symbols);
             }
             Operand::RegisterMaskMergeSaeNoround(ref spec, ref mask, merge_mode) => {
                 stream.push(regspec_label(spec), Colors::register());
@@ -345,7 +727,7 @@ impl ToTokens for Operand {
             Operand::RegDisp(ref spec, disp) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
             }
             Operand::RegDeref(ref spec) => {
@@ -365,7 +747,7 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(spec), Colors::register());
                 stream.push(" * ", Colors::expr());
                 stream.push_owned(format!("{scale}"), Colors::immediate());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
             }
             Operand::RegIndexBase(ref base, ref index) => {
@@ -380,7 +762,7 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(base), Colors::register());
                 stream.push(" + ", Colors::expr());
                 stream.push(regspec_label(index), Colors::register());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
             }
             Operand::RegIndexBaseScale(ref base, ref index, scale) => {
@@ -399,13 +781,13 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(index), Colors::register());
                 stream.push(" * ", Colors::expr());
                 stream.push_owned(scale.to_string(), Colors::immediate());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
             }
             Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
                 stream.push(regspec_label(spec), Colors::register());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
 
                 stream.push("{", Colors::brackets());
@@ -437,7 +819,7 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(spec), Colors::register());
                 stream.push(" * ", Colors::expr());
                 stream.push_owned(scale.to_string(), Colors::register());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
 
                 stream.push("{", Colors::brackets());
@@ -460,7 +842,7 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(base), Colors::register());
                 stream.push(" + ", Colors::expr());
                 stream.push(regspec_label(index), Colors::register());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
 
                 stream.push("{", Colors::brackets());
@@ -493,7 +875,7 @@ impl ToTokens for Operand {
                 stream.push(regspec_label(index), Colors::register());
                 stream.push(" * ", Colors::expr());
                 stream.push_owned(scale.to_string(), Colors::immediate());
-                Number(disp).tokenize(stream);
+                Number(disp).tokenize(stream, symbols);
                 stream.push("]", Colors::brackets());
 
                 stream.push("{", Colors::brackets());
@@ -1964,7 +2346,7 @@ impl Opcode {
 }
 
 impl ToTokens for Instruction {
-    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream, symbols: &Index) {
         let opcode_name = self.opcode().name();
         let mut op = String::with_capacity(opcode_name.len());
 
@@ -1999,76 +2381,19 @@ impl ToTokens for Instruction {
         op.push_str(opcode_name);
         stream.push_owned(op, Colors::opcode());
 
-        if self.opcode == Opcode::XBEGIN {
-            if (self.imm as i64) >= 0 {
-                stream.push(" $+", Colors::expr());
-                stream.push_owned(decoder::encode_hex(self.imm as i64), Colors::immediate());
-                return;
+        // slightly hacky but for `int` instructions we tend to incorrectly try to
+        // do symbolic resolution on the immediate which isn't correct
+        let imm_override =
+            if self.imm_override && self.opcode != Opcode::INT && self.opcode != Opcode::INTO {
+                Some(self.imm as usize)
             } else {
-                stream.push(" $", Colors::expr());
-                stream.push_owned(decoder::encode_hex(self.imm as i64), Colors::immediate());
-                return;
-            }
-        }
+                None
+            };
 
         if self.operand_count > 0 {
             stream.push(" ", Colors::spacing());
 
             let op = Operand::from_spec(self, self.operands[0]);
-
-            const RELATIVE_BRANCHES: [Opcode; 21] = [
-                Opcode::JMP,
-                Opcode::JECXZ,
-                Opcode::LOOP,
-                Opcode::LOOPZ,
-                Opcode::LOOPNZ,
-                Opcode::JO,
-                Opcode::JNO,
-                Opcode::JB,
-                Opcode::JNB,
-                Opcode::JZ,
-                Opcode::JNZ,
-                Opcode::JNA,
-                Opcode::JA,
-                Opcode::JS,
-                Opcode::JNS,
-                Opcode::JP,
-                Opcode::JNP,
-                Opcode::JL,
-                Opcode::JGE,
-                Opcode::JLE,
-                Opcode::JG,
-            ];
-
-            if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
-                && RELATIVE_BRANCHES.contains(&self.opcode)
-            {
-                return match op {
-                    Operand::ImmediateI8(rel) => {
-                        if rel >= 0 {
-                            stream.push("$+", Colors::expr());
-                            let rel = decoder::encode_hex(rel as i64);
-                            stream.push_owned(rel, Colors::immediate());
-                        } else {
-                            stream.push("$", Colors::expr());
-                            let rel = decoder::encode_hex(rel as i64);
-                            stream.push_owned(rel, Colors::immediate());
-                        }
-                    }
-                    Operand::ImmediateI32(rel) => {
-                        if rel >= 0 {
-                            stream.push("$+", Colors::expr());
-                            let rel = decoder::encode_hex(rel as i64);
-                            stream.push_owned(rel, Colors::immediate());
-                        } else {
-                            stream.push("$", Colors::expr());
-                            let rel = decoder::encode_hex(rel as i64);
-                            stream.push_owned(rel, Colors::immediate());
-                        }
-                    }
-                    _ => unreachable!(),
-                };
-            }
 
             if op.is_memory() {
                 stream.push(
@@ -2082,16 +2407,7 @@ impl ToTokens for Instruction {
                 stream.push(":", Colors::expr());
             }
 
-            if let Some(ref xref) = self.shadowing[0] {
-                stream.push("[", Colors::brackets());
-                for token in xref.text.name() {
-                    stream.push_token(token.clone());
-                }
-                stream.push("]", Colors::brackets());
-                return;
-            }
-
-            op.tokenize(stream);
+            op.tokenize(stream, symbols, imm_override);
 
             for idx in 1..self.operand_count {
                 if self.operands[idx as usize] == OperandSpec::Nothing {
@@ -2112,16 +2428,7 @@ impl ToTokens for Instruction {
                     stream.push(":", Colors::expr());
                 }
 
-                if let Some(ref xref) = self.shadowing[idx as usize] {
-                    stream.push("[", Colors::brackets());
-                    for token in xref.text.name() {
-                        stream.push_token(token.clone());
-                    }
-                    stream.push("]", Colors::brackets());
-                    return;
-                }
-
-                op.tokenize(stream);
+                op.tokenize(stream, symbols, imm_override);
 
                 if let Some(evex) = self.prefixes.evex() {
                     if evex.broadcast() && op.is_memory() {

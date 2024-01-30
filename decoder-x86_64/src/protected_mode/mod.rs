@@ -11,8 +11,9 @@ use std::hash::{Hash, Hasher};
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 pub use crate::MemoryAccessSize;
 
-use decoder::{Decodable, Error, ErrorKind, Reader, ToTokens, Xref};
+use decoder::{Decodable, Error, ErrorKind, Reader, ToTokens};
 use tokenizing::{ColorScheme, Colors};
+use symbols::Index;
 
 /// an `x86` register, including its number and type. if `fmt` is enabled, name too.
 ///
@@ -502,7 +503,7 @@ impl SaeMode {
 }
 
 impl ToTokens for SaeMode {
-    fn tokenize(&self, stream: &mut decoder::TokenStream) {
+    fn tokenize(&self, stream: &mut decoder::TokenStream, _: &Index) {
         stream.push("{", Colors::brackets());
         stream.push(
             match self {
@@ -2541,7 +2542,7 @@ pub struct Instruction {
     disp: u32,
     opcode: Opcode,
     mem_size: u8,
-    shadowing: [Option<Xref>; 4],
+    imm_override: bool,
 }
 
 impl fmt::Debug for Instruction {
@@ -2566,84 +2567,95 @@ impl decoder::Decoded for Instruction {
         self.length as usize
     }
 
-    fn find_xrefs(&mut self, addr: usize, symbols: &symbols::Index) {
+    fn update_rel_addrs(&mut self, addr: usize) {
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
-            let shadow = &mut self.shadowing[idx];
+            let addr = addr as u32;
             let addr = match operand {
                 Operand::ImmediateI8(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
+                    addr.saturating_add(self.length as u32).saturating_add_signed(imm as i32)
                 }
                 Operand::ImmediateU8(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
+                    addr.saturating_add(self.length as u32).saturating_add(imm as u32)
                 }
                 Operand::ImmediateI16(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
+                    addr.saturating_add(self.length as u32).saturating_add_signed(imm as i32)
                 }
                 Operand::ImmediateU16(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
+                    addr.saturating_add(self.length as u32).saturating_add(imm as u32)
                 }
                 Operand::ImmediateI32(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(imm as isize)
+                    addr.saturating_add(self.length as u32).saturating_add_signed(imm as i32)
                 }
                 Operand::ImmediateU32(imm) => {
-                    addr.saturating_add(self.length as usize).saturating_add(imm as usize)
+                    addr.saturating_add(self.length as u32).saturating_add(imm as u32)
                 }
-                Operand::DisplacementU16(imm) => addr.saturating_add(imm as usize),
-                Operand::DisplacementU32(imm) => addr.saturating_add(imm as usize),
+                Operand::DisplacementU32(imm) => addr.saturating_add(imm as u32),
                 Operand::RegDisp(RegSpec::EIP, disp) => {
-                    addr.saturating_add(self.length as usize).saturating_add_signed(disp as isize)
+                    addr.saturating_add(self.length as u32).saturating_add_signed(disp as i32)
+                }
+                Operand::RegScale(RegSpec::EIP, scale) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(scale as u32)
                 }
                 Operand::RegScaleDisp(RegSpec::EIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(scale as usize).saturating_add_signed(disp as isize)
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(scale as u32).saturating_add_signed(disp as i32)
+                }
+                Operand::RegIndexBase(RegSpec::EIP, RegSpec::EIP) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(2)
+                }
+                Operand::RegIndexBaseDisp(RegSpec::EIP, RegSpec::EIP, disp) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_add_signed(disp as i32)
                 }
                 Operand::RegIndexBaseScale(RegSpec::EIP, RegSpec::EIP, scale) => {
-                    let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(2 * scale as usize)
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(2 * scale as u32)
                 }
                 Operand::RegIndexBaseScaleDisp(RegSpec::EIP, RegSpec::EIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as usize);
-                    ip.saturating_mul(2 * scale as usize).saturating_add_signed(disp as isize)
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(2 * scale as u32).saturating_add_signed(disp as i32)
+                }
+                Operand::RegDispMasked(RegSpec::EIP, disp, _) => {
+                    addr.saturating_add(self.length as u32).saturating_add_signed(disp as i32)
+                }
+                Operand::RegScaleMasked(RegSpec::EIP, scale, _) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(scale as u32)
+                }
+                Operand::RegScaleDispMasked(RegSpec::EIP, scale, disp, _) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(scale as u32).saturating_add_signed(disp as i32)
+                }
+                Operand::RegIndexBaseMasked(RegSpec::EIP, RegSpec::EIP, _) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(2)
+                }
+                Operand::RegIndexBaseDispMasked(RegSpec::EIP, RegSpec::EIP, disp, _) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_add_signed(disp as i32)
+                }
+                Operand::RegIndexBaseScaleMasked(RegSpec::EIP, RegSpec::EIP, scale, _) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(2 * scale as u32)
+                }
+                Operand::RegIndexBaseScaleDispMasked(
+                    RegSpec::EIP,
+                    RegSpec::EIP,
+                    scale,
+                    disp,
+                    _,
+                ) => {
+                    let ip = addr.saturating_add(self.length as u32);
+                    ip.saturating_mul(2 * scale as u32).saturating_add_signed(disp as i32)
                 }
                 _ => continue,
             };
 
-            const RELATIVE_BRANCHES: [Opcode; 21] = [
-                Opcode::JMP,
-                Opcode::JECXZ,
-                Opcode::LOOP,
-                Opcode::LOOPZ,
-                Opcode::LOOPNZ,
-                Opcode::JO,
-                Opcode::JNO,
-                Opcode::JB,
-                Opcode::JNB,
-                Opcode::JZ,
-                Opcode::JNZ,
-                Opcode::JNA,
-                Opcode::JA,
-                Opcode::JS,
-                Opcode::JNS,
-                Opcode::JP,
-                Opcode::JNP,
-                Opcode::JL,
-                Opcode::JGE,
-                Opcode::JLE,
-                Opcode::JG,
-            ];
-
-            // resolve relative jumps
-            if (self.operands[0] == OperandSpec::ImmI8 || self.operands[0] == OperandSpec::ImmI32)
-                && RELATIVE_BRANCHES.contains(&self.opcode)
-            {
-                self.operands[0] = OperandSpec::ImmI32;
-                self.imm = addr as u32;
-            }
-
-            if let Some(text) = symbols.get_by_addr(addr) {
-                *shadow = Some(decoder::Xref { addr, text });
-            }
+            self.imm = addr;
+            self.imm_override = true;
         }
     }
 }
@@ -4309,7 +4321,7 @@ impl Instruction {
             imm: 0,
             operand_count: 0,
             operands: [OperandSpec::Nothing; 4],
-            shadowing: Default::default(),
+            imm_override: false,
         }
     }
 
