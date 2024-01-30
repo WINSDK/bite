@@ -478,7 +478,7 @@ impl CompleteExpr {
         match node {
             Expr::Number(val) => Ok(*val),
             Expr::Symbol { val, .. } => match index.get_by_name(val) {
-                Some((addr, _)) => Ok(addr as isize),
+                Some(addr) => Ok(addr as isize),
                 None => Err(Error {
                     offset: None,
                     msg: format!("Unknown symbol '{val}'"),

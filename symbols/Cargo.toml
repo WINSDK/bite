@@ -14,3 +14,4 @@ pdb = { workspace = true }
 object = { workspace = true }
 crossbeam-queue = { workspace = true }
 dashmap = "5.5.3"
+rustc-hash = "1.1.0"

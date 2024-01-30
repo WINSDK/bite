@@ -1,5 +1,6 @@
 //! Symbol demangler for common mangling schemes.
 
+use std::fmt;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,15 +19,16 @@ use pdb::{SymbolData, FallibleIterator};
 use processor_shared::Section;
 use radix_trie::{Trie, TrieCommon};
 use tokenizing::{Color, ColorScheme, Colors, Token};
+use processor_shared::PhysAddr;
+use intern::InternMap;
 
 mod error;
 mod common;
+mod intern;
 pub mod itanium;
 pub mod msvc;
 pub mod rust;
 pub mod rust_legacy;
-
-type PhysAddr = usize;
 
 pub enum Error {
     Object(object::Error),
@@ -67,7 +69,6 @@ fn parser(s: &str) -> TokenStream {
     TokenStream::simple(s)
 }
 
-#[derive(Debug)]
 pub struct Function {
     name: TokenStream,
     name_as_str: ArcStr,
@@ -131,6 +132,12 @@ impl Function {
     }
 }
 
+impl fmt::Debug for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
 impl PartialEq for Function {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -164,7 +171,7 @@ type GimliSlice<'a> = gimli::EndianSlice<'a, gimli::RunTimeEndian>;
 
 fn parse_dwarf_unit(
     header_id: u64,
-    path_cache: &Arc<InternPoolMap<u64, Path>>,
+    path_cache: &InternMap<u64, Path>,
     dwarf: &gimli::Dwarf<GimliSlice>,
     header: gimli::UnitHeader<GimliSlice>,
     file_attrs: &mut Vec<(PhysAddr, FileAttr)>,
@@ -267,7 +274,7 @@ impl Index {
         }
 
         // create concurrent hashmap for caching file path's
-        let path_cache = Arc::new(InternPoolMap::new());
+        let path_cache = Arc::new(InternMap::new());
 
         log::PROGRESS.set("Parsing dwarf.", header_queue.len());
         std::thread::scope(|s| -> Result<_, gimli::Error> {
@@ -320,7 +327,7 @@ impl Index {
 fn parse_pdb_module<'a>(
     module_id: u64,
     base_addr: PhysAddr,
-    path_cache: &Arc<InternPoolMap<u64, Path>>,
+    path_cache: &InternMap<u64, Path>,
     module_info: pdb::ModuleInfo,
     address_map: &pdb::AddressMap,
     string_table: &pdb::StringTable<'a>,
@@ -420,7 +427,7 @@ impl Index {
         let mut modules = dbi.modules()?;
 
         // create concurrent hashmap for caching file path's
-        let path_cache = Arc::new(InternPoolMap::new());
+        let path_cache = Arc::new(InternMap::new());
 
         // iterate over the modules and store them in a queue
         let module_info_queue = Arc::new(SegQueue::new());
@@ -543,7 +550,7 @@ impl Index {
         });
 
         // insert entrypoint into known symbols
-        let entrypoint = obj.entry() as usize;
+        let entrypoint = obj.entry() as PhysAddr;
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
         // insert entrypoint
@@ -613,7 +620,7 @@ impl Index {
                         let module = module.strip_prefix(".dll").unwrap_or(&module).to_owned();
                         let func = Function::new(parser(name), Some(module));
 
-                        self.insert(phys_addr as usize, func);
+                        self.insert(phys_addr as PhysAddr, func);
                     }
 
                     // skip over an entry
@@ -655,9 +662,9 @@ impl Index {
 
                     let phys_addr = match reloc.kind() {
                         // hard-coded address to function which doesn't require a relocation
-                        RelocationKind::Absolute => r_offset as usize,
-                        RelocationKind::Elf(R_X86_64_GLOB_DAT) => r_offset as usize,
-                        RelocationKind::Elf(R_X86_64_COPY) => r_offset as usize,
+                        RelocationKind::Absolute => r_offset as PhysAddr,
+                        RelocationKind::Elf(R_X86_64_GLOB_DAT) => r_offset as PhysAddr,
+                        RelocationKind::Elf(R_X86_64_COPY) => r_offset as PhysAddr,
                         // address in .got.plt section which contains an address to the function
                         RelocationKind::Elf(R_X86_64_JUMP_SLOT) => {
                             let width = if obj.is_64() { 8 } else { 4 };
@@ -668,9 +675,9 @@ impl Index {
                             };
 
                             let phys_addr = if obj.is_64() {
-                                obj.endian().read_u64_bytes(bytes.try_into().unwrap()) as usize
+                                obj.endian().read_u64_bytes(bytes.try_into().unwrap()) as PhysAddr
                             } else {
-                                obj.endian().read_u32_bytes(bytes.try_into().unwrap()) as usize
+                                obj.endian().read_u32_bytes(bytes.try_into().unwrap()) as PhysAddr
                             };
 
                             // idk why we need this
@@ -750,11 +757,11 @@ impl Index {
         self.named_len
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(usize, Arc<Function>)> {
+    pub fn iter(&self) -> impl Iterator<Item = &(PhysAddr, Arc<Function>)> {
         self.functions.iter()
     }
 
-    pub fn get_file(&self, addr: usize) -> Option<&FileAttr> {
+    pub fn get_file(&self, addr: PhysAddr) -> Option<&FileAttr> {
         let search = self.file_attrs.binary_search_by(|x| x.0.cmp(&addr));
 
         match search {
@@ -772,11 +779,11 @@ impl Index {
         }
     }
 
-    pub fn get_by_name(&self, name: &str) -> Option<(usize, Arc<Function>)> {
+    pub fn get_by_name(&self, name: &str) -> Option<PhysAddr> {
         self.functions
             .iter()
             .find(|(_, func)| func.as_str() == name)
-            .map(|(addr, func)| (*addr, func.clone()))
+            .map(|(addr, _)| *addr)
     }
 
     pub fn prefix_match(&self, prefix: &str) -> Vec<String> {
@@ -813,9 +820,9 @@ fn sort_by_shortest_match(input: &[&ArcStr], prefix: &str) -> Vec<String> {
     matches
 }
 
-fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(usize, &'sym str)> {
+fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(PhysAddr, &'sym str)> {
     if let Ok(name) = symbol.name() {
-        return Some((symbol.address() as usize, name));
+        return Some((symbol.address() as PhysAddr, name));
     }
 
     None
