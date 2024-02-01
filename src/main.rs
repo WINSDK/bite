@@ -56,8 +56,7 @@ fn main() {
         println!("{path}:");
 
         for function in index.symbols() {
-            let symbol = function.name().iter().map(|s| &s.text[..]);
-            let symbol = String::from_iter(symbol);
+            let symbol = function.as_str().to_string();
 
             match function.module() {
                 Some(module) => println!("\t{module} => {symbol}"),
@@ -84,9 +83,7 @@ fn main() {
         }
 
         for function in index.symbols() {
-            let symbol = function.name().iter().map(|s| &s.text[..]);
-            let symbol = String::from_iter(symbol);
-
+            let symbol = function.as_str().to_string();
             println!("{symbol}");
         }
     }

@@ -166,17 +166,11 @@ name = "bite"
 version = "0.13.0"
 dependencies = [
  "commands",
- "decoder",
  "gui",
  "log 0.0.0",
  "nix 0.26.1",
  "object",
- "once_cell",
- "pdb",
- "png",
- "rfd",
  "symbols",
- "tokenizing",
  "winres",
 ]
 

@@ -4,27 +4,24 @@ version = "0.13.0"
 edition = "2021"
 
 [dependencies]
-object = { workspace = true }
-pdb = { workspace = true }
-once_cell = { workspace = true }
 nix = { workspace = true }
-png = "0.17"
-rfd = "0.12"
-
+object = { workspace = true }
 commands = { path = "./commands" }
 log = { path = "./log" }
 gui = { path = "./gui" }
-decoder = { path = "./decoder" }
-tokenizing = { path = "./tokenizing" }
 symbols = { path = "./symbols" }
 
 # tracing-tracy = "0.10.4"
 # tracing-subscriber = { version = "0.3", default-features = false }
 # tracing = "0.1"
 
+[profile.dev]
+panic = 'abort'
+
 [profile.release]
 # strip = true
 debug = true
+panic = 'abort'
 # lto = "thin"
 
 [target.'cfg(windows)'.build-dependencies]
