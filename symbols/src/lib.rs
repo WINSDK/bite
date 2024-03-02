@@ -253,7 +253,7 @@ impl Index {
         let load_section = |id: gimli::SectionId| -> Result<&[u8], gimli::Error> {
             let target_name = id.name();
             match sections.iter().find(|section| section.name == target_name) {
-                Some(section) => Ok(&section.bytes[..]),
+                Some(section) => Ok(section.bytes()),
                 None => Ok(&[]),
             }
         };

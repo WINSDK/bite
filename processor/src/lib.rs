@@ -8,11 +8,14 @@ use symbols::Index;
 use tokenizing::Token;
 
 use object::{Architecture, BinaryFormat, ObjectSection, SectionKind};
+use memmap2::Mmap;
 use x86_64::long_mode as x64;
 use x86_64::protected_mode as x86;
 
+use std::fs::File;
 use std::borrow::Cow;
 use std::mem::ManuallyDrop;
+use std::os::fd::AsRawFd;
 
 pub enum Error {
     IO(std::io::Error),
@@ -42,7 +45,7 @@ macro_rules! impl_recursion {
         };
 
         for section in $sections.iter().filter(|s| s.kind == SectionKind::Text) {
-            let mut reader = decoder::Reader::new(&section.bytes);
+            let mut reader = decoder::Reader::new(section.bytes());
             let mut ip = section.start;
 
             log::complex!(
@@ -56,7 +59,7 @@ macro_rules! impl_recursion {
             );
 
             // guessing an average of 5 byte long instructions
-            log::PROGRESS.set("Decoding instructions", section.bytes.len() / width_guess);
+            log::PROGRESS.set("Decoding instructions", section.bytes().len() / width_guess);
 
             loop {
                 match $decoder.decode(&mut reader) {
@@ -98,6 +101,12 @@ pub struct Processor {
     /// Symbol lookup by physical address.
     pub index: Index,
 
+    /// File handle to binary,
+    _file: File,
+
+    /// A memory map of the binary.
+    _mmap: Mmap,
+
     /// Object's sections sorted by address.
     sections: Vec<Section>,
 
@@ -127,9 +136,11 @@ pub struct Processor {
 
 impl Processor {
     pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
-        let binary = fs::read(&path).map_err(Error::IO)?;
+        let file = std::fs::File::open(path.as_ref()).map_err(Error::IO)?;
+        let mmap = unsafe { Mmap::map(file.as_raw_fd()).map_err(Error::IO)? };
+        let binary: &'static [u8] = unsafe { std::mem::transmute(&mmap[..]) };
 
-        let obj = object::File::parse(&binary[..]).map_err(Error::Object)?;
+        let obj = object::File::parse(binary).map_err(Error::Object)?;
         let entrypoint = obj.entry() as usize;
 
         if entrypoint != 0 {
@@ -166,12 +177,12 @@ impl Processor {
                 _ => Cow::Borrowed("unnamed"),
             };
 
-            let bytes = match section.uncompressed_data() {
-                Ok(uncompressed) => uncompressed,
+            let section_bytes = match section.data() {
+                Ok(data) => data,
                 Err(..) => {
                     log::complex!(
                         w "[processor::new] ",
-                        y format!("failed to decompress section {name}.")
+                        y format!("failed to read section {name}.")
                     );
 
                     continue;
@@ -204,18 +215,17 @@ impl Processor {
             ];
 
             let start = section.address() as PhysAddr;
-            let end = bytes.len() + start;
+            let end = section_bytes.len() + start;
             let loaded = !DWARF_SECTIONS.contains(&&*name) && section.address() != 0;
-
-            let section = Section {
+            let section = Section::new(
                 name,
-                kind: section.kind(),
+                section.kind(),
                 loaded,
-                bytes: bytes.into_owned(),
-                addr: section.address() as VirtAddr,
+                section_bytes,
+                section.address() as VirtAddr,
                 start,
-                end,
-            };
+                end
+            );
 
             sections.push(section);
         }
@@ -230,15 +240,15 @@ impl Processor {
             let rva = obj.entry() as VirtAddr - obj.relative_address_base() as VirtAddr;
             let start = obj.relative_address_base() as VirtAddr + rva;
             let end = start + binary.len() - rva;
-            let section = Section {
-                name: Cow::Borrowed("flat (generated)"),
-                kind: SectionKind::Text,
-                loaded: true,
-                bytes: binary[rva..].to_vec(),
+            let section = Section::new(
+                Cow::Borrowed("flat (generated)"),
+                SectionKind::Text,
+                true,
+                &binary[rva..],
                 addr,
                 start,
                 end,
-            };
+            );
 
             sections.push(section);
         }
@@ -370,6 +380,8 @@ impl Processor {
             errors,
             instructions,
             index,
+            _file: file,
+            _mmap: mmap,
             max_instruction_width,
             instruction_tokens,
             instruction_width,

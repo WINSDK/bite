@@ -18,8 +18,8 @@ pub struct Section {
     /// Whether or not it's being shown in the ASM listing as regular code/data.
     pub loaded: bool,
 
-    /// Uncompressed data.
-    pub bytes: Vec<u8>,
+    /// Section data.
+    bytes: &'static [u8],
 
     /// Virtual address.
     pub addr: VirtAddr,
@@ -32,6 +32,32 @@ pub struct Section {
 }
 
 impl Section {
+    pub fn new(
+        name: Cow<'static, str>,
+        kind: SectionKind,
+        loaded: bool,
+        bytes: &'static [u8],
+        addr: VirtAddr,
+        start: PhysAddr,
+        end: PhysAddr,
+    ) -> Self {
+        Self {
+            name,
+            kind,
+            loaded,
+            bytes,
+            addr,
+            start,
+            end
+        }
+    }
+
+    #[inline]
+    pub fn bytes<'a>(&'a self) -> &'a [u8] {
+        self.bytes
+    }
+
+    #[inline]
     pub fn contains(&self, addr: PhysAddr) -> bool {
         (self.start..=self.end).contains(&addr)
     }
