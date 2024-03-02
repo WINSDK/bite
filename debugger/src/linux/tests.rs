@@ -5,7 +5,6 @@ use processor::Processor;
 
 #[test]
 fn spawn_sh() {
-    let ctx = Arc::new(Context::new());
     let settings = DebuggerSettings {
         tracing: false,
         follow_children: false,
@@ -15,16 +14,14 @@ fn spawn_sh() {
         args: vec!["-c", "echo 10"],
         module: Arc::new(Processor::parse("/bin/sh").unwrap()),
     };
-    let session = Debugger::spawn(settings, desc).unwrap();
 
-    assert!(session.run(ctx.clone()).is_ok());
-    assert_eq!(ctx.queue.pop(), Some(DebuggerEvent::Exited(0)));
-    assert_eq!(ctx.queue.pop(), None);
+    let mut debugger = Debugger::new(settings, desc);
+    debugger.spawn().unwrap();
+    assert_eq!(debugger.trace().unwrap(), 0);
 }
 
 #[test]
 fn spawn_sleep_invalid() {
-    let ctx = Arc::new(Context::new());
     let settings = DebuggerSettings {
         tracing: false,
         follow_children: false,
@@ -34,9 +31,8 @@ fn spawn_sleep_invalid() {
         module: Arc::new(Processor::parse("/bin/sleep").unwrap()),
         args: vec![],
     };
-    let session = Debugger::spawn(settings, desc).unwrap();
 
-    assert!(session.run(ctx.clone()).is_ok());
-    assert_eq!(ctx.queue.pop(), Some(DebuggerEvent::Exited(1)));
-    assert_eq!(ctx.queue.pop(), None);
+    let mut debugger = Debugger::new(settings, desc);
+    debugger.spawn().unwrap();
+    assert_eq!(debugger.trace().unwrap(), 1);
 }

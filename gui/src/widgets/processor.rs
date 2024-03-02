@@ -97,11 +97,11 @@ impl ProcessorView {
 
     /// Set's and update's the number of blocks if it changed.
     pub fn set_max_lines(&mut self, count: usize, processor: &Processor) {
-        log::complex!(
-            w "[processor::set_block_size] updating listing window to ",
-            g count.to_string(),
-            w " entries."
-        );
+        // log::complex!(
+        //     w "[processor::set_block_size] updating listing window to ",
+        //     g count.to_string(),
+        //     w " entries."
+        // );
 
         self.max_lines = count + count / 10; // FIXME: count isn't enough to fill window
         self.update(processor);

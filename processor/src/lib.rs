@@ -96,7 +96,7 @@ pub struct Processor {
     pub path: std::path::PathBuf,
 
     /// Symbol lookup by physical address.
-    pub index: symbols::Index,
+    pub index: Index,
 
     /// Object's sections sorted by address.
     sections: Vec<Section>,
@@ -128,6 +128,7 @@ pub struct Processor {
 impl Processor {
     pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
         let binary = fs::read(&path).map_err(Error::IO)?;
+
         let obj = object::File::parse(&binary[..]).map_err(Error::Object)?;
         let entrypoint = obj.entry() as usize;
 
@@ -148,22 +149,15 @@ impl Processor {
         let arch = obj.architecture();
 
         for segment in obj.segments() {
-            let name = match segment.name() {
-                Ok(Some(name)) => Cow::Owned(name.to_string()),
+            let name = match segment.name().map_err(Error::Object)? {
+                Some(name) => Cow::Owned(name.to_string()),
                 _ => Cow::Borrowed("unnamed"),
             };
 
-            let phys_start = segment.file_range().0 as PhysAddr;
-            let phys_end = phys_start + segment.size() as PhysAddr;
+            let start = segment.address() as VirtAddr;
+            let end = start + segment.size() as VirtAddr;
 
-            let segment = Segment {
-                name,
-                addr: segment.address() as VirtAddr,
-                start: phys_start,
-                end: phys_end,
-            };
-
-            segments.push(segment);
+            segments.push(Segment { name, start, end });
         }
 
         for section in obj.sections() {
@@ -250,17 +244,10 @@ impl Processor {
         }
 
         if segments.is_empty() {
-            let addr = if obj.format() == BinaryFormat::Pe {
-                0x1000
-            } else {
-                0
-            };
-
             let start = obj.relative_address_base() as VirtAddr;
             let end = start + binary.len();
             let segment = Segment {
                 name: Cow::Borrowed("flat (generated)"),
-                addr,
                 start,
                 end,
             };
@@ -294,7 +281,7 @@ impl Processor {
             }
         };
 
-        let mut index = symbols::Index::default();
+        let mut index = Index::default();
 
         index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?;
         index.parse_pdb(&obj).map_err(Error::Symbol)?;

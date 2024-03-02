@@ -8,6 +8,7 @@ log = { path = "../log" }
 symbols = { path = "../symbols" }
 processor = { path = "../processor" }
 processor_shared = { path = "../processor_shared" }
+once_cell = { workspace = true }
 crossbeam-queue = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

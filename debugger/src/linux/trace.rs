@@ -1,4 +1,5 @@
-use crate::{Process, Tracing};
+use crate::memory::PAGE_SIZE;
+use crate::{Error, Process, ReadMemory};
 
 use nix::libc;
 use nix::sys::socket::{self, SockaddrLike};
@@ -6,9 +7,8 @@ use nix::sys::{signal, stat};
 
 use std::ffi::{c_int, CString};
 use std::fmt;
-use std::mem::size_of;
+use std::mem::{size_of, MaybeUninit};
 use std::os::fd::AsRawFd;
-use std::ptr;
 
 #[cfg(target_arch = "x86_64")]
 pub type Sysno = syscalls::x86_64::Sysno;
@@ -104,39 +104,48 @@ fn format_fdset(proc: &mut Process, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match proc.read_memory(addr as usize, size_of::<nix::sys::select::FdSet>()) {
-        Ok(data) => {
-            let set = unsafe { ptr::read(data.as_ptr() as *const nix::sys::select::FdSet) };
-            let set: Vec<_> = set.fds(None).map(|fd| Fd(fd.as_raw_fd())).collect();
+    let mut fdset = nix::sys::select::FdSet::new();
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut fdset, addr as usize)
+            .apply();
 
-            format!("{set:?}")
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => "???".to_string(),
     }
+
+    let fdset: Vec<_> = fdset.fds(None).map(|fd| Fd(fd.as_raw_fd())).collect();
+    format!("{fdset:?}")
 }
 
-// Try to read 20 bytes.
-//
-// TODO: guess whether the bytes could be a utf-8 sequence
+/// Try to read 20 bytes.
 fn format_bytes_u8(proc: &mut Process, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    let bytes_to_read = std::cmp::min(len as usize, 20);
-    match proc.read_memory(addr as usize, bytes_to_read) {
-        Ok(data) => {
-            let mut data = format!("{data:x?}");
+    let count = std::cmp::min(len as usize, 20);
+    let mut bytes = Vec::<u8>::with_capacity(count);
+    unsafe {
+        bytes.set_len(count);
+        let read_op = ReadMemory::new(proc)
+            .read_slice(&mut bytes, addr as usize)
+            .apply();
 
-            if len > 60 {
-                data.pop();
-                data += ", ..]";
-            }
-
-            data
+        match read_op {
+            Ok(()) => {},
+            Err(Error::IncompleteRead(bytes_read, _)) => bytes.set_len(bytes_read),
+            Err(_) => return "???".to_string(),
         }
-        Err(..) => "???".to_string(),
     }
+
+    // if the bytes are valid utf8, return that instead
+    if let Ok(utf8) = std::str::from_utf8(&bytes) {
+        return format!("b\"{utf8}\"");
+    }
+
+    format!("{bytes:x?}")
 }
 
 /// Read first 20 elements of an array of type `T`.
@@ -145,17 +154,27 @@ fn format_array<T: std::fmt::Debug>(proc: &mut Process, addr: u64, len: u64) -> 
         return "NULL".to_string();
     }
 
-    let width = size_of::<T>();
-    let end_of_array = addr + len * width as u64;
-    let mut items = Vec::new();
-    for addr in (addr..end_of_array).step_by(width).take(20) {
-        if let Ok(data) = proc.read_memory(addr as usize, width) {
-            let item = unsafe { ptr::read(data.as_ptr() as *const T) };
-            items.push(item);
+    let count = std::cmp::min(len as usize, 20);
+    let mut values = Vec::<T>::with_capacity(count);
+
+    unsafe {
+        values.set_len(count);
+        let read_op = ReadMemory::new(proc)
+            .read_slice(&mut values[..], addr as usize)
+            .apply();
+
+        match read_op {
+            Ok(()) => {},
+            Err(Error::IncompleteRead(bytes_read, _)) => {
+                // truncate the values read buffer to those we read successfully 
+                let values_read = bytes_read / std::mem::size_of::<T>();
+                values.set_len(values_read);
+            },
+            Err(_) => return "???".to_string(),
         }
     }
 
-    format!("{items:?}")
+    format!("{values:?}")
 }
 
 /// Try to read a string with a known length and print the first 60 characters.
@@ -164,75 +183,80 @@ fn format_str(proc: &mut Process, addr: u64, len: u64) -> String {
         return "NULL".to_string();
     }
 
-    let bytes_to_read = std::cmp::min(len as usize, 60 * size_of::<char>());
-    match proc.read_memory(addr as usize, bytes_to_read) {
-        Ok(data) => {
-            let data = String::from_utf8_lossy(&data).into_owned();
-            let mut data = data.escape_default().to_string();
+    let count = std::cmp::min(len as usize, 60 * size_of::<char>());
+    let mut bytes = Vec::<u8>::with_capacity(count);
+    unsafe {
+        bytes.set_len(count);
+        let read_op = ReadMemory::new(proc)
+            .read_slice(&mut bytes, addr as usize)
+            .apply();
 
-            if data.len() > 60 {
-                data.truncate(57);
-                data += "...";
-            }
-
-            format!("\"{data}\"")
-        }
-        Err(..) => "???".to_string(),
-    }
-}
-
-pub fn read_c_str_slow(proc: &Process, mut addr: u64) -> String {
-    let mut data = Vec::new();
-    while let Ok(bytes) = proc.read_memory(addr as usize, 1) {
-        match &bytes[..] {
-            &[b'\0'] | &[] => break,
-            &[byte, ..] => {
-                if data.len() > 10_000 {
-                    break;
-                }
-
-                data.push(byte);
-                addr += 1;
-            }
+        match read_op {
+            Ok(()) => {},
+            Err(Error::IncompleteRead(bytes_read, _)) => bytes.set_len(bytes_read),
+            Err(_) => return "???".to_string(),
         }
     }
 
-    String::from_utf8_lossy(&data).into_owned()
+    let mut data = String::from_utf8_lossy(&bytes)
+        .into_owned()
+        .escape_default()
+        .to_string();
+
+    if data.len() > 60 {
+        data.truncate(57);
+        data += "..";
+    }
+
+    format!("\"{data}\"")
 }
 
-/// Try to read a string with a null terminator and print the first 60 characters.
-fn format_c_str(proc: &mut Process, addr: u64) -> String {
+/// Try to read a null terminated string.
+pub fn read_c_str(proc: &mut Process, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    let bytes_to_read = 60 * size_of::<char>();
-    match proc.read_memory(addr as usize, bytes_to_read) {
-        Ok(mut data) => {
-            // add a null terminator if one wasn't found in the first 40 bytes
-            match data.iter().position(|&b| b == b'\0') {
-                Some(terminator) => data.truncate(terminator + 1),
-                None => {
-                    data.pop();
-                    data.push(b'\0')
-                }
-            }
+    // sorta arbitrary buffer size but we'll read as much as we can
+    // this should still be faster than repeatedly reading one byte searching for a terminator
+    let mut bytes = vec![0; *PAGE_SIZE / 2];
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read_slice(&mut bytes, addr as usize)
+            .apply();
 
-            let data = match CString::from_vec_with_nul(data.clone()) {
-                Ok(data) => data.to_string_lossy().into_owned(),
-                Err(..) => return "???".to_string(),
-            };
-
-            let mut data = data.escape_default().to_string();
-            if data.len() > 60 {
-                data.truncate(57);
-                data += "...";
-            }
-
-            format!("\"{data}\"")
+        match read_op {
+            Err(Error::IncompleteRead(_, bytes_read)) => bytes.truncate(bytes_read),
+            Err(_) => return "???".to_string(),
+            Ok(()) => {}
         }
-        Err(..) => "???".to_string(),
     }
+
+    // find the first null terminator and add one if necessary
+    match bytes.iter().position(|&b| b == b'\0') {
+        Some(terminator) => bytes.truncate(terminator + 1),
+        None => {
+            bytes.pop();
+            bytes.push(b'\0')
+        }
+    }
+
+    // convert the cstring
+    match CString::from_vec_with_nul(bytes) {
+        Ok(data) => data.to_string_lossy().into_owned(),
+        Err(..) => return "???".to_string(),
+    }
+}
+
+/// Try to read and format a null terminated string, printing the first 60 characters.
+pub fn format_c_str(proc: &mut Process, addr: u64) -> String {
+    let mut data = read_c_str(proc, addr).escape_default().to_string();
+    if data.len() > 60 {
+        data.truncate(57);
+        data += "..";
+    }
+
+    format!("\"{data}\"")
 }
 
 // FIXME: i don't think this is being interpreted correctly
@@ -241,23 +265,28 @@ fn format_sigset(proc: &mut Process, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match proc.read_memory(addr as usize, size_of::<signal::SigSet>()) {
-        Ok(data) => {
-            let set = unsafe { ptr::read(data.as_ptr() as *const signal::SigSet) };
+    let mut sigset = signal::SigSet::empty();
 
-            if set == signal::SigSet::all() {
-                return "~[]".to_string();
-            }
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut sigset, addr as usize)
+            .apply();
 
-            let set: Vec<signal::Signal> = set.iter().collect();
-
-            // if all 31 signals are set, it must be an empty set mask
-            match set.len() {
-                31 => "~[]".to_string(),
-                _ => format!("{set:?}"),
-            }
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => "???".to_string(),
+    }
+
+    if sigset == signal::SigSet::all() {
+        return "~[]".to_string();
+    }
+
+    let signals: Vec<signal::Signal> = sigset.iter().collect();
+
+    // if all 31 signals are set, it must be an empty set mask
+    match signals.len() {
+        31 => "~[]".to_string(),
+        _ => format!("{signals:?}"),
     }
 }
 
@@ -266,18 +295,24 @@ fn format_sigaction(proc: &mut Process, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match proc.read_memory(addr as usize, size_of::<signal::SigAction>()) {
-        Ok(data) => {
-            let action = unsafe { ptr::read(data.as_ptr() as *const signal::SigAction) };
-            let handler = action.handler();
-            let flags = action.flags();
-            let mask = action.mask();
-            let mask: Vec<signal::Signal> = mask.iter().collect();
+    let mut sigaction = MaybeUninit::<signal::SigAction>::uninit();
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut sigaction, addr as usize)
+            .apply();
 
-            format!("{{sa_handler: {handler:?}, sa_mask: {mask:?}, sa_flags: {flags:?}}}")
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => "???".to_string(),
     }
+
+    let sigaction = unsafe { sigaction.assume_init() };
+    let handler = sigaction.handler();
+    let flags = sigaction.flags();
+    let mask = sigaction.mask();
+    let mask: Vec<signal::Signal> = mask.iter().collect();
+
+    format!("{{sa_handler: {handler:?}, sa_mask: {mask:?}, sa_flags: {flags:?}}}")
 }
 
 fn format_futex_op(op: u64) -> &'static str {
@@ -309,16 +344,22 @@ fn format_stat(proc: &mut Process, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match proc.read_memory(addr as usize, size_of::<stat::FileStat>()) {
-        Ok(data) => {
-            let stats = unsafe { ptr::read(data.as_ptr() as *const stat::FileStat) };
-            let mode = stats.st_mode;
-            let size = stats.st_size;
+    let mut stats = MaybeUninit::<stat::FileStat>::uninit();
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut stats, addr as usize)
+            .apply();
 
-            format!("{{st_mode={mode:?}, st_size={size}, ...}}")
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => "???".to_string(),
     }
+
+    let stats = unsafe { stats.assume_init() };
+    let mode = stats.st_mode;
+    let size = stats.st_size;
+
+    format!("{{st_mode={mode:?}, st_size={size}, ..}}")
 }
 
 fn format_ioctl(request: u64) -> &'static str {
@@ -347,15 +388,19 @@ fn format_timespec(proc: &mut Process, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match proc.read_memory(addr as usize, size_of::<nix::sys::time::TimeSpec>()) {
-        Ok(data) => {
-            let time = unsafe { ptr::read(data.as_ptr() as *const nix::sys::time::TimeSpec) };
-            let duration = std::time::Duration::from(time);
+    let mut time = nix::sys::time::TimeSpec::new(0, 0);
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut time, addr as usize)
+            .apply();
 
-            format!("{duration:#?}")
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => "???".to_string(),
     }
+
+    let duration = std::time::Duration::from(time);
+    format!("{duration:#?}")
 }
 
 fn format_timerval(proc: &mut Process, addr: u64) -> String {
@@ -363,13 +408,18 @@ fn format_timerval(proc: &mut Process, addr: u64) -> String {
         return "NULL".to_string();
     }
 
-    match proc.read_memory(addr as usize, size_of::<nix::sys::time::TimeVal>()) {
-        Ok(data) => {
-            let time = unsafe { ptr::read(data.as_ptr() as *const nix::sys::time::TimeVal) };
-            format!("{time}")
+    let mut time = nix::sys::time::TimeVal::new(0, 0);
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut time, addr as usize)
+            .apply();
+
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => "???".to_string(),
     }
+
+    format!("{time}")
 }
 
 fn format_itimerval(proc: &mut Process, addr: u64) -> String {
@@ -392,63 +442,78 @@ fn format_sockaddr(proc: &mut Process, addr: u64, socketlen: Option<u32>) -> Str
 
     // read the first field of any sockaddr struct, it includes what family of addresses we
     // are working with
-    let family = match proc.read_memory(addr, size_of::<libc::sa_family_t>()) {
-        Ok(data) => {
-            let raw = libc::sa_family_t::from_le_bytes(data.try_into().unwrap()) as i32;
+    let mut family = libc::sa_family_t::default() as i32;
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut family, addr as usize)
+            .apply();
 
-            if raw == libc::AF_UNSPEC {
-                return "(opaque)".to_string();
-            }
-
-            match socket::AddressFamily::from_i32(raw) {
-                Some(family) => family,
-                None => return "(unknown address family)".to_string(),
-            }
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => return "???".to_string(),
+    }
+
+    let addr_family = {
+        if family == libc::AF_UNSPEC {
+            return "(opaque)".to_string();
+        }
+
+        match socket::AddressFamily::from_i32(family) {
+            Some(family) => family,
+            None => return "(unknown address family)".to_string(),
+        }
     };
 
-    match family {
+    match addr_family {
         // struct sockaddr_in
-        socket::AddressFamily::Inet => {
-            let read = proc.read_memory(addr, size_of::<socket::sockaddr_in>());
-            let sock_addr = match read {
-                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in) },
-                Err(..) => return "???".to_string(),
-            };
+        socket::AddressFamily::Inet => unsafe {
+            let mut sock_addr = MaybeUninit::<socket::sockaddr_in>::uninit();
+            let read_op = ReadMemory::new(proc)
+                .read(&mut sock_addr, addr as usize)
+                .apply();
 
+            if read_op.is_err() {
+                return "???".to_string();
+            }
+
+            let sock_addr = sock_addr.assume_init();
             let addr = std::net::Ipv4Addr::from(sock_addr.sin_addr.s_addr);
             let port = sock_addr.sin_port;
 
             format!("{{addr: {addr}, port: {port}}}")
         }
         // struct sockaddr_in6
-        socket::AddressFamily::Inet6 => {
-            let read = proc.read_memory(addr, size_of::<socket::sockaddr_in6>());
-            let sock_addr = match read {
-                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr_in6) },
-                Err(..) => return "???".to_string(),
-            };
+        socket::AddressFamily::Inet6 => unsafe {
+            let mut sock_addr = MaybeUninit::<socket::sockaddr_in6>::uninit();
+            let read_op = ReadMemory::new(proc)
+                .read(&mut sock_addr, addr as usize)
+                .apply();
 
+            if read_op.is_err() {
+                return "???".to_string();
+            }
+
+            let sock_addr = sock_addr.assume_init();
             let addr = std::net::Ipv6Addr::from(sock_addr.sin6_addr.s6_addr);
             let port = sock_addr.sin6_port;
 
             format!("{{addr: {addr}, port: {port}}}")
         }
         // struct sockaddr_un
-        socket::AddressFamily::Unix => {
-            let read = proc.read_memory(addr, size_of::<socket::sockaddr>());
-            let sock_addr = match read {
-                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::sockaddr) },
-                Err(..) => return "???".to_string(),
-            };
+        socket::AddressFamily::Unix => unsafe {
+            let mut sock_addr = MaybeUninit::<socket::sockaddr>::uninit();
+            let read_op = ReadMemory::new(proc)
+                .read(&mut sock_addr, addr as usize)
+                .apply();
 
-            // SAFETY: since we pass the length, it will be validated
-            let unix_addr = unsafe {
-                match socket::UnixAddr::from_raw(&sock_addr, socketlen) {
-                    Some(addr) => addr,
-                    None => return "???".to_string(),
-                }
+            if read_op.is_err() {
+                return "???".to_string();
+            }
+
+            let sock_addr = sock_addr.assume_init();
+            let unix_addr = match socket::UnixAddr::from_raw(&sock_addr, socketlen) {
+                Some(addr) => addr,
+                None => return "???".to_string(),
             };
 
             match unix_addr.path() {
@@ -457,39 +522,51 @@ fn format_sockaddr(proc: &mut Process, addr: u64, socketlen: Option<u32>) -> Str
             }
         }
         // struct sockaddr_nl
-        socket::AddressFamily::Netlink => {
-            let read = proc.read_memory(addr, size_of::<socket::NetlinkAddr>());
-            let netlink_addr = match read {
-                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::NetlinkAddr) },
-                Err(..) => return "???".to_string(),
-            };
+        socket::AddressFamily::Netlink => unsafe {
+            let mut netlink_addr = MaybeUninit::<socket::NetlinkAddr>::uninit();
+            let read_op = ReadMemory::new(proc)
+                .read(&mut netlink_addr, addr as usize)
+                .apply();
 
+            if read_op.is_err() {
+                return "???".to_string();
+            }
+
+            let netlink_addr = netlink_addr.assume_init();
             let pid = netlink_addr.pid();
             let groups = netlink_addr.groups();
 
             format!("{{pid: {pid}, groups: {groups}}}")
         }
         // struct sockaddr_alg
-        socket::AddressFamily::Alg => {
-            let read = proc.read_memory(addr, size_of::<socket::AlgAddr>());
-            let alg_addr = match read {
-                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::AlgAddr) },
-                Err(..) => return "???".to_string(),
-            };
+        socket::AddressFamily::Alg => unsafe {
+            let mut alg_addr = MaybeUninit::<socket::AlgAddr>::uninit();
+            let read_op = ReadMemory::new(proc)
+                .read(&mut alg_addr, addr as usize)
+                .apply();
 
+            if read_op.is_err() {
+                return "???".to_string();
+            }
+
+            let alg_addr = alg_addr.assume_init();
             let tipe = alg_addr.alg_type().to_string_lossy();
             let name = alg_addr.alg_name().to_string_lossy();
 
             format!("{{type: {tipe}, name: {name}}}")
         }
         // struct sockaddr_ll
-        socket::AddressFamily::Packet => {
-            let read = proc.read_memory(addr, size_of::<socket::LinkAddr>());
-            let link_addr = match read {
-                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::LinkAddr) },
-                Err(..) => return "???".to_string(),
-            };
+        socket::AddressFamily::Packet => unsafe {
+            let mut link_addr = MaybeUninit::<socket::LinkAddr>::uninit();
+            let read_op = ReadMemory::new(proc)
+                .read(&mut link_addr, addr as usize)
+                .apply();
 
+            if read_op.is_err() {
+                return "???".to_string();
+            }
+
+            let link_addr = link_addr.assume_init();
             let protocol = link_addr.protocol();
             let iface = link_addr.ifindex();
 
@@ -506,13 +583,17 @@ fn format_sockaddr(proc: &mut Process, addr: u64, socketlen: Option<u32>) -> Str
             }
         }
         // struct sockaddr_vm
-        socket::AddressFamily::Vsock => {
-            let read = proc.read_memory(addr, size_of::<socket::VsockAddr>());
-            let vsock_addr = match read {
-                Ok(data) => unsafe { ptr::read(data.as_ptr() as *const socket::VsockAddr) },
-                Err(..) => return "???".to_string(),
-            };
+        socket::AddressFamily::Vsock => unsafe {
+            let mut vsock_addr = MaybeUninit::<socket::VsockAddr>::uninit();
+            let read_op = ReadMemory::new(proc)
+                .read(&mut vsock_addr, addr as usize)
+                .apply();
 
+            if read_op.is_err() {
+                return "???".to_string();
+            }
+
+            let vsock_addr = vsock_addr.assume_init();
             let cid = vsock_addr.cid();
             let port = vsock_addr.port();
 
@@ -528,13 +609,18 @@ fn format_sockaddr_using_len(proc: &mut Process, sock_addr: u64, len_addr: u64) 
         return format_sockaddr(proc, sock_addr, None);
     }
 
-    match proc.read_memory(len_addr as usize, size_of::<u32>()) {
-        Ok(data) => {
-            let len = unsafe { ptr::read(data.as_ptr() as *const u32) };
-            format_sockaddr(proc, sock_addr, Some(len))
+    let mut len = 0u32;
+    unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut len, len_addr as usize)
+            .apply();
+
+        if read_op.is_err() {
+            return "???".to_string();
         }
-        Err(..) => "???".to_string(),
     }
+
+    format_sockaddr(proc, sock_addr, Some(len))
 }
 
 fn format_sock_protocol(protocol: u64) -> &'static str {
@@ -562,9 +648,17 @@ fn format_sock_protocol(protocol: u64) -> &'static str {
 }
 
 fn format_msghdr(proc: &mut Process, addr: u64) -> String {
-    let msghdr = match proc.read_memory(addr as usize, size_of::<libc::msghdr>()) {
-        Ok(data) => unsafe { ptr::read(data.as_ptr() as *const libc::msghdr) },
-        Err(..) => return "???".to_string(),
+    let mut msghdr = MaybeUninit::<libc::msghdr>::uninit();
+    let msghdr = unsafe {
+        let read_op = ReadMemory::new(proc)
+            .read(&mut msghdr, addr as usize)
+            .apply();
+
+        if read_op.is_err() {
+            return "???".to_string();
+        }
+
+         msghdr.assume_init()
     };
 
     let name = format_sockaddr(proc, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
@@ -577,7 +671,6 @@ fn format_msghdr(proc: &mut Process, addr: u64) -> String {
     let msg_ctrl_len = msghdr.msg_controllen;
 
     // ignore msg_flags as they don't appear to ever be set
-
     format!(
         "{{name: {name}, name_len: {name_len}, msg_iov: {msg_iov}, msg_iov_len: {msg_iov_len}, \
              msg_ctrl: {msg_ctrl}, msg_ctrl_len: {msg_ctrl_len}"
@@ -646,20 +739,41 @@ fn format_sockoptname(optname: u64) -> &'static str {
 /// where the last element is a null pointer.
 fn format_nullable_args(proc: &mut Process, addr: u64) -> String {
     let mut args = Vec::new();
+    let max_args = 5;
 
-    // only try to read the first 20 args
-    for idx in 0..20 {
-        let addr = addr + idx * std::mem::size_of::<*const i8>() as u64;
-        let arg = format_c_str(proc, addr);
+    // only try to read the first `max_args` args
+    for idx in 0..max_args {
+        // ptr to c string (entry in array)
+        let mut ptr = 0usize;
 
-        if arg == "NULL" {
-            break;
+        unsafe {
+            let addr = addr + (idx * std::mem::size_of::<*const i8>()) as u64;
+            let read_op = ReadMemory::new(proc)
+                .read(&mut ptr, addr as usize)
+                .apply();
+
+            if read_op.is_err() || ptr == 0 {
+                break;
+            }
         }
 
-        args.push(arg);
+        let mut data = read_c_str(proc, ptr as u64).escape_default().to_string();
+        if data.len() > 60 {
+            data.truncate(57);
+            data += "..";
+        }
+
+        args.push(data);
     }
 
-    format!("{args:?}")
+    let arg_count = args.len();
+    let mut args = format!("{args:?}");
+    if arg_count == max_args {
+        args.pop();
+        args += ", ..]";
+    }
+
+    args
 }
 
 impl super::Process {

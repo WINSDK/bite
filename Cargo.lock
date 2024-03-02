@@ -213,15 +213,15 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.14.0"
+version = "3.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f30e7476521f6f8af1a1c4c0b8cc94f0bee37d91763d0ca2665f299b6cd8aec"
+checksum = "d32a994c2b3ca201d9b263612a374263f05e7adde37c4707f693dcd375076d1f"
 
 [[package]]
 name = "bytemuck"
-version = "1.14.0"
+version = "1.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "374d28ec25809ee0e23827c2ab573d729e293f281dfe393500e7ad618baa61c6"
+checksum = "ed2490600f404f2b94c167e31d3ed1d5f3c225a0f3b80230053b3e0b7b962bd9"
 dependencies = [
  "bytemuck_derive",
 ]
@@ -537,6 +537,7 @@ dependencies = [
  "crossbeam-queue",
  "log 0.0.0",
  "nix 0.26.1",
+ "once_cell",
  "processor",
  "processor_shared",
  "procfs",
@@ -1673,6 +1674,7 @@ dependencies = [
  "arm",
  "decoder",
  "log 0.0.0",
+ "memmap2",
  "mips",
  "object",
  "processor_shared",
@@ -2088,6 +2090,7 @@ name = "symbols"
 version = "0.0.0"
 dependencies = [
  "bitflags 2.4.2",
+ "bumpalo",
  "crossbeam-queue",
  "dashmap",
  "gimli",

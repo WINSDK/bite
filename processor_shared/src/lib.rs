@@ -1,7 +1,10 @@
 use object::SectionKind;
 use std::borrow::Cow;
 
+/// Address in memory.
 pub type VirtAddr = usize;
+
+/// Address in the file world.
 pub type PhysAddr = usize;
 
 #[derive(Debug)]
@@ -53,13 +56,10 @@ pub struct Segment {
     /// Segment identifier.
     pub name: Cow<'static, str>,
 
-    /// Virtual address.
-    pub addr: VirtAddr,
-
-    /// Offset of physical file.
+    /// Physical address.
     pub start: PhysAddr,
 
-    /// Segment start + size.
+    /// Physical address + size.
     pub end: PhysAddr,
 }
 

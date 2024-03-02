@@ -83,7 +83,6 @@ pub struct Panels {
     pub tabs: Tabs,
     pub ui_queue: Arc<crate::UIQueue>,
     pub winit_queue: crate::WinitQueue,
-    pub dbg_ctx: Arc<debugger::Context>,
     loading: bool,
 }
 
@@ -91,7 +90,6 @@ impl Panels {
     pub fn new(
         ui_queue: Arc<crate::UIQueue>,
         winit_queue: crate::WinitQueue,
-        dbg_ctx: Arc<debugger::Context>,
     ) -> Self {
         let mut layout = DockState::new(vec![DISASSEMBLY, FUNCTIONS, LOGGING]);
 
@@ -105,7 +103,6 @@ impl Panels {
             tabs: Tabs::new(),
             ui_queue,
             winit_queue,
-            dbg_ctx,
             loading: false,
         }
     }

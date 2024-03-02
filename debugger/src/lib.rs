@@ -1,11 +1,12 @@
-use crossbeam_queue::SegQueue;
 use processor::Processor;
 use processor_shared::{PhysAddr, VirtAddr};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 mod collections;
+pub mod memory;
+pub mod readmem;
+pub mod writemem;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -24,6 +25,9 @@ pub use macos::*;
 
 #[cfg(target_os = "windows")]
 pub use windows::*;
+
+pub use readmem::ReadMemory;
+pub use writemem::WriteMemory;
 
 pub type ExitCode = i32;
 
@@ -51,65 +55,51 @@ pub struct DebuggerDescriptor<S: Into<Vec<u8>>> {
 }
 
 /// Behaviour related to creating starting a debug session.
-pub trait Debuggable
+pub trait Debuggable<S: Into<Vec<u8>>>
 where
     Self: Sized,
 {
+    fn me() -> Self;
+
+    fn new(settings: DebuggerSettings<S>, desc: DebuggerDescriptor<S>) -> Self;
+
     /// Creates a `Tracee`, debugging a newly launched process.
-    fn spawn<S: Into<Vec<u8>>>(
-        settings: DebuggerSettings<S>,
-        desc: DebuggerDescriptor<S>,
-    ) -> Result<Self, Error>;
+    fn spawn(&mut self) -> Result<(), Error>;
 
     /// Creates a `Tracee`, debugging an existing process.
-    fn attach<S: Into<Vec<u8>>>(
-        pid: Pid,
-        settings: DebuggerSettings<S>,
-        desc: DebuggerDescriptor<S>,
-    ) -> Result<Self, Error>;
+    fn attach(&mut self, pid: Pid) -> Result<(), Error>;
 
-    /// Run blocking event loop of [`Debugger`].
-    fn run(self, ctx: Arc<Context>) -> Result<(), Error>;
+    fn view(&mut self, pid: Pid) -> Result<(), Error>;
+
+    /// Must be called from the same thread if a process was spawned.
+    fn trace(&mut self) -> Result<ExitCode, Error>;
 }
 
-/// Common behaviour shared amongst debugging sessions.
-pub trait Tracing {
-    /// Create debugger's hooks onto process.
-    fn attach(&mut self) -> Result<(), Error>;
-
-    /// Remove debugger's hooks from process, releasing it's control.
-    fn detach(&mut self);
-
-    /// Remove debugger's hooks from process, killing it in the process.
-    fn kill(&mut self);
-
-    fn pause(&self);
-
-    fn kontinue(&mut self);
-
-    /// Read's a segment of memory.
-    ///
-    /// On linux this is currently only supports unprotected memory pages.
-    /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn read_memory(&self, addr: VirtAddr, len: usize) -> Result<Vec<u8>, Error>;
-
-    /// Writes to a segment of memory.
-    ///
-    /// On linux this is currently only supports unprotected memory pages.
-    /// Whilst this is faster than the ptrace alternative, it's more restrictive.
-    fn write_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error>;
-
-    /// Writes to a protected segment of memory.
-    ///
-    /// On linux this uses ptrace::write in a loop which is slow for large write's.
-    fn write_protected_memory(&mut self, addr: VirtAddr, data: &[u8]) -> Result<(), Error>;
-
-    /// Translate virtual memory address to physical address the related parsers understand.
-    fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr;
-
-    /// Translate physical address to virtual memory address.
-    fn phys_to_virt(&self, addr: PhysAddr) -> VirtAddr;
-}
+/// Common behaviour shared amongst processes.
+// pub trait Tracing {
+//     fn id(&self) -> Pid;
+// 
+//     /// Create debugger's hooks onto process.
+//     fn attach(&mut self);
+// 
+//     /// Remove debugger's hooks from process, releasing it's control.
+//     fn detach(&mut self);
+// 
+//     /// Remove debugger's hooks from process, killing it in the process.
+//     fn kill(&mut self);
+// 
+//     fn pause(&mut self);
+// 
+//     fn kontinue(&mut self);
+// 
+//     /// Translate virtual memory address to physical address the related parsers understand.
+//     fn virt_to_phys(&self, addr: VirtAddr) -> PhysAddr;
+// 
+//     fn uh(&self, module: &Processor, addr: PhysAddr) -> VirtAddr;
+// 
+//     /// Translate physical address to virtual memory address.
+//     fn phys_to_virt(&self, addr: PhysAddr) -> VirtAddr;
+// }
 
 /// Operation to be executed on [`Breakpoint`].
 enum BreakpointOp {
@@ -121,30 +111,29 @@ pub struct Breakpoint {
     /// Physical address.
     addr: PhysAddr,
 
-    /// Byte in memory we overwrote with int3.
-    shadow: Vec<u8>,
+    /// Bytes in memory we overwrote with int3.
+    shadow: u32,
 
     /// Operation to be executed by [`Process`].
     op: Option<BreakpointOp>,
 }
 
 impl Breakpoint {
-    pub(crate) fn set(&mut self, proc: &mut dyn Tracing) -> Result<(), Error> {
-        let vaddr = proc.phys_to_virt(self.addr);
-        self.shadow = proc.read_memory(vaddr, 4)?;
+    pub(crate) fn set(&mut self, proc: &mut Process) -> Result<(), Error> {
+        let addr = proc.phys_to_virt(self.addr);
 
-        let orig_byte = self.shadow[0];
-        self.shadow[0] = 0xcc;
-        proc.write_protected_memory(vaddr, &self.shadow)?;
-        self.shadow[0] = orig_byte;
+        unsafe {
+            ReadMemory::new(proc).read(&mut self.shadow, addr).apply()?;
+        }
 
-        Ok(())
+        let trap_inst = (self.shadow & !0xff) | 0xcc;
+        WriteMemory::new(proc).write(&trap_inst, addr).apply()
     }
 
-    pub(crate) fn unset(&mut self, proc: &mut dyn Tracing) -> Result<(), Error> {
-        let vaddr = proc.phys_to_virt(self.addr);
-        proc.write_protected_memory(vaddr, &self.shadow)?;
-        Ok(())
+    #[allow(dead_code)]
+    pub(crate) fn unset(&mut self, proc: &mut Process) -> Result<(), Error> {
+        let addr = proc.phys_to_virt(self.addr);
+        WriteMemory::new(proc).write(&self.shadow, addr).apply()
     }
 }
 
@@ -170,7 +159,7 @@ impl Breakpoints {
             addr,
             Breakpoint {
                 addr,
-                shadow: Vec::new(),
+                shadow: 0,
                 op: Some(BreakpointOp::Create),
             },
         );
@@ -187,85 +176,5 @@ impl Breakpoints {
             }
             None => false,
         }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum DebugeeEvent {
-    Break,
-    Continue,
-    Exit,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum DebuggerEvent {
-    Exited(ExitCode),
-}
-
-/// Primary interface for consumer's to interact with debugger.
-/// Necessary as debugger runs on a different thread.
-pub struct MessageQueue {
-    debugee_queue: SegQueue<DebugeeEvent>,
-    debugger_queue: SegQueue<DebuggerEvent>,
-}
-
-impl MessageQueue {
-    /// Empty unbound queue.
-    fn new() -> Self {
-        Self {
-            debugee_queue: SegQueue::new(),
-            debugger_queue: SegQueue::new(),
-        }
-    }
-
-    /// Send event to [`Debugger`].
-    pub fn push(&self, event: DebugeeEvent) {
-        self.debugee_queue.push(event);
-    }
-
-    /// Try to receive event from [`Debugger`].
-    pub fn pop(&self) -> Option<DebuggerEvent> {
-        self.debugger_queue.pop()
-    }
-
-    /// Send event to consumer.
-    pub(crate) fn pushd(&self, event: DebuggerEvent) {
-        self.debugger_queue.push(event);
-    }
-
-    /// Try to receive event from consumer.
-    pub(crate) fn popd(&self) -> Option<DebugeeEvent> {
-        self.debugee_queue.pop()
-    }
-}
-
-pub struct Context {
-    attached: AtomicBool,
-    pub breakpoints: RwLock<Breakpoints>,
-    pub queue: MessageQueue,
-}
-
-impl Context {
-    pub fn new() -> Self {
-        Self {
-            attached: AtomicBool::new(false),
-            breakpoints: RwLock::new(Breakpoints::new()),
-            queue: MessageQueue::new(),
-        }
-    }
-
-    /// Return whether queue is being used by a debugger.
-    pub fn attached(&self) -> bool {
-        self.attached.load(Ordering::Relaxed)
-    }
-
-    /// Mark queue as being used by a debugger.
-    pub(crate) fn attach(&self) {
-        self.attached.store(true, Ordering::Relaxed);
-    }
-
-    /// Mark queue as not being used by a debugger.
-    pub(crate) fn deattach(&self) {
-        self.attached.store(false, Ordering::Relaxed);
     }
 }

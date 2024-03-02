@@ -1,5 +1,6 @@
 use crate::tprint;
 use commands::{Command, CommandError};
+use debugger::Event;
 
 impl<Arch: crate::Target> super::UI<Arch> {
     /// Runs all queued commands, returning if they trigger a process exit.
@@ -23,14 +24,11 @@ impl<Arch: crate::Target> super::UI<Arch> {
                     "Working directory {}.",
                     path.display()
                 ),
-                Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: '{err}'."),
+                Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: {err}."),
             },
             Ok(Command::ChangeDir(path)) => {
                 if let Err(err) = std::env::set_current_dir(path) {
-                    tprint!(
-                        self.panels.terminal(),
-                        "Failed to change directory: '{err}'."
-                    );
+                    tprint!(self.panels.terminal(), "Failed to change directory: {err}.");
                     return true;
                 }
 
@@ -40,16 +38,19 @@ impl<Arch: crate::Target> super::UI<Arch> {
                         "Changed working directory to {}.",
                         path.display()
                     ),
-                    Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: '{err}'."),
+                    Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: {err}."),
                 }
             }
             Ok(Command::Quit) => return false,
-            Ok(Command::Run(args)) => self.offload_debugging(args),
+            Ok(Command::Run(args)) => match self.debugger {
+                Some(_) => tprint!(self.panels.terminal(), "Debugger already running."),
+                None => self.offload_debugging(args),
+            },
             Ok(Command::Goto(addr)) => {
                 let listing = match self.panels.listing() {
                     Some(listing) => listing,
                     None => {
-                        tprint!(self.panels.terminal(), "There are no targets to inspect.");
+                        tprint!(self.panels.terminal(), "No targets loaded.");
                         return true;
                     }
                 };
@@ -61,72 +62,79 @@ impl<Arch: crate::Target> super::UI<Arch> {
                     tprint!(self.panels.terminal(), "Address {addr:#X} is undefined.");
                 }
             }
-            Ok(Command::Break(addr)) => {
-                if self.dbg_ctx.breakpoints.write().unwrap().create(addr) {
-                    tprint!(self.panels.terminal(), "Breakpoint {addr:#X} set.");
-                } else {
-                    tprint!(self.panels.terminal(), "Breakpoint already set.");
+            Ok(Command::Break(_addr)) => {
+                match self.debugger {
+                    Some(ref mut _debugger) => {}
+                    None => tprint!(self.panels.terminal(), "No targets running."),
                 }
+
+                // if self.dbg_ctx.breakpoints.write().unwrap().create(addr) {
+                //     tprint!(self.panels.terminal(), "Breakpoint {addr:#X} set.");
+                // } else {
+                //     tprint!(self.panels.terminal(), "Breakpoint already set.");
+                // }
             }
-            Ok(Command::BreakDelete(addr)) => {
-                if self.dbg_ctx.breakpoints.write().unwrap().remove(addr) {
-                    tprint!(self.panels.terminal(), "Breakpoint {addr:#X} removed.");
-                } else {
-                    tprint!(self.panels.terminal(), "Breakpoint {addr:#X} wasn't set.");
+            Ok(Command::BreakDelete(_addr)) => {
+                match self.debugger {
+                    Some(ref mut _debugger) => {}
+                    None => tprint!(self.panels.terminal(), "No targets running."),
                 }
+                // if self.dbg_ctx.breakpoints.write().unwrap().remove(addr) {
+                //     tprint!(self.panels.terminal(), "Breakpoint {addr:#X} removed.");
+                // } else {
+                //     tprint!(self.panels.terminal(), "Breakpoint {addr:#X} wasn't set.");
+                // }
             }
             Ok(Command::SetEnv(env)) => self.dbg_settings.env.push(env),
-            Ok(Command::Stop) => {
-                if !self.dbg_ctx.attached() {
-                    tprint!(self.panels.terminal(), "There are no targets to stop.");
-                    return true;
+            Ok(Command::Stop) => match self.debugger {
+                Some(ref debugger) => {
+                    for pid in debugger.processes() {
+                        match debugger.notify(pid, Event::Pause) {
+                            Ok(()) => tprint!(self.panels.terminal(), "Child {pid} stopped."),
+                            Err(err) => tprint!(self.panels.terminal(), "{err:?}"),
+                        }
+                    }
                 }
-
-                self.dbg_ctx.queue.push(debugger::DebugeeEvent::Break);
-            }
-            Ok(Command::Continue) => {
-                if !self.dbg_ctx.attached() {
-                    tprint!(self.panels.terminal(), "There are no targets to continue.");
-                    return true;
+                None => tprint!(self.panels.terminal(), "No targets running."),
+            },
+            Ok(Command::Continue) => match self.debugger {
+                Some(ref debugger) => {
+                    for pid in debugger.processes() {
+                        match debugger.notify(pid, Event::Continue) {
+                            Ok(()) => tprint!(self.panels.terminal(), "Child {pid} continued."),
+                            Err(err) => tprint!(self.panels.terminal(), "{err:?}"),
+                        }
+                    }
                 }
-
-                self.dbg_ctx.queue.push(debugger::DebugeeEvent::Continue);
-            }
+                None => tprint!(self.panels.terminal(), "No targets running."),
+            },
             Ok(Command::Clear) => {
                 log::LOGGER.write().unwrap().clear();
                 self.panels.terminal().clear();
             }
             Ok(Command::Trace) => {
-                if self.dbg_ctx.attached() {
-                    tprint!(self.panels.terminal(), "Debugger already running.");
-                } else if self.dbg_settings.tracing == false {
+                if self.debugger.is_some() {
+                    tprint!(self.panels.terminal(), "Debugger already running, can't set tracing.");
+                } else if !self.dbg_settings.tracing {
                     tprint!(self.panels.terminal(), "Enabled syscall tracing.");
                     self.dbg_settings.tracing = true;
-                } else if self.dbg_settings.tracing == true {
+                } else if self.dbg_settings.tracing {
                     tprint!(self.panels.terminal(), "Disabled syscall tracing.");
                     self.dbg_settings.tracing = false;
                 }
             }
             Ok(Command::FollowChildren) => {
-                if self.dbg_ctx.attached() {
-                    tprint!(self.panels.terminal(), "Debugger already running.");
-                } else if self.dbg_settings.follow_children == false {
-                    tprint!(
-                        self.panels.terminal(),
-                        "Enabled syscall tracing of children."
-                    );
+                if self.debugger.is_some() {
+                    tprint!(self.panels.terminal(), "Debugger already running, can't set follow.");
+                } else if !self.dbg_settings.follow_children {
+                    tprint!(self.panels.terminal(), "Enabled syscall tracing of children.");
                     self.dbg_settings.follow_children = true;
-                } else if self.dbg_settings.follow_children == true {
-                    tprint!(
-                        self.panels.terminal(),
-                        "Disabled syscall tracing of children."
-                    );
+                } else if self.dbg_settings.follow_children {
+                    tprint!(self.panels.terminal(), "Disabled syscall tracing of children.");
                     self.dbg_settings.follow_children = false;
                 }
             }
-            Ok(Command::Help) => {
-                tprint!(self.panels.terminal(), "{}", commands::CMD_HELP);
-            }
+            Ok(Command::Help) => tprint!(self.panels.terminal(), "{}", commands::CMD_HELP),
             Err((err, _)) => {
                 if err != CommandError::Missing("command") {
                     tprint!(self.panels.terminal(), "{err}");

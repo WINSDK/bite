@@ -38,17 +38,20 @@ pub struct Tree<V> {
 }
 
 impl<V> Tree<V> {
-    pub fn new(root: Pid, root_value: V) -> Self {
-        let mut nodes = HashMap::new();
-        nodes.insert(root, Node::new(root_value));
+    pub fn new() -> Self {
         Self {
-            root: Some(root),
-            nodes,
+            root: None,
+            nodes: HashMap::new(),
         }
     }
 
     pub fn root(&mut self) -> &mut V {
         self.root.as_ref().and_then(|root| self.nodes.get_mut(root)).unwrap()
+    }
+
+    pub fn push_root(&mut self, key: Pid, value: V) {
+        self.root = Some(key);
+        self.nodes.insert(key, Node::new(value));
     }
 
     pub fn push_child(&mut self, parent: Pid, key: Pid, value: V) {
@@ -58,8 +61,8 @@ impl<V> Tree<V> {
         self.nodes.insert(key, Node::new(value));
     }
 
-    pub fn get(&mut self, key: Pid) -> Result<&V, Error> {
-        self.nodes.get_mut(&key).map(|node| &node.value).ok_or(Error::ProcessLost(key))
+    pub fn get(&self, key: Pid) -> Result<&V, Error> {
+        self.nodes.get(&key).map(|node| &node.value).ok_or(Error::ProcessLost(key))
     }
 
     pub fn get_mut(&mut self, key: Pid) -> Result<&mut V, Error> {
@@ -95,11 +98,11 @@ impl<V> Tree<V> {
     }
 
     pub fn values(&self) -> impl Iterator<Item = &V> {
-        self.nodes.iter().map(|(_, node)| (&node.value))
+        self.nodes.values().map(|node| (&node.value))
     }
 
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
-        self.nodes.iter_mut().map(|(_, node)| (&mut node.value))
+        self.nodes.values_mut().map(|node| (&mut node.value))
     }
 }
 

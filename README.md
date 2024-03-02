@@ -13,7 +13,13 @@
 
 ## Showcase
 
+Here is an example of the assembly listing viewing.
+
 ![Assembly listing](./assets/screenshot.png)
+
+The ability of viewing source code for debugging purposes. 
+
+![Source Code](./assets/source_code.png)
 
 ## Features yet to be implemented
 
