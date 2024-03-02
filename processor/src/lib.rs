@@ -62,6 +62,23 @@ macro_rules! impl_recursion {
             log::PROGRESS.set("Decoding instructions", section.bytes().len() / width_guess);
 
             loop {
+                // prefetch next cache line line
+                #[cfg(target_arch = "x86")]
+                unsafe {
+                    core::arch::x86::_mm_prefetch(
+                        reader.as_ptr() as *const i8,
+                        core::arch::x86::_MM_HINT_NTA
+                    );
+                }
+
+                #[cfg(target_arch = "x86_64")]
+                unsafe {
+                    core::arch::x86_64::_mm_prefetch(
+                        reader.as_ptr() as *const i8,
+                        core::arch::x86_64::_MM_HINT_NTA
+                    );
+                }
+
                 match $decoder.decode(&mut reader) {
                     Ok(mut instruction) => {
                         instruction.update_rel_addrs(ip);

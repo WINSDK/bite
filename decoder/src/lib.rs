@@ -122,6 +122,11 @@ impl<'data> Reader<'data> {
     }
 
     #[inline]
+    pub fn as_ptr(&self) -> *const u8 {
+        self.position
+    }
+
+    #[inline]
     pub fn next(&mut self) -> Option<u8> {
         let width = self.end as usize - self.position as usize;
 
