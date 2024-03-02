@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::{Arc, MutexGuard};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, MutexGuard, mpsc};
 
 use nix::libc::{PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK};
 use nix::sys::ptrace;
@@ -11,7 +12,6 @@ use nix::sys::signal::Signal;
 use nix::sys::wait::{waitid, waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{execvpe, fork, ForkResult};
 
-use crossbeam_queue::SegQueue;
 use once_cell::sync::Lazy;
 use procfs::process::MemoryMap;
 
@@ -28,6 +28,7 @@ pub type Tid = nix::unistd::Pid;
 pub type Pid = nix::unistd::Pid;
 
 pub enum Error {
+    Unexpected,
     AlreadyAttached,
     InvalidPathName,
     PermissionDenied,
@@ -148,7 +149,6 @@ impl Process {
     }
 
     fn pause(&mut self) -> Result<(), nix::Error> {
-        dbg!(ptrace::getregs(self.id))?;
         ptrace::interrupt(self.id)
     }
 
@@ -350,7 +350,6 @@ impl DebuggerImpl {
                 proc.kontinue(None)?;
             }
             WaitStatus::Stopped(pid, signal) => {
-                dbg!((pid, signal));
                 let proc = self.procs.get_mut(pid)?;
                 proc.kontinue(Some(signal))?;
             }
@@ -513,11 +512,16 @@ pub struct Debugger<S: Into<Vec<u8>>> {
     desc: DebuggerDescriptor<S>,
     /// Most of the debugging logic.
     inner: Arc<Mutex<DebuggerImpl>>,
-    /// Ptrace operations that are queued to be run on the tracing thread.
-    /// Required as ptrace requires all messages to come from the tracing thread.
-    queued_events: Arc<SegQueue<(Pid, Event)>>,
-    /// Results received from operations run by the tracing thread.
-    event_results: Arc<SegQueue<Result<(), Error>>>,
+
+    event_recv: Arc<Receiver<(Pid, Event)>>,
+    event_sendr: Arc<Sender<(Pid, Event)>>,
+
+    result_recv: Arc<Receiver<Result<(), Error>>>,
+    result_sendr: Arc<Sender<Result<(), Error>>>,
+
+    // Ptrace operations that are queued to be run on the tracing thread.
+    // Required as ptrace requires all messages to come from the tracing thread.
+    // Results received from operations run by the tracing thread.
 }
 
 unsafe impl<S: Into<Vec<u8>>> Send for Debugger<S> {}
@@ -538,15 +542,8 @@ impl<S: Into<Vec<u8>>> Debugger<S> {
     }
 
     pub fn notify(&self, pid: Pid, event: Event) -> Result<(), Error> {
-        self.queued_events.push((pid, event));
-
-        loop {
-            if let Some(result) = self.event_results.pop() {
-                return result;
-            }
-
-            std::thread::sleep(std::time::Duration::from_nanos(10));
-        }
+        self.event_sendr.send((pid, event)).map_err(|_| Error::Unexpected)?;
+        self.result_recv.recv().map_err(|_| Error::Unexpected)?
     }
 
     fn event_loop(&self) -> Result<(), Error> {
@@ -568,10 +565,10 @@ impl<S: Into<Vec<u8>>> Debugger<S> {
             debugger.process_status(status)?;
 
             // process [`Event`]'s
-            while let Some((pid, event)) = self.queued_events.pop() {
+            while let Ok((pid, event)) = self.event_recv.try_recv() {
                 let proc = debugger.procs.get_mut(pid)?;
                 let result = proc.process_event(event);
-                self.event_results.push(result);
+                let _ = self.result_sendr.send(result);
             }
 
             // the process has exited
@@ -607,12 +604,17 @@ where
 
     fn new(settings: DebuggerSettings<S>, desc: DebuggerDescriptor<S>) -> Self {
         let inner = Arc::new(Mutex::new(DebuggerImpl::new(&settings, &desc)));
+        let (event_sendr, event_recv) = mpsc::channel();
+        let (result_sendr, result_recv) = mpsc::channel();
+
         Self {
             settings,
             desc,
             inner,
-            queued_events: Default::default(),
-            event_results: Default::default(),
+            event_recv: Arc::new(event_recv),
+            event_sendr: Arc::new(event_sendr),
+            result_recv: Arc::new(result_recv),
+            result_sendr: Arc::new(result_sendr),
         }
     }
 

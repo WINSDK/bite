@@ -4,6 +4,7 @@ use std::fmt;
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Unexpected => f.write_str("Debugger unexpectedly failed."),
             Self::AlreadyAttached => f.write_str("Debugger already attached to process."),
             Self::InvalidPathName => f.write_str("There appears to be a '\\0' in the path name."),
             Self::PermissionDenied => f.write_str("Permission denied."),

@@ -1,5 +1,4 @@
 mod fmt;
-mod fs;
 
 use decoder::{Decodable, Decoded};
 use object::{Object, ObjectSegment};
@@ -15,7 +14,6 @@ use x86_64::protected_mode as x86;
 use std::fs::File;
 use std::borrow::Cow;
 use std::mem::ManuallyDrop;
-use std::os::fd::AsRawFd;
 
 pub enum Error {
     IO(std::io::Error),
@@ -154,7 +152,7 @@ pub struct Processor {
 impl Processor {
     pub fn parse<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Error> {
         let file = std::fs::File::open(path.as_ref()).map_err(Error::IO)?;
-        let mmap = unsafe { Mmap::map(file.as_raw_fd()).map_err(Error::IO)? };
+        let mmap = unsafe { Mmap::map(&file).map_err(Error::IO)? };
         let binary: &'static [u8] = unsafe { std::mem::transmute(&mmap[..]) };
 
         let obj = object::File::parse(binary).map_err(Error::Object)?;
