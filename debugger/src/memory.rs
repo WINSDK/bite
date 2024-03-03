@@ -89,7 +89,7 @@ impl MemoryOp {
 /// This function can be used for both write or read operations, and `protected_maps` should be
 /// pre-filtered to contain only protected pages, e.g.:
 pub(crate) fn split_protected(
-    protected_maps: &[&MemoryMap],
+    protected_maps: &[MemoryMap],
     operations: &[MemoryOp],
 ) -> (Vec<MemoryOp>, Vec<MemoryOp>) {
     let (protected, permissioned) = operations.iter().partition(|op| {
