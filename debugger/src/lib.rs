@@ -27,6 +27,7 @@ pub use readmem::ReadMemory;
 pub use writemem::WriteMemory;
 
 pub type Tid = Pid;
+pub type ExitStatus = i32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PidFd {
@@ -244,7 +245,7 @@ impl Debugger {
         }
     }
 
-    pub fn run(&mut self) -> Result<(), Error> {
+    pub fn run(&mut self) -> Result<ExitStatus, Error> {
         // consume status send as a result of exec'ing
         let fd = self.tracees.root().pidfd.as_fd();
         let pid = self.tracees.root().pid;
@@ -255,7 +256,7 @@ impl Debugger {
 
         ptrace::cont(self.tracees.root().pid, None).unwrap();
 
-        while !self.tracees.is_empty() {
+        loop {
             let poll_fds: Vec<PollFd> = self
                 .tracees
                 .values()
@@ -284,6 +285,10 @@ impl Debugger {
 
                         let tracee = self.tracees.get(pidfd)?;
                         self.tracees.remove(tracee.pidfd);
+
+                        if self.tracees.is_empty() {
+                            return Ok(code);
+                        }
                     }
                     _ => {
                         dbg!(status);
@@ -294,8 +299,6 @@ impl Debugger {
                 }
             }
         }
-
-        Ok(())
     }
 }
 

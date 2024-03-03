@@ -57,20 +57,20 @@ fn valid_file() {
         path: PathBuf::from("/bin/echo"),
         ..Default::default()
     };
-    Debugger::spawn(desc).unwrap();
+    let mut debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.run().unwrap(), 0);
 }
 
 #[test]
-fn spawn_sleep_10secs() {
+fn spawn_sleep_1sec() {
     let desc = DebuggerDescriptor {
         path: PathBuf::from("/bin/sleep"),
-        args: vec!["10".to_string()],
+        args: vec!["1".to_string()],
         ..Default::default()
     };
 
     let mut debugger = Debugger::spawn(desc).unwrap();
-
-    debugger.run().unwrap();
+    assert_eq!(debugger.run().unwrap(), 0);
 }
 
 #[test]
@@ -82,5 +82,5 @@ fn spawn_sleep_invalid() {
 
     let mut debugger = Debugger::spawn(desc).unwrap();
 
-    debugger.run().unwrap();
+    assert_eq!(debugger.run().unwrap(), 1);
 }
