@@ -55,7 +55,7 @@ impl<'a> WriteMemory<'a> {
             &WriteOp {
                 remote_base,
                 local_ptr: val.as_ptr() as *mut u8,
-                local_len: val.len() * std::mem::size_of::<T>(),
+                local_len: std::mem::size_of_val(val),
             },
             &mut self.write_ops,
         );

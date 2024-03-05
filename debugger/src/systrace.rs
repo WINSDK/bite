@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use crate::memory::PAGE_SIZE;
-use crate::{Error, Tracee, ReadMemory};
+use crate::{Error, ReadMemory, Tracee};
 
 use nix::libc;
 use nix::sys::socket::{self, SockaddrLike};
@@ -97,9 +97,7 @@ fn format_fdset(proc: &mut Tracee, addr: u64) -> String {
 
     let mut fdset = nix::sys::select::FdSet::new();
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut fdset, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut fdset, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -119,13 +117,12 @@ fn format_bytes_u8(proc: &mut Tracee, addr: u64, len: u64) -> String {
     let count = std::cmp::min(len as usize, 20);
     let mut bytes = Vec::<u8>::with_capacity(count);
     unsafe {
-        bytes.set_len(count);
         let read_op = ReadMemory::new(proc)
-            .read_slice(&mut bytes, addr as usize)
+            .read_slice(bytes.spare_capacity_mut(), addr as usize)
             .apply();
 
         match read_op {
-            Ok(()) => {},
+            Ok(()) => bytes.set_len(count),
             Err(Error::IncompleteRead { read, .. }) => bytes.set_len(read),
             Err(_) => return "???".to_string(),
         }
@@ -147,20 +144,18 @@ fn format_array<T: std::fmt::Debug>(proc: &mut Tracee, addr: u64, len: u64) -> S
 
     let count = std::cmp::min(len as usize, 20);
     let mut values = Vec::<T>::with_capacity(count);
-
     unsafe {
-        values.set_len(count);
         let read_op = ReadMemory::new(proc)
-            .read_slice(&mut values[..], addr as usize)
+            .read_slice(values.spare_capacity_mut(), addr as usize)
             .apply();
 
         match read_op {
-            Ok(()) => {},
+            Ok(()) => values.set_len(count),
             Err(Error::IncompleteRead { read, .. }) => {
-                // truncate the values read buffer to those we read successfully 
+                // truncate the values read buffer to those we read successfully
                 let values_read = read / std::mem::size_of::<T>();
                 values.set_len(values_read);
-            },
+            }
             Err(_) => return "???".to_string(),
         }
     }
@@ -177,22 +172,18 @@ fn format_str(proc: &mut Tracee, addr: u64, len: u64) -> String {
     let count = std::cmp::min(len as usize, 60 * size_of::<char>());
     let mut bytes = Vec::<u8>::with_capacity(count);
     unsafe {
-        bytes.set_len(count);
         let read_op = ReadMemory::new(proc)
-            .read_slice(&mut bytes, addr as usize)
+            .read_slice(bytes.spare_capacity_mut(), addr as usize)
             .apply();
 
         match read_op {
-            Ok(()) => {},
+            Ok(()) => bytes.set_len(count),
             Err(Error::IncompleteRead { read, .. }) => bytes.set_len(read),
             Err(_) => return "???".to_string(),
         }
     }
 
-    let mut data = String::from_utf8_lossy(&bytes)
-        .into_owned()
-        .escape_default()
-        .to_string();
+    let mut data = String::from_utf8_lossy(&bytes).into_owned().escape_default().to_string();
 
     if data.len() > 60 {
         data.truncate(57);
@@ -212,9 +203,7 @@ pub fn read_c_str(proc: &mut Tracee, addr: u64) -> String {
     // this should still be faster than repeatedly reading one byte searching for a terminator
     let mut bytes = vec![0; *PAGE_SIZE / 2];
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read_slice(&mut bytes, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read_slice(&mut bytes, addr as usize).apply();
 
         match read_op {
             Err(Error::IncompleteRead { read, .. }) => bytes.truncate(read),
@@ -235,7 +224,7 @@ pub fn read_c_str(proc: &mut Tracee, addr: u64) -> String {
     // convert the cstring
     match CString::from_vec_with_nul(bytes) {
         Ok(data) => data.to_string_lossy().into_owned(),
-        Err(..) => return "???".to_string(),
+        Err(..) => "???".to_string(),
     }
 }
 
@@ -259,9 +248,7 @@ fn format_sigset(proc: &mut Tracee, addr: u64) -> String {
     let mut sigset = signal::SigSet::empty();
 
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut sigset, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut sigset, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -288,9 +275,7 @@ fn format_sigaction(proc: &mut Tracee, addr: u64) -> String {
 
     let mut sigaction = MaybeUninit::<signal::SigAction>::uninit();
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut sigaction, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut sigaction, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -337,9 +322,7 @@ fn format_stat(proc: &mut Tracee, addr: u64) -> String {
 
     let mut stats = MaybeUninit::<stat::FileStat>::uninit();
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut stats, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut stats, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -381,9 +364,7 @@ fn format_timespec(proc: &mut Tracee, addr: u64) -> String {
 
     let mut time = nix::sys::time::TimeSpec::new(0, 0);
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut time, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut time, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -401,9 +382,7 @@ fn format_timerval(proc: &mut Tracee, addr: u64) -> String {
 
     let mut time = nix::sys::time::TimeVal::new(0, 0);
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut time, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut time, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -435,9 +414,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
     // are working with
     let mut family = libc::sa_family_t::default() as i32;
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut family, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut family, addr).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -459,9 +436,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_in
         socket::AddressFamily::Inet => unsafe {
             let mut sock_addr = MaybeUninit::<socket::sockaddr_in>::uninit();
-            let read_op = ReadMemory::new(proc)
-                .read(&mut sock_addr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut sock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -472,13 +447,11 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
             let port = sock_addr.sin_port;
 
             format!("{{addr: {addr}, port: {port}}}")
-        }
+        },
         // struct sockaddr_in6
         socket::AddressFamily::Inet6 => unsafe {
             let mut sock_addr = MaybeUninit::<socket::sockaddr_in6>::uninit();
-            let read_op = ReadMemory::new(proc)
-                .read(&mut sock_addr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut sock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -489,13 +462,11 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
             let port = sock_addr.sin6_port;
 
             format!("{{addr: {addr}, port: {port}}}")
-        }
+        },
         // struct sockaddr_un
         socket::AddressFamily::Unix => unsafe {
             let mut sock_addr = MaybeUninit::<socket::sockaddr>::uninit();
-            let read_op = ReadMemory::new(proc)
-                .read(&mut sock_addr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut sock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -511,13 +482,11 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
                 Some(path) => format!("{{path: {path:#?}}}"),
                 None => "???".to_string(),
             }
-        }
+        },
         // struct sockaddr_nl
         socket::AddressFamily::Netlink => unsafe {
             let mut netlink_addr = MaybeUninit::<socket::NetlinkAddr>::uninit();
-            let read_op = ReadMemory::new(proc)
-                .read(&mut netlink_addr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut netlink_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -528,13 +497,11 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
             let groups = netlink_addr.groups();
 
             format!("{{pid: {pid}, groups: {groups}}}")
-        }
+        },
         // struct sockaddr_alg
         socket::AddressFamily::Alg => unsafe {
             let mut alg_addr = MaybeUninit::<socket::AlgAddr>::uninit();
-            let read_op = ReadMemory::new(proc)
-                .read(&mut alg_addr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut alg_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -545,13 +512,11 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
             let name = alg_addr.alg_name().to_string_lossy();
 
             format!("{{type: {tipe}, name: {name}}}")
-        }
+        },
         // struct sockaddr_ll
         socket::AddressFamily::Packet => unsafe {
             let mut link_addr = MaybeUninit::<socket::LinkAddr>::uninit();
-            let read_op = ReadMemory::new(proc)
-                .read(&mut link_addr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut link_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -572,13 +537,11 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
                 }
                 None => format!("{{protocol: {protocol}, iface: {iface}}}"),
             }
-        }
+        },
         // struct sockaddr_vm
         socket::AddressFamily::Vsock => unsafe {
             let mut vsock_addr = MaybeUninit::<socket::VsockAddr>::uninit();
-            let read_op = ReadMemory::new(proc)
-                .read(&mut vsock_addr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut vsock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -589,7 +552,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
             let port = vsock_addr.port();
 
             format!("{{cid: {cid}, port: {port}}}")
-        }
+        },
         _ => "(unknown address family)".to_string(),
     }
 }
@@ -602,9 +565,7 @@ fn format_sockaddr_using_len(proc: &mut Tracee, sock_addr: u64, len_addr: u64) -
 
     let mut len = 0u32;
     unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut len, len_addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut len, len_addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -641,15 +602,13 @@ fn format_sock_protocol(protocol: u64) -> &'static str {
 fn format_msghdr(proc: &mut Tracee, addr: u64) -> String {
     let mut msghdr = MaybeUninit::<libc::msghdr>::uninit();
     let msghdr = unsafe {
-        let read_op = ReadMemory::new(proc)
-            .read(&mut msghdr, addr as usize)
-            .apply();
+        let read_op = ReadMemory::new(proc).read(&mut msghdr, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
         }
 
-         msghdr.assume_init()
+        msghdr.assume_init()
     };
 
     let name = format_sockaddr(proc, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
@@ -739,9 +698,7 @@ fn format_nullable_args(proc: &mut Tracee, addr: u64) -> String {
 
         unsafe {
             let addr = addr + (idx * std::mem::size_of::<*const i8>()) as u64;
-            let read_op = ReadMemory::new(proc)
-                .read(&mut ptr, addr as usize)
-                .apply();
+            let read_op = ReadMemory::new(proc).read(&mut ptr, addr as usize).apply();
 
             if read_op.is_err() || ptr == 0 {
                 break;

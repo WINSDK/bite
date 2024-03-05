@@ -93,7 +93,7 @@ impl<'a> ReadMemory<'a> {
             &ReadOp {
                 remote_base,
                 local_ptr: val.as_mut_ptr() as *mut u8,
-                local_len: val.len() * std::mem::size_of::<T>(),
+                local_len: std::mem::size_of_val(val),
             },
             &mut self.read_ops,
         );
@@ -107,7 +107,7 @@ impl<'a> ReadMemory<'a> {
         ReadOp::split_on_page_boundary(
             &ReadOp {
                 remote_base,
-                local_ptr: val.as_mut_ptr() as *mut u8,
+                local_ptr: val.as_mut_ptr(),
                 local_len: val.len(),
             },
             &mut self.read_ops,
