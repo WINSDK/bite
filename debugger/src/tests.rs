@@ -6,38 +6,22 @@ use crate::{Debugger, DebuggerDescriptor};
 /// Helper macro for building test cases from the corpus.
 #[macro_export]
 macro_rules! build {
-    ($path:literal) => {{
-        let mut in_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        in_path.push($path);
-
-        let mut out_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        out_path.push("..");
-        out_path.push("target");
-        out_path.push(format!(
-            "test_debugger_{}",
-            in_path.file_stem().unwrap().to_str().unwrap()
-        ));
-
-        if cfg!(target_family = "windows") {
-            out_path.set_extension("exe");
-        }
-
-        let rustc = std::process::Command::new("rustc")
-            .arg("-Cdebuginfo=2")
-            .arg(format!("-o{}", out_path.display()))
-            .arg(in_path)
+    ($name:literal) => {{
+        let command = std::process::Command::new("cargo")
+            .args(["build", "--bin", $name])
             .output()
-            .unwrap();
+            .expect("Failed to build test target command.");
 
-        if !rustc.stderr.is_empty() {
-            eprintln!("{}", String::from_utf8_lossy(&rustc.stderr[..]));
+        if !command.status.success() {
+            panic!("{}", String::from_utf8_lossy(&command.stderr));
         }
 
-        if !rustc.status.success() {
-            panic!("rustc failed with exit code: {}", rustc.status);
-        }
-
-        out_path
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("..");
+        path.push("target");
+        path.push("debug");
+        path.push($name);
+        path
     }};
 }
 
@@ -89,7 +73,7 @@ fn sleep_invalid() {
 #[test]
 fn spawn_some_threads() {
     let desc = DebuggerDescriptor {
-        path: build!("./corpus/threading.rs"),
+        path: build!("forkbomb"),
         ..Default::default()
     };
 
@@ -100,7 +84,7 @@ fn spawn_some_threads() {
 #[test]
 fn spawn_a_lot_of_threads() {
     let desc = DebuggerDescriptor {
-        path: build!("./corpus/forkbomb.rs"),
+        path: build!("threading"),
         ..Default::default()
     };
 

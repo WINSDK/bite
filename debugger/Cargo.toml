@@ -16,3 +16,11 @@ nix = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3"
+
+[[bin]]
+name = "threading"
+path = "./corpus/threading.rs"
+
+[[bin]]
+name = "forkbomb"
+path = "./corpus/forkbomb.rs"

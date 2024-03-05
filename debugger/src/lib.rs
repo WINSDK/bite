@@ -8,13 +8,14 @@ mod tests;
 mod writemem;
 
 use std::ffi::CString;
+use std::os::fd::RawFd;
 use std::path::PathBuf;
 
-use nix::fcntl::{fcntl, FcntlArg, FdFlag};
+use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
 use nix::libc;
 use nix::sys::ptrace;
 use nix::sys::signal::Signal;
-use nix::sys::wait::{waitpid, waitid, Id, WaitPidFlag, WaitStatus};
+use nix::sys::wait::{waitid, waitpid, Id, WaitPidFlag, WaitStatus};
 use nix::unistd::{fork, ForkResult, Pid};
 use procfs::process::{MemoryMap, Process};
 
@@ -26,6 +27,50 @@ pub use writemem::WriteMemory;
 
 pub type Tid = Pid;
 pub type ExitStatus = i32;
+
+/// Describes what to do with a standard I/O stream for a [`Tracee`] and it's children.
+///
+/// By default:
+/// * Tests redirect to /dev/null
+/// * Regular usage doesn't touch any file descriptors
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stdio {
+    /// Don't touch any of the IO.
+    Console,
+    /// Discard the IO
+    Null,
+    /// Pipe output to some file descriptor.
+    Fd(std::os::fd::RawFd),
+}
+
+impl Default for Stdio {
+    fn default() -> Self {
+        #[cfg(test)]
+        {
+            Self::Null
+        }
+        #[cfg(not(test))]
+        {
+            Self::Console
+        }
+    }
+}
+
+impl Stdio {
+    /// Open file descriptor to underlying option if necessary.
+    /// Returns whether or not the option requires a redirection.
+    ///
+    /// Doesn't close the file descriptor (so it does for example keep /dev/null open.)
+    fn to_fd(&self) -> Option<RawFd> {
+        match self {
+            Self::Console => None,
+            Self::Fd(fd) => Some(*fd),
+            Self::Null => {
+                nix::fcntl::open("/dev/null", OFlag::O_RDWR, nix::sys::stat::Mode::empty()).ok()
+            }
+        }
+    }
+}
 
 /// Anything related to creating a [`Debugger`].
 #[derive(Default, Debug, Clone)]
@@ -44,6 +89,15 @@ pub struct DebuggerDescriptor {
 
     /// Whether or not syscall tracing should apply to children.
     pub follow_children: bool,
+
+    /// Stdin options for redirection.
+    pub stdin: Stdio,
+
+    /// Stdout options for redirection.
+    pub stdout: Stdio,
+
+    /// Stderr options for redirection.
+    pub stderr: Stdio,
 }
 
 /// Debugger of a group of tracees
@@ -89,7 +143,7 @@ pub struct DebuggerDescriptor {
 /// | +------------------+ +------------------+ +-----------+ |
 /// +---------------------------------------------------------+
 /// ```
-struct Debugger {
+pub struct Debugger {
     /// This isn't really a tree, ptrace can report the exiting of a parent
     /// before it's children, therefore this can't really be a tree.
     /// It it however a mapping from [`Pid`]'s to [`Tracee`]'s with a root [`Tracee`].
@@ -97,7 +151,6 @@ struct Debugger {
 }
 
 impl Debugger {
-    #[allow(dead_code)]
     pub fn spawn(mut desc: DebuggerDescriptor) -> Result<Self, Error> {
         let c_path = CString::new(desc.path.as_os_str().as_encoded_bytes())
             .map_err(|_| Error::InvalidPathName)?;
@@ -122,6 +175,19 @@ impl Debugger {
         match unsafe { fork()? } {
             ForkResult::Child => {
                 let _ = nix::unistd::close(pipe_read);
+
+                // Duplicate FD to stdin.
+                if let Some(fd) = desc.stdin.to_fd() {
+                    let _ = nix::unistd::dup2(fd, 0);
+                }
+
+                if let Some(fd) = desc.stdout.to_fd() {
+                    let _ = nix::unistd::dup2(fd, 1);
+                }
+
+                if let Some(fd) = desc.stderr.to_fd() {
+                    let _ = nix::unistd::dup2(fd, 2);
+                }
 
                 let report_error = |err| {
                     // Convert error to bytes.
@@ -183,10 +249,7 @@ impl Debugger {
     }
 
     /// Consumes an [`WaitStatus`], returning it's error code if all tracees exited.
-    fn consume_tracee_status(
-        &mut self,
-        status: WaitStatus,
-    ) -> Result<Option<ExitStatus>, Error> {
+    fn consume_tracee_status(&mut self, status: WaitStatus) -> Result<Option<ExitStatus>, Error> {
         match status {
             WaitStatus::Exited(pid, code) => {
                 log::complex!(
@@ -270,7 +333,6 @@ impl Debugger {
         Ok(None)
     }
 
-    #[allow(dead_code)]
     pub fn run(&mut self) -> Result<ExitStatus, Error> {
         // Consume status send as a result of exec'ing.
         let root = self.tracees.root();
@@ -286,31 +348,26 @@ impl Debugger {
             // Wait for any children to emit an event. Only peek at the status though.
             let mut status = waitid(
                 Id::All,
-                WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED | WaitPidFlag::WNOWAIT
+                WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED | WaitPidFlag::WNOWAIT,
             )?;
 
             let pid = status.pid().unwrap();
 
             if self.tracees.get(pid).is_ok() {
                 // If the event from a known pid, consume the event.
-                status = waitpid(
-                    pid,
-                    Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG)
-                )?;
+                status = waitpid(pid, Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG))?;
             } else {
                 // Otherwise we must look ahead and see if any of the tracees emitted an event
-                // that could've created a new child. This kind of event should only be a 
+                // that could've created a new child. This kind of event should only be a
                 // PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK or a PTRACE_EVENT_VFORK.
                 let mut received_event = false;
                 for pid in self.tracees.pids() {
-                    let tracees_status = waitpid(
-                        pid,
-                        Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG)
-                    )?;
+                    let tracees_status =
+                        waitpid(pid, Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG))?;
 
                     // I don't like this, sometimes the tracees_status is WaitStatus::Exited
                     // which I feel like shouldn't be possible. Only happens when running
-                    // multiple tests at once. 
+                    // multiple tests at once.
                     if tracees_status != WaitStatus::StillAlive {
                         status = tracees_status;
                         received_event = true;
@@ -319,7 +376,7 @@ impl Debugger {
                 }
 
                 // If both waitid(..) returned an unknown status and it didn't come
-                // from any of the children then discard the event.  
+                // from any of the children then discard the event.
                 if !received_event {
                     continue;
                 }
@@ -345,9 +402,7 @@ pub struct Tracee {
 
 impl Tracee {
     fn process(pid: Pid) -> Self {
-        Self {
-            pid,
-        }
+        Self { pid }
     }
 
     /// Set additional ptrace options for tracing the creation of children.
@@ -369,96 +424,3 @@ impl Tracee {
         Ok(memory_maps)
     }
 }
-
-// Custom impl of fork using clone3.
-// Necessary as there aren't any convenient libc function for retrieving a clone's [`PidFd`].
-// fn fork() -> Result<Option<(Pid, PidFd)>, nix::Error> {
-//     let mut pidfd = -1;
-//     let mut args = libc::clone_args {
-//         flags: libc::CLONE_PIDFD as u64,
-//         pidfd: &mut pidfd as *mut libc::pid_t as u64,
-//         child_tid: 0,
-//         parent_tid: 0,
-//         exit_signal: libc::SIGCHLD as u64,
-//         stack: 0,
-//         stack_size: 0,
-//         tls: 0,
-//         set_tid: 0,
-//         set_tid_size: 0,
-//         cgroup: 0,
-//     };
-// 
-//     let res = unsafe {
-//         libc::syscall(
-//             libc::SYS_clone3,
-//             &mut args as *mut libc::clone_args,
-//             std::mem::size_of::<libc::clone_args>(),
-//         )
-//     };
-// 
-//     nix::Error::result(res).map(|pid| {
-//         if pid == 0 {
-//             None
-//         } else {
-//             // Only have parent convert the Pid and PidFd.
-//             let pid = Pid::from_raw(res as i32);
-//             let pidfd = PidFd(pidfd);
-//             Some((pid, pidfd))
-//         }
-//     })
-// }
-
-// Open a pidfd for the given PID.
-// #[allow(dead_code)]
-// fn pidfd_open(pid: Pid) -> Result<PidFd, nix::Error> {
-//     let res = unsafe { libc::syscall(libc::SYS_pidfd_open, pid.as_raw(), 0) };
-// 
-//     nix::Error::result(res).map(|res| PidFd(res as i32))
-// }
-
-// loop {
-//     let pids: Vec<(Pid, PidFd)> = self.tracees.values().map(|t| (t.pid, t.pidfd)).collect();
-// 
-//     for (pid, pidfd) in pids {
-//         // peak at what process changed status
-//         let status = waitid(
-//             Id::PIDFd(pidfd.as_fd()),
-//             WaitPidFlag::WEXITED
-//                 | WaitPidFlag::WSTOPPED
-//                 | WaitPidFlag::WNOHANG
-//         )?;
-// 
-//         // if there was a state changed in the tracee
-//         if status != WaitStatus::StillAlive {
-//             if let Some(code) = self.consume_tracee_status(pidfd, status)? {
-//                 return Ok(code);
-//             }
-//         }
-//     }
-// 
-//     // here we wait since there were no updates from any of the tracees.
-//     // re-collect tracees as consume_tracee_status might have resulted in a new tracee.
-//     let poll_fds: Vec<PollFd> = self
-//         .tracees
-//         .values()
-//         .map(|tracee| PollFd::new(&tracee.pidfd, PollFlags::all()))
-//         .collect();
-// 
-//     // SAFETY: PidFd's have a static lifetime, therefore their associated
-//     // PollFd's should also have a static lifetime. The reason we need a transmute here
-//     // is because PollFd::new creates a lifetime based on the reference not the fd itself.
-//     let mut poll_fds: Vec<PollFd<'static>> = unsafe { std::mem::transmute(poll_fds) };
-// 
-//     // poll on tracee's, waiting indefinitely
-//     let n = poll(&mut poll_fds, 100)?;
-// 
-//     if n == 0 {
-//         let status = waitid(
-//             Id::All,
-//             WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED
-//         )?;
-// 
-//         dbg!(&status);
-//         self.consume_tracee_status(self.tracees.root().pidfd, status)?;
-//     }
-// }

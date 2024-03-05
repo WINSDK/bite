@@ -163,9 +163,9 @@ impl Tree {
             }
 
             if node.to_be_removed {
-                f.write_fmt(format_args!("{key:?} (to_be_removed)\n"))?;
+                f.write_fmt(format_args!("{key:?} (dead)\n"))?;
             } else {
-                f.write_fmt(format_args!("{key}\n"))?;
+                f.write_fmt(format_args!("{key:?}\n"))?;
             }
 
             for child_key in &node.children {
