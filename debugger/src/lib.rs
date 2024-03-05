@@ -8,16 +8,14 @@ mod tests;
 mod writemem;
 
 use std::ffi::CString;
-use std::os::fd::{BorrowedFd, RawFd, AsFd, AsRawFd};
 use std::path::PathBuf;
 
-use nix::poll::{poll, PollFd, PollFlags};
-use nix::sys::signal::Signal;
 use nix::fcntl::{fcntl, FcntlArg, FdFlag};
 use nix::libc;
 use nix::sys::ptrace;
-use nix::sys::wait::{waitid, Id, WaitPidFlag, WaitStatus};
-use nix::unistd::Pid;
+use nix::sys::signal::Signal;
+use nix::sys::wait::{waitpid, waitid, Id, WaitPidFlag, WaitStatus};
+use nix::unistd::{fork, ForkResult, Pid};
 use procfs::process::{MemoryMap, Process};
 
 use crate::collections::Tree;
@@ -28,30 +26,6 @@ pub use writemem::WriteMemory;
 
 pub type Tid = Pid;
 pub type ExitStatus = i32;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PidFd {
-    inner: RawFd,
-}
-
-impl PidFd {
-    fn as_raw(&self) -> RawFd {
-        self.inner
-    }
-}
-
-impl From<PollFd<'static>> for PidFd {
-    fn from(value: PollFd<'_>) -> Self {
-        Self { inner: value.as_fd().as_raw_fd() }
-    }
-}
-
-impl std::os::fd::AsFd for PidFd {
-    /// Convenient method for working with functions that don't accept [`RawFd`]'s.
-    fn as_fd(&self) -> BorrowedFd<'static> {
-        unsafe { BorrowedFd::borrow_raw(self.inner) }
-    }
-}
 
 /// Anything related to creating a [`Debugger`].
 #[derive(Default, Debug, Clone)]
@@ -119,184 +93,239 @@ struct Debugger {
     tracees: Tree<Tracee>,
 }
 
-/// Custom impl of fork using clone3.
-/// Necessary as there aren't any convenient libc function for retrieving a clone's [`PidFd`].
-fn fork() -> Result<Option<(Pid, PidFd)>, nix::Error> {
-    #[repr(C)]
-    #[derive(Default)]
-    struct CloneArgs {
-        flags: u64,
-        pidfd: u64,
-        child_tid: u64,
-        parent_tid: u64,
-        exit_signal: u64,
-        stack: u64,
-        stack_size: u64,
-        tls: u64,
-        set_tid: u64,
-        set_tid_size: u64,
-        cgroup: u64,
-    }
-
-    let mut pidfd = -1;
-    let mut args = CloneArgs {
-        flags: libc::CLONE_PIDFD as u64,
-        pidfd: &mut pidfd as *mut libc::pid_t as u64,
-        exit_signal: libc::SIGCHLD as u64,
-        ..Default::default()
-    };
-
-    let res = unsafe {
-        libc::syscall(
-            libc::SYS_clone3,
-            &mut args as *mut CloneArgs,
-            std::mem::size_of::<CloneArgs>(),
-        )
-    };
-
-    if res > 0 {
-        // only have parent convert the Pid and PidFd
-        let pid = Pid::from_raw(res as i32);
-        let pidfd = PidFd { inner: pidfd };
-        Ok(Some((pid, pidfd)))
-    } else {
-        Ok(None)
-    }
-}
-
 impl Debugger {
+    #[allow(dead_code)]
     pub fn spawn(mut desc: DebuggerDescriptor) -> Result<Self, Error> {
         let c_path = CString::new(desc.path.as_os_str().as_encoded_bytes())
             .map_err(|_| Error::InvalidPathName)?;
 
         let mut c_args = Vec::with_capacity(desc.args.len() + 1);
 
-        // push program as first argument
+        // Push program as first argument.
         c_args.push(c_path.clone());
 
-        // push arguments
+        // Push program arguments.
         for arg in desc.args {
             let arg = CString::new(arg).map_err(|_| Error::InvalidPathName)?;
             c_args.push(arg);
         }
 
-        // create a communication pipe for error handling
+        // Create a communication pipe for error handling.
         let (pipe_read, pipe_write) = nix::unistd::pipe()?;
 
-        // tell write pipe to close on exec (required for checking successful execution)
+        // Tell write pipe to close on exec (required for checking successful execution).
         fcntl(pipe_write, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
 
-        if let Some((pid, pidfd)) = fork()? {
-            let _ = nix::unistd::close(pipe_write);
+        match unsafe { fork()? } {
+            ForkResult::Child => {
+                let _ = nix::unistd::close(pipe_read);
 
-            let mut errno = [0; 4];
-            match nix::unistd::read(pipe_read, &mut errno) {
-                // child ran into error
-                Ok(4) => {
-                    let errno = i32::from_ne_bytes(errno);
-                    let errno = nix::Error::from_i32(errno);
-                    return Err(Error::Kernel(errno));
+                let report_error = |err| {
+                    // Convert error to bytes.
+                    let errno = (err as i32).to_ne_bytes();
+
+                    // Write error status to pipe.
+                    let _ = nix::unistd::write(pipe_write, &errno);
+
+                    // Explicitly close the write end of the pipe to ensure the parent can read EOF
+                    // if exec hasn't been called.
+                    let _ = nix::unistd::close(pipe_write);
+
+                    unsafe { libc::_exit(0) }
+                };
+
+                // signal child process to be traced
+                if let Err(err) = ptrace::traceme() {
+                    report_error(err);
                 }
-                // child ran successfully
-                Ok(..) => {}
-                // unexpected error
-                Err(..) => {}
+
+                // inherit environmental variables
+                let c_env: Vec<CString> = std::env::vars()
+                    .flat_map(|(key, val)| CString::new(format!("{key}={val}")))
+                    .chain(std::mem::take(&mut desc.env).into_iter().flat_map(CString::new))
+                    .collect();
+
+                // execute program
+                if let Err(err) = nix::unistd::execvpe(&c_path, &c_args, &c_env) {
+                    report_error(err);
+                }
+
+                unreachable!()
             }
-
-            let _ = nix::unistd::close(pipe_read);
-
-            Ok(Debugger {
-                tracees: Tree::new(pidfd, Tracee { pidfd, pid, tid: pid }),
-            })
-        } else {
-            let _ = nix::unistd::close(pipe_read);
-
-            let report_error = |err| {
-                // convert error to bytes
-                let errno = (err as i32).to_ne_bytes();
-
-                // write error status to pipe
-                let _ = nix::unistd::write(pipe_write, &errno);
-
-                // explicitly close the write end of the pipe to ensure the parent can read EOF
-                // if exec hasn't been called
+            ForkResult::Parent { child } => {
                 let _ = nix::unistd::close(pipe_write);
 
-                unsafe { libc::_exit(0) }
-            };
+                let mut errno = [0; 4];
+                match nix::unistd::read(pipe_read, &mut errno) {
+                    // Child ran into error.
+                    Ok(4) => {
+                        let errno = i32::from_ne_bytes(errno);
+                        let errno = nix::Error::from_i32(errno);
+                        return Err(Error::Kernel(errno));
+                    }
+                    // Child ran successfully.
+                    Ok(..) => {}
+                    // Unexpected error.
+                    Err(..) => {}
+                }
 
-            // signal child process to be traced
-            if let Err(err) = ptrace::traceme() {
-                report_error(err);
+                let _ = nix::unistd::close(pipe_read);
+                let tracee = Tracee::process(child);
+
+                Ok(Debugger {
+                    tracees: Tree::new(child, tracee),
+                })
             }
-
-            // inherit environmental variables
-            let c_env: Vec<CString> = std::env::vars()
-                .flat_map(|(key, val)| CString::new(format!("{key}={val}")))
-                .chain(std::mem::take(&mut desc.env).into_iter().flat_map(CString::new))
-                .collect();
-
-            // execute program
-            if let Err(err) = nix::unistd::execvpe(&c_path, &c_args, &c_env) {
-                report_error(err);
-            }
-
-            unreachable!()
         }
     }
 
+    /// Consumes an [`WaitStatus`], returning it's error code if all tracees exited.
+    #[must_use]
+    fn consume_tracee_status(
+        &mut self,
+        status: WaitStatus,
+    ) -> Result<Option<ExitStatus>, Error> {
+        match status {
+            WaitStatus::Exited(pid, code) => {
+                log::complex!(
+                    w "[debugger::event] tracee ",
+                    g pid.to_string(),
+                    w " exited with code ",
+                    y code.to_string(),
+                    w "."
+                );
+
+                self.tracees.remove(pid);
+                if self.tracees.is_empty() {
+                    return Ok(Some(code));
+                }
+            }
+            WaitStatus::Signaled(pid, signal, _) => {
+                log::complex!(
+                    w "[debugger::event] tracee ",
+                    g pid.to_string(),
+                    w " exited by signal ",
+                    y signal.to_string(),
+                    w "."
+                );
+
+                self.tracees.remove(pid);
+                if self.tracees.is_empty() {
+                    return Ok(Some(0));
+                }
+            }
+            WaitStatus::Stopped(pid, Signal::SIGTRAP) => {
+                println!("hit breakpoint");
+                ptrace::cont(pid, None)?;
+            }
+            WaitStatus::Stopped(pid, _signal) => {
+                ptrace::cont(pid, None)?;
+            }
+            // Events we enabled tracing for with ptrace::setoptions(..).
+            WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, event) => {
+                assert!(event <= 3, "Unexpected ptrace event received.");
+                let child = ptrace::getevent(pid)?;
+
+                if event == libc::PTRACE_EVENT_FORK {
+                    log::complex!(
+                        w "[debugger::event] tracee ",
+                        g child.to_string(),
+                        w " created using fork."
+                    );
+                }
+
+                if event == libc::PTRACE_EVENT_VFORK {
+                    log::complex!(
+                        w "[debugger::event] tracee ",
+                        g child.to_string(),
+                        w " created using vfork."
+                    );
+                }
+
+                // This might be a new thread or it might be a new process.
+                // It depends on the flags passed on clone which makes this incorrect.
+                if event == libc::PTRACE_EVENT_CLONE {
+                    log::complex!(
+                        w "[debugger::event] tracee ",
+                        g child.to_string(),
+                        w " created using clone."
+                    );
+                }
+
+                let child = Tid::from_raw(child as i32);
+                let tracee = Tracee::process(child);
+                self.tracees.push(pid, child, tracee);
+                println!("{:?}", &self.tracees);
+
+                ptrace::cont(pid, None)?;
+            }
+            WaitStatus::PtraceSyscall(_pid) => {
+                todo!();
+                // ptrace::cont(tracee.pid, None)?;
+            }
+            _ => unreachable!(),
+        }
+
+        Ok(None)
+    }
+
+    #[allow(dead_code)]
     pub fn run(&mut self) -> Result<ExitStatus, Error> {
-        // consume status send as a result of exec'ing
-        let fd = self.tracees.root().pidfd.as_fd();
-        let pid = self.tracees.root().pid;
+        // Consume status send as a result of exec'ing.
+        let root = self.tracees.root();
         assert_eq!(
-            waitid(Id::PIDFd(fd), WaitPidFlag::WSTOPPED)?,
-            WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, 0)
+            waitpid(root.pid, Some(WaitPidFlag::WSTOPPED))?,
+            WaitStatus::Stopped(root.pid, Signal::SIGTRAP)
         );
 
-        ptrace::cont(self.tracees.root().pid, None).unwrap();
+        root.enable_additional_tracing()?;
+        ptrace::cont(root.pid, None)?;
 
         loop {
-            let poll_fds: Vec<PollFd> = self
-                .tracees
-                .values()
-                .map(|tracee| PollFd::new(&tracee.pidfd, PollFlags::POLLIN))
-                .collect();
+            // Wait for any children to emit an event. Only peek at the status though.
+            let mut status = waitid(
+                Id::All,
+                WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED | WaitPidFlag::WNOWAIT
+            )?;
 
-            // SAFETY: PidFd's have a static lifetime, therefore their associated
-            // PollFd's should also have a static lifetime. The reason we need a transmute here
-            // is because PollFd::new creates a lifetime based on the reference not the fd itself.
-            let mut poll_fds: Vec<PollFd<'static>> = unsafe { std::mem::transmute(poll_fds) };
+            let pid = status.pid().unwrap();
 
-            // poll on tracee's, waiting indefinitely
-            poll(&mut poll_fds, -1)?;
-
-            for pidfd in poll_fds {
-                let pidfd = PidFd::from(pidfd);
-
-                let status = waitid(
-                    Id::PIDFd(pidfd.as_fd()),
-                    WaitPidFlag::WSTOPPED | WaitPidFlag::WEXITED,
+            if self.tracees.get(pid).is_ok() {
+                // If the event is from a known pid, consume the event.
+                status = waitpid(
+                    pid,
+                    Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG)
                 )?;
+            } else {
+                // Otherwise we must look ahead and see if any of the tracees emitted an event
+                // that could've created a new child. This kind of event should only be a 
+                // PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK or a PTRACE_EVENT_VFORK.
+                let mut received_event = false;
+                for pid in self.tracees.pids() {
+                    let tracees_status = waitpid(
+                        pid,
+                        Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG)
+                    )?;
 
-                match status {
-                    WaitStatus::Exited(_, code) => {
-                        println!("tracee exited with code {code}");
-
-                        let tracee = self.tracees.get(pidfd)?;
-                        self.tracees.remove(tracee.pidfd);
-
-                        if self.tracees.is_empty() {
-                            return Ok(code);
-                        }
-                    }
-                    _ => {
-                        dbg!(status);
-
-                        let tracee = self.tracees.get(pidfd)?;
-                        ptrace::cont(tracee.pid, None)?;
+                    // I don't like this, sometimes the tracees_status is WaitStatus::Exited
+                    // which I feel like shouldn't be possible. Only happens when running
+                    // multiple tests at once. 
+                    if tracees_status != WaitStatus::StillAlive {
+                        status = tracees_status;
+                        received_event = true;
+                        break;
                     }
                 }
+
+                // If both waitid(..) returned an unknown status and it didn't come
+                // from any of the children then discard the event.  
+                if !received_event {
+                    continue;
+                }
+            }
+
+            if let Some(code) = self.consume_tracee_status(status)? {
+                return Ok(code);
             }
         }
     }
@@ -311,11 +340,26 @@ impl Debugger {
 #[derive(Debug)]
 pub struct Tracee {
     pub pid: Pid,
-    pub pidfd: PidFd,
-    pub tid: Tid,
 }
 
 impl Tracee {
+    fn process(pid: Pid) -> Self {
+        Self {
+            pid,
+        }
+    }
+
+    /// Set additional ptrace options for tracing the creation of children.
+    /// [`Tracee`] must be stopped before calling this.
+    fn enable_additional_tracing(&self) -> Result<(), nix::Error> {
+        ptrace::setoptions(
+            self.pid,
+            ptrace::Options::PTRACE_O_TRACEFORK
+                | ptrace::Options::PTRACE_O_TRACEVFORK
+                | ptrace::Options::PTRACE_O_TRACECLONE, // | ptrace::Options::PTRACE_O_TRACESYSGOOD
+        )
+    }
+
     /// Opens a procfs process and reads it's associated memory maps.
     /// Should be up to date as it's re-read on each call.
     fn memory_maps(&self) -> Result<Vec<MemoryMap>, Error> {
@@ -324,3 +368,96 @@ impl Tracee {
         Ok(memory_maps)
     }
 }
+
+// Custom impl of fork using clone3.
+// Necessary as there aren't any convenient libc function for retrieving a clone's [`PidFd`].
+// fn fork() -> Result<Option<(Pid, PidFd)>, nix::Error> {
+//     let mut pidfd = -1;
+//     let mut args = libc::clone_args {
+//         flags: libc::CLONE_PIDFD as u64,
+//         pidfd: &mut pidfd as *mut libc::pid_t as u64,
+//         child_tid: 0,
+//         parent_tid: 0,
+//         exit_signal: libc::SIGCHLD as u64,
+//         stack: 0,
+//         stack_size: 0,
+//         tls: 0,
+//         set_tid: 0,
+//         set_tid_size: 0,
+//         cgroup: 0,
+//     };
+// 
+//     let res = unsafe {
+//         libc::syscall(
+//             libc::SYS_clone3,
+//             &mut args as *mut libc::clone_args,
+//             std::mem::size_of::<libc::clone_args>(),
+//         )
+//     };
+// 
+//     nix::Error::result(res).map(|pid| {
+//         if pid == 0 {
+//             None
+//         } else {
+//             // Only have parent convert the Pid and PidFd.
+//             let pid = Pid::from_raw(res as i32);
+//             let pidfd = PidFd(pidfd);
+//             Some((pid, pidfd))
+//         }
+//     })
+// }
+
+// Open a pidfd for the given PID.
+// #[allow(dead_code)]
+// fn pidfd_open(pid: Pid) -> Result<PidFd, nix::Error> {
+//     let res = unsafe { libc::syscall(libc::SYS_pidfd_open, pid.as_raw(), 0) };
+// 
+//     nix::Error::result(res).map(|res| PidFd(res as i32))
+// }
+
+// loop {
+//     let pids: Vec<(Pid, PidFd)> = self.tracees.values().map(|t| (t.pid, t.pidfd)).collect();
+// 
+//     for (pid, pidfd) in pids {
+//         // peak at what process changed status
+//         let status = waitid(
+//             Id::PIDFd(pidfd.as_fd()),
+//             WaitPidFlag::WEXITED
+//                 | WaitPidFlag::WSTOPPED
+//                 | WaitPidFlag::WNOHANG
+//         )?;
+// 
+//         // if there was a state changed in the tracee
+//         if status != WaitStatus::StillAlive {
+//             if let Some(code) = self.consume_tracee_status(pidfd, status)? {
+//                 return Ok(code);
+//             }
+//         }
+//     }
+// 
+//     // here we wait since there were no updates from any of the tracees.
+//     // re-collect tracees as consume_tracee_status might have resulted in a new tracee.
+//     let poll_fds: Vec<PollFd> = self
+//         .tracees
+//         .values()
+//         .map(|tracee| PollFd::new(&tracee.pidfd, PollFlags::all()))
+//         .collect();
+// 
+//     // SAFETY: PidFd's have a static lifetime, therefore their associated
+//     // PollFd's should also have a static lifetime. The reason we need a transmute here
+//     // is because PollFd::new creates a lifetime based on the reference not the fd itself.
+//     let mut poll_fds: Vec<PollFd<'static>> = unsafe { std::mem::transmute(poll_fds) };
+// 
+//     // poll on tracee's, waiting indefinitely
+//     let n = poll(&mut poll_fds, 100)?;
+// 
+//     if n == 0 {
+//         let status = waitid(
+//             Id::All,
+//             WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED
+//         )?;
+// 
+//         dbg!(&status);
+//         self.consume_tracee_status(self.tracees.root().pidfd, status)?;
+//     }
+// }

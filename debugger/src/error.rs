@@ -1,9 +1,9 @@
 use std::fmt;
-use crate::PidFd;
+use crate::Pid;
 
 pub enum Error {
     InvalidPathName,
-    TraceeLost(PidFd),
+    TraceeLost(Pid),
     IncompleteRead { req: usize, read: usize },
     IncompleteWrite { req: usize, wrote: usize },
     Procfs(procfs::ProcError),
@@ -17,8 +17,8 @@ impl fmt::Debug for Error {
             // Self::AlreadyAttached => f.write_str("Debugger already attached to process."),
             Self::InvalidPathName => f.write_str("There appears to be a '\\0' in the path name."),
             // Self::PermissionDenied => f.write_str("Permission denied."),
-            Self::TraceeLost(pidfd) => {
-                f.write_fmt(format_args!("Tracee {} was lost by the debugger.", pidfd.as_raw()))
+            Self::TraceeLost(pid) => {
+                f.write_fmt(format_args!("Tracee {pid} was lost by the debugger."))
             }
             Self::IncompleteRead { req, read } => {
                 f.write_fmt(format_args!("Tried to read {req} bytes, only read {read}."))
