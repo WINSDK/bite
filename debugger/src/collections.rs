@@ -1,19 +1,32 @@
 #![allow(dead_code)]
 
-use crate::{Error, Pid};
+use crate::{Error, Pid, Tracee};
 use std::collections::HashMap;
 use std::fmt;
 
 pub struct Node<K, V> {
     value: V,
+    parent: Option<K>,
     children: Vec<K>,
+    to_be_removed: bool,
 }
 
 impl<K, V> Node<K, V> {
     fn new(value: V) -> Self {
         Self {
             value,
+            parent: None,
             children: Vec::new(),
+            to_be_removed: false,
+        }
+    }
+
+    fn with_parent(value: V, parent: K) -> Self {
+        Self {
+            value,
+            parent: Some(parent),
+            children: Vec::new(),
+            to_be_removed: false,
         }
     }
 }
@@ -32,60 +45,59 @@ impl<K, V> std::ops::DerefMut for Node<K, V> {
     }
 }
 
-pub struct Tree<V> {
+pub struct Tree {
     root: Option<Pid>,
-    nodes: HashMap<Pid, Node<Pid, V>>,
+    nodes: HashMap<Pid, Node<Pid, Tracee>>,
 }
 
-impl<V> Tree<V> {
-    pub fn new(root_key: Pid, root_value: V) -> Self {
+impl Tree {
+    pub fn new(root_pid: Pid, root_tracee: Tracee) -> Self {
         let mut nodes = HashMap::new();
-        nodes.insert(root_key, Node::new(root_value));
+        nodes.insert(root_pid, Node::new(root_tracee));
         Self {
-            root: Some(root_key),
+            root: Some(root_pid),
             nodes,
         }
     }
 
-    pub fn root(&self) -> &V {
+    pub fn root(&self) -> &Tracee {
         self.root.as_ref().and_then(|root| self.nodes.get(root)).unwrap()
     }
 
-    pub fn push(&mut self, parent: Pid, key: Pid, value: V) {
+    pub fn push(&mut self, parent: Pid, pid: Pid, tracee: Tracee) {
         let parent_node = self.nodes.get_mut(&parent).expect("Failed to find parent.");
 
-        parent_node.children.push(key);
-        self.nodes.insert(key, Node::new(value));
+        parent_node.children.push(pid);
+        self.nodes.insert(pid, Node::with_parent(tracee, parent));
     }
 
-    pub fn get(&self, key: Pid) -> Result<&V, Error> {
-        self.nodes.get(&key).map(|node| &node.value).ok_or(Error::TraceeLost(key))
-    }
+    pub fn remove(&mut self, pid: Pid) {
+        let node = self.nodes.get_mut(&pid).expect("Key isn't part of tree");
 
-    pub fn get_mut(&mut self, key: Pid) -> Result<&mut V, Error> {
-        self.nodes
-            .get_mut(&key)
-            .map(|node| &mut node.value)
-            .ok_or(Error::TraceeLost(key))
-    }
-
-    pub fn remove(&mut self, key: Pid) {
-        let node = self.nodes.remove(&key).expect("Key isn't part of tree");
-
-        // remove a node's children recursively
-        for child_key in node.children {
-            self.remove(child_key);
+        // If node has children, mark it to be removed later and exit.
+        if !node.children.is_empty() {
+            node.to_be_removed = true;
+            return;
         }
 
-        // remove the key from the children of other nodes
-        for (_, node) in self.nodes.iter_mut() {
-            if let Some(index) = node.children.iter().position(|&k| k == key) {
-                node.children.remove(index);
+        // If the node has a parent, remove this node from the parent's children.
+        if let Some(parent_pid) = node.parent {
+            let parent_node = self.nodes.get_mut(&parent_pid).unwrap();
+
+            // Remove this child.
+            parent_node.children.retain(|&x| x != pid);
+
+            // Additionally, check if parent is marked to_be_removed and has no more children
+            if parent_node.to_be_removed {
+                self.remove(parent_pid);
             }
         }
 
-        // update the root if necessary
-        if self.root == Some(key) {
+        // Remove the node from the tree.
+        self.nodes.remove(&pid);
+
+        // Update the root if necessary.
+        if self.root == Some(pid) {
             self.root = None;
         }
     }
@@ -94,30 +106,43 @@ impl<V> Tree<V> {
         self.nodes.is_empty()
     }
 
+    pub fn get(&self, key: Pid) -> Result<&Tracee, Error> {
+        self.nodes
+            .get(&key)
+            .filter(|node| !node.to_be_removed)
+            .map(|node| &node.value)
+            .ok_or(Error::TraceeLost(key))
+    }
+
+    pub fn get_mut(&mut self, key: Pid) -> Result<&mut Tracee, Error> {
+        self.nodes
+            .get_mut(&key)
+            .filter(|node| !node.to_be_removed)
+            .map(|node| &mut node.value)
+            .ok_or(Error::TraceeLost(key))
+    }
+
     pub fn pids(&self) -> impl Iterator<Item = Pid> + '_ {
-        self.nodes.keys().copied()
+        self.nodes
+            .iter()
+            .filter(|(_, node)| !node.to_be_removed)
+            .map(|(pid, _)| *pid)
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &V> {
-        self.nodes.values().map(|node| (&node.value))
+    pub fn values(&self) -> impl Iterator<Item = &Tracee> {
+        self.nodes
+            .values()
+            .filter(|node| !node.to_be_removed)
+            .map(|node| &node.value)
     }
 
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
-        self.nodes.values_mut().map(|node| (&mut node.value))
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Tracee> {
+        self.nodes
+            .values_mut()
+            .filter(|node| !node.to_be_removed)
+            .map(|node| &mut node.value)
     }
-}
 
-impl<V> fmt::Debug for Tree<V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(ref root_key) = self.root {
-            self.recursive_debug_print(f, root_key, 0)?;
-        }
-
-        Ok(())
-    }
-}
-
-impl<V> Tree<V> {
     fn recursive_debug_print(
         &self,
         f: &mut fmt::Formatter<'_>,
@@ -137,11 +162,25 @@ impl<V> Tree<V> {
                 f.write_str("> ")?;
             }
 
-            f.write_fmt(format_args!("{:?}\n", key))?;
+            if node.to_be_removed {
+                f.write_fmt(format_args!("{key:?} (to_be_removed)\n"))?;
+            } else {
+                f.write_fmt(format_args!("{key}\n"))?;
+            }
 
             for child_key in &node.children {
                 self.recursive_debug_print(f, child_key, depth + 1)?;
             }
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Tree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(ref root_key) = self.root {
+            self.recursive_debug_print(f, root_key, 0)?;
         }
 
         Ok(())

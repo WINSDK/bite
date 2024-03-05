@@ -90,7 +90,10 @@ pub struct DebuggerDescriptor {
 /// +---------------------------------------------------------+
 /// ```
 struct Debugger {
-    tracees: Tree<Tracee>,
+    /// This isn't really a tree, ptrace can report the exiting of a parent
+    /// before it's children, therefore this can't really be a tree.
+    /// It it however a mapping from [`Pid`]'s to [`Tracee`]'s with a root [`Tracee`].
+    tracees: Tree,
 }
 
 impl Debugger {
@@ -180,7 +183,6 @@ impl Debugger {
     }
 
     /// Consumes an [`WaitStatus`], returning it's error code if all tracees exited.
-    #[must_use]
     fn consume_tracee_status(
         &mut self,
         status: WaitStatus,
@@ -255,7 +257,6 @@ impl Debugger {
                 let child = Tid::from_raw(child as i32);
                 let tracee = Tracee::process(child);
                 self.tracees.push(pid, child, tracee);
-                println!("{:?}", &self.tracees);
 
                 ptrace::cont(pid, None)?;
             }
@@ -291,7 +292,7 @@ impl Debugger {
             let pid = status.pid().unwrap();
 
             if self.tracees.get(pid).is_ok() {
-                // If the event is from a known pid, consume the event.
+                // If the event from a known pid, consume the event.
                 status = waitpid(
                     pid,
                     Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG)
