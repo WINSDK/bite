@@ -7,6 +7,7 @@ mod systrace;
 mod tests;
 mod writemem;
 
+use std::fmt;
 use std::ffi::CString;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
@@ -290,8 +291,12 @@ impl Debugger {
             WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, event) => {
                 assert!(event <= 3, "Unexpected ptrace event received.");
                 let child = ptrace::getevent(pid)?;
+                let child = Tid::from_raw(child as i32);
 
                 if event == libc::PTRACE_EVENT_FORK {
+                    let tracee = Tracee::process(child);
+                    self.tracees.push(pid, child, tracee);
+
                     log::complex!(
                         w "[debugger::event] tracee ",
                         g child.to_string(),
@@ -300,6 +305,9 @@ impl Debugger {
                 }
 
                 if event == libc::PTRACE_EVENT_VFORK {
+                    let tracee = Tracee::process(child);
+                    self.tracees.push(pid, child, tracee);
+
                     log::complex!(
                         w "[debugger::event] tracee ",
                         g child.to_string(),
@@ -310,6 +318,13 @@ impl Debugger {
                 // This might be a new thread or it might be a new process.
                 // It depends on the flags passed on clone which makes this incorrect.
                 if event == libc::PTRACE_EVENT_CLONE {
+                    // waitpid(..) could return either a pid or a tid so we must query the tracee
+                    let parent_tracee = self.tracees.get(pid)?;
+                    let parent_pid = parent_tracee.pid;
+
+                    let tracee = Tracee::thread(parent_pid, child);
+                    self.tracees.push(pid, child, tracee);
+
                     log::complex!(
                         w "[debugger::event] tracee ",
                         g child.to_string(),
@@ -317,15 +332,11 @@ impl Debugger {
                     );
                 }
 
-                let child = Tid::from_raw(child as i32);
-                let tracee = Tracee::process(child);
-                self.tracees.push(pid, child, tracee);
-
                 ptrace::cont(pid, None)?;
             }
             WaitStatus::PtraceSyscall(_pid) => {
                 todo!();
-                // ptrace::cont(tracee.pid, None)?;
+                // ptrace::cont(_pid, None)?;
             }
             _ => unreachable!(),
         }
@@ -398,11 +409,20 @@ impl Debugger {
 #[derive(Debug)]
 pub struct Tracee {
     pub pid: Pid,
+    pub tid: Tid,
 }
 
 impl Tracee {
     fn process(pid: Pid) -> Self {
-        Self { pid }
+        Self { pid, tid: pid }
+    }
+
+    fn thread(pid: Pid, tid: Tid) -> Self {
+        Self { pid, tid }
+    }
+
+    fn is_thread(&self) -> bool {
+        self.pid != self.tid
     }
 
     /// Set additional ptrace options for tracing the creation of children.
@@ -422,5 +442,15 @@ impl Tracee {
         let tracee_proc = Process::new(self.pid.as_raw())?;
         let memory_maps = tracee_proc.maps().map(|map| map.0)?;
         Ok(memory_maps)
+    }
+}
+
+impl fmt::Display for Tracee {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_thread() {
+            f.write_fmt(format_args!("Thread {{ pid: {}, tid: {} }}", self.pid, self.tid))
+        } else {
+            f.write_fmt(format_args!("Process {{ pid: {} }}", self.pid))
+        }
     }
 }
