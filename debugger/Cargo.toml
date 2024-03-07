@@ -24,3 +24,7 @@ path = "./corpus/threading.rs"
 [[bin]]
 name = "forkbomb"
 path = "./corpus/forkbomb.rs"
+
+[[bin]]
+name = "subprocess"
+path = "./corpus/subprocess.rs"

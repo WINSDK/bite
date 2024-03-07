@@ -143,6 +143,13 @@ impl Tree {
             .map(|node| &mut node.value)
     }
 
+    pub fn processes(&mut self) -> impl Iterator<Item = &mut Tracee> {
+        self.nodes
+            .values_mut()
+            .filter(|node| !node.to_be_removed && node.is_process())
+            .map(|node| &mut node.value)
+    }
+
     fn recursive_debug_print(
         &self,
         f: &mut fmt::Formatter<'_>,

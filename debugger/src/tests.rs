@@ -91,3 +91,14 @@ fn spawn_a_lot_of_threads() {
     let mut debugger = Debugger::spawn(desc).unwrap();
     assert_eq!(debugger.run().unwrap(), 0);
 }
+
+#[test]
+fn subprocess() {
+    let desc = DebuggerDescriptor {
+        path: build!("subprocess"),
+        ..Default::default()
+    };
+
+    let mut debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.run().unwrap(), 134);
+}

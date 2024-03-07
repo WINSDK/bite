@@ -277,15 +277,16 @@ impl Debugger {
 
                 self.tracees.remove(pid);
                 if self.tracees.is_empty() {
-                    return Ok(Some(0));
+                    // exit code is determined by adding 128 to the signal
+                    return Ok(Some(128 + signal as i32));
                 }
             }
             WaitStatus::Stopped(pid, Signal::SIGTRAP) => {
                 println!("hit breakpoint");
                 ptrace::cont(pid, None)?;
             }
-            WaitStatus::Stopped(pid, _signal) => {
-                ptrace::cont(pid, None)?;
+            WaitStatus::Stopped(pid, signal) => {
+                ptrace::cont(pid, Some(signal))?;
             }
             // Events we enabled tracing for with ptrace::setoptions(..).
             WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, event) => {
@@ -419,6 +420,10 @@ impl Tracee {
 
     fn thread(pid: Pid, tid: Tid) -> Self {
         Self { pid, tid }
+    }
+
+    fn is_process(&self) -> bool {
+        self.pid == self.tid
     }
 
     fn is_thread(&self) -> bool {
