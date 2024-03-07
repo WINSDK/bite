@@ -1,6 +1,3 @@
-// todo remove me
-#![allow(dead_code)]
-
 use crate::memory::PAGE_SIZE;
 use crate::{Error, ReadMemory, Tracee};
 
@@ -724,7 +721,7 @@ fn format_nullable_args(proc: &mut Tracee, addr: u64) -> String {
     args
 }
 
-pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> String {
+pub fn decode(tracee: &mut Tracee, syscall: c_long, args: [u64; 6]) -> String {
     let mut func = String::new();
 
     func += &syscall.to_string();
@@ -734,29 +731,29 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_read => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(proc, args[1], args[2]),
+            format_str(tracee, args[1], args[2]),
             args[2].to_string()
         ],
         libc::SYS_write => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(proc, args[1], args[2]),
+            format_str(tracee, args[1], args[2]),
             args[2].to_string()
         ],
         libc::SYS_open => print_delimited![
             func,
-            format_c_str(proc, args[0]),
+            format_c_str(tracee, args[0]),
             format_flags!(args[1] => nix::fcntl::OFlag)
         ],
         libc::SYS_close => print_delimited![func, format_fd(args[0])],
-        libc::SYS_stat => print_delimited![func, format_c_str(proc, args[0]), format_ptr(args[1])],
+        libc::SYS_stat => print_delimited![func, format_c_str(tracee, args[0]), format_ptr(args[1])],
         libc::SYS_fstat => print_delimited![func, format_fd(args[0]), format_ptr(args[1])],
         libc::SYS_lstat => {
-            print_delimited![func, format_c_str(proc, args[0]), format_ptr(args[1])]
+            print_delimited![func, format_c_str(tracee, args[0]), format_ptr(args[1])]
         }
         libc::SYS_poll => print_delimited![
             func,
-            format_array::<PollFd>(proc, args[0], args[1]),
+            format_array::<PollFd>(tracee, args[0], args[1]),
             args[1].to_string(),
             (args[2] as c_int).to_string()
         ],
@@ -798,8 +795,8 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
                 Ok(s) => s.as_str(),
                 Err(..) => "(unknown)",
             },
-            format_sigaction(proc, args[1]),
-            format_sigaction(proc, args[2])
+            format_sigaction(tracee, args[1]),
+            format_sigaction(tracee, args[2])
         ],
         libc::SYS_rt_sigprocmask => print_delimited![
             func,
@@ -809,8 +806,8 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
                 libc::SIG_SETMASK => "SIG_SETMASK",
                 _ => "(unknown)",
             },
-            format_sigset(proc, args[1]),
-            format_sigset(proc, args[2])
+            format_sigset(tracee, args[1]),
+            format_sigset(tracee, args[2])
         ],
         libc::SYS_rt_sigreturn => print_delimited![],
         libc::SYS_ioctl => print_delimited![
@@ -822,56 +819,56 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_pread64 => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(proc, args[1], args[2]),
+            format_str(tracee, args[1], args[2]),
             args[2].to_string(),
             (args[3] as i64).to_string()
         ],
         libc::SYS_pwrite64 => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(proc, args[1], args[2]),
+            format_str(tracee, args[1], args[2]),
             args[2].to_string(),
             (args[3] as i64).to_string()
         ],
         libc::SYS_readv => print_delimited![
             func,
             format_fd(args[0]),
-            format_array::<IoVec>(proc, args[1], args[2]),
+            format_array::<IoVec>(tracee, args[1], args[2]),
             args[2].to_string()
         ],
         libc::SYS_writev => print_delimited![
             func,
             format_fd(args[0]),
-            format_array::<IoVec>(proc, args[1], args[2]),
+            format_array::<IoVec>(tracee, args[1], args[2]),
             args[2].to_string()
         ],
         libc::SYS_access => print_delimited![
             func,
-            format_c_str(proc, args[0]),
+            format_c_str(tracee, args[0]),
             format_flags!(args[1] => nix::unistd::AccessFlags)
         ],
-        libc::SYS_pipe => print_delimited![func, format_array::<Fd>(proc, args[0], 2)],
+        libc::SYS_pipe => print_delimited![func, format_array::<Fd>(tracee, args[0], 2)],
         libc::SYS_pipe2 => print_delimited![
             func,
-            format_array::<Fd>(proc, args[0], 2),
+            format_array::<Fd>(tracee, args[0], 2),
             format_flags!(args[1] => nix::fcntl::OFlag)
         ],
         libc::SYS_select => print_delimited![
             func,
             args[0].to_string(),
-            format_fdset(proc, args[1]),
-            format_fdset(proc, args[2]),
-            format_fdset(proc, args[3]),
+            format_fdset(tracee, args[1]),
+            format_fdset(tracee, args[2]),
+            format_fdset(tracee, args[3]),
             format_ptr(args[4])
         ],
         libc::SYS_pselect6 => print_delimited![
             func,
             args[0].to_string(),
-            format_fdset(proc, args[1]),
-            format_fdset(proc, args[2]),
-            format_fdset(proc, args[3]),
+            format_fdset(tracee, args[1]),
+            format_fdset(tracee, args[2]),
+            format_fdset(tracee, args[3]),
             format_ptr(args[4]),
-            format_sigset(proc, args[5])
+            format_sigset(tracee, args[5])
         ],
         libc::SYS_sched_yield => print_delimited![],
         libc::SYS_mremap => {
@@ -904,7 +901,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
             func,
             format_ptr(args[0]),
             args[1].to_string(),
-            format_bytes_u8(proc, args[2], args[1])
+            format_bytes_u8(tracee, args[2], args[1])
         ],
         libc::SYS_madvise => print_delimited![
             func,
@@ -963,7 +960,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_dup2 => print_delimited![func, format_fd(args[0]), format_fd(args[0])],
         libc::SYS_pause => print_delimited![],
         libc::SYS_nanosleep => {
-            print_delimited![func, format_timespec(proc, args[0]), format_ptr(args[1])]
+            print_delimited![func, format_timespec(tracee, args[0]), format_ptr(args[1])]
         }
         libc::SYS_getitimer => print_delimited![
             func,
@@ -973,7 +970,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
                 libc::ITIMER_PROF => "ITIMER_PROF",
                 _ => "(unknown)",
             },
-            format_itimerval(proc, args[1])
+            format_itimerval(tracee, args[1])
         ],
         libc::SYS_alarm => print_delimited![func, args[0].to_string()],
         libc::SYS_setitimer => print_delimited![
@@ -984,8 +981,8 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
                 libc::ITIMER_PROF => "ITIMER_PROF",
                 _ => "(unknown)",
             },
-            format_itimerval(proc, args[1]),
-            format_itimerval(proc, args[2])
+            format_itimerval(tracee, args[1]),
+            format_itimerval(tracee, args[2])
         ],
         libc::SYS_getpid => print_delimited![],
         libc::SYS_sendfile => print_delimited![
@@ -1010,43 +1007,43 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_connect => print_delimited![
             func,
             format_fd(args[0]),
-            format_sockaddr(proc, args[1], Some(args[2] as u32)),
+            format_sockaddr(tracee, args[1], Some(args[2] as u32)),
             args[2].to_string()
         ],
         libc::SYS_accept => print_delimited![
             func,
             format_fd(args[0]),
-            format_sockaddr_using_len(proc, args[1], args[2]),
+            format_sockaddr_using_len(tracee, args[1], args[2]),
             format_ptr(args[2])
         ],
         libc::SYS_sendto => print_delimited![
             func,
             format_fd(args[0]),
-            format_bytes_u8(proc, args[1], args[2]),
+            format_bytes_u8(tracee, args[1], args[2]),
             args[2].to_string(),
             format_flags!(args[3] => nix::sys::socket::MsgFlags),
-            format_sockaddr(proc, args[4], Some(args[5] as u32)),
+            format_sockaddr(tracee, args[4], Some(args[5] as u32)),
             args[5].to_string()
         ],
         libc::SYS_recvfrom => print_delimited![
             func,
             format_fd(args[0]),
-            format_bytes_u8(proc, args[1], args[2]),
+            format_bytes_u8(tracee, args[1], args[2]),
             args[2].to_string(),
             format_flags!(args[3] => nix::sys::socket::MsgFlags),
-            format_sockaddr_using_len(proc, args[4], args[5]),
+            format_sockaddr_using_len(tracee, args[4], args[5]),
             format_ptr(args[5])
         ],
         libc::SYS_sendmsg => print_delimited![
             func,
             format_fd(args[0]),
-            format_msghdr(proc, args[1]),
+            format_msghdr(tracee, args[1]),
             format_flags!(args[2] => nix::sys::socket::MsgFlags)
         ],
         libc::SYS_recvmsg => print_delimited![
             func,
             format_fd(args[0]),
-            format_msghdr(proc, args[1]),
+            format_msghdr(tracee, args[1]),
             format_flags!(args[2] => nix::sys::socket::MsgFlags)
         ],
         libc::SYS_shutdown => print_delimited![
@@ -1062,20 +1059,20 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_bind => print_delimited![
             func,
             format_fd(args[0]),
-            format_sockaddr(proc, args[1], Some(args[2] as u32)),
+            format_sockaddr(tracee, args[1], Some(args[2] as u32)),
             args[2].to_string()
         ],
         libc::SYS_listen => print_delimited![func, format_fd(args[0]), args[1].to_string()],
         libc::SYS_getsockname => print_delimited![
             func,
             format_fd(args[0]),
-            format_sockaddr_using_len(proc, args[1], args[2]),
+            format_sockaddr_using_len(tracee, args[1], args[2]),
             format_ptr(args[2])
         ],
         libc::SYS_getpeername => print_delimited![
             func,
             format_fd(args[0]),
-            format_sockaddr_using_len(proc, args[1], args[2]),
+            format_sockaddr_using_len(tracee, args[1], args[2]),
             format_ptr(args[2])
         ],
         libc::SYS_socketpair => print_delimited![
@@ -1096,7 +1093,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
             format_fd(args[0]),
             format_socklevel(args[1]),
             format_sockoptname(args[2]),
-            format_bytes_u8(proc, args[3], args[4]),
+            format_bytes_u8(tracee, args[3], args[4]),
             args[4].to_string()
         ],
         libc::SYS_getsockopt => print_delimited![
@@ -1123,9 +1120,9 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_vfork => print_delimited![],
         libc::SYS_execve => print_delimited![
             func,
-            format_c_str(proc, args[0]),
-            format_nullable_args(proc, args[1]),
-            format_nullable_args(proc, args[2])
+            format_c_str(tracee, args[0]),
+            format_nullable_args(tracee, args[1]),
+            format_nullable_args(tracee, args[2])
         ],
         libc::SYS_openat => print_delimited![
             func,
@@ -1134,7 +1131,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
             } else {
                 format_fd(args[0])
             },
-            format_c_str(proc, args[1]),
+            format_c_str(tracee, args[1]),
             format_flags!(args[2] => nix::fcntl::OFlag)
         ],
         libc::SYS_set_tid_address => print_delimited![func, format_ptr(args[0])],
@@ -1143,7 +1140,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         }
         libc::SYS_getrandom => print_delimited![
             func,
-            format_bytes_u8(proc, args[0], args[1]),
+            format_bytes_u8(tracee, args[0], args[1]),
             args[1].to_string(),
             {
                 let has_random = args[2] as u32 & libc::GRND_RANDOM == libc::GRND_RANDOM;
@@ -1160,8 +1157,8 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_newfstatat => print_delimited![
             func,
             format_fd(args[0]),
-            format_c_str(proc, args[1]),
-            format_stat(proc, args[2]),
+            format_c_str(tracee, args[1]),
+            format_stat(tracee, args[2]),
             format_flags!(args[3] => nix::fcntl::AtFlags)
         ],
         libc::SYS_futex => print_delimited![
@@ -1186,7 +1183,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
                 9 => "SYSLOG_ACTION_SIZE_BUFFER",
                 _ => "(unknown)",
             },
-            format_str(proc, args[1], args[2])
+            format_str(tracee, args[1], args[2])
         ],
         libc::SYS_getgid => print_delimited![],
         libc::SYS_setuid => print_delimited![func, args[0].to_string()],
@@ -1203,7 +1200,7 @@ pub fn decode_syscall(proc: &mut Tracee, syscall: c_long, args: [u64; 6]) -> Str
         libc::SYS_setgroups => print_delimited![
             func,
             args[0].to_string(),
-            format_array::<c_int>(proc, args[1], args[0])
+            format_array::<c_int>(tracee, args[1], args[0])
         ],
         libc::SYS_setresuid => print_delimited![
             func,

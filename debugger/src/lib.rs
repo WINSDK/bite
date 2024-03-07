@@ -8,7 +8,7 @@ mod tests;
 mod writemem;
 
 use std::fmt;
-use std::ffi::CString;
+use std::ffi::{c_long, CString};
 use std::os::fd::RawFd;
 use std::path::PathBuf;
 
@@ -149,6 +149,16 @@ pub struct Debugger {
     /// before it's children, therefore this can't really be a tree.
     /// It it however a mapping from [`Pid`]'s to [`Tracee`]'s with a root [`Tracee`].
     tracees: Tree,
+
+    /// Whether or not to debug print syscall information.
+    tracing: bool,
+
+    /// Whether or not the previously ran syscall was a syscall that returned.
+    print_next_syscall: bool,
+
+    /// Buffer that holds a debug representation of a syscall, necessary as we need
+    /// to store syscall info between entry and exit.
+    print_buf: String,
 }
 
 impl Debugger {
@@ -244,9 +254,50 @@ impl Debugger {
 
                 Ok(Debugger {
                     tracees: Tree::new(child, tracee),
+                    tracing: desc.tracing,
+                    print_next_syscall: true,
+                    print_buf: String::new(),
                 })
             }
         }
+    }
+
+    fn debug_print_syscall(&mut self, pid: Pid) -> Result<(), Error> {
+        let tracee = self.tracees.get_mut(pid)?;
+
+        // Check condition for logging syscall.
+        if !self.tracing {
+            return Ok(());
+        }
+
+        match ptrace::getsyscallinfo(pid)?.op {
+            ptrace::SyscallInfoOp::Entry { nr, args } => {
+                let nr = nr as c_long;
+                self.print_buf += &systrace::decode(tracee, nr, args);
+                self.print_next_syscall = nr != libc::SYS_exit_group;
+            }
+            ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
+                if !self.print_next_syscall {
+                    return Ok(());
+                }
+
+                self.print_buf += " -> ";
+                self.print_buf += &ret_val.to_string();
+
+                if is_error == 1 {
+                    let err = nix::Error::from_i32(-ret_val as i32);
+
+                    self.print_buf += " ";
+                    self.print_buf += &err.to_string();
+                }
+
+                log::trace!("[debugger::syscall] {}", self.print_buf);
+                self.print_buf.clear();
+            }
+            _ => {}
+        }
+
+        Ok(())
     }
 
     /// Consumes an [`WaitStatus`], returning it's error code if all tracees exited.
@@ -335,9 +386,9 @@ impl Debugger {
 
                 ptrace::cont(pid, None)?;
             }
-            WaitStatus::PtraceSyscall(_pid) => {
-                todo!();
-                // ptrace::cont(_pid, None)?;
+            WaitStatus::PtraceSyscall(pid) => {
+                self.debug_print_syscall(pid)?;
+                ptrace::cont(pid, None)?;
             }
             _ => unreachable!(),
         }
@@ -437,7 +488,8 @@ impl Tracee {
             self.pid,
             ptrace::Options::PTRACE_O_TRACEFORK
                 | ptrace::Options::PTRACE_O_TRACEVFORK
-                | ptrace::Options::PTRACE_O_TRACECLONE, // | ptrace::Options::PTRACE_O_TRACESYSGOOD
+                | ptrace::Options::PTRACE_O_TRACECLONE
+                | ptrace::Options::PTRACE_O_TRACESYSGOOD
         )
     }
 
