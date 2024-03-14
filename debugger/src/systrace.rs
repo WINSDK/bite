@@ -4,11 +4,21 @@ use crate::{Error, ReadMemory, Tracee};
 use nix::libc;
 use nix::sys::socket::{self, SockaddrLike};
 use nix::sys::{signal, stat};
+use nix::sched::CloneFlags;
 
 use std::ffi::{c_int, c_long, CString};
 use std::fmt;
 use std::mem::{size_of, MaybeUninit};
 use std::os::fd::AsRawFd;
+
+#[cfg(target_arch = "x86_64")]
+type Sysno = syscalls::x86_64::Sysno;
+
+#[cfg(target_arch = "x86")]
+type Sysno = syscalls::x86::Sysno;
+
+#[cfg(target_arch = "aarch64")]
+type Sysno = syscalls::aarch64::Sysno;
 
 const ETH_ALL: c_int = libc::ETH_P_ALL.to_be();
 
@@ -87,14 +97,14 @@ fn format_fd(fd: u64) -> String {
     }
 }
 
-fn format_fdset(proc: &mut Tracee, addr: u64) -> String {
+fn format_fdset(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let mut fdset = nix::sys::select::FdSet::new();
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut fdset, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut fdset, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -106,7 +116,7 @@ fn format_fdset(proc: &mut Tracee, addr: u64) -> String {
 }
 
 /// Try to read 20 bytes.
-fn format_bytes_u8(proc: &mut Tracee, addr: u64, len: u64) -> String {
+fn format_bytes_u8(tracee: &mut Tracee, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
@@ -114,7 +124,7 @@ fn format_bytes_u8(proc: &mut Tracee, addr: u64, len: u64) -> String {
     let count = std::cmp::min(len as usize, 20);
     let mut bytes = Vec::<u8>::with_capacity(count);
     unsafe {
-        let read_op = ReadMemory::new(proc)
+        let read_op = ReadMemory::new(tracee)
             .read_slice(bytes.spare_capacity_mut(), addr as usize)
             .apply();
 
@@ -134,7 +144,7 @@ fn format_bytes_u8(proc: &mut Tracee, addr: u64, len: u64) -> String {
 }
 
 /// Read first 20 elements of an array of type `T`.
-fn format_array<T: std::fmt::Debug>(proc: &mut Tracee, addr: u64, len: u64) -> String {
+fn format_array<T: std::fmt::Debug>(tracee: &mut Tracee, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
@@ -142,7 +152,7 @@ fn format_array<T: std::fmt::Debug>(proc: &mut Tracee, addr: u64, len: u64) -> S
     let count = std::cmp::min(len as usize, 20);
     let mut values = Vec::<T>::with_capacity(count);
     unsafe {
-        let read_op = ReadMemory::new(proc)
+        let read_op = ReadMemory::new(tracee)
             .read_slice(values.spare_capacity_mut(), addr as usize)
             .apply();
 
@@ -161,7 +171,7 @@ fn format_array<T: std::fmt::Debug>(proc: &mut Tracee, addr: u64, len: u64) -> S
 }
 
 /// Try to read a string with a known length and print the first 60 characters.
-fn format_str(proc: &mut Tracee, addr: u64, len: u64) -> String {
+fn format_str(tracee: &mut Tracee, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
@@ -169,7 +179,7 @@ fn format_str(proc: &mut Tracee, addr: u64, len: u64) -> String {
     let count = std::cmp::min(len as usize, 60 * size_of::<char>());
     let mut bytes = Vec::<u8>::with_capacity(count);
     unsafe {
-        let read_op = ReadMemory::new(proc)
+        let read_op = ReadMemory::new(tracee)
             .read_slice(bytes.spare_capacity_mut(), addr as usize)
             .apply();
 
@@ -191,7 +201,7 @@ fn format_str(proc: &mut Tracee, addr: u64, len: u64) -> String {
 }
 
 /// Try to read a null terminated string.
-pub fn read_c_str(proc: &mut Tracee, addr: u64) -> String {
+pub fn read_c_str(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
@@ -200,7 +210,7 @@ pub fn read_c_str(proc: &mut Tracee, addr: u64) -> String {
     // this should still be faster than repeatedly reading one byte searching for a terminator
     let mut bytes = vec![0; *PAGE_SIZE / 2];
     unsafe {
-        let read_op = ReadMemory::new(proc).read_slice(&mut bytes, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read_slice(&mut bytes, addr as usize).apply();
 
         match read_op {
             Err(Error::IncompleteRead { read, .. }) => bytes.truncate(read),
@@ -226,8 +236,8 @@ pub fn read_c_str(proc: &mut Tracee, addr: u64) -> String {
 }
 
 /// Try to read and format a null terminated string, printing the first 60 characters.
-pub fn format_c_str(proc: &mut Tracee, addr: u64) -> String {
-    let mut data = read_c_str(proc, addr).escape_default().to_string();
+pub fn format_c_str(tracee: &mut Tracee, addr: u64) -> String {
+    let mut data = read_c_str(tracee, addr).escape_default().to_string();
     if data.len() > 60 {
         data.truncate(57);
         data += "..";
@@ -237,7 +247,7 @@ pub fn format_c_str(proc: &mut Tracee, addr: u64) -> String {
 }
 
 // FIXME: i don't think this is being interpreted correctly
-fn format_sigset(proc: &mut Tracee, addr: u64) -> String {
+fn format_sigset(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
@@ -245,7 +255,7 @@ fn format_sigset(proc: &mut Tracee, addr: u64) -> String {
     let mut sigset = signal::SigSet::empty();
 
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut sigset, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut sigset, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -265,14 +275,14 @@ fn format_sigset(proc: &mut Tracee, addr: u64) -> String {
     }
 }
 
-fn format_sigaction(proc: &mut Tracee, addr: u64) -> String {
+fn format_sigaction(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let mut sigaction = MaybeUninit::<signal::SigAction>::uninit();
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut sigaction, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut sigaction, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -312,14 +322,14 @@ fn format_futex_op(op: u64) -> &'static str {
     }
 }
 
-fn format_stat(proc: &mut Tracee, addr: u64) -> String {
+fn format_stat(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let mut stats = MaybeUninit::<stat::FileStat>::uninit();
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut stats, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut stats, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -354,14 +364,14 @@ fn format_ioctl(request: u64) -> &'static str {
     "???"
 }
 
-fn format_timespec(proc: &mut Tracee, addr: u64) -> String {
+fn format_timespec(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let mut time = nix::sys::time::TimeSpec::new(0, 0);
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut time, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut time, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -372,14 +382,14 @@ fn format_timespec(proc: &mut Tracee, addr: u64) -> String {
     format!("{duration:#?}")
 }
 
-fn format_timerval(proc: &mut Tracee, addr: u64) -> String {
+fn format_timerval(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
     let mut time = nix::sys::time::TimeVal::new(0, 0);
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut time, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut time, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -389,18 +399,18 @@ fn format_timerval(proc: &mut Tracee, addr: u64) -> String {
     format!("{time}")
 }
 
-fn format_itimerval(proc: &mut Tracee, addr: u64) -> String {
+fn format_itimerval(tracee: &mut Tracee, addr: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    let interval = format_timerval(proc, addr);
-    let next = format_timerval(proc, addr + size_of::<nix::sys::time::TimeVal>() as u64);
+    let interval = format_timerval(tracee, addr);
+    let next = format_timerval(tracee, addr + size_of::<nix::sys::time::TimeVal>() as u64);
 
     format!("{{interval: {interval}, next: {next}}}")
 }
 
-fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> String {
+fn format_sockaddr(tracee: &mut Tracee, addr: u64, socketlen: Option<u32>) -> String {
     let addr = addr as usize;
 
     if addr == 0 {
@@ -411,7 +421,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
     // are working with
     let mut family = libc::sa_family_t::default() as i32;
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut family, addr).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut family, addr).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -433,7 +443,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_in
         socket::AddressFamily::Inet => unsafe {
             let mut sock_addr = MaybeUninit::<socket::sockaddr_in>::uninit();
-            let read_op = ReadMemory::new(proc).read(&mut sock_addr, addr).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut sock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -448,7 +458,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_in6
         socket::AddressFamily::Inet6 => unsafe {
             let mut sock_addr = MaybeUninit::<socket::sockaddr_in6>::uninit();
-            let read_op = ReadMemory::new(proc).read(&mut sock_addr, addr).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut sock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -463,7 +473,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_un
         socket::AddressFamily::Unix => unsafe {
             let mut sock_addr = MaybeUninit::<socket::sockaddr>::uninit();
-            let read_op = ReadMemory::new(proc).read(&mut sock_addr, addr).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut sock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -483,7 +493,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_nl
         socket::AddressFamily::Netlink => unsafe {
             let mut netlink_addr = MaybeUninit::<socket::NetlinkAddr>::uninit();
-            let read_op = ReadMemory::new(proc).read(&mut netlink_addr, addr).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut netlink_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -498,7 +508,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_alg
         socket::AddressFamily::Alg => unsafe {
             let mut alg_addr = MaybeUninit::<socket::AlgAddr>::uninit();
-            let read_op = ReadMemory::new(proc).read(&mut alg_addr, addr).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut alg_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -513,7 +523,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_ll
         socket::AddressFamily::Packet => unsafe {
             let mut link_addr = MaybeUninit::<socket::LinkAddr>::uninit();
-            let read_op = ReadMemory::new(proc).read(&mut link_addr, addr).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut link_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -538,7 +548,7 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
         // struct sockaddr_vm
         socket::AddressFamily::Vsock => unsafe {
             let mut vsock_addr = MaybeUninit::<socket::VsockAddr>::uninit();
-            let read_op = ReadMemory::new(proc).read(&mut vsock_addr, addr).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut vsock_addr, addr).apply();
 
             if read_op.is_err() {
                 return "???".to_string();
@@ -555,21 +565,21 @@ fn format_sockaddr(proc: &mut Tracee, addr: u64, socketlen: Option<u32>) -> Stri
 }
 
 /// `sock_addr` is a *const sockaddr and `len_addr` is a *const u32.
-fn format_sockaddr_using_len(proc: &mut Tracee, sock_addr: u64, len_addr: u64) -> String {
+fn format_sockaddr_using_len(tracee: &mut Tracee, sock_addr: u64, len_addr: u64) -> String {
     if len_addr == 0 {
-        return format_sockaddr(proc, sock_addr, None);
+        return format_sockaddr(tracee, sock_addr, None);
     }
 
     let mut len = 0u32;
     unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut len, len_addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut len, len_addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
         }
     }
 
-    format_sockaddr(proc, sock_addr, Some(len))
+    format_sockaddr(tracee, sock_addr, Some(len))
 }
 
 fn format_sock_protocol(protocol: u64) -> &'static str {
@@ -596,10 +606,10 @@ fn format_sock_protocol(protocol: u64) -> &'static str {
     }
 }
 
-fn format_msghdr(proc: &mut Tracee, addr: u64) -> String {
+fn format_msghdr(tracee: &mut Tracee, addr: u64) -> String {
     let mut msghdr = MaybeUninit::<libc::msghdr>::uninit();
     let msghdr = unsafe {
-        let read_op = ReadMemory::new(proc).read(&mut msghdr, addr as usize).apply();
+        let read_op = ReadMemory::new(tracee).read(&mut msghdr, addr as usize).apply();
 
         if read_op.is_err() {
             return "???".to_string();
@@ -608,10 +618,10 @@ fn format_msghdr(proc: &mut Tracee, addr: u64) -> String {
         msghdr.assume_init()
     };
 
-    let name = format_sockaddr(proc, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
+    let name = format_sockaddr(tracee, msghdr.msg_name as u64, Some(msghdr.msg_namelen));
     let name_len = msghdr.msg_namelen;
 
-    let msg_iov = format_array::<IoVec>(proc, msghdr.msg_iov as u64, msghdr.msg_iovlen as u64);
+    let msg_iov = format_array::<IoVec>(tracee, msghdr.msg_iov as u64, msghdr.msg_iovlen as u64);
     let msg_iov_len = msghdr.msg_iovlen;
 
     let msg_ctrl = format_ptr(msghdr.msg_control as u64);
@@ -684,7 +694,7 @@ fn format_sockoptname(optname: u64) -> &'static str {
 
 /// Format arrays like argv and envp that include are made of an array of pointers
 /// where the last element is a null pointer.
-fn format_nullable_args(proc: &mut Tracee, addr: u64) -> String {
+fn format_nullable_args(tracee: &mut Tracee, addr: u64) -> String {
     let mut args = Vec::new();
     let max_args = 5;
 
@@ -695,14 +705,14 @@ fn format_nullable_args(proc: &mut Tracee, addr: u64) -> String {
 
         unsafe {
             let addr = addr + (idx * std::mem::size_of::<*const i8>()) as u64;
-            let read_op = ReadMemory::new(proc).read(&mut ptr, addr as usize).apply();
+            let read_op = ReadMemory::new(tracee).read(&mut ptr, addr as usize).apply();
 
             if read_op.is_err() || ptr == 0 {
                 break;
             }
         }
 
-        let mut data = read_c_str(proc, ptr as u64).escape_default().to_string();
+        let mut data = read_c_str(tracee, ptr as u64).escape_default().to_string();
         if data.len() > 60 {
             data.truncate(57);
             data += "..";
@@ -721,10 +731,59 @@ fn format_nullable_args(proc: &mut Tracee, addr: u64) -> String {
     args
 }
 
+#[repr(transparent)]
+struct CloneArgs {
+    inner: libc::clone_args,
+}
+
+impl fmt::Debug for CloneArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let clone_args = &self.inner;
+
+        let flags = CloneFlags::from_bits(clone_args.flags as c_int).unwrap_or(CloneFlags::empty());
+        f.write_fmt(format_args!("flags: {flags:?}, "))?;
+
+        if flags.contains(CloneFlags::CLONE_PIDFD) {
+            f.write_fmt(format_args!("pidfd: {}, ", clone_args.pidfd))?;
+        }
+
+        if flags.contains(CloneFlags::CLONE_CHILD_SETTID | CloneFlags::CLONE_CHILD_CLEARTID) {
+            f.write_fmt(format_args!("child_tid: {:#X}, ", clone_args.child_tid))?;
+        }
+
+        if flags.contains(CloneFlags::CLONE_PARENT_SETTID) {
+            f.write_fmt(format_args!("parent_tid: {}, ", clone_args.parent_tid))?;
+        }
+
+        if clone_args.exit_signal == 0 {
+            f.write_str("signal: None, ")?;
+        } else {
+            match signal::Signal::try_from(clone_args.exit_signal as c_int) {
+                Ok(sig) => f.write_fmt(format_args!("signal: {sig}, "))?,
+                Err(..) => f.write_str("signal: (unknown), ")?,
+            };
+        }
+
+        f.write_fmt(format_args!("stack: {:#x}, ", clone_args.stack))?;
+        f.write_fmt(format_args!("stack_size: {}", clone_args.stack_size))?;
+        Ok(())
+    }
+}
+
+fn format_cloneargs(tracee: &mut Tracee, addr: u64) -> String {
+    let mut clone_args = MaybeUninit::<CloneArgs>::zeroed();
+    let clone_args = unsafe {
+        let _ = ReadMemory::new(tracee).read(&mut clone_args, addr as usize).apply();
+        clone_args.assume_init()
+    };
+
+    format!("{clone_args:?}")
+}
+
 pub fn decode(tracee: &mut Tracee, syscall: c_long, args: [u64; 6]) -> String {
     let mut func = String::new();
 
-    func += &syscall.to_string();
+    func += &Sysno::from(syscall as i32).to_string();
     func += "(";
 
     match syscall {
@@ -1232,6 +1291,11 @@ pub fn decode(tracee: &mut Tracee, syscall: c_long, args: [u64; 6]) -> String {
         libc::SYS_getsid => print_delimited![func, args[0].to_string()],
         libc::SYS_exit => print_delimited![func, args[0].to_string()],
         libc::SYS_exit_group => print_delimited![func, args[0].to_string()],
+        // there are more between here
+        libc::SYS_clone3 => print_delimited![
+            func,
+            format_cloneargs(tracee, args[0])
+        ],
         _ => func += "..",
     }
 
