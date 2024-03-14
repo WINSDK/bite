@@ -1,17 +1,14 @@
-use std::thread;
-
-
 fn spawn_threads(level: u32, max_depth: u32) {
     if level >= max_depth {
         return;
     }
 
-    let handle1 = thread::spawn(move || {
+    let handle1 = std::thread::spawn(move || {
         println!("spawned thread at level {}", level + 1);
         spawn_threads(level + 1, max_depth);
     });
 
-    let handle2 = thread::spawn(move || {
+    let handle2 = std::thread::spawn(move || {
         println!("spawned thread at level {}", level + 1);
         spawn_threads(level + 1, max_depth);
     });

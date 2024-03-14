@@ -115,13 +115,13 @@ fn format_fdset(tracee: &mut Tracee, addr: u64) -> String {
     format!("{fdset:?}")
 }
 
-/// Try to read 20 bytes.
+/// Try to read 60 bytes.
 fn format_bytes_u8(tracee: &mut Tracee, addr: u64, len: u64) -> String {
     if addr == 0 {
         return "NULL".to_string();
     }
 
-    let count = std::cmp::min(len as usize, 20);
+    let count = std::cmp::min(len as usize, 60);
     let mut bytes = Vec::<u8>::with_capacity(count);
     unsafe {
         let read_op = ReadMemory::new(tracee)
@@ -135,12 +135,28 @@ fn format_bytes_u8(tracee: &mut Tracee, addr: u64, len: u64) -> String {
         }
     }
 
+    let overflowing = len > 60;
+
     // if the bytes are valid utf8, return that instead
-    if let Ok(utf8) = std::str::from_utf8(&bytes) {
-        return format!("b\"{utf8}\"");
+    if !bytes.contains(&b'\0') {
+        if let Ok(utf8) = std::str::from_utf8(&bytes) {
+            let utf8 = utf8.escape_default().to_string();
+            if overflowing {
+                return format!("b\"{utf8}\"..");
+            } else {
+                return format!("b\"{utf8}\"");
+            }
+        }
     }
 
-    format!("{bytes:x?}")
+    if overflowing {
+        let mut fmt = format!("{bytes:x?}");
+        fmt.pop();
+        fmt.push_str(", ..]");
+        fmt
+    } else {
+        format!("{bytes:x?}")
+    }
 }
 
 /// Read first 20 elements of an array of type `T`.
@@ -194,10 +210,10 @@ fn format_str(tracee: &mut Tracee, addr: u64, len: u64) -> String {
 
     if data.len() > 60 {
         data.truncate(57);
-        data += "..";
+        format!("\"{data}\"..")
+    } else {
+        format!("\"{data}\"")
     }
-
-    format!("\"{data}\"")
 }
 
 /// Try to read a null terminated string.
@@ -238,12 +254,13 @@ pub fn read_c_str(tracee: &mut Tracee, addr: u64) -> String {
 /// Try to read and format a null terminated string, printing the first 60 characters.
 pub fn format_c_str(tracee: &mut Tracee, addr: u64) -> String {
     let mut data = read_c_str(tracee, addr).escape_default().to_string();
+
     if data.len() > 60 {
         data.truncate(57);
-        data += "..";
+        format!("\"{data}\"..")
+    } else {
+        format!("\"{data}\"")
     }
-
-    format!("\"{data}\"")
 }
 
 // FIXME: i don't think this is being interpreted correctly
@@ -732,7 +749,7 @@ fn format_nullable_args(tracee: &mut Tracee, addr: u64) -> String {
 }
 
 #[repr(transparent)]
-struct CloneArgs {
+pub struct CloneArgs {
     inner: libc::clone_args,
 }
 
@@ -741,18 +758,18 @@ impl fmt::Debug for CloneArgs {
         let clone_args = &self.inner;
 
         let flags = CloneFlags::from_bits(clone_args.flags as c_int).unwrap_or(CloneFlags::empty());
-        f.write_fmt(format_args!("flags: {flags:?}, "))?;
+        f.write_fmt(format_args!("{{flags: {flags:?}, "))?;
 
         if flags.contains(CloneFlags::CLONE_PIDFD) {
             f.write_fmt(format_args!("pidfd: {}, ", clone_args.pidfd))?;
         }
 
         if flags.contains(CloneFlags::CLONE_CHILD_SETTID | CloneFlags::CLONE_CHILD_CLEARTID) {
-            f.write_fmt(format_args!("child_tid: {:#X}, ", clone_args.child_tid))?;
+            f.write_fmt(format_args!("child_tid: {:#x}, ", clone_args.child_tid))?;
         }
 
         if flags.contains(CloneFlags::CLONE_PARENT_SETTID) {
-            f.write_fmt(format_args!("parent_tid: {}, ", clone_args.parent_tid))?;
+            f.write_fmt(format_args!("parent_tid: {:#x}, ", clone_args.parent_tid))?;
         }
 
         if clone_args.exit_signal == 0 {
@@ -765,7 +782,7 @@ impl fmt::Debug for CloneArgs {
         }
 
         f.write_fmt(format_args!("stack: {:#x}, ", clone_args.stack))?;
-        f.write_fmt(format_args!("stack_size: {}", clone_args.stack_size))?;
+        f.write_fmt(format_args!("stack_size: {}}}", clone_args.stack_size))?;
         Ok(())
     }
 }
@@ -790,13 +807,13 @@ pub fn decode(tracee: &mut Tracee, syscall: c_long, args: [u64; 6]) -> String {
         libc::SYS_read => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(tracee, args[1], args[2]),
+            format_bytes_u8(tracee, args[1], args[2]),
             args[2].to_string()
         ],
         libc::SYS_write => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(tracee, args[1], args[2]),
+            format_bytes_u8(tracee, args[1], args[2]),
             args[2].to_string()
         ],
         libc::SYS_open => print_delimited![
@@ -878,14 +895,14 @@ pub fn decode(tracee: &mut Tracee, syscall: c_long, args: [u64; 6]) -> String {
         libc::SYS_pread64 => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(tracee, args[1], args[2]),
+            format_bytes_u8(tracee, args[1], args[2]),
             args[2].to_string(),
             (args[3] as i64).to_string()
         ],
         libc::SYS_pwrite64 => print_delimited![
             func,
             format_fd(args[0]),
-            format_str(tracee, args[1], args[2]),
+            format_bytes_u8(tracee, args[1], args[2]),
             args[2].to_string(),
             (args[3] as i64).to_string()
         ],

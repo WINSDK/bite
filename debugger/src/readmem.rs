@@ -226,85 +226,56 @@ impl<'a> ReadMemory<'a> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::ReadMemory;
-//     use crate::memory::PAGE_SIZE;
-//     use crate::{DebuggerDescriptor, Debugger};
-// 
-//     use nix::sys::mman::{mprotect, ProtFlags};
-//     use nix::sys::ptrace;
-//     use nix::sys::signal::{self, Signal};
-//     use nix::sys::wait;
-//     use nix::unistd::{fork, ForkResult};
-// 
-//     use std::alloc::{alloc_zeroed, dealloc, Layout};
-//     use std::ffi::c_void;
-//     use std::ptr;
-// 
-//     #[test]
-//     fn read_protected_memory() {
-//         let path = crate::build!("./corpus/hello_world.rs");
-// 
-//         // Wait for child.
-//         let wait_status = wait::waitpid(child, None).unwrap();
-// 
-//         match wait_status {
-//             wait::WaitStatus::Stopped(_pid, _sig) => {}
-//             status => {
-//                 signal::kill(child, Signal::SIGKILL).unwrap();
-//                 panic!("Unexpected child status: {:?}", status);
-//             }
-//         }
-// 
-//         let desc = DebuggerDescriptor {
-//             path,
-//             ..Default::default()
-//         };
-// 
-//         let mut debugger = Debugger::spawn(desc).unwrap();
-//         let tracee = debugger.process();
-// 
-//         // Read memory from the child.
-//         unsafe {
-//             ReadMemory::new(tracee)
-//                 .read(&mut read_var_op, write_protected_ptr as usize)
-//                 .read(&mut read_var2_op, write_protected_ptr2 as usize)
-//                 .apply()
-//                 .unwrap();
-// 
-//             assert_eq!(var, read_var_op);
-//             assert_eq!(var2, read_var2_op);
-//         }
-// 
-//         ptrace::detach(child, Some(Signal::SIGCONT)).unwrap();
-// 
-//         // 'Unprotect' memory so that it can be deallocated.
-//         unsafe {
-//             mprotect(
-//                 write_protected_ptr as *mut _,
-//                 *PAGE_SIZE,
-//                 ProtFlags::PROT_WRITE | ProtFlags::PROT_READ,
-//             )
-//             .expect("Failed to mprotect");
-//             dealloc(write_protected_ptr as *mut _, layout);
-//         }
-// 
-//         // Check if the child assertions are successful.
-//         let exit_status = wait::waitpid(child, None).unwrap();
-// 
-//         match exit_status {
-//             wait::WaitStatus::Exited(_pid, 0) => {} // normal exit
-//             wait::WaitStatus::Exited(_pid, err_code) => {
-//                 panic!(
-//                     "Child exited with an error {err_code}, run this test with \
-//                        --nocapture to see the full output.",
-//                 );
-//             }
-//             status => panic!("Unexpected child status: {status:?}"),
-//         }
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    // use super::ReadMemory;
+    // use crate::memory::PAGE_SIZE;
+    // use crate::{DebuggerDescriptor, DebuggerImpl};
+
+    // use nix::sys::mman::{mprotect, ProtFlags};
+    // use nix::sys::ptrace;
+    // use nix::sys::signal::{self, Signal};
+    // use nix::sys::wait;
+    // use nix::unistd::{fork, ForkResult};
+
+    // use std::alloc::{alloc_zeroed, dealloc, Layout};
+    // use std::ffi::c_void;
+    // use std::ptr;
+
+    // #[test]
+    // fn read_protected_memory() {
+    //     let path = crate::build!("read_protected_memory");
+
+    //     let desc = DebuggerDescriptor {
+    //         path,
+    //         ..Default::default()
+    //     };
+    //     let mut debugger = DebuggerImpl::spawn(desc).unwrap();
+    //     let tracee = debugger.process();
+
+    //     // Read memory from the child.
+    //     unsafe {
+    //         ReadMemory::new(tracee)
+    //             .read(&mut read_var_op, write_protected_ptr as usize)
+    //             .read(&mut read_var2_op, write_protected_ptr2 as usize)
+    //             .apply()
+    //             .unwrap();
+
+    //         assert_eq!(var, read_var_op);
+    //         assert_eq!(var2, read_var2_op);
+    //     }
+
+    //     match exit_status {
+    //         wait::WaitStatus::Exited(_pid, 0) => {} // normal exit
+    //         wait::WaitStatus::Exited(_pid, err_code) => {
+    //             panic!(
+    //                 "Child exited with an error {err_code}, run this test with \
+    //                    --nocapture to see the full output.",
+    //             );
+    //         }
+    //         status => panic!("Unexpected child status: {status:?}"),
+    //     }
+    // }
 
 // #[cfg(test)]
 // mod tests {
@@ -516,4 +487,4 @@ impl<'a> ReadMemory<'a> {
 //             Err(x) => panic!("{x}"),
 //         };
 //     }
-// }
+}

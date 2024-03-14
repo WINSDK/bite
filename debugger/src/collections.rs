@@ -71,6 +71,15 @@ impl Tree {
         self.nodes.insert(pid, Node::with_parent(tracee, parent));
     }
 
+    pub fn remove_children(&mut self, pid: Pid) {
+        let node = self.nodes.get_mut(&pid).expect("Key isn't part of tree");
+        let children = node.children.clone();
+
+        for child in children {
+            self.remove(child);
+        }
+    }
+
     pub fn remove(&mut self, pid: Pid) {
         let node = self.nodes.get_mut(&pid).expect("Key isn't part of tree");
 

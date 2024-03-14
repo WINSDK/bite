@@ -2,10 +2,11 @@
 
 use std::path::PathBuf;
 use crate::{Debugger, DebuggerDescriptor};
+use nix::sys::signal::{self, Signal};
 
 /// Helper macro for building test cases from the corpus.
 #[macro_export]
-macro_rules! build {
+macro_rules! test_case {
     ($name:literal) => {{
         let command = std::process::Command::new("cargo")
             .args(["build", "--bin", $name])
@@ -43,8 +44,9 @@ fn valid_file() {
         path: PathBuf::from("/bin/echo"),
         ..Default::default()
     };
-    let mut debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.run().unwrap(), 0);
+
+    let debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 0);
 }
 
 #[test]
@@ -55,8 +57,8 @@ fn sleep_1sec() {
         ..Default::default()
     };
 
-    let mut debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.run().unwrap(), 0);
+    let debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 0);
 }
 
 #[test]
@@ -66,39 +68,63 @@ fn sleep_invalid() {
         ..Default::default()
     };
 
-    let mut debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.run().unwrap(), 1);
+    let debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 1);
 }
 
 #[test]
 fn spawn_some_threads() {
     let desc = DebuggerDescriptor {
-        path: build!("forkbomb"),
+        path: test_case!("threading"),
         ..Default::default()
     };
 
-    let mut debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.run().unwrap(), 0);
+    let debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 0);
 }
 
 #[test]
 fn spawn_a_lot_of_threads() {
     let desc = DebuggerDescriptor {
-        path: build!("threading"),
+        path: test_case!("forkbomb"),
         ..Default::default()
     };
 
-    let mut debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.run().unwrap(), 0);
+    let debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 0);
 }
 
 #[test]
 fn subprocess() {
     let desc = DebuggerDescriptor {
-        path: build!("subprocess"),
+        path: test_case!("subprocess"),
         ..Default::default()
     };
 
-    let mut debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.run().unwrap(), 134);
+    let debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 134);
+}
+
+#[test]
+fn exec_from_thread() {
+    let desc = DebuggerDescriptor {
+        path: test_case!("exec"),
+        ..Default::default()
+    };
+
+    let debugger = Debugger::spawn(desc).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 0);
+}
+
+#[test]
+fn sigkill() {
+    let desc = DebuggerDescriptor {
+        path: test_case!("loop"),
+        ..Default::default()
+    };
+
+    let debugger = Debugger::spawn(desc).unwrap();
+    let pid = debugger.lock().tracees.root().pid;
+    signal::kill(pid, Signal::SIGKILL).unwrap();
+    assert_eq!(debugger.wait().unwrap(), 128 + Signal::SIGKILL as i32);
 }

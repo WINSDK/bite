@@ -1,6 +1,6 @@
+use debugger::memory::PAGE_SIZE;
 use nix::sys::mman::{mprotect, ProtFlags};
 use nix::sys::ptrace;
-use nix::sys::signal::{self, Signal};
 
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ffi::c_void;
@@ -28,6 +28,15 @@ fn main() {
         ptr::write_volatile(write_protected_ptr2, var2);
     }
 
-    // Wait for the parent to signal to continue.
-    signal::raise(Signal::SIGSTOP).unwrap();
+
+    // 'Unprotect' memory so that it can be deallocated.
+    unsafe {
+        mprotect(
+            write_protected_ptr as *mut _,
+            *PAGE_SIZE,
+            ProtFlags::PROT_WRITE | ProtFlags::PROT_READ,
+        )
+        .expect("Failed to mprotect");
+        dealloc(write_protected_ptr as *mut _, layout);
+    }
 }

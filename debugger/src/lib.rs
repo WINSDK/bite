@@ -1,19 +1,25 @@
 mod collections;
 mod error;
 mod ioctl;
-mod memory;
-mod readmem;
+pub mod memory;
+pub mod readmem;
 mod systrace;
 mod tests;
-mod writemem;
+pub mod writemem;
 
+use std::collections::HashMap;
+use std::ffi::{c_int, c_long, CString};
 use std::fmt;
-use std::ffi::{c_long, CString};
+use std::mem::MaybeUninit;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::JoinHandle;
 
-use nix::fcntl::{fcntl, FcntlArg, FdFlag, OFlag};
+use nix::fcntl::{fcntl, open, FcntlArg, FdFlag, OFlag};
 use nix::libc;
+use nix::sched::CloneFlags;
 use nix::sys::ptrace;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitid, waitpid, Id, WaitPidFlag, WaitStatus};
@@ -28,6 +34,14 @@ pub use writemem::WriteMemory;
 
 pub type Tid = Pid;
 pub type ExitStatus = i32;
+
+/// Breakpoint instruction on x86/64 (int 3).
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+static BP_INST: u32 = 0xcc;
+
+/// Breakpoint instruction on ARM (brk 0x3e8).
+#[cfg(target_arch = "arm")]
+static BP_INST: u32 = 0xd4207d00;
 
 /// Describes what to do with a standard I/O stream for a [`Tracee`] and it's children.
 ///
@@ -66,9 +80,7 @@ impl Stdio {
         match self {
             Self::Console => None,
             Self::Fd(fd) => Some(*fd),
-            Self::Null => {
-                nix::fcntl::open("/dev/null", OFlag::O_RDWR, nix::sys::stat::Mode::empty()).ok()
-            }
+            Self::Null => open("/dev/null", OFlag::O_RDWR, nix::sys::stat::Mode::empty()).ok(),
         }
     }
 }
@@ -78,27 +90,101 @@ impl Stdio {
 pub struct DebuggerDescriptor {
     /// Program being traced.
     pub path: PathBuf,
-
     /// Environmental variables set for the target.
     pub env: Vec<String>,
-
     /// Process arguments.
     pub args: Vec<String>,
-
     /// Whether or not to trace syscalls.
     pub tracing: bool,
-
     /// Whether or not syscall tracing should apply to children.
     pub follow_children: bool,
-
     /// Stdin options for redirection.
     pub stdin: Stdio,
-
     /// Stdout options for redirection.
     pub stdout: Stdio,
-
     /// Stderr options for redirection.
     pub stderr: Stdio,
+}
+
+pub struct Debugger {
+    thread: JoinHandle<Result<ExitStatus, Error>>,
+    inner: Arc<Mutex<DebuggerImpl>>,
+}
+
+impl Debugger {
+    pub fn spawn(desc: DebuggerDescriptor) -> Result<Self, Error> {
+        let (tx, rx) = mpsc::channel();
+
+        let debugger_task = move || {
+            let debugger = DebuggerImpl::spawn(desc)?;
+            let debugger = Arc::new(Mutex::new(debugger));
+
+            tx.send(Arc::clone(&debugger)).unwrap();
+
+            loop {
+                // Wait for any children to emit an event. Only peek at the status though.
+                let status = waitid(
+                    Id::All,
+                    WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED | WaitPidFlag::WNOWAIT,
+                )?;
+
+                // Lock mutex when any ptrace status update comes through.
+                let mut debugger = debugger.lock().unwrap();
+
+                match debugger.ptrace_single(status) {
+                    Ok(None) => {}
+                    Ok(Some(code)) => return Ok(code),
+                    // The tracer cannot assume that the ptrace-stopped tracee exists.
+                    // There are many scenarios when the tracee may die while stopped
+                    // (such as SIGKILL).
+                    Err(Error::Kernel(nix::Error::ESRCH)) => {
+                        // Unfortunately, the same error is returned if the tracee exists but
+                        // is not ptrace-stopped (for commands which require a stopped tracee),
+                        // or if it is not traced by the process which issued the ptrace call.
+                        //
+                        // Therefore make sure the process is actually dead and not some kind
+                        // of bug in the debugger
+                        // assert_eq!(
+                        //     signal::kill(status.pid().unwrap(), None),
+                        //     Err(nix::Error::ESRCH),
+                        //     "Incorrect usage of ptrace"
+                        // );
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        };
+
+        let thread = std::thread::Builder::new()
+            .name("debugger".to_string())
+            .spawn(debugger_task)
+            .expect("IO error from kernel (unhandled)");
+
+        // This can fail if the debugger fails to spawn a process.
+        let inner = match rx.recv() {
+            Err(..) => match thread.join() {
+                Err(_) => panic!("Debugger panicked."),
+                Ok(result) => return Err(result.unwrap_err()),
+            },
+            Ok(inner) => inner,
+        };
+
+        Ok(Debugger { thread, inner })
+    }
+
+    pub fn wait(self) -> Result<ExitStatus, Error> {
+        match self.thread.join() {
+            Err(_) => panic!("Debugger panicked."),
+            Ok(guard) => guard,
+        }
+    }
+
+    pub fn lock(&self) -> MutexGuard<DebuggerImpl> {
+        match self.inner.lock() {
+            Err(_) => panic!("Debugger panicked."),
+            Ok(guard) => guard,
+        }
+    }
 }
 
 /// Debugger of a group of tracees
@@ -144,24 +230,21 @@ pub struct DebuggerDescriptor {
 /// | +------------------+ +------------------+ +-----------+ |
 /// +---------------------------------------------------------+
 /// ```
-pub struct Debugger {
+pub struct DebuggerImpl {
     /// This isn't really a tree, ptrace can report the exiting of a parent
     /// before it's children, therefore this can't really be a tree.
     /// It it however a mapping from [`Pid`]'s to [`Tracee`]'s with a root [`Tracee`].
     tracees: Tree,
-
     /// Whether or not to debug print syscall information.
     tracing: bool,
+    /// We aren't able to execute [`ptrace::setoptions`] before [`Self::spawn`] calls execvpe.
+    /// Therefore we'll receive a SIGTRAP on exec'ing but only for the first exec.
+    did_initial_exec: bool,
 
-    /// Whether or not the previously ran syscall was a syscall that returned.
-    print_next_syscall: bool,
-
-    /// Buffer that holds a debug representation of a syscall, necessary as we need
-    /// to store syscall info between entry and exit.
-    print_buf: String,
+    breakpoints: HashMap<usize, Breakpoint>,
 }
 
-impl Debugger {
+impl DebuggerImpl {
     pub fn spawn(mut desc: DebuggerDescriptor) -> Result<Self, Error> {
         let c_path = CString::new(desc.path.as_os_str().as_encoded_bytes())
             .map_err(|_| Error::InvalidPathName)?;
@@ -184,7 +267,7 @@ impl Debugger {
         fcntl(pipe_write, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
 
         match unsafe { fork()? } {
-            ForkResult::Child => {
+            ForkResult::Child => unsafe {
                 let _ = nix::unistd::close(pipe_read);
 
                 // Duplicate FD to stdin.
@@ -211,27 +294,33 @@ impl Debugger {
                     // if exec hasn't been called.
                     let _ = nix::unistd::close(pipe_write);
 
-                    unsafe { libc::_exit(0) }
+                    libc::_exit(0);
                 };
 
-                // signal child process to be traced
+                // Disable address-space-layout randomization (might not be necessary).
+                let persona = nix::sys::personality::Persona::ADDR_NO_RANDOMIZE;
+                if let Err(err) = nix::sys::personality::set(persona) {
+                    report_error(err);
+                }
+
+                // Signal child process to be traced.
                 if let Err(err) = ptrace::traceme() {
                     report_error(err);
                 }
 
-                // inherit environmental variables
+                // Inherit environmental variables.
                 let c_env: Vec<CString> = std::env::vars()
                     .flat_map(|(key, val)| CString::new(format!("{key}={val}")))
                     .chain(std::mem::take(&mut desc.env).into_iter().flat_map(CString::new))
                     .collect();
 
-                // execute program
+                // Execute program.
                 if let Err(err) = nix::unistd::execvpe(&c_path, &c_args, &c_env) {
                     report_error(err);
                 }
 
-                unreachable!()
-            }
+                std::hint::unreachable_unchecked();
+            },
             ForkResult::Parent { child } => {
                 let _ = nix::unistd::close(pipe_write);
 
@@ -251,58 +340,68 @@ impl Debugger {
 
                 let _ = nix::unistd::close(pipe_read);
                 let tracee = Tracee::process(child);
+                tracee.enable_additional_tracing()?;
 
-                Ok(Debugger {
+                Ok(DebuggerImpl {
                     tracees: Tree::new(child, tracee),
                     tracing: desc.tracing,
-                    print_next_syscall: true,
-                    print_buf: String::new(),
+                    did_initial_exec: false,
+                    breakpoints: HashMap::new(),
                 })
             }
         }
     }
 
-    fn debug_print_syscall(&mut self, pid: Pid) -> Result<(), Error> {
-        let tracee = self.tracees.get_mut(pid)?;
+    fn ptrace_single(&mut self, mut status: WaitStatus) -> Result<Option<ExitStatus>, Error> {
+        let pid = status.pid().unwrap();
+        let flags = Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG);
 
-        // Check condition for logging syscall.
-        if !self.tracing {
-            return Ok(());
+        if self.tracees.get(pid).is_ok() {
+            // If the event from a known pid, consume the event.
+            // This shouldn't fail as it's the result of waitid(..)
+            status = waitpid(pid, flags)?;
+
+            if status == WaitStatus::StillAlive {
+                return Ok(None);
+            }
+        } else {
+            // Otherwise we must look ahead and see if any of the tracees emitted an event
+            // that could've created a new child. This kind of event should only be a
+            // PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK or a PTRACE_EVENT_VFORK.
+            let mut received_event = false;
+            for pid in self.tracees.pids() {
+                // One of our tracees may have died, at the same time we might be processing
+                // ptrace event's that happened before this death, therefore we must allow
+                // for ECHILD error's in case.
+                let tstatus = match waitpid(pid, flags) {
+                    Ok(status) => status,
+                    Err(nix::Error::ECHILD) => break,
+                    Err(err) => return Err(Error::Kernel(err)),
+                };
+
+                // I don't like this, sometimes the tracees_status is WaitStatus::Exited
+                // which I feel like shouldn't be possible. Only happens when running
+                // multiple tests at once.
+                if tstatus != WaitStatus::StillAlive {
+                    status = tstatus;
+                    received_event = true;
+                    break;
+                }
+            }
+
+            // If both waitid(..) returned an unknown status and it didn't come
+            // from any of the children then discard the event.
+            if !received_event {
+                return Ok(None);
+            }
         }
 
-        match ptrace::getsyscallinfo(pid)?.op {
-            ptrace::SyscallInfoOp::Entry { nr, args } => {
-                let nr = nr as c_long;
-                self.print_buf += &systrace::decode(tracee, nr, args);
-                self.print_next_syscall = nr != libc::SYS_exit_group;
-            }
-            ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
-                if !self.print_next_syscall {
-                    return Ok(());
-                }
-
-                self.print_buf += " -> ";
-                self.print_buf += &ret_val.to_string();
-
-                if is_error == 1 {
-                    let err = nix::Error::from_i32(-ret_val as i32);
-
-                    self.print_buf += " ";
-                    self.print_buf += &err.to_string();
-                }
-
-                log::trace!("[debugger::syscall] {}", self.print_buf);
-                self.print_buf.clear();
-            }
-            _ => {}
-        }
-
-        Ok(())
+        self.consume_tracee_status(status)
     }
 
     /// Consumes an [`WaitStatus`], returning it's error code if all tracees exited.
     fn consume_tracee_status(&mut self, status: WaitStatus) -> Result<Option<ExitStatus>, Error> {
-        match status {
+        match dbg!(status) {
             WaitStatus::Exited(pid, code) => {
                 log::complex!(
                     w "[debugger::event] tracee ",
@@ -328,67 +427,96 @@ impl Debugger {
 
                 self.tracees.remove(pid);
                 if self.tracees.is_empty() {
-                    // exit code is determined by adding 128 to the signal
+                    // Exit code is determined by adding 128 to the signal.
                     return Ok(Some(128 + signal as i32));
                 }
             }
             WaitStatus::Stopped(pid, Signal::SIGTRAP) => {
+                if !self.did_initial_exec {
+                    self.did_initial_exec = true;
+                    self.ptrace_restart(pid, None)?;
+                    return Ok(None);
+                }
+
                 println!("hit breakpoint");
-                ptrace::cont(pid, None)?;
+                self.handle_breakpoint(pid)?;
+                self.ptrace_restart(pid, None)?;
             }
             WaitStatus::Stopped(pid, signal) => {
-                ptrace::cont(pid, Some(signal))?;
+                self.ptrace_restart(pid, Some(signal))?;
             }
             // Events we enabled tracing for with ptrace::setoptions(..).
             WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, event) => {
-                assert!(event <= 3, "Unexpected ptrace event received.");
-                let child = ptrace::getevent(pid)?;
-                let child = Tid::from_raw(child as i32);
+                assert!(event <= 4, "Unexpected ptrace event received");
 
                 if event == libc::PTRACE_EVENT_FORK {
-                    let tracee = Tracee::process(child);
-                    self.tracees.push(pid, child, tracee);
+                    let child_pid = ptrace::getevent(pid)?;
+                    let child_pid = Tid::from_raw(child_pid as i32);
+
+                    let tracee = Tracee::process(child_pid);
+                    self.tracees.push(pid, child_pid, tracee);
 
                     log::complex!(
                         w "[debugger::event] tracee ",
-                        g child.to_string(),
+                        g child_pid.to_string(),
                         w " created using fork."
                     );
                 }
 
                 if event == libc::PTRACE_EVENT_VFORK {
-                    let tracee = Tracee::process(child);
-                    self.tracees.push(pid, child, tracee);
+                    let child_pid = ptrace::getevent(pid)?;
+                    let child_pid = Tid::from_raw(child_pid as i32);
+
+                    let tracee = Tracee::process(child_pid);
+                    self.tracees.push(pid, child_pid, tracee);
 
                     log::complex!(
                         w "[debugger::event] tracee ",
-                        g child.to_string(),
+                        g child_pid.to_string(),
                         w " created using vfork."
                     );
                 }
 
-                // This might be a new thread or it might be a new process.
-                // It depends on the flags passed on clone which makes this incorrect.
                 if event == libc::PTRACE_EVENT_CLONE {
-                    // waitpid(..) could return either a pid or a tid so we must query the tracee
-                    let parent_tracee = self.tracees.get(pid)?;
-                    let parent_pid = parent_tracee.pid;
+                    let child_pid = ptrace::getevent(pid)?;
+                    let child_pid = Tid::from_raw(child_pid as i32);
+                    let tracee = self.tracees.get(pid)?;
 
-                    let tracee = Tracee::thread(parent_pid, child);
-                    self.tracees.push(pid, child, tracee);
+                    if clone_has_thread_flag(tracee)? {
+                        let tracee = Tracee::thread(pid, child_pid);
+                        self.tracees.push(pid, child_pid, tracee);
+
+                        log::complex!(
+                            w "[debugger::event] tracee ",
+                            g child_pid.to_string(),
+                            w " created using clone."
+                        );
+                    }
+                }
+
+                if event == libc::PTRACE_EVENT_EXEC {
+                    // if a thread other than thread group leader does an execve(2), it disappears;
+                    // its PID will never be seen again, and any subsequent ptrace stops will be
+                    // reported under the thread group leader's PID.
+                    self.tracees.remove_children(pid);
 
                     log::complex!(
                         w "[debugger::event] tracee ",
-                        g child.to_string(),
-                        w " created using clone."
+                        g pid.to_string(),
+                        w " exec'd."
                     );
                 }
 
-                ptrace::cont(pid, None)?;
+                self.ptrace_restart(pid, None)?;
             }
             WaitStatus::PtraceSyscall(pid) => {
+                assert!(
+                    self.tracing,
+                    "Can't receive WaitStatus::PtraceSyscall's\
+                                       unless we've enabled tracing"
+                );
                 self.debug_print_syscall(pid)?;
-                ptrace::cont(pid, None)?;
+                self.ptrace_restart(pid, None)?;
             }
             _ => unreachable!(),
         }
@@ -396,60 +524,157 @@ impl Debugger {
         Ok(None)
     }
 
-    pub fn run(&mut self) -> Result<ExitStatus, Error> {
-        // Consume status send as a result of exec'ing.
-        let root = self.tracees.root();
-        assert_eq!(
-            waitpid(root.pid, Some(WaitPidFlag::WSTOPPED))?,
-            WaitStatus::Stopped(root.pid, Signal::SIGTRAP)
-        );
+    fn debug_print_syscall(&mut self, pid: Pid) -> Result<(), Error> {
+        let tracee = self.tracees.get_mut(pid)?;
 
-        root.enable_additional_tracing()?;
-        ptrace::cont(root.pid, None)?;
+        // Check condition for logging syscall.
+        if !self.tracing {
+            return Ok(());
+        }
 
-        loop {
-            // Wait for any children to emit an event. Only peek at the status though.
-            let mut status = waitid(
-                Id::All,
-                WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED | WaitPidFlag::WNOWAIT,
-            )?;
-
-            let pid = status.pid().unwrap();
-
-            if self.tracees.get(pid).is_ok() {
-                // If the event from a known pid, consume the event.
-                status = waitpid(pid, Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG))?;
-            } else {
-                // Otherwise we must look ahead and see if any of the tracees emitted an event
-                // that could've created a new child. This kind of event should only be a
-                // PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK or a PTRACE_EVENT_VFORK.
-                let mut received_event = false;
-                for pid in self.tracees.pids() {
-                    let tracees_status =
-                        waitpid(pid, Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG))?;
-
-                    // I don't like this, sometimes the tracees_status is WaitStatus::Exited
-                    // which I feel like shouldn't be possible. Only happens when running
-                    // multiple tests at once.
-                    if tracees_status != WaitStatus::StillAlive {
-                        status = tracees_status;
-                        received_event = true;
-                        break;
-                    }
-                }
-
-                // If both waitid(..) returned an unknown status and it didn't come
-                // from any of the children then discard the event.
-                if !received_event {
-                    continue;
-                }
+        match ptrace::getsyscallinfo(pid)?.op {
+            ptrace::SyscallInfoOp::Entry { nr, args } => {
+                let nr = nr as c_long;
+                let formatted_syscall = systrace::decode(tracee, nr, args);
+                tracee.print_buf += &formatted_syscall;
+                tracee.print_next_syscall = nr != libc::SYS_exit_group;
             }
+            ptrace::SyscallInfoOp::Exit { ret_val, is_error } => {
+                if !tracee.print_next_syscall {
+                    return Ok(());
+                }
 
-            if let Some(code) = self.consume_tracee_status(status)? {
-                return Ok(code);
+                tracee.print_buf += " -> ";
+                tracee.print_buf += &ret_val.to_string();
+
+                if is_error == 1 {
+                    let err = nix::Error::from_i32(-ret_val as i32);
+
+                    tracee.print_buf += " ";
+                    tracee.print_buf += &err.to_string();
+                }
+
+                log::trace!("[debugger::syscall] {}", tracee.print_buf);
+                println!("{}", tracee.print_buf);
+
+                tracee.print_buf.clear();
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    pub fn set_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
+        let tracee = self.tracees.root();
+        let mut orig_bytes: u32 = 0;
+        unsafe {
+            ReadMemory::new(tracee).read(&mut orig_bytes, addr).apply()?;
+        }
+
+        let breakpoint = Breakpoint { addr, orig_bytes };
+        self.breakpoints.insert(addr, breakpoint);
+        WriteMemory::new(tracee).write(&BP_INST, addr).apply()?;
+        Ok(())
+    }
+
+    pub fn remove_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
+        let tracee = self.tracees.root();
+        if let Some(breakpoint) = self.breakpoints.remove(&addr) {
+            WriteMemory::new(tracee).write(&breakpoint.orig_bytes, addr).apply()?;
+        }
+        Ok(())
+    }
+
+    fn handle_breakpoint(&mut self, pid: Pid) -> Result<(), Error> {
+        let tracee = self.tracees.get(pid)?;
+        let regs = ptrace::getregs(pid)?;
+        let rip = regs.rip as usize;
+
+        // Breakpoint might be just an exec(..) call so we need to check for that.
+        if let Some(breakpoint) = self.breakpoints.get(&(rip - 1)) {
+            let new_regs = libc::user_regs_struct {
+                rip: (rip - 1) as u64,
+                ..regs
+            };
+            ptrace::setregs(pid, new_regs)?;
+            WriteMemory::new(tracee).write(&breakpoint.orig_bytes, rip - 1).apply()?;
+            ptrace::step(pid, None)?;
+            WriteMemory::new(tracee).write(&BP_INST, rip - 1).apply()?;
+        }
+        Ok(())
+    }
+
+    pub fn interrupt(&mut self) -> Result<(), nix::Error> {
+        let mut error = None;
+        for tracee in self.tracees.values() {
+            if let Err(err) = tracee.kill(Signal::SIGSTOP) {
+                error = Some(err);
             }
         }
+
+        match error {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
+
+    pub fn kontinue(&mut self) -> Result<(), nix::Error> {
+        let mut error = None;
+        for tracee in self.tracees.values() {
+            if let Err(err) = tracee.kill(Signal::SIGCONT) {
+                error = Some(err);
+            }
+        }
+
+        match error {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    }
+
+    fn ptrace_restart(&self, pid: Pid, signal: Option<Signal>) -> Result<(), nix::Error> {
+        if self.tracing {
+            ptrace::syscall(pid, signal)
+        } else {
+            ptrace::cont(pid, signal)
+        }
+    }
+}
+
+/// A process can only have threads as the result of a *clone* syscall with the
+/// CLONE_THREAD flag.
+fn clone_has_thread_flag(tracee: &Tracee) -> Result<bool, Error> {
+    let regs = ptrace::getregs(tracee.tid)?;
+    let syscall = regs.orig_rax as c_long;
+
+    if syscall == libc::SYS_clone {
+        let flags = CloneFlags::from_bits(regs.r10 as c_int).unwrap_or(CloneFlags::empty());
+        if flags.contains(CloneFlags::CLONE_THREAD) {
+            return Ok(true);
+        }
+    }
+
+    if syscall == libc::SYS_clone3 {
+        let clone_flags = unsafe {
+            let mut clone_args = MaybeUninit::<libc::clone_args>::uninit();
+            ReadMemory::new(tracee).read(&mut clone_args, regs.rdi as usize).apply()?;
+            clone_args.assume_init().flags
+        };
+
+        let flags = CloneFlags::from_bits(clone_flags as c_int).unwrap_or(CloneFlags::empty());
+        if flags.contains(CloneFlags::CLONE_THREAD) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+#[derive(Debug)]
+struct Breakpoint {
+    addr: usize,
+    orig_bytes: u32,
 }
 
 /// ```text
@@ -462,15 +687,32 @@ impl Debugger {
 pub struct Tracee {
     pub pid: Pid,
     pub tid: Tid,
+
+    /// Whether or not the previously ran syscall was a syscall that returned.
+    print_next_syscall: bool,
+
+    /// Buffer that holds a debug representation of a syscall, necessary as we need
+    /// to store syscall info between entry and exit.
+    print_buf: String,
 }
 
 impl Tracee {
     fn process(pid: Pid) -> Self {
-        Self { pid, tid: pid }
+        Self {
+            pid,
+            tid: pid,
+            print_next_syscall: true,
+            print_buf: String::new(),
+        }
     }
 
     fn thread(pid: Pid, tid: Tid) -> Self {
-        Self { pid, tid }
+        Self {
+            pid,
+            tid,
+            print_next_syscall: true,
+            print_buf: String::new(),
+        }
     }
 
     fn is_process(&self) -> bool {
@@ -489,7 +731,9 @@ impl Tracee {
             ptrace::Options::PTRACE_O_TRACEFORK
                 | ptrace::Options::PTRACE_O_TRACEVFORK
                 | ptrace::Options::PTRACE_O_TRACECLONE
+                | ptrace::Options::PTRACE_O_TRACEEXEC
                 | ptrace::Options::PTRACE_O_TRACESYSGOOD
+                | ptrace::Options::PTRACE_O_EXITKILL,
         )
     }
 
@@ -500,12 +744,22 @@ impl Tracee {
         let memory_maps = tracee_proc.maps().map(|map| map.0)?;
         Ok(memory_maps)
     }
+
+    fn kill(&self, sig: Signal) -> Result<(), nix::Error> {
+        let res =
+            unsafe { libc::syscall(libc::SYS_tgkill, self.pid.as_raw(), self.tid.as_raw(), sig) };
+
+        nix::Error::result(res).map(|_| ())
+    }
 }
 
 impl fmt::Display for Tracee {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_thread() {
-            f.write_fmt(format_args!("Thread {{ pid: {}, tid: {} }}", self.pid, self.tid))
+            f.write_fmt(format_args!(
+                "Thread {{ pid: {}, tid: {} }}",
+                self.pid, self.tid
+            ))
         } else {
             f.write_fmt(format_args!("Process {{ pid: {} }}", self.pid))
         }

@@ -17,6 +17,15 @@ nix = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3"
 
+[target.'cfg(all(target_os="linux", target_arch="x86_64"))'.dependencies]
+syscalls = { version = "0.6", features = ["x86_64"], default-features = false }
+
+[target.'cfg(all(target_os="linux", target_arch="x86"))'.dependencies]
+syscalls = { version = "0.6", features = ["x86"], default-features = false }
+
+[target.'cfg(all(target_os="linux", target_arch="aarch64"))'.dependencies]
+syscalls = { version = "0.6", features = ["aarch64"], default-features = false }
+
 [[bin]]
 name = "threading"
 path = "./corpus/threading.rs"
@@ -28,3 +37,19 @@ path = "./corpus/forkbomb.rs"
 [[bin]]
 name = "subprocess"
 path = "./corpus/subprocess.rs"
+
+[[bin]]
+name = "read_protected_memory"
+path = "./corpus/read_protected_memory.rs"
+
+[[bin]]
+name = "signals"
+path = "./corpus/signals.rs"
+
+[[bin]]
+name = "exec"
+path = "./corpus/exec.rs"
+
+[[bin]]
+name = "loop"
+path = "./corpus/loop.rs"
