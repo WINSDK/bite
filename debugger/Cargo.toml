@@ -43,8 +43,8 @@ name = "read_protected_memory"
 path = "./corpus/read_protected_memory.rs"
 
 [[bin]]
-name = "signals"
-path = "./corpus/signals.rs"
+name = "interrupt"
+path = "./corpus/interrupt.rs"
 
 [[bin]]
 name = "exec"

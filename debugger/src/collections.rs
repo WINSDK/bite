@@ -138,14 +138,14 @@ impl Tree {
             .map(|(pid, _)| *pid)
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &Tracee> {
+    pub fn iter(&self) -> impl Iterator<Item = &Tracee> {
         self.nodes
             .values()
             .filter(|node| !node.to_be_removed)
             .map(|node| &node.value)
     }
 
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Tracee> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Tracee> {
         self.nodes
             .values_mut()
             .filter(|node| !node.to_be_removed)

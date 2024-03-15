@@ -13,7 +13,7 @@ use std::fmt;
 use std::mem::MaybeUninit;
 use std::os::fd::RawFd;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{mpsc, Condvar};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
@@ -21,7 +21,7 @@ use nix::fcntl::{fcntl, open, FcntlArg, FdFlag, OFlag};
 use nix::libc;
 use nix::sched::CloneFlags;
 use nix::sys::ptrace;
-use nix::sys::signal::Signal;
+use nix::sys::signal::{self, Signal};
 use nix::sys::wait::{waitid, waitpid, Id, WaitPidFlag, WaitStatus};
 use nix::unistd::{fork, ForkResult, Pid};
 use procfs::process::{MemoryMap, Process};
@@ -107,15 +107,19 @@ pub struct DebuggerDescriptor {
 }
 
 pub struct Debugger {
-    thread: JoinHandle<Result<ExitStatus, Error>>,
+    handle: JoinHandle<Result<ExitStatus, Error>>,
+    parked: Arc<(Mutex<bool>, Condvar)>,
     inner: Arc<Mutex<DebuggerImpl>>,
 }
 
 impl Debugger {
     pub fn spawn(desc: DebuggerDescriptor) -> Result<Self, Error> {
         let (tx, rx) = mpsc::channel();
+        let parked = Arc::new((Mutex::new(false), Condvar::new()));
+        let parked_clone = Arc::clone(&parked);
 
         let debugger_task = move || {
+            // Perform spawn in thread as we can't move DebuggerImpl.
             let debugger = DebuggerImpl::spawn(desc)?;
             let debugger = Arc::new(Mutex::new(debugger));
 
@@ -128,54 +132,73 @@ impl Debugger {
                     WaitPidFlag::WEXITED | WaitPidFlag::WSTOPPED | WaitPidFlag::WNOWAIT,
                 )?;
 
-                // Lock mutex when any ptrace status update comes through.
-                let mut debugger = debugger.lock().unwrap();
+                let mut locked = debugger.lock().unwrap();
+                match locked.ptrace_single(status) {
+                    Ok(DebuggerState::Running) => {}
+                    Ok(DebuggerState::Stopped(pid)) => {
+                        drop(locked);
 
-                match debugger.ptrace_single(status) {
-                    Ok(None) => {}
-                    Ok(Some(code)) => return Ok(code),
-                    // The tracer cannot assume that the ptrace-stopped tracee exists.
-                    // There are many scenarios when the tracee may die while stopped
-                    // (such as SIGKILL).
+                        // Notify any threads calling wait_for_stop() that we've stopped.
+                        let (lock, cvar) = &*parked_clone;
+                        *lock.lock().unwrap() = true;
+                        cvar.notify_one();
+                        std::thread::park();
+
+                        // Continue tracee.
+                        match debugger.lock().unwrap().ptrace_restart(pid, None) {
+                            Err(nix::Error::ESRCH) => {}
+                            Err(err) => return Err(Error::Kernel(err)),
+                            Ok(()) => {}
+                        }
+                    }
+                    Ok(DebuggerState::Ended(code)) => return Ok(code),
                     Err(Error::Kernel(nix::Error::ESRCH)) => {
+                        // The tracer cannot assume that the ptrace-stopped tracee exists.
+                        // There are many scenarios when the tracee may die while stopped
+                        // (such as SIGKILL).
+                        //
                         // Unfortunately, the same error is returned if the tracee exists but
                         // is not ptrace-stopped (for commands which require a stopped tracee),
                         // or if it is not traced by the process which issued the ptrace call.
-                        //
-                        // Therefore make sure the process is actually dead and not some kind
-                        // of bug in the debugger
-                        // assert_eq!(
-                        //     signal::kill(status.pid().unwrap(), None),
-                        //     Err(nix::Error::ESRCH),
-                        //     "Incorrect usage of ptrace"
-                        // );
                     }
                     Err(err) => return Err(err),
                 }
             }
         };
 
-        let thread = std::thread::Builder::new()
+        let handle = std::thread::Builder::new()
             .name("debugger".to_string())
             .spawn(debugger_task)
             .expect("IO error from kernel (unhandled)");
 
         // This can fail if the debugger fails to spawn a process.
         let inner = match rx.recv() {
-            Err(..) => match thread.join() {
+            Err(..) => match handle.join() {
                 Err(_) => panic!("Debugger panicked."),
                 Ok(result) => return Err(result.unwrap_err()),
             },
             Ok(inner) => inner,
         };
 
-        Ok(Debugger { thread, inner })
+        Ok(Debugger {
+            handle,
+            parked,
+            inner,
+        })
     }
 
-    pub fn wait(self) -> Result<ExitStatus, Error> {
-        match self.thread.join() {
+    pub fn wait_for_exit(self) -> Result<ExitStatus, Error> {
+        match self.handle.join() {
             Err(_) => panic!("Debugger panicked."),
             Ok(guard) => guard,
+        }
+    }
+
+    pub fn wait_for_stop(&self) {
+        let (lock, cvar) = &*self.parked;
+        let mut parked = lock.lock().unwrap();
+        while !*parked {
+            parked = cvar.wait(parked).unwrap();
         }
     }
 
@@ -185,6 +208,19 @@ impl Debugger {
             Ok(guard) => guard,
         }
     }
+
+    /// Unpark debugger thread running event loop.
+    pub fn kontinue(&self) {
+        self.handle.thread().unpark();
+    }
+}
+
+/// State change from calling [`DebuggerImpl::ptrace_single`].
+#[derive(Debug)]
+enum DebuggerState {
+    Running,
+    Stopped(Pid),
+    Ended(ExitStatus),
 }
 
 /// Debugger of a group of tracees
@@ -352,23 +388,43 @@ impl DebuggerImpl {
         }
     }
 
-    fn ptrace_single(&mut self, mut status: WaitStatus) -> Result<Option<ExitStatus>, Error> {
+    fn ptrace_single(&mut self, status: WaitStatus) -> Result<DebuggerState, Error> {
+        let Some(status) = self.filter_status(status)? else {
+            return Ok(DebuggerState::Running);
+        };
+
+        match self.consume_tracee_status(dbg!(status)) {
+            Ok(status) => Ok(status),
+            Err(err @ Error::Kernel(nix::Error::ESRCH)) => {
+                // Make sure the process is actually dead and not some kind
+                // of bug in the debugger.
+                assert_eq!(
+                    signal::kill(status.pid().unwrap(), None),
+                    Err(nix::Error::ESRCH),
+                    "Incorrect usage of ptrace"
+                );
+                Err(err)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn filter_status(&mut self, status: WaitStatus) -> Result<Option<WaitStatus>, Error> {
         let pid = status.pid().unwrap();
         let flags = Some(WaitPidFlag::WSTOPPED | WaitPidFlag::WNOHANG);
 
         if self.tracees.get(pid).is_ok() {
             // If the event from a known pid, consume the event.
             // This shouldn't fail as it's the result of waitid(..)
-            status = waitpid(pid, flags)?;
+            let tstatus = waitpid(pid, flags)?;
 
-            if status == WaitStatus::StillAlive {
-                return Ok(None);
+            if tstatus != WaitStatus::StillAlive {
+                return Ok(Some(tstatus));
             }
         } else {
             // Otherwise we must look ahead and see if any of the tracees emitted an event
             // that could've created a new child. This kind of event should only be a
             // PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK or a PTRACE_EVENT_VFORK.
-            let mut received_event = false;
             for pid in self.tracees.pids() {
                 // One of our tracees may have died, at the same time we might be processing
                 // ptrace event's that happened before this death, therefore we must allow
@@ -379,28 +435,19 @@ impl DebuggerImpl {
                     Err(err) => return Err(Error::Kernel(err)),
                 };
 
-                // I don't like this, sometimes the tracees_status is WaitStatus::Exited
-                // which I feel like shouldn't be possible. Only happens when running
-                // multiple tests at once.
                 if tstatus != WaitStatus::StillAlive {
-                    status = tstatus;
-                    received_event = true;
-                    break;
+                    return Ok(Some(tstatus));
                 }
-            }
-
-            // If both waitid(..) returned an unknown status and it didn't come
-            // from any of the children then discard the event.
-            if !received_event {
-                return Ok(None);
             }
         }
 
-        self.consume_tracee_status(status)
+        // If both waitid(..) returned an unknown status and it didn't come
+        // from any of the children then discard the event.
+        Ok(None)
     }
 
     /// Consumes an [`WaitStatus`], returning it's error code if all tracees exited.
-    fn consume_tracee_status(&mut self, status: WaitStatus) -> Result<Option<ExitStatus>, Error> {
+    fn consume_tracee_status(&mut self, status: WaitStatus) -> Result<DebuggerState, Error> {
         match dbg!(status) {
             WaitStatus::Exited(pid, code) => {
                 log::complex!(
@@ -413,7 +460,7 @@ impl DebuggerImpl {
 
                 self.tracees.remove(pid);
                 if self.tracees.is_empty() {
-                    return Ok(Some(code));
+                    return Ok(DebuggerState::Ended(code));
                 }
             }
             WaitStatus::Signaled(pid, signal, _) => {
@@ -428,85 +475,70 @@ impl DebuggerImpl {
                 self.tracees.remove(pid);
                 if self.tracees.is_empty() {
                     // Exit code is determined by adding 128 to the signal.
-                    return Ok(Some(128 + signal as i32));
+                    return Ok(DebuggerState::Ended(128 + signal as i32));
                 }
             }
-            WaitStatus::Stopped(pid, Signal::SIGTRAP) => {
-                if !self.did_initial_exec {
-                    self.did_initial_exec = true;
-                    self.ptrace_restart(pid, None)?;
-                    return Ok(None);
-                }
-
+            WaitStatus::Stopped(pid, Signal::SIGTRAP) if !self.did_initial_exec => {
+                self.did_initial_exec = true;
+                self.ptrace_restart(pid, None)?;
+                return Ok(DebuggerState::Running);
+            }
+            WaitStatus::Stopped(pid, Signal::SIGTRAP) if self.did_initial_exec => {
                 println!("hit breakpoint");
                 self.handle_breakpoint(pid)?;
-                self.ptrace_restart(pid, None)?;
+                return Ok(DebuggerState::Stopped(pid));
+            }
+            // We use the obsolete SIGSTKFLT signal to indicate a interrupt.
+            WaitStatus::Stopped(pid, Signal::SIGSTKFLT) => {
+                return Ok(DebuggerState::Stopped(pid));
             }
             WaitStatus::Stopped(pid, signal) => {
                 self.ptrace_restart(pid, Some(signal))?;
             }
-            // Events we enabled tracing for with ptrace::setoptions(..).
-            WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, event) => {
-                assert!(event <= 4, "Unexpected ptrace event received");
+            WaitStatus::PtraceEvent(
+                pid,
+                Signal::SIGTRAP,
+                libc::PTRACE_EVENT_FORK | libc::PTRACE_EVENT_VFORK,
+            ) => {
+                let child_pid = ptrace::getevent(pid)?;
+                let child_pid = Tid::from_raw(child_pid as i32);
+                let tracee = Tracee::process(child_pid);
 
-                if event == libc::PTRACE_EVENT_FORK {
-                    let child_pid = ptrace::getevent(pid)?;
-                    let child_pid = Tid::from_raw(child_pid as i32);
+                self.tracees.push(pid, child_pid, tracee);
+                log::complex!(
+                    w "[debugger::event] tracee ",
+                    g child_pid.to_string(),
+                    w " created using fork."
+                );
+                self.ptrace_restart(pid, None)?;
+            }
+            WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, libc::PTRACE_EVENT_CLONE) => {
+                let child_pid = ptrace::getevent(pid)?;
+                let child_pid = Tid::from_raw(child_pid as i32);
+                let tracee = self.tracees.get(pid)?;
 
-                    let tracee = Tracee::process(child_pid);
+                if clone_has_thread_flag(tracee)? {
+                    let tracee = Tracee::thread(pid, child_pid);
                     self.tracees.push(pid, child_pid, tracee);
 
                     log::complex!(
                         w "[debugger::event] tracee ",
                         g child_pid.to_string(),
-                        w " created using fork."
+                        w " created using clone."
                     );
                 }
-
-                if event == libc::PTRACE_EVENT_VFORK {
-                    let child_pid = ptrace::getevent(pid)?;
-                    let child_pid = Tid::from_raw(child_pid as i32);
-
-                    let tracee = Tracee::process(child_pid);
-                    self.tracees.push(pid, child_pid, tracee);
-
-                    log::complex!(
-                        w "[debugger::event] tracee ",
-                        g child_pid.to_string(),
-                        w " created using vfork."
-                    );
-                }
-
-                if event == libc::PTRACE_EVENT_CLONE {
-                    let child_pid = ptrace::getevent(pid)?;
-                    let child_pid = Tid::from_raw(child_pid as i32);
-                    let tracee = self.tracees.get(pid)?;
-
-                    if clone_has_thread_flag(tracee)? {
-                        let tracee = Tracee::thread(pid, child_pid);
-                        self.tracees.push(pid, child_pid, tracee);
-
-                        log::complex!(
-                            w "[debugger::event] tracee ",
-                            g child_pid.to_string(),
-                            w " created using clone."
-                        );
-                    }
-                }
-
-                if event == libc::PTRACE_EVENT_EXEC {
-                    // if a thread other than thread group leader does an execve(2), it disappears;
-                    // its PID will never be seen again, and any subsequent ptrace stops will be
-                    // reported under the thread group leader's PID.
-                    self.tracees.remove_children(pid);
-
-                    log::complex!(
-                        w "[debugger::event] tracee ",
-                        g pid.to_string(),
-                        w " exec'd."
-                    );
-                }
-
+                self.ptrace_restart(pid, None)?;
+            }
+            WaitStatus::PtraceEvent(pid, Signal::SIGTRAP, libc::PTRACE_EVENT_EXEC) => {
+                // if a thread other than thread group leader does an execve(2), it disappears;
+                // its PID will never be seen again, and any subsequent ptrace stops will be
+                // reported under the thread group leader's PID.
+                self.tracees.remove_children(pid);
+                log::complex!(
+                    w "[debugger::event] tracee ",
+                    g pid.to_string(),
+                    w " exec'd."
+                );
                 self.ptrace_restart(pid, None)?;
             }
             WaitStatus::PtraceSyscall(pid) => {
@@ -518,10 +550,10 @@ impl DebuggerImpl {
                 self.debug_print_syscall(pid)?;
                 self.ptrace_restart(pid, None)?;
             }
-            _ => unreachable!(),
+            _ => unreachable!("{status:?}"),
         }
 
-        Ok(None)
+        Ok(DebuggerState::Running)
     }
 
     fn debug_print_syscall(&mut self, pid: Pid) -> Result<(), Error> {
@@ -605,32 +637,10 @@ impl DebuggerImpl {
         Ok(())
     }
 
-    pub fn interrupt(&mut self) -> Result<(), nix::Error> {
-        let mut error = None;
-        for tracee in self.tracees.values() {
-            if let Err(err) = tracee.kill(Signal::SIGSTOP) {
-                error = Some(err);
-            }
-        }
-
-        match error {
-            Some(err) => Err(err),
-            None => Ok(()),
-        }
-    }
-
-    pub fn kontinue(&mut self) -> Result<(), nix::Error> {
-        let mut error = None;
-        for tracee in self.tracees.values() {
-            if let Err(err) = tracee.kill(Signal::SIGCONT) {
-                error = Some(err);
-            }
-        }
-
-        match error {
-            Some(err) => Err(err),
-            None => Ok(()),
-        }
+    /// Send SIGSTKFLT which will trigger the debugger to discard that signal and park()
+    /// it's thread until a kontinue() is called.
+    pub fn interrupt(&mut self) {
+        let _ = signal::kill(self.tracees.root().pid, Signal::SIGSTKFLT);
     }
 
     fn ptrace_restart(&self, pid: Pid, signal: Option<Signal>) -> Result<(), nix::Error> {
@@ -745,9 +755,16 @@ impl Tracee {
         Ok(memory_maps)
     }
 
-    fn kill(&self, sig: Signal) -> Result<(), nix::Error> {
-        let res =
-            unsafe { libc::syscall(libc::SYS_tgkill, self.pid.as_raw(), self.tid.as_raw(), sig) };
+    #[allow(dead_code)]
+    fn kill(&self, signal: Signal) -> Result<(), nix::Error> {
+        let res = unsafe {
+            libc::syscall(
+                libc::SYS_tgkill,
+                self.pid.as_raw(),
+                self.tid.as_raw(),
+                signal,
+            )
+        };
 
         nix::Error::result(res).map(|_| ())
     }

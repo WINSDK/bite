@@ -46,7 +46,7 @@ fn valid_file() {
     };
 
     let debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 0);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 0);
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn sleep_1sec() {
     };
 
     let debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 0);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 0);
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn sleep_invalid() {
     };
 
     let debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 1);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 1);
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn spawn_some_threads() {
     };
 
     let debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 0);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 0);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn spawn_a_lot_of_threads() {
     };
 
     let debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 0);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 0);
 }
 
 #[test]
@@ -102,7 +102,27 @@ fn subprocess() {
     };
 
     let debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 134);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 134);
+}
+
+#[test]
+fn interrupt() {
+    let desc = DebuggerDescriptor {
+        path: test_case!("interrupt"),
+        ..Default::default()
+    };
+
+    let debugger = Debugger::spawn(desc).unwrap();
+
+    debugger.wait_for_stop();
+    debugger.kontinue();
+
+    // Pause process for 1sec.
+    debugger.lock().interrupt();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    debugger.kontinue();
+
+    assert_eq!(debugger.wait_for_exit().unwrap(), 0, "Tracee wasn't stopped");
 }
 
 #[test]
@@ -113,7 +133,7 @@ fn exec_from_thread() {
     };
 
     let debugger = Debugger::spawn(desc).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 0);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 0);
 }
 
 #[test]
@@ -126,5 +146,5 @@ fn sigkill() {
     let debugger = Debugger::spawn(desc).unwrap();
     let pid = debugger.lock().tracees.root().pid;
     signal::kill(pid, Signal::SIGKILL).unwrap();
-    assert_eq!(debugger.wait().unwrap(), 128 + Signal::SIGKILL as i32);
+    assert_eq!(debugger.wait_for_exit().unwrap(), 128 + Signal::SIGKILL as i32);
 }
