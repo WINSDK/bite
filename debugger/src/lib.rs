@@ -393,20 +393,7 @@ impl DebuggerImpl {
             return Ok(DebuggerState::Running);
         };
 
-        match self.consume_tracee_status(dbg!(status)) {
-            Ok(status) => Ok(status),
-            Err(err @ Error::Kernel(nix::Error::ESRCH)) => {
-                // Make sure the process is actually dead and not some kind
-                // of bug in the debugger.
-                assert_eq!(
-                    signal::kill(status.pid().unwrap(), None),
-                    Err(nix::Error::ESRCH),
-                    "Incorrect usage of ptrace"
-                );
-                Err(err)
-            }
-            Err(err) => Err(err),
-        }
+        self.consume_tracee_status(status)
     }
 
     fn filter_status(&mut self, status: WaitStatus) -> Result<Option<WaitStatus>, Error> {
