@@ -1,4 +1,4 @@
-use crate::DebuggerImpl;
+use crate::{PTraceCommand, DebuggerImpl, Error};
 use std::sync::MutexGuard;
 use std::thread::Thread;
 
@@ -41,6 +41,16 @@ impl<'l> StoppedDebugger<'l> {
     pub fn kontinue(mut self) {
         self.thread.take().unwrap().unpark();
         *self.parked = false;
+    }
+
+    pub fn set_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
+        self.pending_cmds.push_front(PTraceCommand::SetbreakPoint { addr });
+        Ok(())
+    }
+
+    pub fn unset_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
+        self.pending_cmds.push_front(PTraceCommand::UnsetbreakPoint { addr });
+        Ok(())
     }
 }
 

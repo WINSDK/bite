@@ -235,10 +235,12 @@ impl Debugger {
     }
 }
 
+/// Ptrace command's stored between wait_for_stop()'s and kontinue()'s.
+/// Required as ptrace doesn't allow running commands from multiple threads.
 #[derive(Debug)]
-enum PtraceCommand {
-    SetBreakPoint { addr: usize },
-    UnSetBreakPoint { addr: usize },
+enum PTraceCommand {
+    SetbreakPoint { addr: usize },
+    UnsetbreakPoint { addr: usize },
 }
 
 /// State change from calling [`DebuggerImpl::ptrace_single`].
@@ -305,7 +307,7 @@ pub struct DebuggerImpl {
 
     breakpoints: HashMap<usize, Breakpoint>,
 
-    pending_cmds: VecDeque<PtraceCommand>,
+    pending_cmds: VecDeque<PTraceCommand>,
 }
 
 impl DebuggerImpl {
@@ -613,30 +615,20 @@ impl DebuggerImpl {
         Ok(())
     }
 
-    fn handle_cmd(&mut self, cmd: PtraceCommand) -> Result<(), Error> {
+    fn handle_cmd(&mut self, cmd: PTraceCommand) -> Result<(), Error> {
         match cmd {
-            PtraceCommand::SetBreakPoint { addr } => {
-                self.set_breakpoint_impl(addr)?;
+            PTraceCommand::SetbreakPoint { addr } => {
+                self.set_breakpoint(addr)?;
             }
-            PtraceCommand::UnSetBreakPoint { addr } => {
-                self.unset_breakpoint_impl(addr)?;
+            PTraceCommand::UnsetbreakPoint { addr } => {
+                self.unset_breakpoint(addr)?;
             }
         }
 
         Ok(())
     }
 
-    pub fn set_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
-        self.pending_cmds.push_front(PtraceCommand::SetBreakPoint { addr });
-        Ok(())
-    }
-
-    pub fn unset_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
-        self.pending_cmds.push_front(PtraceCommand::UnSetBreakPoint { addr });
-        Ok(())
-    }
-
-    fn set_breakpoint_impl(&mut self, addr: usize) -> Result<(), Error> {
+    fn set_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
         let tracee = self.tracees.root();
         let mut orig_bytes: u32 = 0;
         unsafe {
@@ -644,13 +636,13 @@ impl DebuggerImpl {
         }
         println!("{:#X?}", orig_bytes.to_ne_bytes());
 
-        let breakpoint = Breakpoint { addr, orig_bytes };
+        let breakpoint = Breakpoint { orig_bytes };
         self.breakpoints.insert(addr, breakpoint);
         WriteMemory::new(tracee).write(&BP_INST, addr).apply()?;
         Ok(())
     }
 
-    fn unset_breakpoint_impl(&mut self, addr: usize) -> Result<(), Error> {
+    fn unset_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
         let tracee = self.tracees.root();
         if let Some(breakpoint) = self.breakpoints.remove(&addr) {
             WriteMemory::new(tracee).write(&breakpoint.orig_bytes, addr).apply()?;
@@ -717,7 +709,6 @@ fn clone_has_thread_flag(tracee: &Tracee) -> Result<bool, Error> {
 
 #[derive(Debug)]
 struct Breakpoint {
-    addr: usize,
     orig_bytes: u32,
 }
 

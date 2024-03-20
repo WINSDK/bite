@@ -184,9 +184,8 @@ fn breaking() {
     stopped.set_breakpoint(func_real).unwrap();
     stopped.kontinue();
 
-    let stopped = debugger.wait_for_stop();
-    std::thread::sleep_ms(1000);
-    stopped.kontinue();
+    // Catch breakpoint.
+    debugger.wait_for_stop().kontinue();
 
     assert_eq!(debugger.wait_for_exit().unwrap(), 0);
 }
