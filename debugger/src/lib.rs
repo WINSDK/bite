@@ -1,5 +1,6 @@
 mod collections;
 mod error;
+mod guard;
 mod ioctl;
 pub mod memory;
 pub mod readmem;
@@ -7,7 +8,7 @@ mod systrace;
 mod tests;
 pub mod writemem;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::{c_int, c_long, CString};
 use std::fmt;
 use std::mem::MaybeUninit;
@@ -29,6 +30,7 @@ use procfs::process::{MemoryMap, Process};
 use crate::collections::Tree;
 
 pub use error::Error;
+pub use guard::StoppedDebugger;
 pub use readmem::ReadMemory;
 pub use writemem::WriteMemory;
 
@@ -141,11 +143,22 @@ impl Debugger {
                         // Notify any threads calling wait_for_stop() that we've stopped.
                         let (lock, cvar) = &*parked_clone;
                         *lock.lock().unwrap() = true;
-                        cvar.notify_one();
+                        cvar.notify_all();
                         std::thread::park();
 
+                        // kontinue() called or we weren't locked
+                        // ...
+                        let mut locked = debugger.lock().unwrap();
+                        while let Some(cmd) = locked.pending_cmds.pop_back() {
+                            match locked.handle_cmd(cmd) {
+                                Err(Error::Kernel(nix::Error::ESRCH)) => {}
+                                Err(err) => return Err(err),
+                                Ok(()) => {}
+                            }
+                        }
+
                         // Continue tracee.
-                        match debugger.lock().unwrap().ptrace_restart(pid, None) {
+                        match locked.ptrace_restart(pid, None) {
                             Err(nix::Error::ESRCH) => {}
                             Err(err) => return Err(Error::Kernel(err)),
                             Ok(()) => {}
@@ -194,12 +207,24 @@ impl Debugger {
         }
     }
 
-    pub fn wait_for_stop(&self) {
+    #[must_use]
+    pub fn wait_for_stop(&self) -> StoppedDebugger {
         let (lock, cvar) = &*self.parked;
         let mut parked = lock.lock().unwrap();
         while !*parked {
             parked = cvar.wait(parked).unwrap();
         }
+
+        StoppedDebugger::new(self.handle.thread(), parked, self.lock())
+    }
+
+    /// Send SIGSTKFLT which will trigger the debugger to discard that signal and park()
+    /// it's thread until kontinue() is called.
+    pub fn interrupt(&mut self) -> StoppedDebugger {
+        let pid = self.lock().tracees.root().pid;
+        let _ = signal::kill(pid, Signal::SIGSTKFLT);
+
+        self.wait_for_stop()
     }
 
     pub fn lock(&self) -> MutexGuard<DebuggerImpl> {
@@ -208,11 +233,12 @@ impl Debugger {
             Ok(guard) => guard,
         }
     }
+}
 
-    /// Unpark debugger thread running event loop.
-    pub fn kontinue(&self) {
-        self.handle.thread().unpark();
-    }
+#[derive(Debug)]
+enum PtraceCommand {
+    SetBreakPoint { addr: usize },
+    UnSetBreakPoint { addr: usize },
 }
 
 /// State change from calling [`DebuggerImpl::ptrace_single`].
@@ -278,6 +304,8 @@ pub struct DebuggerImpl {
     did_initial_exec: bool,
 
     breakpoints: HashMap<usize, Breakpoint>,
+
+    pending_cmds: VecDeque<PtraceCommand>,
 }
 
 impl DebuggerImpl {
@@ -383,6 +411,7 @@ impl DebuggerImpl {
                     tracing: desc.tracing,
                     did_initial_exec: false,
                     breakpoints: HashMap::new(),
+                    pending_cmds: VecDeque::new(),
                 })
             }
         }
@@ -584,12 +613,36 @@ impl DebuggerImpl {
         Ok(())
     }
 
+    fn handle_cmd(&mut self, cmd: PtraceCommand) -> Result<(), Error> {
+        match cmd {
+            PtraceCommand::SetBreakPoint { addr } => {
+                self.set_breakpoint_impl(addr)?;
+            }
+            PtraceCommand::UnSetBreakPoint { addr } => {
+                self.unset_breakpoint_impl(addr)?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn set_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
+        self.pending_cmds.push_front(PtraceCommand::SetBreakPoint { addr });
+        Ok(())
+    }
+
+    pub fn unset_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
+        self.pending_cmds.push_front(PtraceCommand::UnSetBreakPoint { addr });
+        Ok(())
+    }
+
+    fn set_breakpoint_impl(&mut self, addr: usize) -> Result<(), Error> {
         let tracee = self.tracees.root();
         let mut orig_bytes: u32 = 0;
         unsafe {
             ReadMemory::new(tracee).read(&mut orig_bytes, addr).apply()?;
         }
+        println!("{:#X?}", orig_bytes.to_ne_bytes());
 
         let breakpoint = Breakpoint { addr, orig_bytes };
         self.breakpoints.insert(addr, breakpoint);
@@ -597,7 +650,7 @@ impl DebuggerImpl {
         Ok(())
     }
 
-    pub fn remove_breakpoint(&mut self, addr: usize) -> Result<(), Error> {
+    fn unset_breakpoint_impl(&mut self, addr: usize) -> Result<(), Error> {
         let tracee = self.tracees.root();
         if let Some(breakpoint) = self.breakpoints.remove(&addr) {
             WriteMemory::new(tracee).write(&breakpoint.orig_bytes, addr).apply()?;
@@ -613,7 +666,7 @@ impl DebuggerImpl {
         // Breakpoint might be just an exec(..) call so we need to check for that.
         if let Some(breakpoint) = self.breakpoints.get(&(rip - 1)) {
             let new_regs = libc::user_regs_struct {
-                rip: (rip - 1) as u64,
+                rip: regs.rip - 1,
                 ..regs
             };
             ptrace::setregs(pid, new_regs)?;
@@ -622,12 +675,6 @@ impl DebuggerImpl {
             WriteMemory::new(tracee).write(&BP_INST, rip - 1).apply()?;
         }
         Ok(())
-    }
-
-    /// Send SIGSTKFLT which will trigger the debugger to discard that signal and park()
-    /// it's thread until a kontinue() is called.
-    pub fn interrupt(&mut self) {
-        let _ = signal::kill(self.tracees.root().pid, Signal::SIGSTKFLT);
     }
 
     fn ptrace_restart(&self, pid: Pid, signal: Option<Signal>) -> Result<(), nix::Error> {

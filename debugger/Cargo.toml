@@ -53,3 +53,7 @@ path = "./corpus/exec.rs"
 [[bin]]
 name = "loop"
 path = "./corpus/loop.rs"
+
+[[bin]]
+name = "breaking"
+path = "./corpus/breaking.rs"

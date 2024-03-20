@@ -3,6 +3,8 @@
 use std::path::PathBuf;
 use crate::{Debugger, DebuggerDescriptor};
 use nix::sys::signal::{self, Signal};
+use processor::Processor;
+use procfs::process::MMapPath;
 
 /// Helper macro for building test cases from the corpus.
 #[macro_export]
@@ -112,15 +114,14 @@ fn interrupt() {
         ..Default::default()
     };
 
-    let debugger = Debugger::spawn(desc).unwrap();
+    let mut debugger = Debugger::spawn(desc).unwrap();
 
-    debugger.wait_for_stop();
-    debugger.kontinue();
+    debugger.wait_for_stop().kontinue();
 
     // Pause process for 1sec.
-    debugger.lock().interrupt();
+    let stopped = debugger.interrupt();
     std::thread::sleep(std::time::Duration::from_millis(300));
-    debugger.kontinue();
+    stopped.kontinue();
 
     assert_eq!(debugger.wait_for_exit().unwrap(), 0, "Tracee wasn't stopped");
 }
@@ -147,4 +148,45 @@ fn sigkill() {
     let pid = debugger.lock().tracees.root().pid;
     signal::kill(pid, Signal::SIGKILL).unwrap();
     assert_eq!(debugger.wait_for_exit().unwrap(), 128 + Signal::SIGKILL as i32);
+}
+
+#[test]
+fn breaking() {
+    let path = test_case!("breaking");
+    let processor = Processor::parse(&path).unwrap();
+    let desc = DebuggerDescriptor {
+        path: path.clone(),
+        ..Default::default()
+    };
+
+    let debugger = Debugger::spawn(desc).unwrap();
+    let mut stopped = debugger.wait_for_stop();
+
+    let func_addr = processor.index.get_by_name("breaking::some_function").unwrap();
+    let func_segment = processor.segments().find(|s| s.contains(func_addr)).unwrap();
+    let func_rva = func_addr - func_segment.start;
+
+    let proc = stopped.tracees.root();
+    let maps = proc.memory_maps().unwrap();
+
+    // Assume's the root maps are sorted by offset.
+    let segments_map = maps
+        .iter()
+        .filter(|m| m.pathname == MMapPath::Path(path.canonicalize().unwrap()))
+        .find(|m| func_segment.start >= m.offset as usize)
+        .unwrap();
+
+    let rva = func_segment.start - segments_map.offset as usize;
+    let segment_real = segments_map.address.0 as usize + rva;
+    let func_real = segment_real + func_rva;
+    println!("{func_real:#X}");
+
+    stopped.set_breakpoint(func_real).unwrap();
+    stopped.kontinue();
+
+    let stopped = debugger.wait_for_stop();
+    std::thread::sleep_ms(1000);
+    stopped.kontinue();
+
+    assert_eq!(debugger.wait_for_exit().unwrap(), 0);
 }

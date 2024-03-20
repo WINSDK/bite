@@ -89,6 +89,13 @@ pub struct Segment {
     pub end: PhysAddr,
 }
 
+impl Segment {
+    #[inline]
+    pub fn contains(&self, addr: PhysAddr) -> bool {
+        (self.start..=self.end).contains(&addr)
+    }
+}
+
 /// Truncates string past the max width with a '..'.
 pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize, is_padded: bool) -> String {
     unsafe {

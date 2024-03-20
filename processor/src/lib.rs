@@ -440,13 +440,14 @@ impl Processor {
         }
     }
 
-    pub fn segments(&self) -> impl DoubleEndedIterator<Item = &Segment> {
-        self.segments.iter()
-    }
-
     /// Iterate through all non-debug sections.
     pub fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
         self.sections.iter().filter(|section| section.loaded)
+    }
+
+    /// Iterate through all segments.
+    pub fn segments(&self) -> impl DoubleEndedIterator<Item = &Segment> {
+        self.segments.iter()
     }
 
     pub fn section_name(&self, addr: PhysAddr) -> Option<&str> {
