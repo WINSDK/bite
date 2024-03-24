@@ -89,13 +89,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arm"
-version = "0.0.0"
-dependencies = [
- "decoder",
-]
-
-[[package]]
 name = "arrayref"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1642,7 +1635,6 @@ dependencies = [
 name = "processor"
 version = "0.0.0"
 dependencies = [
- "arm",
  "decoder",
  "log 0.0.0",
  "memmap2",

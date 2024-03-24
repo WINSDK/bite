@@ -5,10 +5,12 @@ use decoder::{Decodable, ToTokens};
 fn test_display(bytes: &[u8], str: &str) {
     let mut reader = decoder::Reader::new(bytes);
     let mut line = decoder::TokenStream::new();
+    let symbols = symbols::Index::default();
     let decoder = crate::Decoder::default();
+
     let decoded = match decoder.decode(&mut reader) {
         Ok(inst) => {
-            inst.tokenize(&mut line);
+            inst.tokenize(&mut line, &symbols);
             line.to_string()
         }
         Err(err) => format!("{err:?}"),

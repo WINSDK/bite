@@ -284,13 +284,14 @@ impl<'t> TextEdit<'t> {
     ///     .desired_width(f32::INFINITY);
     /// let output = text_edit.show(ui);
     /// let painter = ui.painter_at(output.response.rect);
+    /// let text_color = Color32::from_rgba_premultiplied(100, 100, 100, 100);
     /// let galley = painter.layout(
     ///     String::from("Enter text"),
     ///     FontId::default(),
     ///     Color32::from_rgba_premultiplied(100, 100, 100, 100),
     ///     f32::INFINITY
     /// );
-    /// painter.galley(output.text_draw_pos, galley);
+    /// painter.galley(output.text_draw_pos, galley, text_color);
     /// # });
     /// ```
     #[inline]

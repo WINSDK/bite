@@ -1,5 +1,6 @@
 [package]
 name = "bite"
+description = "Debugger / Disassembler"
 version = "0.13.0"
 edition = "2021"
 
@@ -11,9 +12,9 @@ log = { path = "./log" }
 gui = { path = "./gui" }
 symbols = { path = "./symbols" }
 
-# tracing-tracy = "0.10.4"
-# tracing-subscriber = { version = "0.3", default-features = false }
-# tracing = "0.1"
+[package.metadata.bundle]
+name = "bite"
+identifier = "io.github.WINSDK.bite"
 
 [profile.dev]
 panic = 'abort'
@@ -36,7 +37,7 @@ members = [
     "tokenizing",
     "decoder",
     "decoder-x86_64",
-    "decoder-arm",
+    # "decoder-arm",
     "decoder-riscv",
     "decoder-mips",
     "symbols",
