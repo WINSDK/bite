@@ -32,6 +32,7 @@ impl Listing {
         self.lines = tokens_to_layoutjob(instructions);
     }
 
+    #[allow(dead_code)]
     pub fn jump(&mut self, addr: PhysAddr) -> bool {
         self.processor_view.jump(&self.processor, addr)
     }

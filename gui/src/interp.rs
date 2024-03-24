@@ -1,6 +1,5 @@
 use crate::tprint;
 use commands::{Command, CommandError};
-use debugger::Event;
 
 impl<Arch: crate::Target> super::UI<Arch> {
     /// Runs all queued commands, returning if they trigger a process exit.
@@ -42,97 +41,18 @@ impl<Arch: crate::Target> super::UI<Arch> {
                 }
             }
             Ok(Command::Quit) => return false,
-            Ok(Command::Run(args)) => match self.debugger {
-                Some(_) => tprint!(self.panels.terminal(), "Debugger already running."),
-                None => self.offload_debugging(args),
-            },
-            Ok(Command::Goto(addr)) => {
-                let listing = match self.panels.listing() {
-                    Some(listing) => listing,
-                    None => {
-                        tprint!(self.panels.terminal(), "No targets loaded.");
-                        return true;
-                    }
-                };
-
-                if listing.jump(addr) {
-                    listing.update();
-                    tprint!(self.panels.terminal(), "Jumped to address {addr:#X}.");
-                } else {
-                    tprint!(self.panels.terminal(), "Address {addr:#X} is undefined.");
-                }
-            }
-            Ok(Command::Break(_addr)) => {
-                match self.debugger {
-                    Some(ref mut _debugger) => {}
-                    None => tprint!(self.panels.terminal(), "No targets running."),
-                }
-
-                // if self.dbg_ctx.breakpoints.write().unwrap().create(addr) {
-                //     tprint!(self.panels.terminal(), "Breakpoint {addr:#X} set.");
-                // } else {
-                //     tprint!(self.panels.terminal(), "Breakpoint already set.");
-                // }
-            }
-            Ok(Command::BreakDelete(_addr)) => {
-                match self.debugger {
-                    Some(ref mut _debugger) => {}
-                    None => tprint!(self.panels.terminal(), "No targets running."),
-                }
-                // if self.dbg_ctx.breakpoints.write().unwrap().remove(addr) {
-                //     tprint!(self.panels.terminal(), "Breakpoint {addr:#X} removed.");
-                // } else {
-                //     tprint!(self.panels.terminal(), "Breakpoint {addr:#X} wasn't set.");
-                // }
-            }
-            Ok(Command::SetEnv(env)) => self.dbg_settings.env.push(env),
-            Ok(Command::Stop) => match self.debugger {
-                Some(ref debugger) => {
-                    for pid in debugger.processes() {
-                        match debugger.notify(pid, Event::Pause) {
-                            Ok(()) => tprint!(self.panels.terminal(), "Child {pid} stopped."),
-                            Err(err) => tprint!(self.panels.terminal(), "{err:?}"),
-                        }
-                    }
-                }
-                None => tprint!(self.panels.terminal(), "No targets running."),
-            },
-            Ok(Command::Continue) => match self.debugger {
-                Some(ref debugger) => {
-                    for pid in debugger.processes() {
-                        match debugger.notify(pid, Event::Continue) {
-                            Ok(()) => tprint!(self.panels.terminal(), "Child {pid} continued."),
-                            Err(err) => tprint!(self.panels.terminal(), "{err:?}"),
-                        }
-                    }
-                }
-                None => tprint!(self.panels.terminal(), "No targets running."),
-            },
+            Ok(Command::Run(_args)) => todo!("debugger"),
+            Ok(Command::Goto(_addr)) => todo!("debugger"),
+            Ok(Command::Break(_addr)) => todo!("debugger"),
+            Ok(Command::BreakDelete(_addr)) => todo!("debugger"),
+            Ok(Command::SetEnv(_env)) => todo!("debugger"),
+            Ok(Command::Stop) => todo!("debugger"),
+            Ok(Command::Continue) => todo!("debugger"),
+            Ok(Command::Trace) => todo!("debugger"),
+            Ok(Command::FollowChildren) => todo!("debugger"),
             Ok(Command::Clear) => {
                 log::LOGGER.write().unwrap().clear();
                 self.panels.terminal().clear();
-            }
-            Ok(Command::Trace) => {
-                if self.debugger.is_some() {
-                    tprint!(self.panels.terminal(), "Debugger already running, can't set tracing.");
-                } else if !self.dbg_settings.tracing {
-                    tprint!(self.panels.terminal(), "Enabled syscall tracing.");
-                    self.dbg_settings.tracing = true;
-                } else if self.dbg_settings.tracing {
-                    tprint!(self.panels.terminal(), "Disabled syscall tracing.");
-                    self.dbg_settings.tracing = false;
-                }
-            }
-            Ok(Command::FollowChildren) => {
-                if self.debugger.is_some() {
-                    tprint!(self.panels.terminal(), "Debugger already running, can't set follow.");
-                } else if !self.dbg_settings.follow_children {
-                    tprint!(self.panels.terminal(), "Enabled syscall tracing of children.");
-                    self.dbg_settings.follow_children = true;
-                } else if self.dbg_settings.follow_children {
-                    tprint!(self.panels.terminal(), "Disabled syscall tracing of children.");
-                    self.dbg_settings.follow_children = false;
-                }
             }
             Ok(Command::Help) => tprint!(self.panels.terminal(), "{}", commands::CMD_HELP),
             Err((err, _)) => {

@@ -40,7 +40,6 @@ members = [
     "decoder-riscv",
     "decoder-mips",
     "symbols",
-    "debugger",
     "processor",
     "processor_shared"
 ]

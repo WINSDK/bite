@@ -11,9 +11,6 @@ pub mod windows;
 mod winit_backend;
 
 use copypasta::ClipboardProvider;
-use debugger::{
-    Debuggable, Debugger, DebuggerDescriptor, DebuggerSettings,
-};
 use std::sync::Arc;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
@@ -71,8 +68,6 @@ pub enum WinitEvent {
 
 /// Global UI events.
 pub enum UIEvent {
-    DebuggerExited,
-    DebuggerFailed(debugger::Error),
     BinaryRequested(std::path::PathBuf),
     BinaryFailed(processor::Error),
     BinaryLoaded(processor::Processor),
@@ -110,8 +105,6 @@ pub struct UI<Arch: Target> {
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
     ui_queue: Arc<UIQueue>,
-    dbg_settings: DebuggerSettings<String>,
-    debugger: Option<Debugger<String>>,
 }
 
 impl<Arch: Target> UI<Arch> {
@@ -145,12 +138,6 @@ impl<Arch: Target> UI<Arch> {
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
         let platform = winit_backend::Platform::new::<Arch>(&window);
 
-        let dbg_settings = DebuggerSettings {
-            env: Vec::new(),
-            tracing: false,
-            follow_children: false,
-        };
-
         Ok(Self {
             arch,
             event_loop: Some(event_loop),
@@ -160,8 +147,6 @@ impl<Arch: Target> UI<Arch> {
             egui_render_pass,
             platform,
             ui_queue,
-            dbg_settings,
-            debugger: None,
         })
     }
 
@@ -188,52 +173,9 @@ impl<Arch: Target> UI<Arch> {
         });
     }
 
-    fn offload_debugging(&mut self, args: Vec<String>) {
-        // FIXME
-        // if self.dbg_ctx.attached() {
-        //     tprint!(self.panels.terminal(), "Debugger already running.");
-        //     return;
-        // }
-
-        let ui_queue = self.ui_queue.clone();
-        let settings = self.dbg_settings.clone();
-        let module = match self.panels.processor() {
-            Some(processor) => Arc::clone(processor),
-            None => {
-                tprint!(self.panels.terminal(), "Missing binary to run.");
-                return;
-            }
-        };
-
-        let desc = DebuggerDescriptor { args, module };
-        let mut debugger = Debugger::new(settings, desc);
-
-        self.debugger = Some(debugger.clone());
-
-        std::thread::spawn(move || {
-            if let Err(err) = debugger.spawn() {
-                ui_queue.push(UIEvent::DebuggerFailed(err));
-            }
-
-            if let Err(err) = debugger.trace() {
-                ui_queue.push(UIEvent::DebuggerFailed(err));
-            }
-
-            ui_queue.push(UIEvent::DebuggerExited);
-        });
-
-        tprint!(self.panels.terminal(), "Running debugger.");
-    }
-
     fn handle_ui_events(&mut self) {
         while let Some(event) = self.ui_queue.inner.pop() {
             match event {
-                UIEvent::DebuggerExited => {
-                    self.debugger = None;
-                }
-                UIEvent::DebuggerFailed(err) => {
-                    tprint!(self.panels.terminal(), "{err:?}.");
-                }
                 UIEvent::BinaryFailed(err) => {
                     self.panels.stop_loading();
                     log::warning!("{err:?}");
@@ -306,19 +248,3 @@ impl<Arch: Target> UI<Arch> {
         });
     }
 }
-
-// impl<Arch: Target> Drop for UI<Arch> {
-//     fn drop(&mut self) {
-//         // if a debugger is running
-//         if self.dbg_ctx.attached() {
-//             self.dbg_ctx.queue.push(DebugeeEvent::Exit);
-// 
-//             // wait for debugger to signal it exited
-//             loop {
-//                 if let Some(DebuggerEvent::Exited(..)) = self.dbg_ctx.queue.pop() {
-//                     return;
-//                 }
-//             }
-//         }
-//     }
-// }

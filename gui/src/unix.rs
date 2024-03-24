@@ -3,7 +3,7 @@
 use crate::Error;
 
 use copypasta::{ClipboardContext, ClipboardProvider};
-use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+use winit::raw_window_handle::HasDisplayHandle;
 
 pub struct Arch {}
 
@@ -15,7 +15,7 @@ impl crate::Target for Arch {
     fn clipboard(window: &crate::Window) -> Box<dyn ClipboardProvider> {
         match window.display_handle().unwrap().as_raw() {
             #[cfg(target_os = "linux")]
-            RawDisplayHandle::Wayland(handle) => {
+            winit::raw_window_handle::RawDisplayHandle::Wayland(handle) => {
                 // wayland requires a display handle when creating a clipboard
                 let (_primary, clipboard) = unsafe {
                     copypasta::wayland_clipboard::create_clipboards_from_external(
