@@ -11,7 +11,7 @@ processor_shared = { path = "../processor_shared" }
 tokenizing = { path = "../tokenizing" }
 symbols = { path = "../symbols" }
 decoder = { path = "../decoder" }
-# arm = { path = "../decoder-arm" }
+arm = { path = "../decoder-arm" }
 x86_64 = { path = "../decoder-x86_64" }
 riscv = { path = "../decoder-riscv" }
 mips = { path = "../decoder-mips" }

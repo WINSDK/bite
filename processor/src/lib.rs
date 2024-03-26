@@ -10,6 +10,8 @@ use object::{Architecture, BinaryFormat, ObjectSection, SectionKind};
 use memmap2::Mmap;
 use x86_64::long_mode as x64;
 use x86_64::protected_mode as x86;
+use arm::armv7 as armv7;
+use arm::armv8::a64 as aarch64;
 
 use std::fs::File;
 use std::borrow::Cow;
@@ -29,6 +31,8 @@ pub union Instruction {
     x64: ManuallyDrop<x86_64::long_mode::Instruction>,
     riscv: ManuallyDrop<riscv::Instruction>,
     mips: ManuallyDrop<mips::Instruction>,
+    armv7: ManuallyDrop<armv7::Instruction>,
+    aarch64: ManuallyDrop<aarch64::Instruction>,
 }
 
 macro_rules! impl_recursion {
@@ -37,7 +41,7 @@ macro_rules! impl_recursion {
         $max_instruction_width = $decoder.max_width();
 
         let width_guess = if $max_instruction_width == 4 {
-            2
+            4
         } else {
             5
         };
@@ -302,6 +306,14 @@ impl Processor {
                     std::mem::transmute(<x64::Instruction as Decoded>::tokens as usize),
                     std::mem::transmute(<x64::Instruction as Decoded>::width as usize),
                 ),
+                Architecture::Arm => (
+                    std::mem::transmute(<armv7::Instruction as Decoded>::tokens as usize),
+                    std::mem::transmute(<armv7::Instruction as Decoded>::width as usize),
+                ),
+                Architecture::Aarch64 | Architecture::Aarch64_Ilp32 => (
+                    std::mem::transmute(<aarch64::Instruction as Decoded>::tokens as usize),
+                    std::mem::transmute(<aarch64::Instruction as Decoded>::width as usize),
+                ),
                 arch => return Err(Error::UnknownArchitecture(arch)),
             }
         };
@@ -372,6 +384,28 @@ impl Processor {
                     max_instruction_width,
                     x64::Decoder::default(),
                     x64
+                )
+            }
+            Architecture::Arm => {
+                impl_recursion!(
+                    &index,
+                    &mut errors,
+                    &mut instructions,
+                    &mut sections,
+                    max_instruction_width,
+                    armv7::Decoder::default(),
+                    armv7
+                )
+            },
+            Architecture::Aarch64 | Architecture::Aarch64_Ilp32 => {
+                impl_recursion!(
+                    &index,
+                    &mut errors,
+                    &mut instructions,
+                    &mut sections,
+                    max_instruction_width,
+                    aarch64::Decoder::default(),
+                    aarch64
                 )
             }
             _ => unreachable!(),

@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 decoder = { path = "../decoder" }
+tokenizing = { path = "../tokenizing" }
+symbols = { path = "../symbols" }
+bitvec = "0.19" # update this really old dep

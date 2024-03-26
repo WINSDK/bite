@@ -7,6 +7,31 @@ pub use egui::Color32 as Color;
 /// Currently used global colorscheme
 pub type Colors = IBM;
 
+// TODO: Uniform colors for different instructions sets.
+//       These groupings are from:
+//       https://docs.rs/yaxpeax-arch/latest/yaxpeax_arch/trait.YaxColors.html#method.number
+//
+// * arithmetic_op
+// * stack_op
+// * nop_op
+// * stop_op
+// * control_flow_op
+// * data_op
+// * comparison_op
+// * invalid_op
+// * misc_op
+// * platform_op
+// * register
+// * program_counter
+// * number
+// * zero
+// * one
+// * minus_one
+// * address
+// * symbol
+// * function
+
+
 pub trait ColorScheme {
     fn brackets() -> Color;
     fn delimiter() -> Color;
@@ -26,6 +51,10 @@ pub trait ColorScheme {
     }
 
     fn annotation() -> Color {
+        Self::item()
+    }
+
+    fn invalid() -> Color {
         Self::item()
     }
 
@@ -70,6 +99,10 @@ impl ColorScheme for IBM {
 
     fn annotation() -> Color {
         colors::BLUE
+    }
+
+    fn invalid() -> Color {
+        colors::RED
     }
 
     fn special() -> Color {

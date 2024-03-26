@@ -37,7 +37,7 @@ members = [
     "tokenizing",
     "decoder",
     "decoder-x86_64",
-    # "decoder-arm",
+    "decoder-arm",
     "decoder-riscv",
     "decoder-mips",
     "symbols",

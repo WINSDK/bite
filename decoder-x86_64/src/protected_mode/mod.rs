@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 pub use crate::MemoryAccessSize;
 
-use decoder::{Decodable, Error, ErrorKind, Reader, ToTokens};
+use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
 use tokenizing::{ColorScheme, Colors};
 use symbols::Index;
 
@@ -2561,7 +2561,7 @@ impl fmt::Debug for Instruction {
     }
 }
 
-impl decoder::Decoded for Instruction {
+impl Decoded for Instruction {
     #[inline]
     fn width(&self) -> usize {
         self.length as usize
@@ -2751,9 +2751,9 @@ enum OperandSpec {
 ///
 /// fundamentally this is one or two primitives with no additional state kept during decoding. it
 /// can be copied cheaply, hashed cheaply, compared cheaply. if you really want to share an
-/// `InstDecoder` between threads, you could - but you might want to clone it instead.
+/// `Decoder` between threads, you could - but you might want to clone it instead.
 ///
-/// unless you're using an `Arc<Mutex<InstDecoder>>`, which is _fine_ but i'd be very curious about
+/// unless you're using an `Arc<Mutex<Decoder>>`, which is _fine_ but i'd be very curious about
 /// the design requiring that.
 #[derive(PartialEq, Copy, Clone, Eq, Hash, PartialOrd, Ord)]
 pub struct Decoder {

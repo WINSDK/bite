@@ -107,7 +107,6 @@ impl Panels {
         }
     }
 
-    #[allow(dead_code)]
     pub fn listing(&mut self) -> Option<&mut listing::Listing> {
         self.tabs.mapping.get_mut(DISASSEMBLY).and_then(|kind| match kind {
             PanelKind::Disassembly(listing) => Some(listing),

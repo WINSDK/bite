@@ -13,9 +13,7 @@ impl<Arch: crate::Target> super::UI<Arch> {
         let index = self.panels.processor().map(|proc| &proc.index).unwrap_or(&empty_index);
 
         match Command::parse(index, cmd, 0) {
-            Ok(Command::GotoSource(addr)) => {
-                self.panels.load_source(addr);
-            }
+            Ok(Command::GotoSource(addr)) => self.panels.load_source(addr),
             Ok(Command::Load(path)) => self.offload_binary_processing(path),
             Ok(Command::PrintPath) => match std::env::current_dir() {
                 Ok(path) => tprint!(
@@ -40,9 +38,24 @@ impl<Arch: crate::Target> super::UI<Arch> {
                     Err(err) => tprint!(self.panels.terminal(), "Failed to print pwd: {err}."),
                 }
             }
+            Ok(Command::Goto(addr)) => {
+                let listing = match self.panels.listing() {
+                    Some(listing) => listing,
+                    None => {
+                        tprint!(self.panels.terminal(), "No targets loaded.");
+                        return true;
+                    }
+                };
+
+                if listing.jump(addr) {
+                    listing.update();
+                    tprint!(self.panels.terminal(), "Jumped to address {addr:#X}.");
+                } else {
+                    tprint!(self.panels.terminal(), "Address {addr:#X} is undefined.");
+                }
+            }
             Ok(Command::Quit) => return false,
             Ok(Command::Run(_args)) => todo!("debugger"),
-            Ok(Command::Goto(_addr)) => todo!("debugger"),
             Ok(Command::Break(_addr)) => todo!("debugger"),
             Ok(Command::BreakDelete(_addr)) => todo!("debugger"),
             Ok(Command::SetEnv(_env)) => todo!("debugger"),

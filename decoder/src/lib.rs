@@ -30,24 +30,30 @@ impl Error {
 pub enum ErrorKind {
     /// Opcode in instruction is impossible/unknown.
     InvalidOpcode,
-
     /// Operand in instruction is impossible/unknown.
     InvalidOperand,
-
     /// Prefix in instruction is impossible/unknown.
     InvalidPrefixes,
-
     /// Register in instruction is impossible/unknown.
     InvalidRegister,
-
     /// There weren't any bytes left in the stream to decode.
     ExhaustedInput,
-
     /// Impossibly long instruction (x86/64 specific).
     TooLong,
-
     /// Some unknown variation of errors happened.
     IncompleteDecoder,
+    /// `decoder-arm` doesn't know how to decode this, but it may be a valid instruction. the
+    /// instruction decoder is not complete, sorry. :(
+    ///
+    /// In practice this typically indicates some kinds of coprocessor instruction, or `ARMv7` SIMD
+    /// instruction.
+    Incomplete,
+    /// the instruction includes reserved bits that were not set as required.
+    Nonconforming,
+    /// the input encodes an instruction that is explicitly undefined.
+    Undefined,
+    /// the input encodes an instruction with unpredictable behavior.
+    Unpredictable,
 }
 
 pub trait ToTokens {
@@ -93,6 +99,10 @@ impl TokenStream {
 
     pub fn push_owned(&mut self, text: String, color: Color) {
         self.push_token(Token::from_string(text, color));
+    }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
     }
 }
 
@@ -142,7 +152,7 @@ impl<'data> Reader<'data> {
     }
 
     /// read `buf`-many items from this reader in bulk. if `Reader` cannot read `buf`-many items,
-    /// return `ReadError::ExhaustedInput`.
+    /// return [`ErrorKind::ExhaustedInput`].
     #[inline]
     pub fn next_n(&mut self, buf: &mut [u8]) -> Option<()> {
         let width = self.end as usize - self.position as usize;
@@ -165,15 +175,15 @@ impl<'data> Reader<'data> {
         self.mark = self.position;
     }
 
-    /// the difference, between the current `Reader` position and its last `mark`.
-    /// when created, a `Reader`'s initial position is `mark`ed, so creating a `Reader` and
-    /// immediately calling `offset()` must return 0.
+    /// the difference, between the current [`Reader`] position and its last `mark`.
+    /// when created, a [`Reader`]'s initial position is `mark`ed, so creating a [`Reader`] and
+    /// immediately calling [`Reader::offset`] must return 0.
     #[inline]
     pub fn offset(&mut self) -> usize {
         self.position as usize - self.mark as usize
     }
 
-    /// the difference, between the current `Reader` position and the initial offset
+    /// the difference, between the current [`Reader`] position and the initial offset
     /// when constructed.
     #[inline]
     pub fn total_offset(&mut self) -> usize {
