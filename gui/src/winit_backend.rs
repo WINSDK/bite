@@ -59,7 +59,14 @@ impl Platform {
         context.set_fonts(fonts);
         context.set_style(crate::style::EGUI.clone());
 
+        let mut viewports = HashMap::default();
+        viewports.insert(egui::ViewportId::ROOT, egui::ViewportInfo {
+            native_pixels_per_point: Some(window.scale_factor() as f32),
+            ..Default::default()
+        });
+
         let raw_input = egui::RawInput {
+            viewports,
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::default(),
                 vec2(
