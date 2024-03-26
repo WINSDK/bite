@@ -1,5 +1,5 @@
-use arm::armv7::{ConditionCode, Instruction, Opcode, Operand, Reg, RegShift};
-use decoder::{ErrorKind, Decodable, Decoded, Reader};
+use arm::armv7::Instruction;
+use decoder::{Decodable, Reader};
 
 type InstDecoder = arm::armv7::Decoder;
 

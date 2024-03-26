@@ -1,4 +1,4 @@
-use decoder::{ErrorKind, Decodable, Decoded, Reader};
+use decoder::{ErrorKind, Decodable, Reader};
 use arm::armv8::a64::{Instruction, Operand, Opcode, SizeCode, ShiftStyle};
 
 type InstDecoder = arm::armv8::a64::Decoder;

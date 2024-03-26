@@ -1,9 +1,7 @@
 mod armv7;
 mod armv8;
 
-use std::fmt::Write;
-
-use decoder::{Decodable, Decoded, Reader, TokenStream, ToTokens};
+use decoder::{Decodable, Reader, TokenStream, ToTokens};
 use symbols::Index;
 
 fn test_range<A: Decodable>(decoder: &A, start: u64, end: u64) {
