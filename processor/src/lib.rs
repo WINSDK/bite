@@ -47,7 +47,8 @@ macro_rules! impl_recursion {
             5
         };
 
-        for section in $sections.iter().filter(|s| s.kind == SectionKind::Text) {
+        for section in $sections.iter().filter(|s| s.kind == SectionKind::Text ||
+                                                   s.kind == SectionKind::Unknown) {
             let mut reader = decoder::Reader::new(section.bytes());
             let mut ip = section.start;
 
