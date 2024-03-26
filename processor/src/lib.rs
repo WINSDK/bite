@@ -1,12 +1,13 @@
 mod fmt;
 
 use decoder::{Decodable, Decoded};
-use object::{Object, ObjectSegment};
-use processor_shared::{PhysAddr, Section, Segment, VirtAddr};
+use object::{Object, ObjectSegment, ObjectSection};
+use object::{Architecture, BinaryFormat, SectionKind};
+use object::read::File as ObjectFile;
+use processor_shared::{PhysAddr, Section, Segment};
 use symbols::Index;
 use tokenizing::Token;
 
-use object::{Architecture, BinaryFormat, ObjectSection, SectionKind};
 use memmap2::Mmap;
 use x86_64::long_mode as x64;
 use x86_64::protected_mode as x86;
@@ -159,8 +160,8 @@ impl Processor {
         let mmap = unsafe { Mmap::map(&file).map_err(Error::IO)? };
         let binary: &'static [u8] = unsafe { std::mem::transmute(&mmap[..]) };
 
-        let obj = object::File::parse(binary).map_err(Error::Object)?;
-        let entrypoint = obj.entry() as usize;
+        let obj = ObjectFile::parse(binary).map_err(Error::Object)?;
+        let entrypoint = obj.entry() as PhysAddr;
 
         if entrypoint != 0 {
             log::complex!(
@@ -184,8 +185,8 @@ impl Processor {
                 _ => Cow::Borrowed("unnamed"),
             };
 
-            let start = segment.address() as VirtAddr;
-            let end = start + segment.size() as VirtAddr;
+            let start = segment.address() as PhysAddr;
+            let end = start + segment.size() as PhysAddr;
 
             segments.push(Segment { name, start, end });
         }
@@ -241,7 +242,7 @@ impl Processor {
                 section.kind(),
                 loaded,
                 section_bytes,
-                section.address() as VirtAddr,
+                section.address() as PhysAddr,
                 start,
                 end
             );
@@ -256,8 +257,8 @@ impl Processor {
                 0
             };
 
-            let rva = obj.entry() as VirtAddr - obj.relative_address_base() as VirtAddr;
-            let start = obj.relative_address_base() as VirtAddr + rva;
+            let rva = entrypoint - obj.relative_address_base() as PhysAddr;
+            let start = obj.relative_address_base() as PhysAddr + rva;
             let end = start + binary.len() - rva;
             let section = Section::new(
                 Cow::Borrowed("flat (generated)"),
@@ -273,7 +274,7 @@ impl Processor {
         }
 
         if segments.is_empty() {
-            let start = obj.relative_address_base() as VirtAddr;
+            let start = obj.relative_address_base() as PhysAddr;
             let end = start + binary.len();
             let segment = Segment {
                 name: Cow::Borrowed("flat (generated)"),

@@ -10,6 +10,7 @@ use object::endian::Endian;
 use object::read::elf::{ElfFile, FileHeader};
 use object::read::macho::{MachHeader, MachOFile};
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
+use object::read::File as ObjectFile;
 use object::LittleEndian as LE;
 use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind};
 
@@ -550,7 +551,14 @@ impl Index {
         });
 
         // insert entrypoint into known symbols
-        let entrypoint = obj.entry() as PhysAddr;
+        let mut entrypoint = obj.entry() as PhysAddr;
+
+        if let ObjectFile::MachO32(..) | ObjectFile::MachO64(..) = obj {
+            // This appears to be the header base that isn't added to the entrypoint.
+            // Kind of hard to tell.
+            entrypoint += 0x100000000;
+        }
+
         let entry_func = Function::new(TokenStream::simple("entry"), None);
 
         // insert entrypoint
