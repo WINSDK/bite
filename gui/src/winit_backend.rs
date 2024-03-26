@@ -113,37 +113,40 @@ impl Platform {
                     let pressed = event.state == winit::event::ElementState::Pressed;
                     let ctrl = self.modifier_state.control_key();
                     let shift = self.modifier_state.shift_key();
+                    let supa = self.modifier_state.super_key();
 
                     if let winit::keyboard::PhysicalKey::Code(key) = event.physical_key {
-                        match (pressed, ctrl, shift, key) {
-                            (true, true, true, KeyCode::KeyC) => {
-                                self.raw_input.events.push(egui::Event::Copy);
-                            }
-                            (true, true, true, KeyCode::KeyX) => {
-                                self.raw_input.events.push(egui::Event::Cut);
-                            }
-                            (true, true, true, KeyCode::KeyV) => {
-                                if let Ok(contents) = self.clipboard.get_contents() {
-                                    self.raw_input.events.push(egui::Event::Text(contents))
-                                }
-                            }
-                            _ => {
-                                if let Some(key) = winit_to_egui_key_code(key) {
-                                    // we must first push the key and then the value
-                                    // so the terminal can potentially get rid of a keypress
-
-                                    self.raw_input.events.push(egui::Event::Key {
-                                        key,
-                                        physical_key: Some(key),
-                                        pressed,
-                                        modifiers: winit_to_egui_modifiers(self.modifier_state),
-                                        repeat: false,
-                                    });
-                                }
-
-                                self.store_key_text(pressed, event);
-                            }
+                        if ((ctrl && shift) || supa) && (pressed && key == KeyCode::KeyC) {
+                            self.raw_input.events.push(egui::Event::Copy);
+                            return;
                         }
+
+                        if ((ctrl && shift) || supa) && (pressed && key == KeyCode::KeyX) {
+                            self.raw_input.events.push(egui::Event::Cut);
+                            return;
+                        }
+
+                        if ((ctrl && shift) || supa) && (pressed && key == KeyCode::KeyV) {
+                            if let Ok(contents) = self.clipboard.get_contents() {
+                                self.raw_input.events.push(egui::Event::Text(contents))
+                            }
+                            return;
+                        }
+
+                        if let Some(key) = winit_to_egui_key_code(key) {
+                            // we must first push the key and then the value
+                            // so the terminal can potentially get rid of a keypress
+
+                            self.raw_input.events.push(egui::Event::Key {
+                                key,
+                                physical_key: Some(key),
+                                pressed,
+                                modifiers: winit_to_egui_modifiers(self.modifier_state),
+                                repeat: false,
+                            });
+                        }
+
+                        self.store_key_text(pressed, event);
                     }
                 }
                 &mut WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
