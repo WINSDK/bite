@@ -5,7 +5,7 @@ use core::fmt::{self, Display, Formatter};
 
 use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens, TokenStream};
 use symbols::Index;
-use tokenizing::{ColorScheme, Colors};
+use tokenizing::{colors, ColorScheme, Colors};
 
 mod thumb;
 
@@ -1605,6 +1605,8 @@ pub enum Operand {
     Imm12(u16),
     /// a 32-bit immediate, stored in a `u32`.
     Imm32(u32),
+    /// a 64-bit immediate, stored in a `u64`.
+    Imm64(u64),
     /// a pc-relative branch, with 32-bit signed offset, left-shifted by 2.
     BranchOffset(i32),
     /// a pc-relative branch, with 32-bit signed offset, left-shifted by 1.
@@ -1663,7 +1665,7 @@ impl Bank {
 }
 
 impl Operand {
-    fn tokenize(&self, stream: &mut TokenStream, _symbols: &Index, _imm_override: Option<usize>) {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index, _imm_override: Option<usize>) {
         match self {
             Operand::RegList(list) => format_reg_list(stream, *list),
             Operand::BankedReg(bank, reg) => {
@@ -1730,26 +1732,64 @@ impl Operand {
                 }
             }
             Operand::Imm12(imm) => {
-                stream.push_owned(decoder::encode_hex(*imm as i64), Colors::immediate());
+                match symbols.get_by_addr(*imm as usize) {
+                    Some(symbol) => {
+                        stream.push("<", colors::BLUE);
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                        stream.push(">", colors::BLUE);
+                    }
+                    None => {
+                        stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                    }
+                }
             }
             Operand::Imm32(imm) => {
-                stream.push_owned(decoder::encode_hex(*imm as i64), Colors::immediate());
+                match symbols.get_by_addr(*imm as usize) {
+                    Some(symbol) => {
+                        stream.push("<", colors::BLUE);
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                        stream.push(">", colors::BLUE);
+                    }
+                    None => {
+                        stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                    }
+                }
             }
-            Operand::BranchOffset(imm) => {
-                if *imm >= 0 {
-                    stream.push("$+", Colors::immediate());
+            Operand::Imm64(imm) => {
+                match symbols.get_by_addr(*imm as usize) {
+                    Some(symbol) => {
+                        stream.push("<", colors::BLUE);
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                        stream.push(">", colors::BLUE);
+                    }
+                    None => {
+                        stream.push_owned(decoder::encode_uhex(*imm), Colors::immediate());
+                    }
+                }
+            }
+            Operand::BranchOffset(offs) => {
+                if *offs >= 0 {
+                    stream.push("$", Colors::expr());
+                    stream.push("+", Colors::immediate());
                 } else {
                     stream.push("$", Colors::immediate());
                 }
-                stream.push_owned(decoder::encode_hex((imm * 4) as i64), Colors::immediate());
+                stream.push_owned(decoder::encode_hex((offs * 4) as i64), Colors::immediate());
             }
-            Operand::BranchThumbOffset(imm) => {
-                if *imm >= 0 {
-                    stream.push("$+", Colors::immediate());
+            Operand::BranchThumbOffset(offs) => {
+                if *offs >= 0 {
+                    stream.push("$", Colors::expr());
+                    stream.push("+", Colors::immediate());
                 } else {
                     stream.push("$", Colors::immediate());
                 }
-                stream.push_owned(decoder::encode_hex((imm * 2) as i64), Colors::immediate());
+                stream.push_owned(decoder::encode_hex((offs * 2) as i64), Colors::immediate());
             }
             Operand::Coprocessor(num) => {
                 stream.push("p", Colors::register());
@@ -2013,7 +2053,23 @@ impl Decoded for Instruction {
         4
     }
 
-    fn update_rel_addrs(&mut self, _addr: usize) {}
+    fn update_rel_addrs(&mut self, addr: usize) {
+        for operand in self.operands.iter_mut() {
+            match operand {
+                Operand::BranchOffset(offs) => {
+                    let offs = *offs as i64 * 4;
+                    let addr = (addr as u64).saturating_add_signed(offs);
+                    *operand = Operand::Imm64(addr);
+                }
+                Operand::BranchThumbOffset(offs) => {
+                    let offs = *offs as i64 * 2;
+                    let addr = (addr as u64).saturating_add_signed(offs);
+                    *operand = Operand::Imm64(addr);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 impl Display for Instruction {

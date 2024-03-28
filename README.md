@@ -41,7 +41,7 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
   - [ ] Initial Windows support
   - [x] Initial Linux support
 - [x] X86-64 support
-- [ ] AArch64/AArch32 support
+- [x] AArch64/Armv7 support
 - [x] Riscv64gc/Riscv32gc support
 - [x] MIPS-V support
 - [x] Demangling support for most targets

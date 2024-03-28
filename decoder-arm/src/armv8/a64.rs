@@ -3464,8 +3464,8 @@ impl ToTokens for Operand {
                 }
                 stream.push_owned(decoder::encode_hex(*offs), Colors::immediate());
             }
-            Operand::Immediate(i) => {
-                match symbols.get_by_addr(*i as usize) {
+            Operand::Immediate(imm) => {
+                match symbols.get_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -3475,7 +3475,7 @@ impl ToTokens for Operand {
                     }
                     None => {
                         stream.push("#", Colors::expr());
-                        stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                        stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
                     }
                 }
             },
@@ -3488,8 +3488,8 @@ impl ToTokens for Operand {
                     stream.push_owned(imm, Colors::immediate());
                 }
             },
-            Operand::Imm16(i) => {
-                match symbols.get_by_addr(*i as usize) {
+            Operand::Imm16(imm) => {
+                match symbols.get_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -3499,12 +3499,12 @@ impl ToTokens for Operand {
                     }
                     None => {
                         stream.push("#", Colors::expr());
-                        stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                        stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
                     }
                 }
             },
-            Operand::Imm64(i) => {
-                match symbols.get_by_addr(*i as usize) {
+            Operand::Imm64(imm) => {
+                match symbols.get_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -3514,13 +3514,13 @@ impl ToTokens for Operand {
                     }
                     None => {
                         stream.push("#", Colors::expr());
-                        stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                        stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
                     }
                 }
             },
-            Operand::ImmShift(i, shift) => {
+            Operand::ImmShift(imm, shift) => {
                 stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
 
                 if *shift != 0 {
                     stream.push(", ", Colors::expr());
@@ -3529,9 +3529,9 @@ impl ToTokens for Operand {
                     stream.push_owned(shift.to_string(), Colors::immediate());
                 }
             },
-            Operand::ImmShiftMSL(i, shift) => {
+            Operand::ImmShiftMSL(imm, shift) => {
                 stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
 
                 if *shift != 0 {
                     stream.push(", ", Colors::expr());
