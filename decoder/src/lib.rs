@@ -213,7 +213,7 @@ fn unlikely(b: bool) -> bool {
     b
 }
 
-/// Encode 64-bit number with a leading '0x' and in lowercase.
+/// Encode 64-bit signed integer with a leading '0x' and in lowercase.
 pub fn encode_hex(mut imm: i64) -> String {
     unsafe {
         let mut buffer = Vec::with_capacity(19);
@@ -225,6 +225,44 @@ pub fn encode_hex(mut imm: i64) -> String {
             idx += 1;
             imm = imm.wrapping_neg()
         }
+
+        *slice.get_unchecked_mut(idx) = b'0';
+        idx += 1;
+        *slice.get_unchecked_mut(idx) = b'x';
+        idx += 1;
+
+        if unlikely(imm == 0) {
+            *slice.get_unchecked_mut(idx) = b'0';
+            idx += 1;
+            buffer.set_len(idx);
+            return String::from_utf8_unchecked(buffer);
+        }
+
+        // imm is already checked to not be zero, therefore this can't fail
+        let len = imm.checked_ilog(16).unwrap_unchecked() as usize + 1;
+        let mut jdx = idx + len;
+
+        while likely(jdx != idx) {
+            let digit = imm & 0b1111;
+            let chr = HEX_NUGGET[digit as usize];
+
+            imm >>= 4;
+            jdx -= 1;
+
+            *slice.get_unchecked_mut(jdx) = chr;
+        }
+
+        buffer.set_len(idx + len);
+        String::from_utf8_unchecked(buffer)
+    }
+}
+
+/// Encode 64-bit unsigned integer with a leading '0x' and in lowercase.
+pub fn encode_uhex(mut imm: u64) -> String {
+    unsafe {
+        let mut buffer = Vec::with_capacity(19);
+        let slice = &mut buffer[..];
+        let mut idx = 0;
 
         *slice.get_unchecked_mut(idx) = b'0';
         idx += 1;

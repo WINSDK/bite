@@ -1737,17 +1737,17 @@ impl Operand {
             }
             Operand::BranchOffset(imm) => {
                 if *imm >= 0 {
-                    stream.push("$+", Colors::expr());
+                    stream.push("$+", Colors::immediate());
                 } else {
-                    stream.push("$", Colors::expr());
+                    stream.push("$", Colors::immediate());
                 }
                 stream.push_owned(decoder::encode_hex((imm * 4) as i64), Colors::immediate());
             }
             Operand::BranchThumbOffset(imm) => {
                 if *imm >= 0 {
-                    stream.push("$+", Colors::expr());
+                    stream.push("$+", Colors::immediate());
                 } else {
-                    stream.push("$", Colors::expr());
+                    stream.push("$", Colors::immediate());
                 }
                 stream.push_owned(decoder::encode_hex((imm * 2) as i64), Colors::immediate());
             }

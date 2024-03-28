@@ -7,7 +7,7 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use decoder::{TokenStream, Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
+use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens, TokenStream};
 use symbols::Index;
 use tokenizing::{ColorScheme, Colors};
 
@@ -31,8 +31,12 @@ mod docs {
     fn Ones(len: u8) -> u64 {
         assert!(len <= 64);
 
-        if len == 0 { return 0; }
-        if len == 64 { return 0xffffffff_ffffffffu64; }
+        if len == 0 {
+            return 0;
+        }
+        if len == 64 {
+            return 0xffffffff_ffffffffu64;
+        }
 
         let mask = ((0x8000_0000_0000_0000u64 as i64) >> ((64 - 1) - len)) as u64;
         !mask
@@ -155,9 +159,9 @@ mod docs {
         let exp = exp ^ 0b1_00_0000_0000;
         let frac = imm8 << 4;
 
-        let bits = ((sign as u64) << 63) |
-            (((exp as u64) & 0b1_11_1111_1111) << 52) |
-            ((frac as u64) << 44);
+        let bits = ((sign as u64) << 63)
+            | (((exp as u64) & 0b1_11_1111_1111) << 52)
+            | ((frac as u64) << 44);
 
         f64::from_bits(bits)
     }
@@ -170,7 +174,7 @@ pub enum SizeCode {
     /// an x-size (64-bits) register.
     X,
     /// a w-size (32-bits) register.
-    W
+    W,
 }
 
 /// a size marker for a SIMD register, a full scalar size, or vector element size.
@@ -186,7 +190,7 @@ pub enum SIMDSizeCode {
     /// a dword (64-bits) scalar or element.
     D,
     /// a qword (128-bits) scalar or element.
-    Q
+    Q,
 }
 
 impl SIMDSizeCode {
@@ -231,28 +235,36 @@ impl Decoded for Instruction {
     fn update_rel_addrs(&mut self, _addr: usize) {}
 }
 
-impl ToTokens for Instruction {
-    fn tokenize(&self, stream: &mut TokenStream, _symbols: &Index) {
-        // TODO: colorize
-        stream.push_owned(self.to_string(), Colors::opcode());
+impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let mut stream = TokenStream::new();
+        let symbols = Index::default();
+        self.tokenize(&mut stream, &symbols);
+        f.write_str(&stream.to_string())?;
+        Ok(())
     }
 }
 
-impl Display for Instruction {
-    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+impl ToTokens for Instruction {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         match self.opcode {
             Opcode::ISB => {
+                stream.push("isb", Colors::opcode());
+
                 // the default/reserved/expected value for the immediate in `isb` is `0b1111`.
                 if let Operand::Imm16(15) = self.operands[0] {
-                    return write!(fmt, "isb");
+                    return;
                 }
-                write!(fmt, "isb")?;
             }
             Opcode::SBC => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    return write!(fmt, "ngc {}, {}", self.operands[0], self.operands[2]);
+                    stream.push("ngc ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 } else {
-                    write!(fmt, "sbc")?;
+                    stream.push("sbc", Colors::opcode());
                 }
             }
             Opcode::MOVN => {
@@ -270,8 +282,12 @@ impl Display for Instruction {
                 } else {
                     unreachable!("movn operand 0 is always Register");
                 };
-                return write!(fmt, "mov {}, #{:#x}", self.operands[0], imm);
-            },
+                stream.push("mov ", Colors::opcode());
+                self.operands[0].tokenize(stream, symbols);
+                stream.push(", #", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(imm), Colors::immediate());
+                return;
+            }
             Opcode::MOVZ => {
                 let imm = if let Operand::ImmShift(imm, shift) = self.operands[1] {
                     (imm as u64) << shift
@@ -287,99 +303,190 @@ impl Display for Instruction {
                 } else {
                     unreachable!("movn operand 0 is always Register");
                 };
-                return write!(fmt, "mov {}, #{:#x}", self.operands[0], imm);
-            },
+                stream.push("mov ", Colors::opcode());
+                self.operands[0].tokenize(stream, symbols);
+                stream.push(", #", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(imm), Colors::immediate());
+                return;
+            }
             Opcode::ORR => {
                 if let Operand::Register(_, 31) = self.operands[1] {
                     if let Operand::Immediate(0) = self.operands[2] {
-                        return write!(fmt, "mov {}, {}", self.operands[0], self.operands[1]);
+                        stream.push("mov ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        return;
                     } else if let Operand::RegShift(style, amt, size, r) = self.operands[2] {
                         if style == ShiftStyle::LSL && amt == 0 {
-                            return write!(fmt, "mov {}, {}", self.operands[0], Operand::Register(size, r));
+                            stream.push("mov ", Colors::opcode());
+                            self.operands[0].tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            Operand::Register(size, r).tokenize(stream, symbols);
+                            return;
                         }
+
                     } else {
-                        return write!(fmt, "mov {}, {}", self.operands[0], self.operands[2]);
+                        stream.push("mov ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 } else if self.operands[1] == self.operands[2] {
-                    return write!(fmt, "mov {}, {}", self.operands[0], self.operands[1]);
+                    stream.push("mov ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "orr")?;
-            },
+                stream.push("orr", Colors::opcode());
+            }
             Opcode::ORN => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    return write!(fmt, "mvn {}, {}", self.operands[0], self.operands[2]);
+                    stream.push("mvn ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "orn")?;
-            },
+                stream.push("orn", Colors::opcode());
+            }
             Opcode::ANDS => {
                 if let Operand::Register(_, 31) = self.operands[0] {
-                    return write!(fmt, "tst {}, {}", self.operands[1], self.operands[2]);
+                    stream.push("tst ", Colors::opcode());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "ands")?;
-            },
+                stream.push("ands", Colors::opcode());
+            }
             Opcode::NOT => {
                 // `This instruction is used by the alias MVN. The alias is always the preferred
                 // disassembly.`
-                write!(fmt, "mvn")?;
-            },
+                stream.push("mvn", Colors::opcode());
+            }
             Opcode::ADDS => {
                 if let Operand::Register(_, 31) = self.operands[0] {
-                    return write!(fmt, "cmn {}, {}", self.operands[1], self.operands[2]);
+                    stream.push("cmn ", Colors::opcode());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    return write!(fmt, "adds {}, {}, {}", self.operands[0], self.operands[1], Operand::Register(size, reg));
+                    stream.push("adds ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    Operand::Register(size, reg).tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "adds")?;
-            },
+                stream.push("adds", Colors::opcode());
+            }
             Opcode::ADD => {
                 if let Operand::Immediate(0) = self.operands[2] {
                     if let Operand::RegisterOrSP(_, 31) = self.operands[0] {
-                        return write!(fmt, "mov {}, {}", self.operands[0], self.operands[1]);
-                    } else if let Operand::RegisterOrSP(_, 31) = self.operands[1] {
-                        return write!(fmt, "mov {}, {}", self.operands[0], self.operands[1]);
+                        stream.push("mov ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        return;
                     }
-// oh. add-with-zr does not alias mov
-//                } else if let Operand::Register(_, 31) = self.operands[1] {
-//                    return write!(fmt, "mov {}, {}", self.operands[0], self.operands[2]);
+                    if let Operand::RegisterOrSP(_, 31) = self.operands[1] {
+                        stream.push("mov ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        return;
+                    }
+                // oh. add-with-zr does not alias mov
+                //                } else if let Operand::Register(_, 31) = self.operands[1] {
+                //                    return write!(fmt, "mov {}, {}", self.operands[0], self.operands[2]);
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    return write!(fmt, "add {}, {}, {}", self.operands[0], self.operands[1], Operand::Register(size, reg));
+                    stream.push("add ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    Operand::Register(size, reg).tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "add")?;
-            },
+                stream.push("add", Colors::opcode());
+            }
             Opcode::SUBS => {
                 if let Operand::Register(_, 31) = self.operands[0] {
-                    return write!(fmt, "cmp {}, {}", self.operands[1], self.operands[2])
+                    stream.push("cmp ", Colors::opcode());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 } else if let Operand::Register(_, 31) = self.operands[1] {
-                    return write!(fmt, "negs {}, {}", self.operands[0], self.operands[2])
+                    stream.push("negs ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    return write!(fmt, "subs {}, {}, {}", self.operands[0], self.operands[1], Operand::Register(size, reg));
+                    stream.push("subs ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    Operand::Register(size, reg).tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "subs")?;
-            },
+                stream.push("subs", Colors::opcode());
+            }
             Opcode::SUB => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    return write!(fmt, "neg {}, {}", self.operands[0], self.operands[2])
+                    stream.push("neg ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    return write!(fmt, "sub {}, {}, {}", self.operands[0], self.operands[1], Operand::Register(size, reg));
+                    stream.push("sub ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    Operand::Register(size, reg).tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "sub")?;
-            },
+                stream.push("sub", Colors::opcode());
+            }
             Opcode::SBCS => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    return write!(fmt, "ngcs {}, {}", self.operands[0], self.operands[2])
+                    stream.push("ngcs ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "sbcs")?;
-            },
+                stream.push("sbcs", Colors::opcode());
+            }
             Opcode::UBFM => {
                 // TODO: handle ubfx alias
                 if let (
                     Operand::Register(SizeCode::W, _),
                     Operand::Register(SizeCode::W, _),
-                    Operand::Immediate(0)
-                ) = (self.operands[0], self.operands[1], self.operands[2]) {
+                    Operand::Immediate(0),
+                ) = (self.operands[0], self.operands[1], self.operands[2])
+                {
                     if let Operand::Immediate(7) = self.operands[3] {
-                        return write!(fmt, "uxtb {}, {}", self.operands[0], self.operands[1]);
+                        stream.push("uxtb ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        return;
                     } else if let Operand::Immediate(15) = self.operands[3] {
-                        return write!(fmt, "uxth {}, {}", self.operands[0], self.operands[1]);
+                        stream.push("uxth ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        return;
                     }
                 }
                 if let Operand::Immediate(imms) = self.operands[3] {
@@ -389,46 +496,69 @@ impl Display for Instruction {
                         unreachable!("operand 0 is a register");
                     };
                     match (imms, size) {
-                        (63, SizeCode::X) |
-                        (31, SizeCode::W) => {
-                            return write!(fmt, "lsr {}, {}, {}", self.operands[0], self.operands[1], self.operands[2]);
-                        },
+                        (63, SizeCode::X) | (31, SizeCode::W) => {
+                            stream.push("lsr ", Colors::opcode());
+                            self.operands[0].tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            self.operands[1].tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            self.operands[2].tokenize(stream, symbols);
+                            return;
+                        }
                         _ => {
-                            let size = if size == SizeCode::X {
-                                64
-                            } else {
-                                32
-                            };
+                            let size = if size == SizeCode::X { 64 } else { 32 };
                             let immr = if let Operand::Immediate(immr) = self.operands[2] {
                                 immr
                             } else {
                                 unreachable!("operand 3 is a register");
                             };
                             if imms + 1 == immr {
-                                return write!(fmt, "lsl {}, {}, #{:#x}", self.operands[0], self.operands[1], size - imms - 1);
+                                stream.push("lsl ", Colors::opcode());
+                                self.operands[0].tokenize(stream, symbols);
+                                stream.push(", ", Colors::expr());
+                                self.operands[1].tokenize(stream, symbols);
+                                stream.push(", #", Colors::expr());
+                                stream.push_owned(decoder::encode_uhex((size - imms - 1) as u64), Colors::immediate());
+                                return;
                             }
                             if imms < immr {
-                                return write!(fmt, "ubfiz {}, {}, #{:#x}, #{:#x}",
-                                    self.operands[0],
-                                    self.operands[1],
-                                    size - immr,
-                                    imms + 1,
-                                );
+                                stream.push("ubfiz ", Colors::opcode());
+                                self.operands[0].tokenize(stream, symbols);
+                                stream.push(", ", Colors::expr());
+                                self.operands[1].tokenize(stream, symbols);
+                                stream.push(", #", Colors::expr());
+                                stream.push_owned(decoder::encode_uhex((size - immr) as u64), Colors::immediate());
+                                stream.push(", #", Colors::expr());
+                                stream.push_owned(decoder::encode_uhex((imms + 1) as u64), Colors::immediate());
+                                return;
                             }
                         }
                     }
                 }
                 // `ubfm` is never actually displayed: in the remaining case, it is always aliased
                 // to `ubfx`
-                let width = if let (Operand::Immediate(lsb), Operand::Immediate(width)) = (self.operands[2], self.operands[3]) {
+                let width = if let (Operand::Immediate(lsb), Operand::Immediate(width)) =
+                    (self.operands[2], self.operands[3])
+                {
                     Operand::Immediate(width - lsb + 1)
                 } else {
                     unreachable!("last two operands of ubfm are always immediates");
                 };
-                return write!(fmt, "ubfx {}, {}, {}, {}", self.operands[0], self.operands[1], self.operands[2], width);
-            },
+
+                stream.push("ubfx ", Colors::opcode());
+                self.operands[0].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                self.operands[1].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                self.operands[2].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                width.tokenize(stream, symbols);
+                return;
+            }
             Opcode::BFM => {
-                if let (Operand::Immediate(immr), Operand::Immediate(imms)) = (self.operands[2], self.operands[3]) {
+                if let (Operand::Immediate(immr), Operand::Immediate(imms)) =
+                    (self.operands[2], self.operands[3])
+                {
                     if imms < immr {
                         if let Operand::Register(sz, rn) = self.operands[1] {
                             let width = imms + 1;
@@ -438,28 +568,63 @@ impl Display for Instruction {
                                 ((-(immr as i8)) as u8) & 0x3f
                             };
                             if rn == 31 {
-                                return write!(fmt, "bfc {}, #{:#x}, #{:#x}", self.operands[0], lsb, width);
+                                stream.push("bfc ", Colors::opcode());
+                                self.operands[0].tokenize(stream, symbols);
+                                stream.push(", #", Colors::expr());
+                                stream.push_owned(decoder::encode_uhex(lsb as u64), Colors::immediate());
+                                stream.push(", #", Colors::expr());
+                                stream.push_owned(decoder::encode_uhex(width as u64), Colors::immediate());
+                                return;
                             } else {
-                                return write!(fmt, "bfi {}, {}, #{:#x}, #{:#x}", self.operands[0], self.operands[1], lsb, width);
+                                stream.push("bfi ", Colors::opcode());
+                                self.operands[0].tokenize(stream, symbols);
+                                stream.push(", ", Colors::expr());
+                                self.operands[1].tokenize(stream, symbols);
+                                stream.push(", #", Colors::expr());
+                                stream.push_owned(decoder::encode_uhex(lsb as u64), Colors::immediate());
+                                stream.push(", #", Colors::expr());
+                                stream.push_owned(decoder::encode_uhex(width as u64), Colors::immediate());
+                                return;
                             }
                         }
                     } else {
                         // bfxil
                         let lsb = immr;
                         let width = imms + 1 - lsb;
-                        return write!(fmt, "bfxil {}, {}, #{:#x}, #{:#x}", self.operands[0], self.operands[1], lsb, width);
+
+                        stream.push("bfxil ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        stream.push(", #", Colors::expr());
+                        stream.push_owned(decoder::encode_uhex(lsb as u64), Colors::immediate());
+                        stream.push(", #", Colors::expr());
+                        stream.push_owned(decoder::encode_uhex(width as u64), Colors::immediate());
+                        return;
                     }
                 }
             }
             Opcode::SBFM => {
                 if let Operand::Immediate(63) = self.operands[3] {
                     if let Operand::Register(SizeCode::X, _) = self.operands[0] {
-                        return write!(fmt, "asr {}, {}, {}", self.operands[0], self.operands[1], self.operands[2]);
+                        stream.push("asr ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
                 if let Operand::Immediate(31) = self.operands[3] {
                     if let Operand::Register(SizeCode::W, _) = self.operands[0] {
-                        return write!(fmt, "asr {}, {}, {}", self.operands[0], self.operands[1], self.operands[2]);
+                        stream.push("asr ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
                 if let Operand::Immediate(0) = self.operands[2] {
@@ -469,14 +634,20 @@ impl Display for Instruction {
                         unreachable!("operand 1 is always a register");
                     };
                     if let Operand::Immediate(7) = self.operands[3] {
-                        return write!(fmt, "sxtb {}, {}", self.operands[0], newsrc);
+                        stream.push("sxtb ", Colors::opcode());
                     } else if let Operand::Immediate(15) = self.operands[3] {
-                        return write!(fmt, "sxth {}, {}", self.operands[0], newsrc);
+                        stream.push("sxth ", Colors::opcode());
                     } else if let Operand::Immediate(31) = self.operands[3] {
-                        return write!(fmt, "sxtw {}, {}", self.operands[0], newsrc);
+                        stream.push("sxtw ", Colors::opcode());
                     }
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    newsrc.tokenize(stream, symbols);
+                    return;
                 }
-                if let (Operand::Immediate(imms), Operand::Immediate(immr)) = (self.operands[2], self.operands[3]) {
+                if let (Operand::Immediate(imms), Operand::Immediate(immr)) =
+                    (self.operands[2], self.operands[3])
+                {
                     if immr < imms {
                         let size = if let Operand::Register(size, _) = self.operands[0] {
                             if size == SizeCode::W {
@@ -487,535 +658,728 @@ impl Display for Instruction {
                         } else {
                             unreachable!("operand 0 is always a register");
                         };
-                        return write!(fmt, "sbfiz {}, {}, #{:#x}, #{:#x}",
-                            self.operands[0],
-                            self.operands[1],
-                            size - imms,
-                            immr + 1,
-                        );
+                        stream.push("sbfiz ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        stream.push(", #", Colors::expr());
+                        stream.push_owned(decoder::encode_uhex((size - imms) as u64), Colors::immediate());
+                        stream.push(", #", Colors::expr());
+                        stream.push_owned(decoder::encode_uhex((immr + 1) as u64), Colors::immediate());
+                        return;
                     }
                 }
                 // `sbfm` is never actually displayed: in the remaining case, it is always aliased
                 // to `sbfx`
-                let width = if let (Operand::Immediate(lsb), Operand::Immediate(width)) = (self.operands[2], self.operands[3]) {
+                let width = if let (Operand::Immediate(lsb), Operand::Immediate(width)) =
+                    (self.operands[2], self.operands[3])
+                {
                     Operand::Immediate(width - lsb + 1)
                 } else {
                     unreachable!("last two operands of sbfm are always immediates");
                 };
-                return write!(fmt, "sbfx {}, {}, {}, {}", self.operands[0], self.operands[1], self.operands[2], width);
-            },
+                stream.push("sbfx ", Colors::opcode());
+                self.operands[0].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                self.operands[1].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                self.operands[2].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                width.tokenize(stream, symbols);
+                return;
+            }
             Opcode::EXTR => {
-                if let (Operand::Register(_, Rn), Operand::Register(_, Rm)) = (self.operands[1], self.operands[2]) {
+                if let (Operand::Register(_, Rn), Operand::Register(_, Rm)) =
+                    (self.operands[1], self.operands[2])
+                {
                     if Rn == Rm {
-                        return write!(fmt, "ror {}, {}, {}", self.operands[0], self.operands[2], self.operands[3]);
+                        stream.push("ror ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[3].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "extr")?;
-            },
+                stream.push("extr", Colors::opcode());
+            }
             Opcode::RET => {
-                write!(fmt, "ret")?;
+                stream.push("ret", Colors::opcode());
                 if let Operand::Register(SizeCode::X, 30) = self.operands[0] {
                     // C5.6.148:  Defaults to X30 if absent.
                     // so ret x30 is probably expected to be read as just `ret`
-                    return Ok(());
+                    return;
                 }
-            },
+            }
             Opcode::SYS(ops) => {
-                return write!(fmt, "sys #{:#x}, {}, {}, #{:#x}, {}",
-                    ops.op1(),
-                    self.operands[1],
-                    self.operands[2],
-                    ops.op2(),
-                    self.operands[0],
-                );
+                stream.push("sys #", Colors::opcode());
+                stream.push_owned(decoder::encode_uhex(ops.op1() as u64), Colors::immediate());
+                stream.push(", ", Colors::expr());
+                self.operands[1].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                self.operands[2].tokenize(stream, symbols);
+                stream.push(", #", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(ops.op2() as u64), Colors::immediate());
+                stream.push(", ", Colors::expr());
+                self.operands[0].tokenize(stream, symbols);
+                return;
             }
             Opcode::SYSL(ops) => {
-                return write!(fmt, "sysl {}, #{:#x}, {}, {}, #{:#x}",
-                    self.operands[2],
-                    ops.op1(),
-                    self.operands[0],
-                    self.operands[1],
-                    ops.op2(),
-                );
+                stream.push("sysl ", Colors::opcode());
+                self.operands[2].tokenize(stream, symbols);
+                stream.push(", #", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(ops.op1() as u64), Colors::immediate());
+                stream.push(", ", Colors::expr());
+                self.operands[0].tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                self.operands[1].tokenize(stream, symbols);
+                stream.push(", #", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(ops.op2() as u64), Colors::immediate());
+                return;
             }
             Opcode::HINT => {
-                if let (Operand::ControlReg(CRn), Operand::Immediate(op2)) = (self.operands[0], self.operands[1]) {
+                if let (Operand::ControlReg(CRn), Operand::Immediate(op2)) =
+                    (self.operands[0], self.operands[1])
+                {
                     let hint_num = (CRn << 3) | op2 as u16;
-                    return match hint_num & 0b111111 {
-                        0 => { write!(fmt, "nop") },
-                        1 => { write!(fmt, "yield") },
-                        2 => { write!(fmt, "wfe") },
-                        3 => { write!(fmt, "wfi") },
-                        4 => { write!(fmt, "sev") },
-                        0x10 => { write!(fmt, "esb") },
-                        0x11 => { write!(fmt, "psb csync") },
-                        0x12 => { write!(fmt, "tsb csync") },
-                        0x14 => { write!(fmt, "csdb") },
-                        0x15 => { write!(fmt, "sevl") },
-                        _ => { write!(fmt, "hint #{:#x}", hint_num) }
-                    }
+                    match hint_num & 0b111111 {
+                        0x0 => stream.push("nop", Colors::opcode()),
+                        0x1 => stream.push("yield", Colors::opcode()),
+                        0x2 => stream.push("wfe", Colors::opcode()),
+                        0x3 => stream.push("wfi", Colors::opcode()),
+                        0x4 => stream.push("sev", Colors::opcode()),
+                        0x10 => stream.push("esb", Colors::opcode()),
+                        0x11 => stream.push("psb csync", Colors::opcode()),
+                        0x12 => stream.push("tsb csync", Colors::opcode()),
+                        0x14 => stream.push("csdb", Colors::opcode()),
+                        0x15 => stream.push("sevl", Colors::opcode()),
+                        _ => {
+                            stream.push("hint #", Colors::opcode());
+                            stream.push_owned(decoder::encode_uhex(hint_num as u64), Colors::immediate());
+                        }
+                    };
+                    return;
                 }
             }
             Opcode::CSNEG => {
-                if let (Operand::Register(_size, rn), Operand::Register(_, rm), Operand::ConditionCode(cond)) = (self.operands[1], self.operands[2], self.operands[3]) {
+                if let (
+                    Operand::Register(_size, rn),
+                    Operand::Register(_, rm),
+                    Operand::ConditionCode(cond),
+                ) = (self.operands[1], self.operands[2], self.operands[3])
+                {
                     if cond < 0b1110 && rn == rm {
-                        return write!(fmt, "cneg {}, {}, {}", self.operands[0], self.operands[2], Operand::ConditionCode(cond ^ 0x01));
+                        stream.push("cneg ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
+                        return;
                     }
                 } else {
                     unreachable!("operands 2 and 3 are always registers");
                 }
-                write!(fmt, "csneg")?;
+                stream.push("csneg", Colors::opcode());
             }
             Opcode::CSINC => {
                 match (self.operands[1], self.operands[2], self.operands[3]) {
-                    (Operand::Register(_, n), Operand::Register(_, m), Operand::ConditionCode(cond)) => {
+                    (
+                        Operand::Register(_, n),
+                        Operand::Register(_, m),
+                        Operand::ConditionCode(cond),
+                    ) => {
                         if n == m && cond < 0b1110 {
                             if n == 31 {
-                                return write!(fmt, "cset {}, {}", self.operands[0], Operand::ConditionCode(cond ^ 0x01));
+                                stream.push("cset ", Colors::opcode());
+                                self.operands[0].tokenize(stream, symbols);
+                                stream.push(", ", Colors::expr());
+                                Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
+                                return;
                             } else {
-                                return write!(fmt, "cinc {}, {}, {}", self.operands[0], self.operands[1], Operand::ConditionCode(cond ^ 0x01));
+                                stream.push("cinc ", Colors::opcode());
+                                self.operands[0].tokenize(stream, symbols);
+                                stream.push(", ", Colors::expr());
+                                self.operands[1].tokenize(stream, symbols);
+                                stream.push(", ", Colors::expr());
+                                Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
+                                return;
                             }
                         }
                     }
                     _ => {}
                 }
-                write!(fmt, "csinc")?;
+                stream.push("csinc", Colors::opcode());
             }
             Opcode::CSINV => {
                 match (self.operands[1], self.operands[2], self.operands[3]) {
-                    (Operand::Register(_, n), Operand::Register(_, m), Operand::ConditionCode(cond)) => {
+                    (
+                        Operand::Register(_, n),
+                        Operand::Register(_, m),
+                        Operand::ConditionCode(cond),
+                    ) => {
                         if n == m && n != 31 && cond < 0b1110 {
-                            return write!(fmt, "cinv {}, {}, {}", self.operands[0], self.operands[1], Operand::ConditionCode(cond ^ 0x01))
+                            stream.push("cinv ", Colors::opcode());
+                            self.operands[0].tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            self.operands[1].tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
+                            return;
                         } else if n == m && n == 31 && cond < 0b1110 {
-                            return write!(fmt, "csetm {}, {}", self.operands[0], Operand::ConditionCode(cond ^ 0x01));
+                            stream.push("csetm ", Colors::opcode());
+                            self.operands[0].tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
+                            return;
                         }
                     }
                     _ => {}
                 }
-                write!(fmt, "csinv")?;
+                stream.push("csinv", Colors::opcode());
             }
             Opcode::MADD => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    return write!(fmt, "mul {}, {}, {}", self.operands[0], self.operands[1], self.operands[2])
+                    stream.push("mul ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "madd")?;
+                stream.push("madd", Colors::opcode());
             }
             Opcode::MSUB => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    return write!(fmt, "mneg {}, {}, {}", self.operands[0], self.operands[1], self.operands[2])
+                    stream.push("mneg ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "msub")?;
+                stream.push("msub", Colors::opcode());
             }
             Opcode::SMADDL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    return write!(fmt, "smull {}, {}, {}", self.operands[0], self.operands[1], self.operands[2])
+                    stream.push("smull ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "smaddl")?;
+                stream.push("smaddl", Colors::opcode());
             }
             Opcode::SMSUBL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    return write!(fmt, "smnegl {}, {}, {}", self.operands[0], self.operands[1], self.operands[2])
+                    stream.push("smnegl ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "smsubl")?;
+                stream.push("smsubl", Colors::opcode());
             }
             Opcode::UMADDL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    return write!(fmt, "umull {}, {}, {}", self.operands[0], self.operands[1], self.operands[2])
+                    stream.push("umull ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "umaddl")?;
+                stream.push("umaddl", Colors::opcode());
             }
             Opcode::UMSUBL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    return write!(fmt, "umnegl {}, {}, {}", self.operands[0], self.operands[1], self.operands[2])
+                    stream.push("umnegl ", Colors::opcode());
+                    self.operands[0].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[1].tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    self.operands[2].tokenize(stream, symbols);
+                    return;
                 }
-                write!(fmt, "umsubl")?;
+                stream.push("umsubl", Colors::opcode());
             }
             Opcode::LSLV => {
                 // lslv == lsl (register) and, quoth the manual, `lsl is always the preferred
                 // disassembly`.
-                write!(fmt, "lsl")?;
+                stream.push("lsl", Colors::opcode());
             }
             Opcode::LSRV => {
                 // lsrv == lsr (register) and, quoth the manual, `lsr is always the preferred
                 // disassembly`.
-                write!(fmt, "lsr")?;
+                stream.push("lsr", Colors::opcode());
             }
             Opcode::ASRV => {
                 // asrv == asr (register) and, quoth the manual, `asr is always the preferred
                 // disassembly`.
-                write!(fmt, "asr")?;
+                stream.push("asr", Colors::opcode());
             }
             Opcode::RORV => {
                 // rorv == ror (register) and, quoth the manual, `ror is always the preferred
                 // disassembly`.
-                write!(fmt, "ror")?;
+                stream.push("ror", Colors::opcode());
             }
             Opcode::INS => {
                 // `ins (element)` and `ins (general)` both have `mov` as an alias. manual reports
                 // that `mov` is the preferred disassembly.
-                write!(fmt, "mov")?;
+                stream.push("mov", Colors::opcode());
             }
             Opcode::DUP => {
                 if let Operand::Register(_, _) = self.operands[1] {
                     // `dup (general)`
-                    write!(fmt, "dup")?;
+                    stream.push("dup", Colors::opcode());
                 } else {
                     // `dup (element)`
                     // manual says `mov` is the preferred disassembly here? but capstone uses
                     // `dup`.
-                    write!(fmt, "mov")?;
+                    stream.push("mov", Colors::opcode());
                 }
             }
             Opcode::UMOV => {
-                if let (Operand::Register(reg_sz, _), Operand::SIMDRegisterElementsLane(_, _, elem_sz, _)) = (self.operands[0], self.operands[1]) {
-                    if (reg_sz == SizeCode::W && elem_sz == SIMDSizeCode::S) ||
-                       (reg_sz == SizeCode::X && elem_sz == SIMDSizeCode::D) {
-                        return write!(fmt, "mov {}, {}", self.operands[0], self.operands[1]);
+                if let (
+                    Operand::Register(reg_sz, _),
+                    Operand::SIMDRegisterElementsLane(_, _, elem_sz, _),
+                ) = (self.operands[0], self.operands[1])
+                {
+                    if (reg_sz == SizeCode::W && elem_sz == SIMDSizeCode::S)
+                        || (reg_sz == SizeCode::X && elem_sz == SIMDSizeCode::D)
+                    {
+                        stream.push("mov ", Colors::opcode());
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[1].tokenize(stream, symbols);
+                        return;
                     } else {
-                        write!(fmt, "umov")?;
+                        stream.push("umov", Colors::opcode());
                     }
                 }
             }
             Opcode::LDADD(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stadd"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stadd ", Colors::opcode());
                         } else {
-                            "staddl"
-                        };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                            stream.push("staddl ", Colors::opcode());
+                        }
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDCLR(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stclr"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stclr ", Colors::opcode());
                         } else {
-                            "stclrl"
-                        };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                            stream.push("stclrl ", Colors::opcode());
+                        }
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSET(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stset"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stset ", Colors::opcode());
                         } else {
-                            "stsetl"
+                            stream.push("stsetl ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSMAX(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stsmax"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stsmax ", Colors::opcode());
                         } else {
-                            "stsmaxl"
+                            stream.push("stsmaxl ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSMIN(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stsmin"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stsmin ", Colors::opcode());
                         } else {
-                            "stsminl"
+                            stream.push("stsminl ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDUMAX(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stumax"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stumax ", Colors::opcode());
                         } else {
-                            "stumaxl"
+                            stream.push("stumaxl ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDUMIN(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stumin"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stumin ", Colors::opcode());
                         } else {
-                            "stuminl"
+                            stream.push("stuminl ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDEOR(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "steor"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("steor ", Colors::opcode());
                         } else {
-                            "steorl"
+                            stream.push("steorl ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDADDH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "staddh"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("staddh ", Colors::opcode());
                         } else {
-                            "staddlh"
+                            stream.push("staddlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDCLRH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stclrh"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stclrh ", Colors::opcode());
                         } else {
-                            "stclrlh"
+                            stream.push("stclrlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSETH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stseth"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stseth ", Colors::opcode());
                         } else {
-                            "stsetlh"
+                            stream.push("stsetlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSMAXH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stsmaxh"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stsmaxh ", Colors::opcode());
                         } else {
-                            "stsmaxlh"
+                            stream.push("stsmaxlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSMINH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stsminh"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stsminh ", Colors::opcode());
                         } else {
-                            "stsminlh"
+                            stream.push("stsminlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDUMAXH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stumaxh"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stumaxh ", Colors::opcode());
                         } else {
-                            "stumaxlh"
+                            stream.push("stumaxlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDUMINH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stuminh"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stuminh ", Colors::opcode());
                         } else {
-                            "stuminlh"
+                            stream.push("stuminlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDEORH(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "steorh"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("steorh ", Colors::opcode());
                         } else {
-                            "steorlh"
+                            stream.push("steorlh ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDADDB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "staddb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("staddb ", Colors::opcode());
                         } else {
-                            "staddlb"
+                            stream.push("staddlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDCLRB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stclrb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stclrb ", Colors::opcode());
                         } else {
-                            "stclrlb"
+                            stream.push("stclrlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSETB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stsetb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stsetb ", Colors::opcode());
                         } else {
-                            "stsetlb"
+                            stream.push("stsetlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSMAXB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stsmaxb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stsmaxb ", Colors::opcode());
                         } else {
-                            "stsmaxlb"
+                            stream.push("stsmaxlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDSMINB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stsminb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stsminb ", Colors::opcode());
                         } else {
-                            "stsminlb"
+                            stream.push("stsminlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDUMAXB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stumaxb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stumaxb ", Colors::opcode());
                         } else {
-                            "stumaxlb"
+                            stream.push("stumaxlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDUMINB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "stuminb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("stuminb ", Colors::opcode());
                         } else {
-                            "stuminlb"
+                            stream.push("stuminlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
             Opcode::LDEORB(ar) => {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
-                        let inst = if ar & 0b01 == 0b00 {
-                            "steorb"
+                        if ar & 0b01 == 0b00 {
+                            stream.push("steorb ", Colors::opcode());
                         } else {
-                            "steorlb"
+                            stream.push("steorlb ", Colors::opcode());
                         };
-                        return write!(fmt, "{} {}, {}", inst, self.operands[0], self.operands[2]);
+                        self.operands[0].tokenize(stream, symbols);
+                        stream.push(", ", Colors::expr());
+                        self.operands[2].tokenize(stream, symbols);
+                        return;
                     }
                 }
-                write!(fmt, "{}", self.opcode)?;
+                self.opcode.tokenize(stream, symbols);
             }
-            other => { write!(fmt, "{}", other)?; }
+            other => other.tokenize(stream, symbols),
         };
 
         if self.operands[0] != Operand::Nothing {
-            write!(fmt, " {}", self.operands[0])?;
+            stream.push(" ", Colors::expr());
+            self.operands[0].tokenize(stream, symbols);
         } else {
-            return Ok(());
+            return;
         }
 
         if self.operands[1] != Operand::Nothing {
-            write!(fmt, ", {}", self.operands[1])?;
+            stream.push(", ", Colors::expr());
+            self.operands[1].tokenize(stream, symbols);
         } else {
-            return Ok(());
+            return;
         }
 
         if self.operands[2] != Operand::Nothing {
-            write!(fmt, ", {}", self.operands[2])?;
+            stream.push(", ", Colors::expr());
+            self.operands[2].tokenize(stream, symbols);
         } else {
-            return Ok(());
+            return;
         }
 
         if self.operands[3] != Operand::Nothing {
-            write!(fmt, ", {}", self.operands[3])?;
+            stream.push(", ", Colors::expr());
+            self.operands[3].tokenize(stream, symbols);
         } else {
-            return Ok(());
+            return;
         }
-
-        Ok(())
     }
 }
 
@@ -1023,7 +1387,12 @@ impl Default for Instruction {
     fn default() -> Self {
         Instruction {
             opcode: Opcode::Invalid,
-            operands: [Operand::Nothing, Operand::Nothing, Operand::Nothing, Operand::Nothing]
+            operands: [
+                Operand::Nothing,
+                Operand::Nothing,
+                Operand::Nothing,
+                Operand::Nothing,
+            ],
         }
     }
 }
@@ -1035,13 +1404,13 @@ impl Default for Instruction {
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(transparent)]
 pub struct SysOps {
-    data: u8
+    data: u8,
 }
 
 impl SysOps {
     fn new(op1: u8, op2: u8) -> Self {
         SysOps {
-            data: op1 | (op2 << 4)
+            data: op1 | (op2 << 4),
         }
     }
 
@@ -1650,8 +2019,8 @@ pub enum Opcode {
     SUBPS,
 }
 
-impl Display for Opcode {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+impl ToTokens for Opcode {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         let text = match *self {
             Opcode::Invalid => "invalid",
             Opcode::MOVK => "movk",
@@ -2479,40 +2848,42 @@ impl Display for Opcode {
             Opcode::SUBPS => "subps",
 
             Opcode::Bcc(cond) => {
-                return write!(fmt, "b.{}", Operand::ConditionCode(cond));
-            },
+                stream.push("b.", Colors::opcode());
+                Operand::ConditionCode(cond).tokenize(stream, symbols);
+                return;
+            }
             Opcode::DMB(option) => {
                 return match option {
-                    0b0001 => write!(fmt, "dmb oshld"),
-                    0b0010 => write!(fmt, "dmb oshst"),
-                    0b0011 => write!(fmt, "dmb osh"),
-                    0b0101 => write!(fmt, "dmb nshld"),
-                    0b0110 => write!(fmt, "dmb nshst"),
-                    0b0111 => write!(fmt, "dmb nsh"),
-                    0b1001 => write!(fmt, "dmb ishld"),
-                    0b1010 => write!(fmt, "dmb ishst"),
-                    0b1011 => write!(fmt, "dmb ish"),
-                    0b1101 => write!(fmt, "dmb ld"),
-                    0b1110 => write!(fmt, "dmb st"),
-                    0b1111 => write!(fmt, "dmb sy"),
-                    _ => write!(fmt, "dmb #{}", option)
+                    0b0001 => stream.push("dmb oshld", Colors::opcode()),
+                    0b0010 => stream.push("dmb oshst", Colors::opcode()),
+                    0b0011 => stream.push("dmb osh", Colors::opcode()),
+                    0b0101 => stream.push("dmb nshld", Colors::opcode()),
+                    0b0110 => stream.push("dmb nshst", Colors::opcode()),
+                    0b0111 => stream.push("dmb nsh", Colors::opcode()),
+                    0b1001 => stream.push("dmb ishld", Colors::opcode()),
+                    0b1010 => stream.push("dmb ishst", Colors::opcode()),
+                    0b1011 => stream.push("dmb ish", Colors::opcode()),
+                    0b1101 => stream.push("dmb ld", Colors::opcode()),
+                    0b1110 => stream.push("dmb st", Colors::opcode()),
+                    0b1111 => stream.push("dmb sy", Colors::opcode()),
+                    _ => stream.push_owned(format!("dmb #{option}"), Colors::opcode()),
                 };
             }
             Opcode::DSB(option) => {
                 return match option {
-                    0b0001 => write!(fmt, "dsb oshld"),
-                    0b0010 => write!(fmt, "dsb oshst"),
-                    0b0011 => write!(fmt, "dsb osh"),
-                    0b0101 => write!(fmt, "dsb nshld"),
-                    0b0110 => write!(fmt, "dsb nshst"),
-                    0b0111 => write!(fmt, "dsb nsh"),
-                    0b1001 => write!(fmt, "dsb ishld"),
-                    0b1010 => write!(fmt, "dsb ishst"),
-                    0b1011 => write!(fmt, "dsb ish"),
-                    0b1101 => write!(fmt, "dsb ld"),
-                    0b1110 => write!(fmt, "dsb st"),
-                    0b1111 => write!(fmt, "dsb sy"),
-                    _ => write!(fmt, "dsb #{}", option)
+                    0b0001 => stream.push("dsb oshld", Colors::opcode()),
+                    0b0010 => stream.push("dsb oshst", Colors::opcode()),
+                    0b0011 => stream.push("dsb osh", Colors::opcode()),
+                    0b0101 => stream.push("dsb nshld", Colors::opcode()),
+                    0b0110 => stream.push("dsb nshst", Colors::opcode()),
+                    0b0111 => stream.push("dsb nsh", Colors::opcode()),
+                    0b1001 => stream.push("dsb ishld", Colors::opcode()),
+                    0b1010 => stream.push("dsb ishst", Colors::opcode()),
+                    0b1011 => stream.push("dsb ish", Colors::opcode()),
+                    0b1101 => stream.push("dsb ld", Colors::opcode()),
+                    0b1110 => stream.push("dsb st", Colors::opcode()),
+                    0b1111 => stream.push("dsb sy", Colors::opcode()),
+                    _ => stream.push_owned(format!("dsb #{option}"), Colors::opcode()),
                 };
             }
             Opcode::HINT => "hint",
@@ -2562,8 +2933,87 @@ impl Display for Opcode {
             }
         };
 
-        fmt.write_str(text)
+        stream.push(text, Colors::opcode());
     }
+}
+
+fn format_register_32(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "w0", "w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10", "w11", "w12", "w13",
+        "w14", "w15", "w16", "w17", "w18", "w19", "w20", "w21", "w22", "w23", "w24", "w25", "w26",
+        "w27", "w28", "w29", "w30", "w31"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
+}
+
+fn format_register_64(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
+        "x14", "x15", "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26",
+        "x27", "x28", "x29", "x30", "x31"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
+}
+
+fn format_register_b(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "b10", "b11", "b12", "b13",
+        "b14", "b15", "b16", "b17", "b18", "b19", "b20", "b21", "b22", "b23", "b24", "b25", "b26",
+        "b27", "b28", "b29", "b30", "b31"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
+}
+
+fn format_register_h(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "h0", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10", "h11", "h12", "h13",
+        "h14", "h15", "h16", "h17", "h18", "h19", "h20", "h21", "h22", "h23", "h24", "h25", "h26",
+        "h27", "h28", "h29", "h30", "h31"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
+}
+
+fn format_register_s(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13",
+        "s14", "s15", "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23", "s24", "s25", "s26",
+        "s27", "s28", "s29", "s30", "s31"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
+}
+
+fn format_register_d(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "d10", "d11", "d12", "d13",
+        "d14", "d15", "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23", "d24", "d25", "d26",
+        "d27", "d28", "d29", "d30", "d31"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
+}
+
+fn format_register_q(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12", "q13",
+        "q14", "q15", "q16", "q17", "q18", "q19", "q20", "q21", "q22", "q23", "q24", "q25", "q26",
+        "q27", "q28", "q29", "q30", "q31"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
+}
+
+fn format_register_ctrl(stream: &mut TokenStream, reg: u16) {
+    const LOOKUP: &[&str] = &[
+        "c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13",
+        "c14", "c15"
+    ];
+
+    stream.push(LOOKUP[reg as usize], Colors::register());
 }
 
 /// the way a shift operation is carried out.
@@ -2595,21 +3045,43 @@ pub enum ShiftStyle {
     SXTX,
 }
 
-impl Display for ShiftStyle {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+impl ShiftStyle {
+    fn as_str(&self) -> &'static str {
         match self {
-            ShiftStyle::LSL => { write!(fmt, "lsl") },
-            ShiftStyle::LSR => { write!(fmt, "lsr") },
-            ShiftStyle::ASR => { write!(fmt, "asr") },
-            ShiftStyle::ROR => { write!(fmt, "ror") },
-            ShiftStyle::UXTB => { write!(fmt, "uxtb") },
-            ShiftStyle::UXTH => { write!(fmt, "uxth") },
-            ShiftStyle::UXTW => { write!(fmt, "uxtw") },
-            ShiftStyle::UXTX => { write!(fmt, "uxtx") },
-            ShiftStyle::SXTB => { write!(fmt, "sxtb") },
-            ShiftStyle::SXTH => { write!(fmt, "sxth") },
-            ShiftStyle::SXTW => { write!(fmt, "sxtw") },
-            ShiftStyle::SXTX => { write!(fmt, "sxtx") },
+            ShiftStyle::LSL => {
+                "lsl"
+            }
+            ShiftStyle::LSR => {
+                "lsr"
+            }
+            ShiftStyle::ASR => {
+                "asr"
+            }
+            ShiftStyle::ROR => { 
+               "ror" 
+            }
+            ShiftStyle::UXTB => {
+                "uxtb"
+            }
+            ShiftStyle::UXTH => {
+                "uxth"
+            }
+            ShiftStyle::UXTW => {
+                "uxtw"
+            }
+            ShiftStyle::UXTX => {
+                "uxtx"
+            }
+            ShiftStyle::SXTB => {
+                "sxtb"
+            }
+            ShiftStyle::SXTH => {
+                "sxth"
+            }
+            ShiftStyle::SXTW => {
+                "sxtw"
+            }
+            ShiftStyle::SXTX => { "sxtx" },
         }
     }
 }
@@ -2790,38 +3262,37 @@ pub enum Operand {
     PstateField(u8),
 }
 
-impl Display for Operand {
-    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+impl ToTokens for Operand {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         match self {
-            Operand::Nothing => {
-                unreachable!();
-            },
             Operand::Register(size, reg) => {
                 if *reg == 31 {
                     match size {
                         SizeCode::X => {
-                            write!(fmt, "xzr")
+                           stream.push("xzr", Colors::register());
                         },
                         SizeCode::W => {
-                            write!(fmt, "wzr")
+                            stream.push("wzr", Colors::register());
                         }
                     }
                 } else {
                     match size {
                         SizeCode::X => {
-                            write!(fmt, "x{}", reg)
+                            format_register_64(stream, *reg);
                         },
                         SizeCode::W => {
-                            write!(fmt, "w{}", reg)
+                            format_register_32(stream, *reg);
                         }
                     }
-                }
+               }
             },
             Operand::RegisterPair(size, reg) => {
-                write!(fmt, "{}, {}", Operand::Register(*size, *reg), Operand::Register(*size, *reg + 1))
+                Operand::Register(*size, *reg).tokenize(stream, symbols);
+                stream.push(", ", Colors::expr());
+                Operand::Register(*size, *reg + 1).tokenize(stream, symbols);
             },
             Operand::ControlReg(reg) => {
-                write!(fmt, "c{}", reg)
+                format_register_ctrl(stream, *reg);
             },
             Operand::PrefetchOp(op) => {
                 let ty = (op >> 3) & 0b11;
@@ -2829,21 +3300,22 @@ impl Display for Operand {
                 let policy = op & 1;
 
                 if ty == 0b11 || target == 0b11 {
-                    write!(fmt, "{:#02x}", op)
+                    stream.push_owned(format!("{:#02x}", op), Colors::immediate());
                 } else {
-                    write!(fmt, "{}{}{}",
+                    let op = format!("{}{}{}",
                         ["pld", "pli", "pst"][ty as usize],
                         ["l1", "l2", "l3"][target as usize],
                         ["keep", "strm"][policy as usize],
-                    )
+                    );
+                    stream.push_owned(op, Colors::opcode());
                 }
             }
             Operand::SystemReg(reg) => {
                 // TODO: look up system register names better
                 match reg {
-                    0x4000 => fmt.write_str("midr_el1"),
-                    0x5e82 => fmt.write_str("tpidr_el0"),
-                    0x5f02 => fmt.write_str("cntvct_el0"),
+                    0x4000 => stream.push("midr_el1", Colors::register()),
+                    0x5e82 => stream.push("tpidr_el0", Colors::register()),
+                    0x5f02 => stream.push("cntvct_el0", Colors::register()),
                     _ => {
                         // syntax for otherwise-undescribed system register names is described in
                         // MRS or similar, S<op0>_<op1>_<Cn>_<Cm>_<op2>
@@ -2853,211 +3325,271 @@ impl Display for Operand {
                         let CRn = (reg >> 7) & 0b1111;
                         let op1 = (reg >> 11) & 0b111;
                         let op0 = ((reg >> 14) & 0b1) + 2;
-                        write!(fmt, "s{op0}_{op1}_c{CRn}_c{CRm}_{op2}")
+                        
+                        stream.push_owned(format!("s{op0}"), Colors::immediate());
+                        stream.push("_", Colors::expr());
+                        stream.push_owned(format!("{op1}"), Colors::immediate());
+                        stream.push("_", Colors::expr());
+                        stream.push_owned(format!("c{CRn}"), Colors::register());
+                        stream.push("_", Colors::expr());
+                        stream.push_owned(format!("c{CRm}"), Colors::register());
+                        stream.push("_", Colors::expr());
+                        stream.push_owned(format!("{op2}"), Colors::immediate());
                     },
                 }
             }
             Operand::PstateField(reg) => {
                 // `MSR (immediate)` writes to the `PSTATE` registers, setting a few bit patterns as
                 // selected by `reg`.
-                write!(fmt, "pstate.{:#x}", reg)
+                stream.push_owned(format!("pstate.{:#x}", reg), Colors::register());
             }
             Operand::SIMDRegister(size, reg) => {
                 match size {
-                    SIMDSizeCode::B => { write!(fmt, "b{}", reg) }
-                    SIMDSizeCode::H => { write!(fmt, "h{}", reg) }
-                    SIMDSizeCode::S => { write!(fmt, "s{}", reg) }
-                    SIMDSizeCode::D => { write!(fmt, "d{}", reg) }
-                    SIMDSizeCode::Q => { write!(fmt, "q{}", reg) }
+                    SIMDSizeCode::B => format_register_b(stream, *reg),
+                    SIMDSizeCode::H => format_register_h(stream, *reg),
+                    SIMDSizeCode::S => format_register_s(stream, *reg),
+                    SIMDSizeCode::D => format_register_d(stream, *reg),
+                    SIMDSizeCode::Q => format_register_q(stream, *reg),
                 }
             }
             Operand::SIMDRegisterElements(vector_width, reg, lane_width) => {
                 let num_items = vector_width.width() / lane_width.width();
-
-                write!(fmt, "v{}.{}{}", reg, num_items, lane_width.name())
+                let op = format!("v{}.{}{}", reg, num_items, lane_width.name());
+                stream.push_owned(op, Colors::register());
             }
             Operand::SIMDRegisterElementsLane(_vector_width, reg, lane_width, lane) => {
-                write!(fmt, "v{}.{}[{}]", reg, lane_width.name(), lane)
+                let op = format!("v{}.{}[{}]", reg, lane_width.name(), lane);
+                stream.push_owned(op, Colors::register());
             }
             Operand::SIMDRegisterElementsMultipleLane(_vector_width, reg, lane_width, lane, num_lanes) => {
-                write!(fmt, "v{}.{}{}[{}]", reg, num_lanes, lane_width.name(), lane)
+                let op = format!("v{}.{}{}[{}]", reg, num_lanes, lane_width.name(), lane);
+                stream.push_owned(op, Colors::register());
             }
             Operand::SIMDRegisterGroup(vector_width, reg, lane_width, group_size) => {
                 let num_items = vector_width.width() / lane_width.width();
-                let format_reg = |f: &mut fmt::Formatter, reg, elems, lane_size: SIMDSizeCode| {
-                    write!(f, "v{}.{}{}", reg, elems, lane_size.name())
+                let format_reg = |stream: &mut TokenStream, reg, elems, lane_size: SIMDSizeCode| {
+                    let op = format!("v{}.{}{}", reg, elems, lane_size.name());
+                    stream.push_owned(op, Colors::register());
                 };
 
-                fmt.write_str("{")?;
-                format_reg(fmt, *reg, num_items, *lane_width)?;
+                stream.push("{", Colors::brackets());
+                format_reg(stream, *reg, num_items, *lane_width);
                 for i in 1..*group_size {
-                    fmt.write_str(", ")?;
-                    format_reg(fmt, (*reg + i as u16) % 32, num_items, *lane_width)?;
+                    stream.push(", ", Colors::expr());
+                    format_reg(stream, (*reg + i as u16) % 32, num_items, *lane_width);
                 }
-                fmt.write_str("}")?;
-
-                Ok(())
+                stream.push("}", Colors::brackets());
             }
             Operand::SIMDRegisterGroupLane(reg, lane_width, group_size, lane) => {
-                let format_reg = |f: &mut fmt::Formatter, reg, lane_size: SIMDSizeCode| {
-                    write!(f, "v{}.{}", reg, lane_size.name())
+                let format_reg = |stream: &mut TokenStream, reg, lane_size: SIMDSizeCode| {
+                    let op = format!("v{}.{}", reg, lane_size.name());
+                    stream.push_owned(op, Colors::register());
                 };
 
-                fmt.write_str("{")?;
-                format_reg(fmt, *reg, *lane_width)?;
+                stream.push("{", Colors::brackets());
+                format_reg(stream, *reg, *lane_width);
                 for i in 1..*group_size {
-                    fmt.write_str(", ")?;
-                    format_reg(fmt, (*reg + i as u16) % 32, *lane_width)?;
+                    stream.push(", ", Colors::expr());
+                    format_reg(stream, (*reg + i as u16) % 32, *lane_width);
                 }
-                fmt.write_str("}")?;
-                write!(fmt, "[{}]", lane)?;
-
-                Ok(())
+                stream.push("}[", Colors::brackets());
+                stream.push_owned(lane.to_string(), Colors::register());
+                stream.push("]", Colors::brackets());
             }
             Operand::RegisterOrSP(size, reg) => {
                 if *reg == 31 {
                     match size {
                         SizeCode::X => {
-                            write!(fmt, "sp")
+                            stream.push("sp", Colors::register());
                         },
                         SizeCode::W => {
-                            write!(fmt, "wsp")
+                            stream.push("wsp", Colors::register());
                         }
                     }
                 } else {
                     match size {
                         SizeCode::X => {
-                            write!(fmt, "x{}", reg)
+                            format_register_64(stream, *reg);
                         },
                         SizeCode::W => {
-                            write!(fmt, "w{}", reg)
+                            format_register_32(stream, *reg);
                         }
                     }
                 }
             },
             Operand::ConditionCode(cond) => {
                 match cond {
-                    0b0000 => { write!(fmt, "eq") }
-                    0b0010 => { write!(fmt, "hs") }
-                    0b0100 => { write!(fmt, "mi") }
-                    0b0110 => { write!(fmt, "vs") }
-                    0b1000 => { write!(fmt, "hi") }
-                    0b1010 => { write!(fmt, "ge") }
-                    0b1100 => { write!(fmt, "gt") }
-                    0b1110 => { write!(fmt, "al") }
-                    0b0001 => { write!(fmt, "ne") }
-                    0b0011 => { write!(fmt, "lo") }
-                    0b0101 => { write!(fmt, "pl") }
-                    0b0111 => { write!(fmt, "vc") }
-                    0b1001 => { write!(fmt, "ls") }
-                    0b1011 => { write!(fmt, "lt") }
-                    0b1101 => { write!(fmt, "le") }
-                    0b1111 => { write!(fmt, "nv") } // `The Condition code NV exists only to provide a valid disassembly of the 0b1111 encoding, otherwise its behavior is identical to AL`.
-                    _ => { unreachable!(); }
+                    0b0000 => stream.push("eq", Colors::opcode()),
+                    0b0010 => stream.push("hs", Colors::opcode()),
+                    0b0100 => stream.push("mi", Colors::opcode()),
+                    0b0110 => stream.push("vs", Colors::opcode()),
+                    0b1000 => stream.push("hi", Colors::opcode()),
+                    0b1010 => stream.push("ge", Colors::opcode()),
+                    0b1100 => stream.push("gt", Colors::opcode()),
+                    0b1110 => stream.push("al", Colors::opcode()),
+                    0b0001 => stream.push("ne", Colors::opcode()),
+                    0b0011 => stream.push("lo", Colors::opcode()),
+                    0b0101 => stream.push("pl", Colors::opcode()),
+                    0b0111 => stream.push("vc", Colors::opcode()),
+                    0b1001 => stream.push("ls", Colors::opcode()),
+                    0b1011 => stream.push("lt", Colors::opcode()),
+                    0b1101 => stream.push("le", Colors::opcode()),
+                    // `The Condition code NV exists only to provide a valid disassembly of the
+                    // 0b1111 encoding, otherwise its behavior is identical to AL`.
+                    0b1111 => stream.push("nv", Colors::opcode()),
+                    _ => unreachable!(),
                 }
             }
             Operand::PCOffset(offs) => {
-                if *offs < 0 {
-                    write!(fmt, "$-{:#x}", offs.wrapping_neg())
+                if *offs >= 0 {
+                    stream.push("$", Colors::expr());
+                    stream.push("+", Colors::immediate());
                 } else {
-                    write!(fmt, "$+{:#x}", offs)
+                    stream.push("$", Colors::expr());
                 }
+                stream.push_owned(decoder::encode_hex(*offs), Colors::immediate());
             }
             Operand::Immediate(i) => {
-                write!(fmt, "#{:#x}", *i)
+                stream.push("#", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
             },
             Operand::ImmediateDouble(d) => {
                 if *d as i64 as f64 == *d {
-                    write!(fmt, "#{:0.1}", d)
+                    let imm = format!("#{d:0.1}");
+                    stream.push_owned(imm, Colors::immediate());
                 } else {
-                    write!(fmt, "#{:0.}", d)
+                    let imm = format!("#{d:0.}");
+                    stream.push_owned(imm, Colors::immediate());
                 }
             },
             Operand::Imm16(i) => {
-                write!(fmt, "#{:#x}", *i)
+                stream.push("#", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
             },
             Operand::Imm64(i) => {
-                write!(fmt, "#{:#x}", *i)
+                stream.push("#", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
             },
             Operand::ImmShift(i, shift) => {
-                match shift {
-                    0 => {
-                        write!(fmt, "#{:#x}", *i)
-                    },
-                    _ => {
-                        write!(fmt, "#{:#x}, lsl #{}", i, shift)
-                    }
+                stream.push("#", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+
+                if *shift != 0 {
+                    stream.push(", ", Colors::expr());
+                    stream.push("lsl ", Colors::opcode());
+                    stream.push("#", Colors::expr());
+                    stream.push_owned(shift.to_string(), Colors::immediate());
                 }
             },
             Operand::ImmShiftMSL(i, shift) => {
-                match shift {
-                    0 => {
-                        write!(fmt, "#{:#x}", *i)
-                    },
-                    _ => {
-                        write!(fmt, "#{:#x}, msl #{}", i, shift)
-                    }
+                stream.push("#", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+
+                if *shift != 0 {
+                    stream.push(", ", Colors::expr());
+                    stream.push("msl ", Colors::opcode());
+                    stream.push("#", Colors::expr());
+                    stream.push_owned(shift.to_string(), Colors::immediate());
                 }
             },
             Operand::RegShift(shift_type, amount, size, reg) => {
                 match size {
                     SizeCode::X => {
                         if (*shift_type == ShiftStyle::LSL || *shift_type == ShiftStyle::UXTX) && *amount == 0 {
-                            write!(fmt, "{}", Operand::Register(SizeCode::X, *reg))
+                            Operand::Register(SizeCode::X, *reg).tokenize(stream, symbols);
                         } else if *amount != 0 {
-                            write!(fmt, "{}, {} #{}", Operand::Register(SizeCode::X, *reg), shift_type, amount)
+                            Operand::Register(SizeCode::X, *reg).tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            stream.push(shift_type.as_str(), Colors::opcode());
+                            stream.push(" ", Colors::expr());
+                            stream.push("#", Colors::expr());
+                            stream.push_owned(amount.to_string(), Colors::immediate());
                         } else {
-                            write!(fmt, "{}, {}", Operand::Register(SizeCode::X, *reg), shift_type)
+                            Operand::Register(SizeCode::X, *reg).tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            stream.push(shift_type.as_str(), Colors::opcode());
                         }
                     },
                     SizeCode::W => {
                         if *shift_type == ShiftStyle::LSL && *amount == 0 {
-                            write!(fmt, "{}", Operand::Register(SizeCode::W, *reg))
+                            Operand::Register(SizeCode::W, *reg).tokenize(stream, symbols);
                         } else if *amount != 0 {
-                            write!(fmt, "{}, {} #{}", Operand::Register(SizeCode::W, *reg), shift_type, amount)
+                            Operand::Register(SizeCode::W, *reg).tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            stream.push(shift_type.as_str(), Colors::opcode());
+                            stream.push(" ", Colors::expr());
+                            stream.push("#", Colors::expr());
+                            stream.push_owned(amount.to_string(), Colors::immediate());
                         } else {
-                            write!(fmt, "{}, {}", Operand::Register(SizeCode::W, *reg), shift_type)
+                            Operand::Register(SizeCode::W, *reg).tokenize(stream, symbols);
+                            stream.push(", ", Colors::expr());
+                            stream.push(shift_type.as_str(), Colors::opcode());
                         }
                     }
                 }
             }
             Operand::RegRegOffset(reg, index_reg, index_size, extend, amount) => {
                 if extend == &ShiftStyle::LSL && *amount == 0 {
-                    write!(fmt, "[{}, {}]", Operand::RegisterOrSP(SizeCode::X, *reg), Operand::Register(*index_size, *index_reg))
+                    stream.push("[", Colors::expr());
+                    Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
+                    stream.push("]", Colors::expr());
                 } else if ((extend == &ShiftStyle::UXTW && index_size == &SizeCode::W) ||
                            (extend == &ShiftStyle::UXTX && index_size == &SizeCode::X)) &&
                            *amount == 0 {
-                    write!(fmt, "[{}, {}, {}]", Operand::RegisterOrSP(SizeCode::X, *reg), Operand::Register(*index_size, *index_reg), extend)
+                    stream.push("[", Colors::expr());
+                    Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    stream.push(extend.as_str(), Colors::opcode());
+                    stream.push("]", Colors::expr());
                 } else {
-                    write!(fmt, "[{}, {}, {} #{}]", Operand::RegisterOrSP(SizeCode::X, *reg), Operand::Register(*index_size, *index_reg), extend, amount)
+                    stream.push("[", Colors::expr());
+                    Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    stream.push(extend.as_str(), Colors::opcode());
+                    stream.push(" ", Colors::expr());
+                    stream.push("#", Colors::expr());
+                    stream.push_owned(amount.to_string(), Colors::immediate());
+                    stream.push("]", Colors::expr());
                 }
             }
             Operand::RegPreIndex(reg, offset, wback_bit) => {
-                let wback = if *wback_bit {
-                    "!"
-                } else {
-                    ""
-                };
                 if *offset != 0 || *wback_bit {
-                    if *offset < 0 {
-                        write!(fmt, "[{}, #-{:#x}]{}", Operand::RegisterOrSP(SizeCode::X, *reg), -*offset, wback)
-                    } else {
-                        write!(fmt, "[{}, #{:#x}]{}", Operand::RegisterOrSP(SizeCode::X, *reg), offset, wback)
+                    stream.push("[", Colors::expr());
+                    Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
+                    stream.push(", ", Colors::expr());
+                    stream.push("#", Colors::expr());
+                    stream.push_owned(decoder::encode_hex(*offset as i64), Colors::immediate());
+                    stream.push("]", Colors::expr());
+
+                    if *wback_bit {
+                        stream.push("!", Colors::expr());
                     }
                 } else {
-                    write!(fmt, "[{}]", Operand::RegisterOrSP(SizeCode::X, *reg))
+                    stream.push("[", Colors::expr());
+                    Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
+                    stream.push("]", Colors::expr());
                 }
             }
             Operand::RegPostIndex(reg, offset) => {
-                if *offset < 0 {
-                    write!(fmt, "[{}], #-{:#x}", Operand::RegisterOrSP(SizeCode::X, *reg), -*offset)
-                } else {
-                    write!(fmt, "[{}], #{:#x}", Operand::RegisterOrSP(SizeCode::X, *reg), offset)
-                }
+                stream.push("[", Colors::expr());
+                Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
+                stream.push("], ", Colors::expr());
+                stream.push("#", Colors::expr());
+                stream.push_owned(decoder::encode_hex(*offset as i64), Colors::immediate());
             }
             Operand::RegPostIndexReg(reg, offset_reg) => {
-                write!(fmt, "[{}], x{}", Operand::RegisterOrSP(SizeCode::X, *reg), offset_reg)
+                stream.push("[", Colors::expr());
+                Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
+                stream.push("], ", Colors::expr());
+                format_register_64(stream, *offset_reg);
             }
+            Operand::Nothing => panic!("Tried to format nothing opcode"),
         }
     }
 }
