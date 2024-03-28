@@ -9,7 +9,7 @@ use core::fmt::{self, Display, Formatter};
 
 use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens, TokenStream};
 use symbols::Index;
-use tokenizing::{ColorScheme, Colors};
+use tokenizing::{colors, ColorScheme, Colors};
 
 #[allow(non_snake_case)]
 mod docs {
@@ -232,7 +232,22 @@ impl Decoded for Instruction {
         4
     }
 
-    fn update_rel_addrs(&mut self, _addr: usize) {}
+    fn update_rel_addrs(&mut self, addr: usize) {
+        for operand in self.operands.iter_mut() {
+            match operand {
+                Operand::PCOffset(offs) => {
+                    let addr = (addr as u64).saturating_add_signed(*offs);
+                    *operand = Operand::Imm64(addr);
+                }
+                // stack pointer
+                // Operand::RegisterOrSP(_, 31) => {
+                //     let addr = (addr as u64).saturating_add_signed(*offs);
+                //     *operand = Operand::Imm64(addr);
+                // }
+                _ => {}
+            }
+        }
+    }
 }
 
 impl Display for Instruction {
@@ -3450,8 +3465,19 @@ impl ToTokens for Operand {
                 stream.push_owned(decoder::encode_hex(*offs), Colors::immediate());
             }
             Operand::Immediate(i) => {
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                match symbols.get_by_addr(*i as usize) {
+                    Some(symbol) => {
+                        stream.push("<", colors::BLUE);
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                        stream.push(">", colors::BLUE);
+                    }
+                    None => {
+                        stream.push("#", Colors::expr());
+                        stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                    }
+                }
             },
             Operand::ImmediateDouble(d) => {
                 if *d as i64 as f64 == *d {
@@ -3463,12 +3489,34 @@ impl ToTokens for Operand {
                 }
             },
             Operand::Imm16(i) => {
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                match symbols.get_by_addr(*i as usize) {
+                    Some(symbol) => {
+                        stream.push("<", colors::BLUE);
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                        stream.push(">", colors::BLUE);
+                    }
+                    None => {
+                        stream.push("#", Colors::expr());
+                        stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                    }
+                }
             },
             Operand::Imm64(i) => {
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                match symbols.get_by_addr(*i as usize) {
+                    Some(symbol) => {
+                        stream.push("<", colors::BLUE);
+                        for token in symbol.name() {
+                            stream.push_token(token.clone());
+                        }
+                        stream.push(">", colors::BLUE);
+                    }
+                    None => {
+                        stream.push("#", Colors::expr());
+                        stream.push_owned(decoder::encode_uhex(*i as u64), Colors::immediate());
+                    }
+                }
             },
             Operand::ImmShift(i, shift) => {
                 stream.push("#", Colors::expr());
@@ -3530,23 +3578,23 @@ impl ToTokens for Operand {
             }
             Operand::RegRegOffset(reg, index_reg, index_size, extend, amount) => {
                 if extend == &ShiftStyle::LSL && *amount == 0 {
-                    stream.push("[", Colors::expr());
+                    stream.push("[", Colors::brackets());
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
                     stream.push(", ", Colors::expr());
                     Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
-                    stream.push("]", Colors::expr());
+                    stream.push("]", Colors::brackets());
                 } else if ((extend == &ShiftStyle::UXTW && index_size == &SizeCode::W) ||
                            (extend == &ShiftStyle::UXTX && index_size == &SizeCode::X)) &&
                            *amount == 0 {
-                    stream.push("[", Colors::expr());
+                    stream.push("[", Colors::brackets());
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
                     stream.push(", ", Colors::expr());
                     Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
                     stream.push(", ", Colors::expr());
                     stream.push(extend.as_str(), Colors::opcode());
-                    stream.push("]", Colors::expr());
+                    stream.push("]", Colors::brackets());
                 } else {
-                    stream.push("[", Colors::expr());
+                    stream.push("[", Colors::brackets());
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
                     stream.push(", ", Colors::expr());
                     Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
@@ -3555,36 +3603,36 @@ impl ToTokens for Operand {
                     stream.push(" ", Colors::expr());
                     stream.push("#", Colors::expr());
                     stream.push_owned(amount.to_string(), Colors::immediate());
-                    stream.push("]", Colors::expr());
+                    stream.push("]", Colors::brackets());
                 }
             }
             Operand::RegPreIndex(reg, offset, wback_bit) => {
                 if *offset != 0 || *wback_bit {
-                    stream.push("[", Colors::expr());
+                    stream.push("[", Colors::brackets());
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
                     stream.push(", ", Colors::expr());
                     stream.push("#", Colors::expr());
                     stream.push_owned(decoder::encode_hex(*offset as i64), Colors::immediate());
-                    stream.push("]", Colors::expr());
+                    stream.push("]", Colors::brackets());
 
                     if *wback_bit {
                         stream.push("!", Colors::expr());
                     }
                 } else {
-                    stream.push("[", Colors::expr());
+                    stream.push("[", Colors::brackets());
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                    stream.push("]", Colors::expr());
+                    stream.push("]", Colors::brackets());
                 }
             }
             Operand::RegPostIndex(reg, offset) => {
-                stream.push("[", Colors::expr());
+                stream.push("[", Colors::brackets());
                 Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
                 stream.push("], ", Colors::expr());
                 stream.push("#", Colors::expr());
                 stream.push_owned(decoder::encode_hex(*offset as i64), Colors::immediate());
             }
             Operand::RegPostIndexReg(reg, offset_reg) => {
-                stream.push("[", Colors::expr());
+                stream.push("[", Colors::brackets());
                 Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
                 stream.push("], ", Colors::expr());
                 format_register_64(stream, *offset_reg);
