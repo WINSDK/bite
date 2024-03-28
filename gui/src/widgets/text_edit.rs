@@ -920,21 +920,14 @@ fn events(
     for event in &events {
         let did_mutate_text = match event {
             Event::Copy => {
-                if cursor_range.is_empty() {
-                    copy_if_not_password(ui, text.as_str().to_owned());
-                } else {
-                    copy_if_not_password(ui, selected_str(text, &cursor_range).to_owned());
-                }
+                str_strip_ending_newline(text, &mut cursor_range);
+                copy_if_not_password(ui, selected_str(text, &cursor_range).to_owned());
                 None
             }
             Event::Cut => {
-                if cursor_range.is_empty() {
-                    copy_if_not_password(ui, text.take());
-                    Some(CCursorRange::default())
-                } else {
-                    copy_if_not_password(ui, selected_str(text, &cursor_range).to_owned());
-                    Some(CCursorRange::one(delete_selected(text, &cursor_range)))
-                }
+                str_strip_ending_newline(text, &mut cursor_range);
+                copy_if_not_password(ui, selected_str(text, &cursor_range).to_owned());
+                Some(CCursorRange::one(delete_selected(text, &cursor_range)))
             }
             Event::Paste(text_to_insert) => {
                 if !text_to_insert.is_empty() {
@@ -1186,9 +1179,24 @@ fn paint_cursor_end(
 
 // ----------------------------------------------------------------------------
 
+fn str_strip_ending_newline<'s>(text: &'s dyn TextBuffer, cursor_range: &mut CursorRange) {
+    let [_, max] = cursor_range.sorted_cursors();
+
+    // If the cursor ends in a newline.
+    if text.char_range(max.ccursor.index..max.ccursor.index + 1) == "\n" {
+        // strip the character
+        if cursor_range.is_sorted() {
+            cursor_range.secondary.ccursor.index -= 1;
+        } else {
+            cursor_range.primary.ccursor.index -= 1;
+        }
+    }
+}
+
 fn selected_str<'s>(text: &'s dyn TextBuffer, cursor_range: &CursorRange) -> &'s str {
     let [min, max] = cursor_range.sorted_cursors();
-    text.char_range(min.ccursor.index..max.ccursor.index)
+    // Add one to account for the block cursor.
+    text.char_range(min.ccursor.index..max.ccursor.index + 1)
 }
 
 fn insert_text(
