@@ -8,7 +8,7 @@ use std::sync::Arc;
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
 use object::endian::Endian;
 use object::read::elf::{ElfFile, FileHeader};
-use object::read::macho::{MachHeader, MachOFile};
+use object::read::macho::{MachHeader, MachOFile, Nlist, SymbolTable};
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::read::File as ObjectFile;
 use object::LittleEndian as LE;
@@ -704,7 +704,70 @@ impl Index {
         Ok(())
     }
 
-    fn parse_macho_imports<H: MachHeader>(&mut self, _obj: &MachOFile<H>) -> Result<(), Error> {
+    fn parse_macho_imports<H: MachHeader>(&mut self, obj: &MachOFile<H>) -> Result<(), Error> {
+        let header = obj.raw_header();
+
+        let mut dysymtab = None;
+        let mut symtab = None;
+        let mut libraries = Vec::new();
+        let twolevel = header.flags(obj.endian()) & object::macho::MH_TWOLEVEL != 0;
+        if twolevel {
+            libraries.push(&[][..]);
+        }
+
+        let mut cmds = header.load_commands(header.endian()?, obj.data(), 0)?;
+
+        while let Some(cmd) = cmds.next()? {
+            if let Some(command) = cmd.dysymtab()? {
+                dysymtab = Some(command);
+            }
+            if let Some(command) = cmd.symtab()? {
+                symtab = Some(command);
+            }
+            if twolevel {
+                if let Some(dylib) = cmd.dylib()? {
+                    libraries.push(cmd.string(obj.endian(), dylib.dylib.name)?);
+                }
+            }
+        }
+
+        let stub = obj.section_by_name_bytes(b"__stubs");
+
+        if let (Some(symtab), Some(dysymtab), Some(stub)) = (symtab, dysymtab, stub) {
+            let symtab: SymbolTable<H, &[u8]> = symtab.symbols(obj.endian(), obj.data())?;
+            let idx = dysymtab.iundefsym.get(obj.endian()) as usize;
+            let number = dysymtab.nundefsym.get(obj.endian()) as usize;
+            for jdx in idx..(idx.wrapping_add(number)) {
+                let symbol: &H::Nlist = symtab.symbol(jdx)?;
+                let name = symbol.name(obj.endian(), symtab.strings())?;
+                let library = if twolevel {
+                    libraries
+                        .get(symbol.library_ordinal(obj.endian()) as usize)
+                        .copied()
+                        .unwrap_or_default()
+                } else {
+                    &[]
+                };
+
+                let name = match std::str::from_utf8(name) {
+                    Ok(name) => name,
+                    Err(..) => continue,
+                };
+
+                // Strip path prefix.
+                let module = String::from_utf8_lossy(library);
+                let module = module.rsplit_once("/").map(|x| x.1).unwrap_or(&module).to_string();
+
+                let func = Function::new(parser(name), Some(module));
+
+                // Each stub entry appears to be 12 bytes, so the address is calculated
+                // as (__stub section addr) + (symbol index) * 12.
+                let addr = stub.address() as PhysAddr + (jdx - idx) * 12;
+
+                self.insert(addr, func);
+            }
+        }
+
         Ok(())
     }
 
