@@ -10,7 +10,7 @@ use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, H
 use crate::common::*;
 use crate::widgets::TextSelection;
 use commands::CONFIG;
-use symbols::FileAttr;
+use debugvault::FileAttr;
 use tokenizing::colors;
 
 pub struct Source {

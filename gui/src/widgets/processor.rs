@@ -118,7 +118,7 @@ impl ProcessorView {
 
         let mut error = processor.error_by_addr(addr);
         let mut instruction = processor.instruction_by_addr(addr);
-        let function = processor.index.get_by_addr(addr);
+        let function = processor.index.get_func_by_addr(addr);
 
         // annotations require one line spacing
         if section.start == addr || function.is_some() {

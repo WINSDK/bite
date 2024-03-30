@@ -2,7 +2,7 @@ use crate::common::*;
 use crate::style::EGUI;
 use crate::widgets::TextSelection;
 
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::colors;
 
 use egui::text::LayoutJob;

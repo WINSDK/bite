@@ -5,7 +5,7 @@ use decoder::{Decodable, ToTokens};
 fn test_display(bytes: &[u8], str: &str) {
     let mut reader = decoder::Reader::new(bytes);
     let mut line = decoder::TokenStream::new();
-    let symbols = symbols::Index::default();
+    let symbols = debugvault::Index::default();
     let decoder = crate::Decoder::default();
 
     let decoded = match decoder.decode(&mut reader) {

@@ -7,7 +7,7 @@ use crate::safer_unchecked::GetSaferUnchecked as _;
 use crate::{Number, MEM_SIZE_STRINGS};
 
 use decoder::ToTokens;
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::{ColorScheme, Colors};
 
 impl fmt::Display for Decoder {
@@ -258,7 +258,7 @@ impl Operand {
         addr: usize,
     ) -> bool {
         match *self {
-            Operand::ImmediateI8(_) => match symbols.get_by_addr(addr) {
+            Operand::ImmediateI8(_) => match symbols.get_func_by_addr(addr) {
                 Some(symbol) => {
                     for token in symbol.name() {
                         stream.push_token(token.clone());
@@ -269,7 +269,7 @@ impl Operand {
                     stream.push_owned(text, Colors::immediate());
                 }
             },
-            Operand::ImmediateU8(_) => match symbols.get_by_addr(addr) {
+            Operand::ImmediateU8(_) => match symbols.get_func_by_addr(addr) {
                 Some(symbol) => {
                     for token in symbol.name() {
                         stream.push_token(token.clone());
@@ -280,7 +280,7 @@ impl Operand {
                     stream.push_owned(text, Colors::immediate());
                 }
             },
-            Operand::ImmediateI16(_) => match symbols.get_by_addr(addr) {
+            Operand::ImmediateI16(_) => match symbols.get_func_by_addr(addr) {
                 Some(symbol) => {
                     for token in symbol.name() {
                         stream.push_token(token.clone());
@@ -291,7 +291,7 @@ impl Operand {
                     stream.push_owned(text, Colors::immediate());
                 }
             },
-            Operand::ImmediateU16(_) => match symbols.get_by_addr(addr) {
+            Operand::ImmediateU16(_) => match symbols.get_func_by_addr(addr) {
                 Some(symbol) => {
                     for token in symbol.name() {
                         stream.push_token(token.clone());
@@ -302,7 +302,7 @@ impl Operand {
                     stream.push_owned(text, Colors::immediate());
                 }
             },
-            Operand::ImmediateI32(_) => match symbols.get_by_addr(addr) {
+            Operand::ImmediateI32(_) => match symbols.get_func_by_addr(addr) {
                 Some(symbol) => {
                     for token in symbol.name() {
                         stream.push_token(token.clone());
@@ -313,7 +313,7 @@ impl Operand {
                     stream.push_owned(text, Colors::immediate());
                 }
             },
-            Operand::ImmediateU32(_) => match symbols.get_by_addr(addr) {
+            Operand::ImmediateU32(_) => match symbols.get_func_by_addr(addr) {
                 Some(symbol) => {
                     for token in symbol.name() {
                         stream.push_token(token.clone());
@@ -326,7 +326,7 @@ impl Operand {
             },
             Operand::DisplacementU32(_) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         dbg!(symbol.as_str());
                         for token in symbol.name() {
@@ -342,7 +342,7 @@ impl Operand {
             }
             Operand::RegDisp(ref spec, disp) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -357,7 +357,7 @@ impl Operand {
             }
             Operand::RegScale(ref spec, scale) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -373,7 +373,7 @@ impl Operand {
             }
             Operand::RegScaleDisp(ref spec, scale, disp) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -390,7 +390,7 @@ impl Operand {
             }
             Operand::RegIndexBase(ref base, ref index) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -406,7 +406,7 @@ impl Operand {
             }
             Operand::RegIndexBaseDisp(ref base, ref index, disp) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -423,7 +423,7 @@ impl Operand {
             }
             Operand::RegIndexBaseScale(ref base, ref index, scale) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -441,7 +441,7 @@ impl Operand {
             }
             Operand::RegIndexBaseScaleDisp(ref base, ref index, scale, disp) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -460,7 +460,7 @@ impl Operand {
             }
             Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -479,7 +479,7 @@ impl Operand {
             }
             Operand::RegScaleMasked(ref spec, scale, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -499,7 +499,7 @@ impl Operand {
             }
             Operand::RegScaleDispMasked(ref spec, scale, disp, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -521,7 +521,7 @@ impl Operand {
             }
             Operand::RegIndexBaseMasked(ref base, ref index, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -541,7 +541,7 @@ impl Operand {
             }
             Operand::RegIndexBaseDispMasked(ref base, ref index, disp, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -563,7 +563,7 @@ impl Operand {
             }
             Operand::RegIndexBaseScaleMasked(ref base, ref index, scale, ref mask_reg) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());
@@ -591,7 +591,7 @@ impl Operand {
                 ref mask_reg,
             ) => {
                 stream.push("[", Colors::brackets());
-                match symbols.get_by_addr(addr) {
+                match symbols.get_func_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());

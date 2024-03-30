@@ -139,7 +139,7 @@ struct Context<'src> {
     src: &'src str,
 
     /// Symbol lookup table.
-    index: &'src symbols::Index,
+    index: &'src debugvault::Index,
 
     /// Offset into input string.
     offset: usize,
@@ -153,7 +153,7 @@ struct Context<'src> {
 
 impl<'src> Context<'src> {
     /// Create's a new [`Context`].
-    pub fn new(index: &'src symbols::Index, src: &'src str, cursor: usize) -> Self {
+    pub fn new(index: &'src debugvault::Index, src: &'src str, cursor: usize) -> Self {
         Self {
             src,
             index,
@@ -393,7 +393,7 @@ impl<'src> Context<'src> {
 
 impl Command {
     pub fn parse(
-        index: &symbols::Index,
+        index: &debugvault::Index,
         s: &str,
         cursor: usize,
     ) -> Result<Self, (Error, Vec<String>)> {
@@ -405,11 +405,11 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use symbols::{Function, TokenStream};
+    use debugvault::{Function, TokenStream};
 
     macro_rules! eval_eq {
         ($expr:expr, $expected:expr) => {{
-            let index = symbols::Index::default();
+            let index = debugvault::Index::default();
 
             match Command::parse(&index, $expr, 0) {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
@@ -419,7 +419,7 @@ mod tests {
 
         ([$($function:expr; $addr:expr),*], $expr:expr, $expected:expr) => {{
             #[allow(unused_mut)]
-            let mut index = symbols::Index::default();
+            let mut index = debugvault::Index::default();
 
             $(
                 let f = Function::new(TokenStream::simple($function), None);

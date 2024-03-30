@@ -40,7 +40,7 @@ fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
     }
 
     let mut reader = Reader::new(data);
-    let symbols = symbols::Index::default();
+    let symbols = debugvault::Index::default();
     match dekoder.decode(&mut reader) {
         Ok(instr) => {
             instr.tokenize(&mut stream, &symbols);

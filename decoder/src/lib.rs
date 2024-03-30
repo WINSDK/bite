@@ -1,7 +1,7 @@
 //! Shared behaviour required between decoder crates.
 
 use std::fmt::Debug;
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::{Color, Token};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]

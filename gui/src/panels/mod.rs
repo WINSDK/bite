@@ -139,7 +139,7 @@ impl Panels {
     }
 
     pub fn load_source(&mut self, addr: usize) {
-        let file_attr = match self.processor().and_then(|proc| proc.index.get_file(addr)) {
+        let file_attr = match self.processor().and_then(|proc| proc.index.get_file_by_addr(addr)) {
             Some(file_attr) => file_attr,
             None => return,
         };
@@ -174,7 +174,7 @@ impl Panels {
     }
 
     pub fn handle_events(&mut self, events: &mut Vec<egui::Event>) {
-        let empty_index = symbols::Index::default();
+        let empty_index = debugvault::Index::default();
         let index = self.tabs.processor.as_ref().map(|proc| &proc.index).unwrap_or(&empty_index);
 
         self.tabs.terminal.record_input(events, index);

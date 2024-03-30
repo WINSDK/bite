@@ -3,7 +3,7 @@
 mod tests;
 
 use decoder::{Error, ErrorKind};
-use symbols::Index;
+use debugvault::Index;
 use std::borrow::Cow;
 use tokenizing::{ColorScheme, Colors};
 

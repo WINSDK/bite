@@ -13,7 +13,7 @@ pub use crate::MemoryAccessSize;
 
 use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
 use tokenizing::{ColorScheme, Colors};
-use symbols::Index;
+use debugvault::Index;
 
 /// an `x86` register, including its number and type. if `fmt` is enabled, name too.
 ///

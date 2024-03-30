@@ -12,7 +12,7 @@ use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked
 pub use crate::MemoryAccessSize;
 
 use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::{ColorScheme, Colors};
 
 /// an `x86_64` register, including its number and type. if `fmt` is enabled, name too.

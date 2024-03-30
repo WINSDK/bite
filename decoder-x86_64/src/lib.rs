@@ -11,7 +11,7 @@ pub mod long_mode;
 pub mod protected_mode;
 mod safer_unchecked;
 
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::{ColorScheme, Colors};
 
 const MEM_SIZE_STRINGS: [&str; 64] = [

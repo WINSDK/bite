@@ -4,7 +4,7 @@
 use core::fmt::{self, Display, Formatter};
 
 use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens, TokenStream};
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::{colors, ColorScheme, Colors};
 
 mod thumb;
@@ -1732,7 +1732,7 @@ impl Operand {
                 }
             }
             Operand::Imm12(imm) => {
-                match symbols.get_by_addr(*imm as usize) {
+                match symbols.get_func_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -1746,7 +1746,7 @@ impl Operand {
                 }
             }
             Operand::Imm32(imm) => {
-                match symbols.get_by_addr(*imm as usize) {
+                match symbols.get_func_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -1760,7 +1760,7 @@ impl Operand {
                 }
             }
             Operand::Imm64(imm) => {
-                match symbols.get_by_addr(*imm as usize) {
+                match symbols.get_func_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {

@@ -9,7 +9,7 @@ impl<Arch: crate::Target> super::UI<Arch> {
 
     /// Runs a singular commands, returning if it should exit the process.
     fn process_cmd(&mut self, cmd: &str) -> bool {
-        let empty_index = symbols::Index::default();
+        let empty_index = debugvault::Index::default();
         let index = self.panels.processor().map(|proc| &proc.index).unwrap_or(&empty_index);
 
         match Command::parse(index, cmd, 0) {

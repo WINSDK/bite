@@ -10,7 +10,7 @@ object = { workspace = true }
 commands = { path = "./commands" }
 log = { path = "./log" }
 gui = { path = "./gui" }
-symbols = { path = "./symbols" }
+debugvault = { path = "./debugvault" }
 
 [package.metadata.bundle]
 name = "bite"
@@ -40,7 +40,7 @@ members = [
     "decoder-arm",
     "decoder-riscv",
     "decoder-mips",
-    "symbols",
+    "debugvault",
     "processor",
     "processor_shared"
 ]

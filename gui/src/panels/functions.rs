@@ -16,7 +16,7 @@ pub struct Functions {
 
 impl Functions {
     pub fn new(processor: Arc<Processor>) -> Self {
-        let function_count = processor.index.named_len();
+        let function_count = processor.index.named_funcs_count();
 
         Self {
             processor,
@@ -28,12 +28,12 @@ impl Functions {
     }
 }
 
-fn tokenize_functions(index: &symbols::Index, range: std::ops::Range<usize>) -> Vec<Token> {
+fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
 
     let lines_to_read = range.end - range.start;
     let lines = index
-        .iter()
+        .functions()
         .filter(|(_, func)| !func.intrinsic())
         .skip(range.start)
         .take(lines_to_read + 10);
@@ -66,7 +66,7 @@ impl Display for Functions {
             if row_range != (self.min_row..self.max_row) {
                 let functions = tokenize_functions(&self.processor.index, row_range.clone());
                 self.lines = tokens_to_layoutjob(functions);
-                self.lines_count = self.processor.index.named_len();
+                self.lines_count = self.processor.index.named_funcs_count();
                 self.min_row = row_range.start;
                 self.max_row = row_range.end;
             }

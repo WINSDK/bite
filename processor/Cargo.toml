@@ -9,7 +9,7 @@ object = { workspace = true }
 log = { path = "../log" }
 processor_shared = { path = "../processor_shared" }
 tokenizing = { path = "../tokenizing" }
-symbols = { path = "../symbols" }
+debugvault = { path = "../debugvault" }
 decoder = { path = "../decoder" }
 arm = { path = "../decoder-arm" }
 x86_64 = { path = "../decoder-x86_64" }

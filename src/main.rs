@@ -34,22 +34,24 @@ fn main() {
     let obj = object::File::parse(&*binary).expect("Not a valid object.");
     let path = ARGS.path.as_ref().unwrap().display();
 
+    let index = match debugvault::Index::parse(&obj) {
+        Ok(index) => index,
+        Err(err) => return eprintln!("{err}"),
+    };
+
     if ARGS.libs {
-        let mut index = symbols::Index::default();
-
-        if let Err(err) = index.parse_imports(&obj) {
-            eprintln!("{err}");
-        }
-
-        if index.is_empty() {
+        if index.functions().next().is_none() {
             eprintln!("Object \"{path}\" doesn't seem to import anything.");
             std::process::exit(0);
         }
 
-        index.complete();
         println!("{path}:");
 
-        for function in index.symbols() {
+        for (_addr, function) in index.functions() {
+            if !function.import() {
+                continue;
+            }
+
             let symbol = function.as_str().to_string();
 
             match function.module() {
@@ -60,23 +62,12 @@ fn main() {
     }
 
     if ARGS.names {
-        let mut index = symbols::Index::default();
-
-        if let Err(err) = index.parse_symbols(&obj) {
-            eprintln!("{err}");
-        }
-
-        if let Err(err) = index.parse_pdb(&obj) {
-            eprintln!("{err}");
-        }
-
-        index.complete();
-        if index.is_empty() {
+        if index.functions().next().is_none() {
             eprintln!("Object \"{path}\" doesn't seem to export any symbols.");
             std::process::exit(0);
         }
 
-        for function in index.symbols() {
+        for (_addr, function) in index.functions() {
             let symbol = function.as_str().to_string();
             println!("{symbol}");
         }

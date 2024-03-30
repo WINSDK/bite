@@ -93,8 +93,8 @@ name = "arm"
 version = "0.0.0"
 dependencies = [
  "bitvec",
+ "debugvault",
  "decoder",
- "symbols",
  "tokenizing",
 ]
 
@@ -169,11 +169,11 @@ name = "bite"
 version = "0.13.0"
 dependencies = [
  "commands",
+ "debugvault",
  "gui",
  "log 0.0.0",
  "nix 0.26.1",
  "object",
- "symbols",
  "winres",
 ]
 
@@ -403,13 +403,13 @@ dependencies = [
 name = "commands"
 version = "0.0.0"
 dependencies = [
+ "debugvault",
  "dirs",
  "egui",
  "log 0.0.0",
  "once_cell",
  "serde",
  "serde_yaml",
- "symbols",
  "triple_accel",
 ]
 
@@ -546,10 +546,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "debugvault"
+version = "0.0.0"
+dependencies = [
+ "bitflags 2.4.2",
+ "bumpalo",
+ "crossbeam-queue",
+ "dashmap",
+ "gimli",
+ "log 0.0.0",
+ "object",
+ "pdb",
+ "processor_shared",
+ "radix_trie",
+ "rustc-hash",
+ "tokenizing",
+]
+
+[[package]]
 name = "decoder"
 version = "0.0.0"
 dependencies = [
- "symbols",
+ "debugvault",
  "tokenizing",
 ]
 
@@ -974,6 +992,7 @@ dependencies = [
  "commands",
  "copypasta",
  "crossbeam-queue",
+ "debugvault",
  "dirs",
  "egui",
  "egui_dock",
@@ -984,7 +1003,6 @@ dependencies = [
  "processor",
  "processor_shared",
  "rfd",
- "symbols",
  "tokenizing",
  "tree-sitter",
  "tree-sitter-c",
@@ -1276,8 +1294,8 @@ dependencies = [
 name = "mips"
 version = "0.0.0"
 dependencies = [
+ "debugvault",
  "decoder",
- "symbols",
  "tokenizing",
 ]
 
@@ -1664,6 +1682,7 @@ name = "processor"
 version = "0.0.0"
 dependencies = [
  "arm",
+ "debugvault",
  "decoder",
  "log 0.0.0",
  "memmap2",
@@ -1671,7 +1690,6 @@ dependencies = [
  "object",
  "processor_shared",
  "riscv",
- "symbols",
  "tokenizing",
  "x86_64",
 ]
@@ -1833,10 +1851,10 @@ name = "riscv"
 version = "0.0.0"
 dependencies = [
  "crc",
+ "debugvault",
  "decoder",
  "object",
  "once_cell",
- "symbols",
  "tokenizing",
 ]
 
@@ -2059,24 +2077,6 @@ name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
-
-[[package]]
-name = "symbols"
-version = "0.0.0"
-dependencies = [
- "bitflags 2.4.2",
- "bumpalo",
- "crossbeam-queue",
- "dashmap",
- "gimli",
- "log 0.0.0",
- "object",
- "pdb",
- "processor_shared",
- "radix_trie",
- "rustc-hash",
- "tokenizing",
-]
 
 [[package]]
 name = "syn"
@@ -3082,8 +3082,8 @@ checksum = "e63e71c4b8bd9ffec2c963173a4dc4cbde9ee96961d4fcb4429db9929b606c34"
 name = "x86_64"
 version = "0.0.0"
 dependencies = [
+ "debugvault",
  "decoder",
- "symbols",
  "tokenizing",
 ]
 

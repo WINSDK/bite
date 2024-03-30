@@ -19,7 +19,7 @@
 //       This likely requires parsing in two steps where we first generate tokens.
 
 use std::fmt;
-use symbols::Index;
+use debugvault::Index;
 
 const MAX_DEPTH: usize = 256;
 
@@ -477,7 +477,7 @@ impl CompleteExpr {
     fn eval_recursive(&self, node: &Expr, index: &Index) -> Result<isize, Error> {
         match node {
             Expr::Number(val) => Ok(*val),
-            Expr::Symbol { val, .. } => match index.get_by_name(val) {
+            Expr::Symbol { val, .. } => match index.get_func_by_name(val) {
                 Some(addr) => Ok(addr as isize),
                 None => Err(Error {
                     offset: None,
@@ -534,7 +534,7 @@ impl CompleteExpr {
 
     pub fn autocomplete(&self, index: &Index, cursor: usize) -> Option<(Vec<String>, Span)> {
         self.find_matching_symbol(&self.root, cursor)
-            .map(|(prefix, span)| (index.prefix_match(prefix), span))
+            .map(|(prefix, span)| (index.prefix_match_func(prefix), span))
     }
 
     pub fn parse(s: &str) -> Result<Self, Error> {
@@ -556,15 +556,15 @@ impl CompleteExpr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use symbols::{Function, TokenStream};
+    use debugvault::{Function, TokenStream};
 
-    fn parse(index: &symbols::Index, s: &str) -> Result<usize, Error> {
+    fn parse(index: &debugvault::Index, s: &str) -> Result<usize, Error> {
         CompleteExpr::parse(s)?.eval(index).map(|addr| addr as usize)
     }
 
     macro_rules! eval_eq {
         ($expr:expr, $expected:expr) => {{
-            let index = symbols::Index::default();
+            let index = debugvault::Index::default();
 
             match parse(&index, $expr) {
                 Err(err) => panic!("failed to parse '{}' with error '{:?}'", $expr, err),
@@ -574,7 +574,7 @@ mod tests {
 
         ([$($function:expr; $addr:expr),*], $expr:expr, $expected:expr) => {{
             #[allow(unused_mut)]
-            let mut index = symbols::Index::default();
+            let mut index = debugvault::Index::default();
 
             $(
                 let f = Function::new(TokenStream::simple($function), None);

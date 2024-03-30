@@ -5,7 +5,7 @@ use object::{Object, ObjectSegment, ObjectSection};
 use object::{Architecture, BinaryFormat, SectionKind};
 use object::read::File as ObjectFile;
 use processor_shared::{PhysAddr, Section, Segment};
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::Token;
 
 use memmap2::Mmap;
@@ -21,7 +21,7 @@ use std::mem::ManuallyDrop;
 pub enum Error {
     IO(std::io::Error),
     Object(object::Error),
-    Symbol(symbols::Error),
+    Debug(debugvault::Error),
     NotAnExecutable,
     DecompressionFailed(object::Error),
     UnknownArchitecture(object::Architecture),
@@ -320,14 +320,7 @@ impl Processor {
             }
         };
 
-        let mut index = Index::default();
-
-        index.parse_dwarf(&obj, &sections).map_err(Error::Symbol)?;
-        index.parse_pdb(&obj).map_err(Error::Symbol)?;
-        index.parse_symbols(&obj).map_err(Error::Symbol)?;
-        index.parse_imports(&obj).map_err(Error::Symbol)?;
-        index.complete();
-
+        let index = Index::parse(&obj).map_err(Error::Debug)?;
         let mut instructions = Vec::new();
         let mut errors = Vec::new();
         let max_instruction_width;

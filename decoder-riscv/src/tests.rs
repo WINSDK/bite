@@ -65,7 +65,7 @@ macro_rules! decode_instructions {
         let mut reader = decoder::Reader::new(&binary[..]);
         let mut line = decoder::TokenStream::new();
         let decoder = crate::Decoder { is_64: true };
-        let symbols = symbols::Index::default();
+        let symbols = debugvault::Index::default();
 
         loop {
             match decoder.decode(&mut reader) {

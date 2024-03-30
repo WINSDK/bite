@@ -8,7 +8,7 @@
 use core::fmt::{self, Display, Formatter};
 
 use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens, TokenStream};
-use symbols::Index;
+use debugvault::Index;
 use tokenizing::{colors, ColorScheme, Colors};
 
 #[allow(non_snake_case)]
@@ -3465,7 +3465,7 @@ impl ToTokens for Operand {
                 stream.push_owned(decoder::encode_hex(*offs), Colors::immediate());
             }
             Operand::Immediate(imm) => {
-                match symbols.get_by_addr(*imm as usize) {
+                match symbols.get_func_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -3489,7 +3489,7 @@ impl ToTokens for Operand {
                 }
             },
             Operand::Imm16(imm) => {
-                match symbols.get_by_addr(*imm as usize) {
+                match symbols.get_func_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -3504,7 +3504,7 @@ impl ToTokens for Operand {
                 }
             },
             Operand::Imm64(imm) => {
-                match symbols.get_by_addr(*imm as usize) {
+                match symbols.get_func_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
