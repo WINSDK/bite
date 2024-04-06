@@ -203,7 +203,9 @@ impl Processor {
                 Err(..) => {
                     log::complex!(
                         w "[processor::new] ",
-                        y format!("failed to read section {name}.")
+                        y "failed to read section ",
+                        b name,
+                        y "."
                     );
 
                     continue;
@@ -320,7 +322,7 @@ impl Processor {
             }
         };
 
-        let index = Index::parse(&obj).map_err(Error::Debug)?;
+        let index = Index::parse(&obj, &path).map_err(Error::Debug)?;
         let mut instructions = Vec::new();
         let mut errors = Vec::new();
         let max_instruction_width;

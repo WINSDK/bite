@@ -550,17 +550,18 @@ name = "debugvault"
 version = "0.0.0"
 dependencies = [
  "bitflags 2.4.2",
- "bumpalo",
  "crossbeam-queue",
  "dashmap",
  "gimli",
  "log 0.0.0",
+ "memmap2",
  "object",
  "pdb",
  "processor_shared",
  "radix_trie",
  "rustc-hash",
  "tokenizing",
+ "typed-arena",
 ]
 
 [[package]]
@@ -2314,6 +2315,12 @@ dependencies = [
  "cfg-if",
  "static_assertions",
 ]
+
+[[package]]
+name = "typed-arena"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
 
 [[package]]
 name = "unicode-ident"

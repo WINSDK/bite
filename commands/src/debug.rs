@@ -556,7 +556,6 @@ impl CompleteExpr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use debugvault::{Function, TokenStream};
 
     fn parse(index: &debugvault::Index, s: &str) -> Result<usize, Error> {
         CompleteExpr::parse(s)?.eval(index).map(|addr| addr as usize)
@@ -577,8 +576,7 @@ mod tests {
             let mut index = debugvault::Index::default();
 
             $(
-                let f = Function::new(TokenStream::simple($function), None);
-                index.insert($addr, f);
+                index.insert_func($addr, $function);
             )*
 
             match parse(&index, $expr) {

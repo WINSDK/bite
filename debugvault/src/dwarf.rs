@@ -1,18 +1,18 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use crate::intern::InternMap;
-use crate::FileAttr;
+use crate::{Addressed, FileAttr};
 use crossbeam_queue::SegQueue;
 use object::Object;
 use object::ObjectSection;
 
 pub struct Dwarf {
     /// Mapping from addresses starting at the header base to source files.
-    pub file_attrs: Vec<(usize, FileAttr)>,
+    pub file_attrs: Vec<Addressed<FileAttr>>,
 }
 
 impl Dwarf {
-    pub fn parse<'data, O: Object<'data, 'data>>(obj: &'data O) -> Result<Dwarf, gimli::Error> {
+    pub fn parse<'d, O: Object<'d, 'd>>(obj: &'d O) -> Result<Dwarf, gimli::Error> {
         let endian = if obj.is_little_endian() {
             gimli::RunTimeEndian::Little
         } else {
@@ -84,17 +84,21 @@ impl Dwarf {
         })?;
 
         // Keep files sorted so they can be binary searched ????.
-        file_attrs.sort_unstable_by_key(|(addr, _)| *addr);
+        file_attrs.sort_unstable();
 
         if path_cache.len() != 0 {
             log::complex!(
-                w "[index::parse_dwarf] indexed ",
+                w "[index::dwarf::parse] indexed ",
                 g path_cache.len().to_string(),
                 w " source files."
             );
         }
 
         Ok(Self { file_attrs })
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.file_attrs.extend(other.file_attrs);
     }
 }
 
@@ -105,7 +109,7 @@ fn parse_dwarf_unit(
     path_cache: &InternMap<u64, Path>,
     dwarf: &gimli::Dwarf<GimliSlice>,
     header: gimli::UnitHeader<GimliSlice>,
-    file_attrs: &mut Vec<(usize, FileAttr)>,
+    file_attrs: &mut Vec<Addressed<FileAttr>>,
 ) -> Result<(), gimli::Error> {
     let unit = dwarf.unit(header)?;
     let program = match unit.line_program {
@@ -156,13 +160,15 @@ fn parse_dwarf_unit(
             }
         };
 
-        file_attrs.push((
-            row.address() as usize,
-            FileAttr {
+        file_attrs.push(Addressed {
+            addr: row.address() as usize,
+            item: FileAttr {
                 path,
                 line: line.get() as usize,
-            },
-        ))
+                column_start: 0,
+                column_end: 0,
+            }
+        });
     }
 
     Ok(())

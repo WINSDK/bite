@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-memmap2 = "0.9"
+memmap2 = { workspace = true }
 object = { workspace = true }
 log = { path = "../log" }
 processor_shared = { path = "../processor_shared" }

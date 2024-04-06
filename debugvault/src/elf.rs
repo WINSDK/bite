@@ -1,9 +1,9 @@
 use std::sync::Arc;
-use object::{Endian, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind};
+use object::{Endian, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind, RelocationTarget};
 use object::read::elf::{ElfFile, FileHeader};
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
-use crate::Function;
-use crate::dwarf::Dwarf;
+use crate::demangler::TokenStream;
+use crate::{AddressMap, Addressed, Symbol};
 
 pub struct ElfDebugInfo<'data, Elf: FileHeader> {
     obj: &'data ElfFile<'data, Elf>,
@@ -14,21 +14,20 @@ impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
         Self { obj, }
     }
 
-    pub fn imports(&self) -> Result<Vec<(usize, Arc<Function>)>, object::Error> {
+    pub fn imports(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
         let relocations = match self.obj.dynamic_relocations() {
             Some(relocations) => relocations,
-            None => return Ok(Vec::new()),
+            None => return Ok(AddressMap::default()),
         };
 
         let dyn_syms = match self.obj.dynamic_symbol_table() {
             Some(dyn_syms) => dyn_syms,
-            None => return Ok(Vec::new()),
+            None => return Ok(AddressMap::default()),
         };
 
-        let mut functions = Vec::new();
-
+        let mut functions = AddressMap::default();
         for (r_offset, reloc) in relocations {
-            if let object::read::RelocationTarget::Symbol(idx) = reloc.target() {
+            if let RelocationTarget::Symbol(idx) = reloc.target() {
                 let opt_section = self.obj.sections().find(|section| {
                     (section.address()..section.address() + section.size()).contains(&r_offset)
                 });
@@ -71,8 +70,12 @@ impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
                     };
 
                     // TODO: find modules
-                    let func = Function::new(crate::demangler::parse(name)).as_import();
-                    functions.push((addr, Arc::new(func)));
+                    let func = Symbol::new(crate::demangler::parse(name)).as_import();
+
+                    functions.push(Addressed {
+                        addr,
+                        item: Arc::new(func),
+                    });
                 }
             }
         }
@@ -80,7 +83,16 @@ impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
         Ok(functions)
     }
 
-    pub fn dwarf(&self) -> Result<Dwarf, crate::Error> {
-        Ok(Dwarf::parse(self.obj)?)
+    pub fn symbols(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
+        let mut symbols = crate::parse_symbol_names(self.obj)?;
+        let entrypoint = self.obj.entry();
+
+        let entry_func = Symbol::new(TokenStream::simple("entry"));
+        symbols.push(Addressed {
+            addr: entrypoint as usize,
+            item: Arc::new(entry_func),
+        });
+
+        Ok(symbols)
     }
 }

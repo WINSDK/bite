@@ -32,12 +32,12 @@ fn main() {
 
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
     let obj = object::File::parse(&*binary).expect("Not a valid object.");
-    let path = ARGS.path.as_ref().unwrap().display();
-
-    let index = match debugvault::Index::parse(&obj) {
+    let path = ARGS.path.as_ref().unwrap();
+    let index = match debugvault::Index::parse(&obj, &path) {
         Ok(index) => index,
         Err(err) => return eprintln!("{err}"),
     };
+    let path = path.display();
 
     if ARGS.libs {
         if index.functions().next().is_none() {
@@ -47,14 +47,14 @@ fn main() {
 
         println!("{path}:");
 
-        for (_addr, function) in index.functions() {
-            if !function.import() {
+        for func in index.functions() {
+            if !func.item.import() {
                 continue;
             }
 
-            let symbol = function.as_str().to_string();
+            let symbol = func.item.as_str().to_string();
 
-            match function.module() {
+            match func.item.module() {
                 Some(module) => println!("\t{module} => {symbol}"),
                 None => println!("\t{symbol}"),
             };
@@ -67,8 +67,8 @@ fn main() {
             std::process::exit(0);
         }
 
-        for (_addr, function) in index.functions() {
-            let symbol = function.as_str().to_string();
+        for func in index.functions() {
+            let symbol = func.item.as_str().to_string();
             println!("{symbol}");
         }
     }

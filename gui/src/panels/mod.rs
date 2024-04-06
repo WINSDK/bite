@@ -2,7 +2,7 @@ mod functions;
 mod listing;
 mod source_code;
 
-use crate::common::*;
+use crate::{common::*, tprint};
 use crate::style::{EGUI, STYLE};
 use crate::widgets::{Donut, Terminal, TextSelection};
 use processor::Processor;
@@ -141,7 +141,10 @@ impl Panels {
     pub fn load_source(&mut self, addr: usize) {
         let file_attr = match self.processor().and_then(|proc| proc.index.get_file_by_addr(addr)) {
             Some(file_attr) => file_attr,
-            None => return,
+            None => {
+                tprint!(self.terminal(), "No associated source file found.");
+                return;
+            }
         };
 
         if let Ok(src) = std::fs::read_to_string(&file_attr.path) {

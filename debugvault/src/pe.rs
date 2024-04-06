@@ -2,8 +2,8 @@ use std::sync::Arc;
 use object::Object;
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::LittleEndian as LE;
-use crate::Function;
-use crate::dwarf::Dwarf;
+use crate::demangler::TokenStream;
+use crate::{AddressMap, Addressed, Symbol};
 
 pub struct PeDebugInfo<'data, Pe: ImageNtHeaders> {
     obj: &'data PeFile<'data, Pe>,
@@ -14,8 +14,8 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
         Self { obj, }
     }
 
-    pub fn imports(&self) -> Result<Vec<(usize, Arc<Function>)>, object::Error> {
-        let mut functions = Vec::new();
+    pub fn imports(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
+        let mut functions = AddressMap::default();
 
         if let Some(import_table) = self.obj.import_table()? {
             let mut import_descs = import_table.descriptors()?;
@@ -64,11 +64,14 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
 
                         let module = String::from_utf8_lossy(module);
                         let module = module.strip_prefix(".dll").unwrap_or(&module).to_owned();
-                        let func = Function::new(crate::demangler::parse(name))
+                        let func = Symbol::new(crate::demangler::parse(name))
                             .with_module(module)
                             .as_import();
 
-                        functions.push((addr as usize, Arc::new(func)));
+                        functions.push(Addressed {
+                            addr: addr as usize,
+                            item: Arc::new(func),
+                        });
                     }
 
                     // skip over an entry
@@ -80,7 +83,16 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
         Ok(functions)
     }
 
-    pub fn dwarf(&self) -> Result<Dwarf, crate::Error> {
-        Ok(Dwarf::parse(self.obj)?)
+    pub fn symbols(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
+        let mut symbols = crate::parse_symbol_names(self.obj)?;
+        let entrypoint = self.obj.entry();
+
+        let entry_func = Symbol::new(TokenStream::simple("entry"));
+        symbols.push(Addressed {
+            addr: entrypoint as usize,
+            item: Arc::new(entry_func),
+        });
+
+        Ok(symbols)
     }
 }

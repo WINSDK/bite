@@ -53,3 +53,4 @@ gimli = "0.28"
 pdb = { git = "https://github.com/WINSDK/pdb-rs" }
 once_cell = "1.18"
 nix = { git = "https://github.com/mbyzhang/nix" }
+memmap2 = "0.9"

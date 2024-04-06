@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use crate::intern::InternMap;
-use crate::{FileAttr, Function};
+use crate::{AddressMap, Addressed, FileAttr, Symbol};
 use crossbeam_queue::SegQueue;
 use object::Object;
 use pdb::{SymbolData, FallibleIterator};
@@ -9,9 +9,9 @@ use pdb::{SymbolData, FallibleIterator};
 #[derive(Default)]
 pub struct PDB {
     /// Mapping from addresses starting at the header base to source files.
-    pub file_attrs: Vec<(usize, FileAttr)>,
+    pub file_attrs: AddressMap<FileAttr>,
 
-    pub functions: Vec<(usize, Arc<Function>)>,
+    pub functions: AddressMap<Arc<Symbol>>,
 }
 
 impl PDB {
@@ -27,7 +27,7 @@ impl PDB {
 }
 
 fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error> {
-    let mut names = Vec::new();
+    let mut mangled_funcs = AddressMap::default();
     let base_addr = obj.relative_address_base() as usize;
 
     let mut pdb = pdb::PDB::open(file)?;
@@ -61,7 +61,7 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
     log::PROGRESS.set("Parsing pdb.", module_info_queue.len());
 
     // parse local symbols
-    let mut file_attrs = Vec::new();
+    let mut file_attrs = AddressMap::default();
     std::thread::scope(|s| -> Result<_, pdb::Error> {
         let thread_count = std::thread::available_parallelism().unwrap().get();
         let threads: Vec<_> = (0..thread_count)
@@ -72,8 +72,8 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
                 let module_info_queue = Arc::clone(&module_info_queue);
 
                 s.spawn(move || -> Result<_, pdb::Error> {
-                    let mut names = Vec::new();
-                    let mut file_attrs = Vec::new();
+                    let mut symbols = AddressMap::default();
+                    let mut file_attrs = AddressMap::default();
 
                     while let Some((module_id, module_info)) = module_info_queue.pop() {
                         parse_pdb_module(
@@ -83,21 +83,21 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
                             module_info,
                             &address_map,
                             &string_table,
-                            &mut names,
-                            &mut file_attrs
+                            &mut file_attrs,
+                            &mut symbols,
                         )?;
                         log::PROGRESS.step();
                     }
 
-                    Ok((file_attrs, names))
+                    Ok((file_attrs, symbols))
                 })
             })
             .collect();
 
         for thread in threads {
-            let (local_file_attrs, part_names) = thread.join().unwrap()?;
+            let (local_file_attrs, local_functions) = thread.join().unwrap()?;
             file_attrs.extend(local_file_attrs);
-            names.extend(part_names);
+            mangled_funcs.extend(local_functions);
         }
 
         Ok(())
@@ -105,7 +105,7 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
 
     if path_cache.len() != 0 {
         log::complex!(
-            w "[index::parse_pdb] indexed ",
+            w "[index::pdb::parse] indexed ",
             g path_cache.len().to_string(),
             w " source files."
         );
@@ -129,31 +129,37 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
                     Err(_) => continue,
                 };
 
-                names.push((base_addr + addr, name));
+                mangled_funcs.push(Addressed {
+                    addr: base_addr + addr,
+                    item: name,
+                });
             }
             Ok(_) => {
                 // TODO: implement support for other types of symbols
             },
             Err(pdb::Error::UnimplementedSymbolKind(_)) => {},
             Err(err) => log::complex!(
-                w "[index::parse_pdb] ",
+                w "[index::pdb::parse] ",
                 y format!("{err}."),
             )
         };
     }
 
     // insert defined symbols
-    log::PROGRESS.set("Parsing symbols.", names.len());
-    let mut functions = Vec::new();
-    crate::common::parallel_compute(names, &mut functions, |(addr, symbol)| {
-        let func = Function::new(crate::demangler::parse(symbol));
+    log::PROGRESS.set("Parsing symbols.", mangled_funcs.len());
+    let mut symbols = AddressMap::default();
+    crate::common::parallel_compute(mangled_funcs.mapping, &mut symbols, |func| {
+        let demangled_func = Symbol::new(crate::demangler::parse(func.item));
         log::PROGRESS.step();
-        (*addr, Arc::new(func))
+        Addressed {
+            addr: func.addr,
+            item: Arc::new(demangled_func),
+        }
     });
 
     Ok(PDB {
         file_attrs,
-        functions,
+        functions: symbols,
     })
 }
 
@@ -165,8 +171,8 @@ fn parse_pdb_module<'data>(
     module_info: pdb::ModuleInfo,
     address_map: &pdb::AddressMap,
     string_table: &pdb::StringTable<'data>,
-    names: &mut Vec<(usize, &'data str)>,
-    file_attrs: &mut Vec<(usize, FileAttr)>,
+    file_attrs: &mut AddressMap<FileAttr>,
+    functions: &mut AddressMap<&'data str>,
 ) -> Result<(), pdb::Error> {
     let program = module_info.line_program()?;
     let mut symbols = module_info.symbols()?;
@@ -184,7 +190,10 @@ fn parse_pdb_module<'data>(
                     Err(_) => continue,
                 };
 
-                names.push((base_addr + addr, name));
+                functions.push(Addressed {
+                    addr: base_addr + addr,
+                    item: name,
+                });
             },
             Ok(SymbolData::Procedure(proc)) => {
                 let mut lines = program.lines_for_symbol(proc.offset);
@@ -211,8 +220,18 @@ fn parse_pdb_module<'data>(
                         }
                     };
 
-                    let file_attr = FileAttr { path, line: line_info.line_start as usize};
-                    file_attrs.push((base_addr + addr, file_attr));
+                    let column_start = line_info.column_start.unwrap_or(0) as usize;
+                    let column_end = line_info.column_end.unwrap_or(0) as usize;
+
+                    file_attrs.push(Addressed {
+                        addr: base_addr + addr,
+                        item: FileAttr {
+                            path,
+                            line: line_info.line_start as usize,
+                            column_start,
+                            column_end,
+                        },
+                    });
                 }
             }
             Ok(_) => {
@@ -220,7 +239,7 @@ fn parse_pdb_module<'data>(
             }
             Err(pdb::Error::UnimplementedSymbolKind(_)) => {},
             Err(err) => log::complex!(
-                w "[index::parse_pdb] ",
+                w "[index::pdb::parse_module] ",
                 y format!("{err}."),
             )
         }

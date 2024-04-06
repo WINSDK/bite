@@ -405,7 +405,6 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use debugvault::{Function, TokenStream};
 
     macro_rules! eval_eq {
         ($expr:expr, $expected:expr) => {{
@@ -422,8 +421,7 @@ mod tests {
             let mut index = debugvault::Index::default();
 
             $(
-                let f = Function::new(TokenStream::simple($function), None);
-                index.insert($addr, f);
+                index.insert_func($addr, $function);
             )*
 
             match Command::parse(&index, $expr, 0) {

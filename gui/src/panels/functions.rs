@@ -1,6 +1,7 @@
 use crate::common::*;
 use crate::widgets::TextSelection;
 
+use debugvault::Addressed;
 use egui::text::LayoutJob;
 use processor::Processor;
 use std::sync::Arc;
@@ -34,21 +35,21 @@ fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) 
     let lines_to_read = range.end - range.start;
     let lines = index
         .functions()
-        .filter(|(_, func)| !func.intrinsic())
+        .filter(|func| !func.item.intrinsic())
         .skip(range.start)
         .take(lines_to_read + 10);
 
     // for each instruction
-    for (addr, symbol) in lines {
+    for Addressed { addr, item } in lines {
         tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
         tokens.push(Token::from_str(" | ", colors::WHITE));
 
-        if let Some(module) = symbol.module() {
+        if let Some(module) = item.module() {
             tokens.push(Token::from_string(module.to_string(), colors::MAGENTA));
             tokens.push(Token::from_str("!", colors::GRAY60));
         }
 
-        for token in symbol.name() {
+        for token in item.name() {
             tokens.push(token.clone());
         }
 

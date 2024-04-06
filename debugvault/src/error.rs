@@ -7,7 +7,7 @@ impl fmt::Display for Error {
             Self::Object(err) => {
                 f.write_fmt(format_args!("Failed to parse object (symbols): '{err}'."))
             }
-            Self::Dwarf(err) => f.write_fmt(format_args!("Failed to parse dwarf info: '{err}'.")),
+            Self::Dwarf(err) => f.write_fmt(format_args!("Failed to parse dwarf info: '{err:?}'.")),
             Self::Pdb(err) => f.write_fmt(format_args!("Failed to parse pdb info: '{err}'.")),
             Self::Imports(err) => f.write_fmt(format_args!("Failed to parse imports: '{err}'.")),
         }
@@ -20,14 +20,14 @@ impl From<object::Error> for Error {
     }
 }
 
-impl From<gimli::Error> for Error {
-    fn from(error: gimli::Error) -> Self {
-        Error::Dwarf(error)
-    }
-}
-
 impl From<pdb::Error> for Error {
     fn from(error: pdb::Error) -> Self {
         Error::Pdb(error)
+    }
+}
+
+impl From<crate::redwarf::Error> for Error {
+    fn from(error: crate::redwarf::Error) -> Self {
+        Error::Dwarf(error)
     }
 }

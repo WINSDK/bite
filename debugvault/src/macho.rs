@@ -1,9 +1,14 @@
+use crate::demangler::TokenStream;
+use crate::redwarf::{self, Dwarf};
+use crate::{AddressMap, Addressed, Symbol};
+use object::macho::{self, DysymtabCommand};
+use object::read::macho::{
+    LoadCommandData, MachHeader, MachOFile, Nlist, SymbolTable,
+};
+use object::{Endianness, Object, ObjectSection, ObjectSegment};
+use std::path::Path;
+use std::process::Command;
 use std::sync::Arc;
-use object::read::macho::{LoadCommandData, MachHeader, MachOFile, Nlist, SymbolTable};
-use object::macho::DysymtabCommand;
-use object::{Object, ObjectSection};
-use crate::dwarf::Dwarf;
-use crate::Function;
 
 pub struct MachoDebugInfo<'data, Mach: MachHeader> {
     obj: &'data MachOFile<'data, Mach>,
@@ -12,7 +17,7 @@ pub struct MachoDebugInfo<'data, Mach: MachHeader> {
     dysymtab: Option<&'data DysymtabCommand<Mach::Endian>>,
 }
 
-impl<'data, Mach: MachHeader> MachoDebugInfo<'data, Mach> {
+impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
     pub fn parse(obj: &'data MachOFile<'data, Mach>) -> Result<Self, object::Error> {
         let header = obj.raw_header();
         let mut symtab = None;
@@ -38,23 +43,23 @@ impl<'data, Mach: MachHeader> MachoDebugInfo<'data, Mach> {
         })
     }
 
-    pub fn imports(&self) -> Result<Vec<(usize, Arc<Function>)>, object::Error> {
+    pub fn imports(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
         let header = self.obj.raw_header();
         let endian = self.obj.endian();
 
         let mut libraries = Vec::new();
-        let twolevel = header.flags(endian) & object::macho::MH_TWOLEVEL != 0;
+        let twolevel = header.flags(endian) & macho::MH_TWOLEVEL != 0;
         if twolevel {
             libraries.push(&[][..]);
-            for cmd in self.load_cmds.iter() {
-                if let Some(dylib) = cmd.dylib()? {
-                    libraries.push(cmd.string(endian, dylib.dylib.name)?);
+            for lcmd in self.load_cmds.iter() {
+                if let Some(dylib) = lcmd.dylib()? {
+                    libraries.push(lcmd.string(endian, dylib.dylib.name)?);
                 }
             }
         }
 
         let stub = self.obj.section_by_name_bytes(b"__stubs");
-        let mut functions = Vec::new();
+        let mut functions = AddressMap::default();
 
         if let (Some(symtab), Some(dysymtab), Some(stub)) = (self.symtab, self.dysymtab, stub) {
             let idx = dysymtab.iundefsym.get(endian) as usize;
@@ -68,7 +73,7 @@ impl<'data, Mach: MachHeader> MachoDebugInfo<'data, Mach> {
                     Err(..) => continue,
                 };
 
-                let mut func = Function::new(crate::demangler::parse(name)).as_import();
+                let mut func = Symbol::new(crate::demangler::parse(name)).as_import();
                 if twolevel {
                     let library = libraries
                         .get(symbol.library_ordinal(endian) as usize)
@@ -77,11 +82,8 @@ impl<'data, Mach: MachHeader> MachoDebugInfo<'data, Mach> {
 
                     // Strip path prefix.
                     let module = String::from_utf8_lossy(library);
-                    let module = module
-                        .rsplit_once("/")
-                        .map(|x| x.1)
-                        .unwrap_or(&module)
-                        .to_string();
+                    let module =
+                        module.rsplit_once("/").map(|x| x.1).unwrap_or(&module).to_string();
 
                     func = func.with_module(module);
                 }
@@ -90,14 +92,70 @@ impl<'data, Mach: MachHeader> MachoDebugInfo<'data, Mach> {
                 // as (__stub section addr) + (symbol index) * 12.
                 let addr = stub.address() as usize + (jdx - idx) * 12;
 
-                functions.push((addr, Arc::new(func)));
+                functions.push(Addressed {
+                    addr,
+                    item: Arc::new(func),
+                });
             }
         }
 
         Ok(functions)
     }
 
-    pub fn dwarf(&self) -> Result<Dwarf, crate::Error> {
-        Ok(Dwarf::parse(self.obj)?)
+    pub fn symbols(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
+        let mut symbols = crate::parse_symbol_names(self.obj)?;
+
+        // Macho entrypoints are relative to the __TEXT segment.
+        for segment in self.obj.segments() {
+            if let Some(b"__TEXT") = segment.name_bytes()? {
+                let entrypoint = self.obj.entry() + segment.address();
+                let entry_func = Symbol::new(TokenStream::simple("entry"));
+                symbols.push(Addressed {
+                    addr: entrypoint as usize,
+                    item: Arc::new(entry_func),
+                });
+            }
+        }
+
+        Ok(symbols)
     }
+}
+
+pub fn dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, redwarf::Error> {
+    let mut dwarf = Dwarf::parse(obj)?;
+    let opt_dsym = {
+        let mut dsym = path.with_extension("dSYM");
+        dsym.push("Contents");
+        dsym.push("Resources");
+        dsym.push("DWARF");
+        dsym.push(path.file_name().unwrap());
+        dsym
+    };
+
+    if !opt_dsym.is_file() {
+        let dsymutil_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/dsymutil");
+        assert!(dsymutil_path.exists(), "dsymutil somehow missing");
+
+        log::PROGRESS.set("Running dsymutil.", 1);
+        let exit_status = Command::new(dsymutil_path)
+            .arg("--linker=parallel")
+            .arg(path)
+            .spawn()?
+            .wait()?;
+        log::PROGRESS.step();
+
+        if !exit_status.success() {
+            log::complex!(
+                w "[macho::dwarf] ",
+                y "Generating dSym failed with exit code ",
+                g exit_status.code().unwrap_or(1).to_string(),
+                w "."
+            );
+        }
+    }
+
+    let dsym_dwarf = Dwarf::load(&opt_dsym)?;
+    dwarf.merge(dsym_dwarf);
+
+    Ok(dwarf)
 }

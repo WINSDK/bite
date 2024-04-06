@@ -1,30 +1,31 @@
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
-
-use object::{Object, ObjectSymbol};
 use common::*;
+use demangler::TokenStream;
+use object::{Object, ObjectSymbol};
 use radix_trie::{Trie, TrieCommon};
 use tokenizing::{Colors, Token};
-use demangler::TokenStream;
 
+pub use common::{Addressed ,AddressMap};
+
+mod common;
 mod demangler;
+mod redwarf;
+mod elf;
+mod error;
+mod intern;
 mod itanium;
+mod macho;
 mod msvc;
+mod pdb;
+mod pe;
 mod rust;
 mod rust_legacy;
-mod error;
-mod common;
-mod intern;
-mod dwarf;
-mod pdb;
-mod macho;
-mod elf;
-mod pe;
 
 pub enum Error {
     Object(object::Error),
-    Dwarf(gimli::Error),
+    Dwarf(redwarf::Error),
     Pdb(::pdb::Error),
     Imports(object::Error),
 }
@@ -33,9 +34,11 @@ pub enum Error {
 pub struct FileAttr {
     pub path: Arc<Path>,
     pub line: usize,
+    pub column_start: usize,
+    pub column_end: usize,
 }
 
-pub struct Function {
+pub struct Symbol {
     name: TokenStream,
     name_as_str: ArcStr,
     module: Option<String>,
@@ -63,7 +66,7 @@ fn is_name_an_intrinsic(name: &str) -> bool {
     false
 }
 
-impl Function {
+impl Symbol {
     pub fn new(name: TokenStream) -> Self {
         let is_intrinsics = is_name_an_intrinsic(name.inner());
         let name_as_str = String::from_iter(name.tokens().iter().map(|t| &t.text[..]));
@@ -112,13 +115,13 @@ impl Function {
     }
 }
 
-impl fmt::Debug for Function {
+impl fmt::Debug for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_str().fmt(f)
     }
 }
 
-impl PartialEq for Function {
+impl PartialEq for Symbol {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.name_as_str == other.name_as_str
@@ -129,117 +132,122 @@ impl PartialEq for Function {
 pub struct Index {
     /// Mapping from addresses starting at the header base to functions.
     /// The addresses are sorted.
-    functions: Vec<(usize, Arc<Function>)>,
+    symbols: AddressMap<Arc<Symbol>>,
 
     /// Mapping from addresses starting at the header base to source files.
-    file_attrs: Vec<(usize, FileAttr)>,
+    /// The addresses are sorted.
+    file_attrs: AddressMap<FileAttr>,
 
     /// Prefix tree for finding symbols.
-    trie: Trie<ArcStr, Arc<Function>>,
+    trie: Trie<ArcStr, Arc<Symbol>>,
 
     /// Number of named compiler artifacts.
     named_len: usize,
 }
 
-fn parse_symbols(obj: &object::File) -> Result<Vec<(usize, Arc<Function>)>, Error> {
-    let names: Vec<_> = obj.symbols().filter_map(symbol_addr_name).collect();
+fn parse_symbol_names<'d, O: Object<'d, 'd>>(
+    obj: &'d O,
+) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
+    let names: Vec<_> = obj
+        .symbols()
+        .filter_map(|symbol| symbol.name().map(|name| (symbol.address() as usize, name)).ok())
+        .collect();
 
     // Insert defined symbols.
     log::PROGRESS.set("Parsing symbols.", names.len());
-    let mut functions = Vec::new();
-    parallel_compute(names, &mut functions, |(addr, symbol)| {
-        let func = Function::new(demangler::parse(symbol));
+    let mut symbols = AddressMap::default();
+    parallel_compute(names, &mut symbols, |&(addr, symbol)| {
+        let func = Symbol::new(demangler::parse(symbol));
         log::PROGRESS.step();
-        (*addr, Arc::new(func))
+        Addressed {
+            addr,
+            item: Arc::new(func),
+        }
     });
 
-    // Insert entrypoint into known symbols.
-    let mut entrypoint = obj.entry() as usize;
-
-    if let object::File::MachO32(..) | object::File::MachO64(..) = obj {
-        // This appears to be the header base that isn't added to the entrypoint.
-        // Kind of hard to tell.
-        entrypoint += 0x100000000;
-    }
-
-    let entry_func = Function::new(TokenStream::simple("entry"));
-
-    // Insert entrypoint.
-    functions.push((entrypoint, Arc::new(entry_func)));
-
-    Ok(functions)
+    Ok(symbols)
 }
 
 impl Index {
-    pub fn parse(obj: &object::File) -> Result<Self, Error> {
+    pub fn parse(obj: &object::File, path: &Path) -> Result<Self, Error> {
         let mut this = Self::default();
 
         match obj {
-            object::File::MachO32(obj) => {
-                let debug_info = macho::MachoDebugInfo::parse(obj)?;
-                let dwarf = debug_info.dwarf()?;
+            object::File::MachO32(macho) => {
+                let debug_info = macho::MachoDebugInfo::parse(macho)?;
+                let dwarf = macho::dwarf(obj, path)?;
                 let imports = debug_info.imports()?;
+                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.functions.extend(imports);
-            },
-            object::File::MachO64(obj) => {
-                let debug_info = macho::MachoDebugInfo::parse(obj)?;
-                let dwarf = debug_info.dwarf()?;
+                this.symbols.extend(imports);
+                this.symbols.extend(symbols);
+            }
+            object::File::MachO64(macho) => {
+                let debug_info = macho::MachoDebugInfo::parse(macho)?;
+                let dwarf = macho::dwarf(obj, path)?;
                 let imports = debug_info.imports()?;
+                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.functions.extend(imports);
-            },
-            object::File::Elf32(obj) => {
-                let debug_info = elf::ElfDebugInfo::parse(obj);
-                let dwarf = debug_info.dwarf()?;
+                this.symbols.extend(imports);
+                this.symbols.extend(symbols);
+            }
+            object::File::Elf32(elf) => {
+                let debug_info = elf::ElfDebugInfo::parse(elf);
+                let dwarf = redwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
+                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.functions.extend(imports);
-            },
-            object::File::Elf64(obj) => {
-                let debug_info = elf::ElfDebugInfo::parse(obj);
-                let dwarf = debug_info.dwarf()?;
+                this.symbols.extend(imports);
+                this.symbols.extend(symbols);
+            }
+            object::File::Elf64(elf) => {
+                let debug_info = elf::ElfDebugInfo::parse(elf);
+                let dwarf = redwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
+                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.functions.extend(imports);
-            },
-            object::File::Pe32(obj) => {
-                let debug_info = pe::PeDebugInfo::parse(obj);
-                let dwarf = debug_info.dwarf()?;
+                this.symbols.extend(imports);
+                this.symbols.extend(symbols);
+            }
+            object::File::Pe32(pe) => {
+                let debug_info = pe::PeDebugInfo::parse(pe);
+                let dwarf = redwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
+                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.functions.extend(imports);
-            },
-            object::File::Pe64(obj) => {
-                let debug_info = pe::PeDebugInfo::parse(obj);
-                let dwarf = debug_info.dwarf()?;
+                this.symbols.extend(imports);
+                this.symbols.extend(symbols);
+            }
+            object::File::Pe64(pe) => {
+                let debug_info = pe::PeDebugInfo::parse(pe);
+                let dwarf = redwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
+                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.functions.extend(imports);
-            },
+                this.symbols.extend(imports);
+                this.symbols.extend(symbols);
+            }
             _ => {}
         }
 
         if let Some(pdb) = pdb::PDB::parse(obj) {
             let pdb = pdb?;
             this.file_attrs.extend(pdb.file_attrs);
-            this.functions.extend(pdb.functions);
+            this.symbols.extend(pdb.functions);
         }
-
-        this.functions.extend(parse_symbols(obj)?);
 
         this.sort_and_validate();
         this.build_prefix_tree();
 
         log::complex!(
             w "[index::parse] found ",
-            g this.functions.len().to_string(),
+            g this.symbols.len().to_string(),
             w " functions."
         );
 
@@ -248,10 +256,10 @@ impl Index {
 
     fn sort_and_validate(&mut self) {
         // Only keep one symbol per address.
-        self.functions.dedup_by_key(|(addr, _)| *addr);
+        self.symbols.dedup_by_key(|func| func.addr);
 
         // Only keep valid symbols.
-        self.functions.retain(|(addr, func)| {
+        self.symbols.retain(|Addressed { addr, item: func }| {
             if *addr == 0 {
                 return false;
             }
@@ -264,17 +272,20 @@ impl Index {
         });
 
         // Count the number of function's that aren't compiler intrinsics.
-        self.named_len = self.functions.iter().filter(|(_, func)| !func.intrinsic()).count();
+        self.named_len = self.symbols.iter().filter(|func| !func.item.intrinsic()).count();
 
         // Keep functions sorted so it can be binary searched.
-        self.functions.sort_unstable_by_key(|(addr, _)| *addr);
+        self.symbols.sort_unstable();
+
+        // Keep file attrs sorted so it can be binary searched.
+        self.file_attrs.sort_unstable();
     }
 
     fn build_prefix_tree(&mut self) {
-        log::PROGRESS.set("Building prefix tree", self.functions.len());
+        log::PROGRESS.set("Building prefix tree", self.symbols.len());
 
         // Radix-prefix tree for fast lookups.
-        for (_, func) in self.functions.iter() {
+        for Addressed { item: func, .. } in self.symbols.iter() {
             self.trie.insert(func.name_as_str.clone(), Arc::clone(&func));
             log::PROGRESS.step();
         }
@@ -284,33 +295,38 @@ impl Index {
         self.named_len
     }
 
-    pub fn functions(&self) -> impl Iterator<Item = &(usize, Arc<Function>)> {
-        self.functions.iter()
+    pub fn functions(&self) -> impl Iterator<Item = &Addressed<Arc<Symbol>>> {
+        self.symbols.iter()
     }
 
     pub fn get_file_by_addr(&self, addr: usize) -> Option<&FileAttr> {
-        let search = self.file_attrs.binary_search_by(|x| x.0.cmp(&addr));
-
-        match search {
-            Ok(idx) => Some(&self.file_attrs[idx].1),
+        match self.file_attrs.search(addr) {
+            Ok(idx) => Some(&self.file_attrs[idx].item),
             Err(..) => None,
         }
     }
 
-    pub fn get_func_by_addr(&self, addr: usize) -> Option<Arc<Function>> {
-        let search = self.functions.binary_search_by(|x| x.0.cmp(&addr));
-
-        match search {
-            Ok(idx) => Some(self.functions[idx].1.clone()),
+    pub fn get_func_by_addr(&self, addr: usize) -> Option<Arc<Symbol>> {
+        match self.symbols.search(addr) {
+            Ok(idx) => Some(self.symbols[idx].item.clone()),
             Err(..) => None,
         }
     }
 
     pub fn get_func_by_name(&self, name: &str) -> Option<usize> {
-        self.functions
+        self.symbols
             .iter()
-            .find(|(_, func)| func.as_str() == name)
-            .map(|(addr, _)| *addr)
+            .find(|func| func.item.as_str() == name)
+            .map(|func| func.addr)
+    }
+
+    /// Only used for tests.
+    #[doc(hidden)]
+    pub fn insert_func(&mut self, addr: usize, name: &str) {
+        self.symbols.push(Addressed {
+            addr,
+            item: Arc::new(Symbol::new(TokenStream::simple(name))),
+        })
     }
 
     pub fn prefix_match_func(&self, prefix: &str) -> Vec<String> {
@@ -341,12 +357,4 @@ fn sort_by_shortest_match(input: &[&ArcStr], prefix: &str) -> Vec<String> {
     // sort the matches by length
     matches.sort_by_key(|a| a.len());
     matches
-}
-
-fn symbol_addr_name<'sym>(symbol: object::Symbol<'sym, 'sym>) -> Option<(usize, &'sym str)> {
-    if let Ok(name) = symbol.name() {
-        return Some((symbol.address() as usize, name));
-    }
-
-    None
 }
