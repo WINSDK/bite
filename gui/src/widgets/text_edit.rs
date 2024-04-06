@@ -1179,7 +1179,7 @@ fn paint_cursor_end(
 
 // ----------------------------------------------------------------------------
 
-fn str_strip_ending_newline<'s>(text: &'s dyn TextBuffer, cursor_range: &mut CursorRange) {
+fn str_strip_ending_newline(text: &dyn TextBuffer, cursor_range: &mut CursorRange) {
     let [_, max] = cursor_range.sorted_cursors();
 
     // If the cursor ends in a newline.

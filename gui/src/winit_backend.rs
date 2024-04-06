@@ -107,8 +107,8 @@ impl Platform {
     /// Handles the given winit event and updates the egui context. Should be
     // called before starting a new frame with `start_frame()`.
     pub fn handle_event(&mut self, window: &Window, winit_event: &mut Event<crate::WinitEvent>) {
-        match winit_event {
-            Event::WindowEvent { event, .. } => match event {
+        if let Event::WindowEvent { event, .. } = winit_event {
+            match event {
                 WindowEvent::KeyboardInput { event, .. } => {
                     let pressed = event.state == winit::event::ElementState::Pressed;
                     let ctrl = self.modifier_state.control_key();
@@ -172,7 +172,7 @@ impl Platform {
                     self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                         Default::default(),
                         vec2(new_inner_size.width as f32, new_inner_size.height as f32)
-                            / self.scale_factor as f32,
+                            / self.scale_factor,
                     ));
                 }
                 WindowEvent::Resized(physical_size) => {
@@ -183,7 +183,7 @@ impl Platform {
                     self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                         Default::default(),
                         vec2(physical_size.width as f32, physical_size.height as f32)
-                            / self.scale_factor as f32,
+                            / self.scale_factor,
                     ));
                 }
                 WindowEvent::MouseInput { state, button, .. } => {
@@ -206,8 +206,8 @@ impl Platform {
                 }
                 WindowEvent::Touch(touch) => {
                     let pointer_pos = pos2(
-                        touch.location.x as f32 / self.scale_factor as f32,
-                        touch.location.y as f32 / self.scale_factor as f32,
+                        touch.location.x as f32 / self.scale_factor,
+                        touch.location.y as f32 / self.scale_factor,
                     );
 
                     let device_id = match self.device_indices.get(&touch.device_id) {
@@ -254,7 +254,7 @@ impl Platform {
                         }
                         TouchPhase::Ended | TouchPhase::Cancelled => {
                             self.touch_pointer_pressed =
-                                self.touch_pointer_pressed.checked_sub(1).unwrap_or(0);
+                                self.touch_pointer_pressed.saturating_sub(1);
                         }
                         TouchPhase::Moved => {
                             self.raw_input.events.push(egui::Event::PointerMoved(pointer_pos));
@@ -300,8 +300,8 @@ impl Platform {
                 }
                 WindowEvent::CursorMoved { position, .. } => {
                     let pointer_pos = pos2(
-                        position.x as f32 / self.scale_factor as f32,
-                        position.y as f32 / self.scale_factor as f32,
+                        position.x as f32 / self.scale_factor,
+                        position.y as f32 / self.scale_factor,
                     );
                     self.pointer_pos = Some(pointer_pos);
                     self.raw_input.events.push(egui::Event::PointerMoved(pointer_pos));
@@ -315,8 +315,7 @@ impl Platform {
                     self.raw_input.modifiers = winit_to_egui_modifiers(input.state());
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
     }
 

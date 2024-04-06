@@ -80,7 +80,7 @@ pub struct WinitQueue {
 
 impl WinitQueue {
     pub fn push(&self, event: WinitEvent) {
-        if let Err(..) = self.inner.send_event(event) {
+        if self.inner.send_event(event).is_err() {
             panic!("missing an event loop to handle event");
         }
     }
@@ -134,9 +134,9 @@ impl<Arch: Target> UI<Arch> {
         };
 
         let panels = panels::Panels::new(ui_queue.clone(), winit_queue.clone());
-        let instance = wgpu_backend::Instance::new(&window)?;
+        let instance = wgpu_backend::Instance::new(window)?;
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
-        let platform = winit_backend::Platform::new::<Arch>(&window);
+        let platform = winit_backend::Platform::new::<Arch>(window);
 
         Ok(Self {
             arch,
@@ -197,7 +197,7 @@ impl<Arch: Target> UI<Arch> {
 
         let _ = event_loop.run(move |mut event, target| {
             // pass the winit events to the platform integration
-            self.platform.handle_event(&self.window, &mut event);
+            self.platform.handle_event(self.window, &mut event);
 
             self.handle_ui_events();
 
@@ -216,7 +216,7 @@ impl<Arch: Target> UI<Arch> {
                         self.platform.update_time(now.elapsed().as_secs_f64());
 
                         let result = self.instance.draw(
-                            &self.window,
+                            self.window,
                             &mut self.platform,
                             &mut self.egui_render_pass,
                             &mut self.panels,
@@ -239,7 +239,7 @@ impl<Arch: Target> UI<Arch> {
                     WinitEvent::DragWindow => {
                         let _ = self.window.drag_window();
                     }
-                    WinitEvent::Fullscreen => self.arch.fullscreen(&self.window),
+                    WinitEvent::Fullscreen => self.arch.fullscreen(self.window),
                     WinitEvent::Minimize => self.window.set_minimized(true),
                 },
                 Event::AboutToWait => self.window.request_redraw(),

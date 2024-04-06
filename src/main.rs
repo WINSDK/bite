@@ -33,7 +33,7 @@ fn main() {
     let binary = fs::read(ARGS.path.as_ref().unwrap()).expect("Unexpected read of binary failed.");
     let obj = object::File::parse(&*binary).expect("Not a valid object.");
     let path = ARGS.path.as_ref().unwrap();
-    let index = match debugvault::Index::parse(&obj, &path) {
+    let index = match debugvault::Index::parse(&obj, path) {
         Ok(index) => index,
         Err(err) => return eprintln!("{err}"),
     };

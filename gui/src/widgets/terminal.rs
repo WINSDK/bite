@@ -9,7 +9,7 @@ use egui::text::LayoutJob;
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 
-const HISTORY_PATH: Lazy<PathBuf> = Lazy::new(|| {
+static HISTORY_PATH: Lazy<PathBuf> = Lazy::new(|| {
     let mut path = match dirs::data_dir() {
         Some(dir) => dir,
         None => log::error!("You must have a data directory set."),
@@ -67,7 +67,7 @@ impl Autocomplete {
     }
 
     fn update_cmd_suggestion(&mut self, line: &str, index: &Index, cursor: usize) {
-        if let Err((_, suggestions)) = commands::Command::parse(index, &line, cursor) {
+        if let Err((_, suggestions)) = commands::Command::parse(index, line, cursor) {
             self.cmd_suggestions = suggestions;
         }
     }

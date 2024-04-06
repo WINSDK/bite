@@ -167,8 +167,8 @@ impl ProcessorView {
         }
 
         if let Some(instruction) = instruction {
-            let width = processor.instruction_width(&instruction);
-            let instruction = processor.instruction_tokens(&instruction, &processor.index);
+            let width = processor.instruction_width(instruction);
+            let instruction = processor.instruction_tokens(instruction, &processor.index);
 
             tokens.push(Token::from_string(
                 format!("{addr:0>10X}  "),
