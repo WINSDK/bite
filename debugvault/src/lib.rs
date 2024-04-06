@@ -11,7 +11,7 @@ pub use common::{Addressed ,AddressMap};
 
 mod common;
 mod demangler;
-mod redwarf;
+mod dwarf;
 mod elf;
 mod error;
 mod intern;
@@ -25,7 +25,7 @@ mod rust_legacy;
 
 pub enum Error {
     Object(object::Error),
-    Dwarf(redwarf::Error),
+    Dwarf(dwarf::Error),
     Pdb(::pdb::Error),
     Imports(object::Error),
 }
@@ -195,7 +195,7 @@ impl Index {
             }
             object::File::Elf32(elf) => {
                 let debug_info = elf::ElfDebugInfo::parse(elf);
-                let dwarf = redwarf::Dwarf::parse(obj)?;
+                let dwarf = dwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
                 let symbols = debug_info.symbols()?;
 
@@ -205,7 +205,7 @@ impl Index {
             }
             object::File::Elf64(elf) => {
                 let debug_info = elf::ElfDebugInfo::parse(elf);
-                let dwarf = redwarf::Dwarf::parse(obj)?;
+                let dwarf = dwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
                 let symbols = debug_info.symbols()?;
 
@@ -215,7 +215,7 @@ impl Index {
             }
             object::File::Pe32(pe) => {
                 let debug_info = pe::PeDebugInfo::parse(pe);
-                let dwarf = redwarf::Dwarf::parse(obj)?;
+                let dwarf = dwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
                 let symbols = debug_info.symbols()?;
 
@@ -225,7 +225,7 @@ impl Index {
             }
             object::File::Pe64(pe) => {
                 let debug_info = pe::PeDebugInfo::parse(pe);
-                let dwarf = redwarf::Dwarf::parse(obj)?;
+                let dwarf = dwarf::Dwarf::parse(obj)?;
                 let imports = debug_info.imports()?;
                 let symbols = debug_info.symbols()?;
 

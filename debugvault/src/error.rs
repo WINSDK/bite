@@ -26,8 +26,8 @@ impl From<pdb::Error> for Error {
     }
 }
 
-impl From<crate::redwarf::Error> for Error {
-    fn from(error: crate::redwarf::Error) -> Self {
+impl From<crate::dwarf::Error> for Error {
+    fn from(error: crate::dwarf::Error) -> Self {
         Error::Dwarf(error)
     }
 }

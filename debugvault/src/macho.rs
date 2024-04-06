@@ -1,5 +1,5 @@
 use crate::demangler::TokenStream;
-use crate::redwarf::{self, Dwarf};
+use crate::dwarf::{self, Dwarf};
 use crate::{AddressMap, Addressed, Symbol};
 use object::macho::{self, DysymtabCommand};
 use object::read::macho::{
@@ -121,7 +121,7 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
     }
 }
 
-pub fn dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, redwarf::Error> {
+pub fn dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Error> {
     let mut dwarf = Dwarf::parse(obj)?;
     let opt_dsym = {
         let mut dsym = path.with_extension("dSYM");
