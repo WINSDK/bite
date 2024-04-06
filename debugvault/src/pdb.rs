@@ -9,8 +9,10 @@ use pdb::{SymbolData, FallibleIterator};
 #[derive(Default)]
 pub struct PDB {
     /// Mapping from addresses starting at the header base to source files.
+    /// NOTE: not yet sorted.
     pub file_attrs: AddressMap<FileAttr>,
-
+    /// Mapping from addresses starting at the header base to functions.
+    /// NOTE: not yet sorted.
     pub functions: AddressMap<Arc<Symbol>>,
 }
 
@@ -33,29 +35,29 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
     let mut pdb = pdb::PDB::open(file)?;
 
     // mapping from offset's to rva's
-    let address_map = Arc::new(pdb.address_map()?);
+    let address_map = pdb.address_map()?;
 
     // mapping from string ref's to strings
-    let string_table = Arc::new(pdb.string_table()?);
+    let string_table = pdb.string_table()?;
 
     // pdb module's
     let dbi = pdb.debug_information()?;
     let mut modules = dbi.modules()?;
 
     // create concurrent hashmap for caching file path's
-    let path_cache = Arc::new(InternMap::new());
+    let path_cache = InternMap::new();
 
     // iterate over the modules and store them in a queue
-    let module_info_queue = Arc::new(SegQueue::new());
-    let mut idx = 0;
+    let module_info_queue = SegQueue::new();
+    let mut id = 0;
     while let Some(module) = modules.next()? {
         let module_info = match pdb.module_info(&module)? {
             Some(info) => info,
             None => continue,
         };
 
-        module_info_queue.push((idx, module_info));
-        idx += 1;
+        module_info_queue.push((id, module_info));
+        id += 1;
     }
 
     log::PROGRESS.set("Parsing pdb.", module_info_queue.len());
@@ -66,12 +68,7 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
         let thread_count = std::thread::available_parallelism().unwrap().get();
         let threads: Vec<_> = (0..thread_count)
             .map(|_| {
-                let path_cache = Arc::clone(&path_cache);
-                let address_map = Arc::clone(&address_map);
-                let string_table = Arc::clone(&string_table);
-                let module_info_queue = Arc::clone(&module_info_queue);
-
-                s.spawn(move || -> Result<_, pdb::Error> {
+                s.spawn(|| -> Result<_, pdb::Error> {
                     let mut symbols = AddressMap::default();
                     let mut file_attrs = AddressMap::default();
 

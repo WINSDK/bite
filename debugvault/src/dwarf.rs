@@ -407,12 +407,12 @@ fn dump_line_program<R: Reader>(
 
                     if let Some(dir) = file.directory(header) {
                         if let Ok(path_comp) = dwarf.attr_string(&unit, dir)?.to_string_lossy() {
-                            path.push(&path_comp as &str);
+                            path.push(&*path_comp);
                         }
                     }
 
                     if let Ok(path_comp) = dwarf.attr_string(&unit, file.path_name())?.to_string_lossy() {
-                        path.push(&path_comp as &str);
+                        path.push(&*path_comp);
                     }
 
                     path_cache.add(key, &path)
