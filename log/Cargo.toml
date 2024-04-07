@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 egui = { workspace = true }
-rfd = "0.12"
+rfd = { workspace = true }

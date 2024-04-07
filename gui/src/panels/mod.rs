@@ -171,7 +171,8 @@ impl Panels {
     }
 
     fn ask_for_binary(&self) {
-        if let Some(path) = rfd::FileDialog::new().pick_file() {
+        use rfd::FileDialog;
+        if let Some(path) = FileDialog::new().pick_file() {
             self.ui_queue.push(crate::UIEvent::BinaryRequested(path));
         }
     }
@@ -267,7 +268,13 @@ impl Panels {
     }
 
     fn input(&mut self, ctx: &mut egui::Context) {
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::O)) {
+        let modifier = if cfg!(target_os = "macos") {
+            egui::Modifiers::MAC_CMD
+        } else {
+            egui::Modifiers::CTRL
+        };
+
+        if ctx.input_mut(|i| i.consume_key(modifier, egui::Key::O)) {
             self.ask_for_binary();
         }
 

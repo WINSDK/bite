@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-rfd = "0.12"
+rfd = { workspace = true }
 dirs = "5"
 bytemuck = { version = "1.14", default-features = false }
 winit = { version = "0.29"}
