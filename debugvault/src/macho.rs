@@ -121,8 +121,15 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
 
 pub fn dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Error> {
     let mut dwarf = Dwarf::parse(obj)?;
+
+    let ext = if let Some(exist_ext) = path.extension().and_then(|ext| ext.to_str()) {
+        exist_ext.to_string() + ".dSYM"
+    } else {
+        "dSYM".to_string()
+    };
+
     let opt_dsym = path
-        .with_extension("dSYM")
+        .with_extension(ext)
         .join("Contents/Resources/DWARF")
         .join(path.file_name().unwrap());
 
