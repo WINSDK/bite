@@ -160,9 +160,13 @@ impl Processor {
         let file = std::fs::File::open(path.as_ref()).map_err(Error::IO)?;
         let mmap = unsafe { Mmap::map(&file).map_err(Error::IO)? };
         let binary: &'static [u8] = unsafe { std::mem::transmute(&mmap[..]) };
-
         let obj = ObjectFile::parse(binary).map_err(Error::Object)?;
-        let entrypoint = obj.entry() as PhysAddr;
+
+        let path = path.as_ref().to_path_buf();
+        let now = std::time::Instant::now();
+
+        let index = Index::parse(&obj, &path).map_err(Error::Debug)?;
+        let entrypoint = index.get_func_by_name("entry").unwrap_or(0);
 
         if entrypoint != 0 {
             log::complex!(
@@ -172,13 +176,8 @@ impl Processor {
             );
         }
 
-        let path = path.as_ref().to_path_buf();
-        let now = std::time::Instant::now();
-
         let mut sections = Vec::new();
         let mut segments = Vec::new();
-
-        let arch = obj.architecture();
 
         for segment in obj.segments() {
             let name = match segment.name().map_err(Error::Object)? {
@@ -292,6 +291,7 @@ impl Processor {
         segments.sort_unstable_by_key(|s| s.start);
         sections.sort_unstable_by_key(|s| s.start);
 
+        let arch = obj.architecture();
         let (instruction_tokens, instruction_width) = unsafe {
             match arch {
                 Architecture::Riscv32 | Architecture::Riscv64 => (
@@ -322,7 +322,6 @@ impl Processor {
             }
         };
 
-        let index = Index::parse(&obj, &path).map_err(Error::Debug)?;
         let mut instructions = Vec::new();
         let mut errors = Vec::new();
         let max_instruction_width;
