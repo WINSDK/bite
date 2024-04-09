@@ -77,6 +77,76 @@ pub struct Segment {
     pub end: PhysAddr,
 }
 
+
+#[derive(Debug)]
+pub struct AddressMap<T> {
+    pub mapping: Vec<Addressed<T>>,
+}
+
+impl<T> AddressMap<T> {
+    /// Binary search, assumes [`Self`] is sorted.
+    #[inline]
+    pub fn search(&self, addr: usize) -> Result<usize, usize> {
+        self.mapping.binary_search_by_key(&addr, |item| item.addr)
+    }
+
+    #[inline]
+    pub fn extend(&mut self, other: Self) {
+        self.mapping.extend(other.mapping)
+    }
+}
+
+impl<T> Default for AddressMap<T> {
+    fn default() -> Self {
+        Self { mapping: Vec::new() }
+    }
+}
+
+impl<T> std::ops::Deref for AddressMap<T> {
+    type Target = Vec<Addressed<T>>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.mapping
+    }
+}
+
+impl<T> std::ops::DerefMut for AddressMap<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.mapping
+    }
+}
+
+#[derive(Debug)]
+pub struct Addressed<T> {
+    pub addr: usize,
+    pub item: T,
+}
+
+impl<T> PartialEq for Addressed<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.addr == other.addr
+    }
+}
+
+impl<T> Eq for Addressed<T> {}
+
+impl<T> PartialOrd for Addressed<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.addr.cmp(&other.addr))
+    }
+}
+
+impl<T> Ord for Addressed<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.addr.cmp(&other.addr)
+    }
+}
+
 /// Truncates string past the max width with a '..'.
 pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize, is_padded: bool) -> String {
     unsafe {

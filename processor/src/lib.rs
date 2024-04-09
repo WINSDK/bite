@@ -5,7 +5,7 @@ use decoder::{Decodable, Decoded};
 use object::{Object, ObjectSegment, ObjectSection};
 use object::{Architecture, BinaryFormat, SectionKind};
 use object::read::File as ObjectFile;
-use processor_shared::{PhysAddr, Section, Segment};
+use processor_shared::{PhysAddr, Section, Segment, AddressMap, Addressed};
 use debugvault::Index;
 use tokenizing::Token;
 
@@ -93,9 +93,12 @@ macro_rules! impl_recursion {
                         instruction.update_rel_addrs(ip);
 
                         let width = instruction.width();
-                        $instructions.push((ip, Instruction {
-                            $arch: std::mem::ManuallyDrop::new(instruction)
-                        }));
+                        $instructions.push(Addressed {
+                            addr: ip,
+                            item: Instruction {
+                                $arch: std::mem::ManuallyDrop::new(instruction)
+                            }
+                        });
 
                         ip += width;
                     }
@@ -105,7 +108,10 @@ macro_rules! impl_recursion {
                         }
 
                         let width = error.size();
-                        $errors.push((ip, error));
+                        $errors.push(Addressed {
+                            addr: ip,
+                            item: error
+                        });
                         ip += width;
                     }
                 }
@@ -141,11 +147,11 @@ pub struct Processor {
 
     /// Errors occurred in decoding instructions.
     /// Sorted by address.
-    errors: Vec<(usize, decoder::Error)>,
+    errors: AddressMap<decoder::Error>,
 
     /// Successfully decoded instructions.
     /// Sorted by address.
-    instructions: Vec<(usize, Instruction)>,
+    instructions: AddressMap<Instruction>,
 
     /// How many bytes an instruction given the architecture.
     max_instruction_width: usize,
@@ -292,7 +298,6 @@ impl Processor {
             segments.push(segment);
         }
 
-        // sort segments/sections by their physical address
         segments.sort_unstable_by_key(|s| s.start);
         sections.sort_unstable_by_key(|s| s.start);
 
@@ -327,8 +332,8 @@ impl Processor {
             }
         };
 
-        let mut instructions = Vec::new();
-        let mut errors = Vec::new();
+        let mut instructions = AddressMap::default();
+        let mut errors = AddressMap::default();
         let max_instruction_width;
 
         match arch {
@@ -412,8 +417,8 @@ impl Processor {
             _ => unreachable!(),
         };
 
-        instructions.sort_unstable_by_key(|k| k.0);
-        errors.sort_unstable_by_key(|k| k.0);
+        instructions.sort_unstable();
+        errors.sort_unstable();
 
         log::complex!(
             w "[processor::parse] took ",
@@ -450,15 +455,15 @@ impl Processor {
     }
 
     pub fn error_by_addr(&self, addr: PhysAddr) -> Option<&decoder::Error> {
-        match self.errors.binary_search_by(|k| k.0.cmp(&addr)) {
-            Ok(idx) => Some(&self.errors[idx].1),
+        match self.errors.search(addr) {
+            Ok(idx) => Some(&self.errors[idx].item),
             Err(..) => None,
         }
     }
 
     pub fn instruction_by_addr(&self, addr: PhysAddr) -> Option<&Instruction> {
-        match self.instructions.binary_search_by(|k| k.0.cmp(&addr)) {
-            Ok(idx) => Some(&self.instructions[idx].1),
+        match self.instructions.search(addr) {
+            Ok(idx) => Some(&self.instructions[idx].item),
             Err(..) => None,
         }
     }
@@ -499,17 +504,17 @@ impl Processor {
 impl Drop for Processor {
     /// Required `Drop` impl as [`Instruction`]'s a non-copy union.
     fn drop(&mut self) {
-        for (_, instruction) in self.instructions.iter_mut() {
+        for Addressed { item: inst, .. } in self.instructions.iter_mut() {
             match self.arch {
-                Architecture::X86_64 => unsafe { ManuallyDrop::drop(&mut instruction.x64) },
+                Architecture::X86_64 => unsafe { ManuallyDrop::drop(&mut inst.x64) },
                 Architecture::X86_64_X32 | Architecture::I386 => unsafe {
-                    ManuallyDrop::drop(&mut instruction.x86)
+                    ManuallyDrop::drop(&mut inst.x86)
                 },
                 Architecture::Riscv64 | Architecture::Riscv32 => unsafe {
-                    ManuallyDrop::drop(&mut instruction.riscv)
+                    ManuallyDrop::drop(&mut inst.riscv)
                 },
                 Architecture::Mips | Architecture::Mips64 => unsafe {
-                    ManuallyDrop::drop(&mut instruction.mips)
+                    ManuallyDrop::drop(&mut inst.mips)
                 },
                 _ => {}
             }

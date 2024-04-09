@@ -6,8 +6,7 @@ use demangler::TokenStream;
 use object::{Object, ObjectSymbol};
 use radix_trie::{Trie, TrieCommon};
 use tokenizing::{Colors, Token};
-
-pub use common::{Addressed ,AddressMap};
+use processor_shared::{Addressed, AddressMap};
 
 mod common;
 mod demangler;

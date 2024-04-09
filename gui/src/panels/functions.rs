@@ -1,6 +1,6 @@
 use crate::common::*;
 
-use debugvault::Addressed;
+use processor_shared::Addressed;
 use egui::text::LayoutJob;
 use processor::Processor;
 use std::sync::Arc;
