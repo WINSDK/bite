@@ -43,10 +43,10 @@ members = [
     "debugvault",
     "processor",
     "processor_shared"
-]
+, "infinite_scroll"]
 
 [workspace.dependencies]
-egui = { version = "0.25", features = ["bytemuck"], default-features = false }
+egui = { version = "0.27", features = ["bytemuck"], default-features = false }
 rfd = "0.14"
 crossbeam-queue = "0.3"
 object = "0.32"

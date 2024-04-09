@@ -5,7 +5,7 @@ mod tests;
 use decoder::{Error, ErrorKind, ToTokens};
 use debugvault::Index;
 use once_cell::sync::Lazy;
-use tokenizing::{ColorScheme, Colors};
+use tokenizing::{TokenStream, ColorScheme, Colors};
 
 macro_rules! operands {
     [] => {([$crate::Operand::Nothing; 3], 0)};
@@ -730,7 +730,7 @@ pub enum Operand {
 }
 
 impl ToTokens for Operand {
-    fn tokenize(&self, stream: &mut decoder::TokenStream, symbols: &Index) {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         match self {
             Self::Register(reg) => stream.push(reg.as_str(), Colors::register()),
             Self::Immediate(imm) => {
@@ -970,7 +970,7 @@ fn decode(reader: &mut decoder::Reader, decoder: &Decoder) -> Result<Instruction
 }
 
 impl ToTokens for Instruction {
-    fn tokenize(&self, stream: &mut decoder::TokenStream, symbols: &Index) {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         stream.push(self.opcode.as_str(), Colors::opcode());
 
         // there are operands

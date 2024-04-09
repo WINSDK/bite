@@ -3,9 +3,9 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens, TokenStream};
+use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
 use debugvault::Index;
-use tokenizing::{colors, ColorScheme, Colors};
+use tokenizing::{colors, ColorScheme, Colors, TokenStream};
 
 mod thumb;
 

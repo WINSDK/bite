@@ -4,7 +4,7 @@ mod source_code;
 
 use crate::{common::*, tprint};
 use crate::style::{EGUI, STYLE};
-use crate::widgets::{Donut, Terminal, TextSelection};
+use crate::widgets::{Donut, Terminal};
 use processor::Processor;
 
 use egui::{Button, RichText};
@@ -69,8 +69,7 @@ impl egui_dock::TabViewer for Tabs {
 
                 area.show(ui, |ui| {
                     let layout = log::LOGGER.read().unwrap().format();
-                    let text_area = TextSelection::precomputed(&layout);
-                    ui.add(text_area);
+                    ui.label(layout);
                 });
             }
             None => {}
@@ -314,7 +313,7 @@ impl Panels {
         // generic keyboard inputs
         self.input(ctx);
 
-        egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
+        // egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
 
         // terminal needs to be rendered last as it can take focus away from other panels
         let terminal = egui::TopBottomPanel::bottom("terminal")

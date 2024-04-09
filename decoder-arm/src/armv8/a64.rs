@@ -7,9 +7,9 @@
 
 use core::fmt::{self, Display, Formatter};
 
-use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens, TokenStream};
+use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens};
 use debugvault::Index;
-use tokenizing::{colors, ColorScheme, Colors};
+use tokenizing::{colors, ColorScheme, Colors, TokenStream};
 
 #[allow(non_snake_case)]
 mod docs {

@@ -117,7 +117,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         text_cursor: Stroke::new(2.0, Color32::from_rgba_unmultiplied(130, 130, 130, 200)),
         ..Default::default()
     },
-    wrap: Some(false),
+    wrap: Some(true),
     explanation_tooltips: false,
     text_styles: {
         let mut styles = std::collections::BTreeMap::new();
@@ -138,7 +138,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             show_expand_height: true,
             show_resize: true,
             show_interactive_widgets: true,
-            show_blocking_widget: true,
+            show_widget_hits: true,
         }
     } else {
         egui::style::DebugOptions::default()

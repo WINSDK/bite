@@ -5,7 +5,7 @@ mod tests;
 use decoder::{Error, ErrorKind};
 use debugvault::Index;
 use std::borrow::Cow;
-use tokenizing::{ColorScheme, Colors};
+use tokenizing::{TokenStream, ColorScheme, Colors};
 
 macro_rules! operands {
     [] => {([$crate::EMPTY_OPERAND; 3], 0)};
@@ -244,7 +244,7 @@ fn decode(reader: &mut decoder::Reader) -> Result<Instruction, ErrorKind> {
 }
 
 impl decoder::ToTokens for Instruction {
-    fn tokenize(&self, stream: &mut decoder::TokenStream, _: &Index) {
+    fn tokenize(&self, stream: &mut TokenStream, _: &Index) {
         stream.push(self.mnemomic, Colors::opcode());
 
         // there are operands

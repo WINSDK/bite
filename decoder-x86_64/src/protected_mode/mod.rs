@@ -12,7 +12,7 @@ use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked
 pub use crate::MemoryAccessSize;
 
 use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
-use tokenizing::{ColorScheme, Colors};
+use tokenizing::{ColorScheme, Colors, TokenStream};
 use debugvault::Index;
 
 /// an `x86` register, including its number and type. if `fmt` is enabled, name too.
@@ -503,7 +503,7 @@ impl SaeMode {
 }
 
 impl ToTokens for SaeMode {
-    fn tokenize(&self, stream: &mut decoder::TokenStream, _: &Index) {
+    fn tokenize(&self, stream: &mut TokenStream, _: &Index) {
         stream.push("{", Colors::brackets());
         stream.push(
             match self {

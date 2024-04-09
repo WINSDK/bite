@@ -1,117 +1,146 @@
-use std::sync::Arc;
+#![allow(dead_code)]
 
+use std::sync::Arc;
 use crate::common::*;
-use crate::widgets::{ProcessorView, TextSelection};
-use egui::text::LayoutJob;
-use processor::Processor;
-use processor_shared::PhysAddr;
+use processor::{Processor, Block};
+use infinite_scroll::InfiniteScroll;
+use tokenizing::{colors, TokenStream};
+
+type BlockIdx = usize;
+type LineIdx = usize;
 
 pub struct Listing {
-    pub processor_view: ProcessorView,
     processor: Arc<Processor>,
-    lines: LayoutJob,
-    min_row: usize,
-    max_row: usize,
+    scroll: InfiniteScroll<Block, BlockIdx>,
+}
+
+fn processor_start(processor: &Processor) -> usize {
+    processor.segments().next().map(|seg| seg.start).unwrap()
 }
 
 impl Listing {
     pub fn new(processor: Arc<Processor>) -> Self {
-        Self {
-            processor_view: ProcessorView::new(),
-            processor,
-            lines: LayoutJob::default(),
-            min_row: 0,
-            max_row: 0,
-        }
-    }
+        let processor_cln = Arc::clone(&processor);
+        let boundaries = Arc::new(processor.compute_block_boundaries());
 
-    /// Force refresh listing.
-    /// Force refresh listing.
-    pub fn update(&mut self) {
-        let instructions = self.processor_view.format();
-        self.lines = tokens_to_layoutjob(instructions);
-    }
+        let infinite_scroll = InfiniteScroll::new()
+            .end_loader(move |cursor, callback| {
+                let boundaries = Arc::clone(&boundaries);
+                let processor_cln = Arc::clone(&processor_cln);
+                let block_idx = cursor.unwrap_or(0);
 
-    pub fn jump(&mut self, addr: PhysAddr) -> bool {
-        self.processor_view.jump(&self.processor, addr)
+                std::thread::spawn(move || {
+                    let mut all_blocks = Vec::new();
+                    let mut idx = block_idx;
+
+                    let mut lines_parsed = 0;
+                    'done: loop {
+                        if idx >= boundaries.len() {
+                            break;
+                        }
+
+                        let blocks = processor_cln.parse_blocks(boundaries[idx]);
+                        for block in blocks.iter() {
+                            lines_parsed += block.len();
+
+                            if lines_parsed >= 100 {
+                                break 'done;
+                            }
+                        }
+
+                        all_blocks.extend(blocks);
+                        idx += 1;
+                    }
+
+                    callback(Ok((all_blocks, Some(idx))));
+                });
+            });
+
+        Self { scroll: infinite_scroll, processor }
     }
+}
+
+fn draw_horizontal_line(ui: &mut egui::Ui) {
+    let thickness = 1.0;
+    let y = ui.cursor().min.y;
+
+    let dashed_line = egui::Shape::dashed_line(
+        &[egui::pos2(5.0, y), egui::pos2(ui.available_width(), y)],
+        egui::Stroke::new(thickness, colors::WHITE),
+        10.0,
+        5.0,
+    );
+
+    ui.add_space(5.0);
+    ui.painter().extend(dashed_line);
 }
 
 impl Display for Listing {
     fn show(&mut self, ui: &mut egui::Ui) {
-        if !self.processor_view.no_code() {
-            if let Some(text) = self.processor.section_name(self.processor_view.addr()) {
-                let max_width = ui.available_width();
-                let size = egui::vec2(9.0 * text.len() as f32, 25.0);
-                let offset = egui::pos2(20.0, 60.0);
-                let rect = egui::Rect::from_two_pos(
-                    egui::pos2(max_width - offset.x, offset.y),
-                    egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
-                );
-
-                ui.painter().rect(
-                    rect.expand2(egui::vec2(5.0, 0.0)),
-                    0.0,
-                    tokenizing::colors::GRAY35,
-                    egui::Stroke::new(2.5, egui::Color32::BLACK),
-                );
-
-                ui.painter().text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    text,
-                    FONT,
-                    egui::Color32::WHITE,
-                );
-            }
-        }
-
-        let spacing = ui.spacing().item_spacing;
-        let row_height = FONT.size + spacing.y;
-
         let area = egui::ScrollArea::vertical()
-            .auto_shrink(false)
             .drag_to_scroll(false)
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .animated(false);
 
-        area.show_viewport(ui, |ui, viewport| {
-            let min_row = (viewport.min.y / row_height).floor() as usize;
-            let max_row = (viewport.max.y / row_height).ceil() as usize + 1;
+        area.show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical_centered(|ui| {
+                ui.set_visible(self.scroll.top_loading_state().loading());
+                ui.spinner();
+            });
 
-            let y_min = ui.max_rect().top() + min_row as f32 * row_height;
-            let y_max = ui.max_rect().top() + max_row as f32 * row_height;
-            let row_change = usize::abs_diff(self.max_row - self.min_row, max_row - min_row);
-
-            let rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
-
-            ui.allocate_ui_at_rect(rect, |ui| {
-                ui.skip_ahead_auto_ids(min_row);
-
-                if row_change > 1 {
-                    self.processor_view.set_max_lines(max_row - min_row, &self.processor);
-                    self.update();
-                    self.min_row = min_row;
-                    self.max_row = max_row;
-                    return;
+            self.scroll.ui(ui, 10, |ui, _idx, block| {
+                match block {
+                    Block::SectionStart { .. } => {
+                        draw_horizontal_line(ui);
+                    }
+                    _ => {}
                 }
 
-                if min_row < self.min_row {
-                    self.processor_view.scroll_up(&self.processor, self.min_row - min_row);
-                    self.update();
-                    self.min_row = min_row;
-                    self.max_row = max_row;
-                }
+                let mut stream = TokenStream::new();
+                block.tokenize(&mut stream);
+                ui.label(tokens_to_layoutjob(stream.inner));
+            });
 
-                if min_row > self.min_row {
-                    self.processor_view.scroll_down(&self.processor, min_row - self.min_row);
-                    self.update();
-                    self.min_row = min_row;
-                    self.max_row = max_row;
-                }
+//             self.scroll.ui_custom_layout(ui, 1, |ui, _start_idx, blocks| {
+//                 let mut stream = TokenStream::new();
+//                 for block in blocks.iter() {
+//                     block.tokenize(&mut stream);
+//                 }
+//                 ui.label(tokens_to_layoutjob(stream.inner));
+//                 blocks.len() // this might not always be true
+//             });
 
-                let text_area = TextSelection::precomputed(&self.lines);
-                ui.add(text_area);
+            ui.vertical_centered(|ui| {
+                ui.set_visible(self.scroll.bottom_loading_state().loading());
+                ui.spinner();
             });
         });
+
+        // Overlay current section.
+        if let Some(text) = self.processor.section_name(self.processor.entrypoint) {
+            let max_width = ui.available_width();
+            let size = egui::vec2(9.0 * text.len() as f32, 25.0);
+            let offset = egui::pos2(20.0, 60.0);
+            let rect = egui::Rect::from_two_pos(
+                egui::pos2(max_width - offset.x, offset.y),
+                egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
+            );
+
+            ui.painter().rect(
+                rect.expand2(egui::vec2(5.0, 0.0)),
+                0.0,
+                tokenizing::colors::GRAY35,
+                egui::Stroke::new(2.5, egui::Color32::BLACK),
+            );
+
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                text,
+                FONT,
+                egui::Color32::WHITE,
+            );
+        }
     }
 }

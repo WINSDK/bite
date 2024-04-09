@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
+use egui::Spinner;
 
 pub struct ProgressBar {
     desc: RwLock<&'static str>,
@@ -55,41 +56,27 @@ impl ProgressBar {
 
         let rect = ui.allocate_exact_size(self.size, egui::Sense::hover()).0;
 
-        // not yet set so don't display text
+        // Not yet set so don't display text.
         if *desc == "???" {
             return;
         }
 
         let (top_rect, bot_rect) = rect.split_top_bottom_at_fraction(0.5);
-        let (bar_rect, circles_rect) = top_rect.split_left_right_at_fraction(0.9);
+        let (bar_rect, spinner_rect) = top_rect.split_left_right_at_fraction(0.95);
         let (l, r) = bar_rect.split_left_right_at_fraction(progress);
 
         let painter = ui.painter();
 
-        // draw background bar
+        // Draw background bar.
         painter.rect_filled(r, 0.0, self.bg_col);
 
-        let t = ui.input(|i| i.time);
-        let r = circles_rect.height() / 2.1;
-        let speed = 1.5;
-        let offsets = [speed * 0.0, speed * 0.333, speed * 0.666];
-
-        // draw dots
-        for offset in offsets {
-            let o = (circles_rect.width() + r) as f64
-                * (t + offset - speed * ((t + offset) / speed).floor())
-                / speed;
-            let circle_center = egui::Pos2::new(
-                circles_rect.max.x - o as f32,
-                (circles_rect.min.y + circles_rect.max.y) / 2.0,
-            );
-            painter.circle_filled(circle_center, r, self.bg_col);
-        }
-
-        // draw filled bar
+        // Draw filled bar.
         painter.rect_filled(l, 0.0, self.fg_col);
 
-        // draw centered text
+        // Draw spinner.
+        Spinner::new().color(self.fg_col).paint_at(ui, spinner_rect);
+
+        // Draw centered text.
         ui.allocate_ui_at_rect(bot_rect, |ui| {
             ui.with_layout(
                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),

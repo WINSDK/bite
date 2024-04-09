@@ -2397,7 +2397,10 @@ impl Parse for Symbol {
             }
 
             ctx.ascent();
-            todo!("TODO: return thread safe static guard")
+            log::complex!(
+                w "[parse::parse] ",
+                y "TODO: return thread safe static guard"
+            );
         }
 
         // any other template instantiation

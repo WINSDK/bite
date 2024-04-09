@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 use debugvault::Index;
-use tokenizing::{Color, Token};
+use tokenizing::{TokenStream, Token};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Error {
@@ -75,41 +75,6 @@ pub trait Decodable {
 
     fn decode(&self, reader: &mut Reader) -> Result<Self::Instruction, Error>;
     fn max_width(&self) -> usize;
-}
-
-#[derive(Debug)]
-pub struct TokenStream {
-    inner: Vec<Token>,
-}
-
-impl TokenStream {
-    pub fn new() -> Self {
-        Self {
-            inner: Vec::with_capacity(25),
-        }
-    }
-
-    pub fn push_token(&mut self, token: Token) {
-        self.inner.push(token);
-    }
-
-    pub fn push(&mut self, text: &'static str, color: Color) {
-        self.push_token(Token::from_str(text, color));
-    }
-
-    pub fn push_owned(&mut self, text: String, color: Color) {
-        self.push_token(Token::from_string(text, color));
-    }
-
-    pub fn clear(&mut self) {
-        self.inner.clear();
-    }
-}
-
-impl ToString for TokenStream {
-    fn to_string(&self) -> String {
-        self.inner.iter().map(|t| &t.text as &str).collect()
-    }
 }
 
 pub struct Reader<'data> {

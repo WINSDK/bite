@@ -10,7 +10,7 @@ bytemuck = { version = "1.14", default-features = false }
 winit = { version = "0.29"}
 wgpu = { version = "0.19" }
 egui = { workspace = true }
-egui_dock = "0.10"
+egui_dock = "0.12"
 copypasta = "0.10"
 once_cell = { workspace = true }
 png = "0.17"
@@ -29,6 +29,7 @@ tokenizing = { path = "../tokenizing" }
 debugvault = { path = "../debugvault" }
 processor = { path = "../processor" }
 processor_shared = { path = "../processor_shared" }
+infinite_scroll = { path = "../infinite_scroll" }
 
 [build-dependencies]
 cc = "1" # tree-sitter requirement

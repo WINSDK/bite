@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::style::EGUI;
 use crate::widgets::TextEdit;
 

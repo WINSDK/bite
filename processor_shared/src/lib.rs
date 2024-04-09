@@ -7,7 +7,7 @@ pub type VirtAddr = usize;
 /// Address in the file world.
 pub type PhysAddr = usize;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Section {
     /// Section identifier.
     pub name: Cow<'static, str>,
@@ -62,18 +62,11 @@ impl Section {
         (self.start..=self.end).contains(&addr)
     }
 
-    pub fn format_bytes(
-        &self,
-        addr: PhysAddr,
-        len: usize,
-        max_len: usize,
-        is_padded: bool,
-    ) -> Option<String> {
-        let rva = addr.checked_sub(self.start)?;
-        let bytes = self.bytes.get(rva..)?;
+    pub fn bytes_by_addr<'a>(&self, addr: PhysAddr, len: usize) -> &'a [u8] {
+        let rva = addr - self.start;
+        let bytes = &self.bytes[rva..];
         let bytes = &bytes[..std::cmp::min(bytes.len(), len)];
-
-        Some(encode_hex_bytes_truncated(bytes, max_len, is_padded))
+        bytes
     }
 }
 

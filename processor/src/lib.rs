@@ -1,4 +1,5 @@
 mod fmt;
+mod blocks;
 
 use decoder::{Decodable, Decoded};
 use object::{Object, ObjectSegment, ObjectSection};
@@ -18,6 +19,12 @@ use std::fs::File;
 use std::borrow::Cow;
 use std::mem::ManuallyDrop;
 
+pub use decoder::Error as DecoderError;
+pub use decoder::ErrorKind as DecoderErrorKind;
+pub use blocks::Block;
+
+/// FIXME: This is way too large and way too broad.
+///        Especially since these are being started for any address with a faulty decoding.
 pub enum Error {
     IO(std::io::Error),
     Object(object::Error),
@@ -136,11 +143,11 @@ pub struct Processor {
 
     /// Errors occurred in decoding instructions.
     /// Sorted by address.
-    errors: Vec<(PhysAddr, decoder::Error)>,
+    errors: Vec<(usize, decoder::Error)>,
 
     /// Successfully decoded instructions.
     /// Sorted by address.
-    instructions: Vec<(PhysAddr, Instruction)>,
+    instructions: Vec<(usize, Instruction)>,
 
     /// How many bytes an instruction given the architecture.
     max_instruction_width: usize,
@@ -432,18 +439,6 @@ impl Processor {
             instruction_width,
             arch,
         })
-    }
-
-    /// Format address relative to a given section.
-    #[inline]
-    pub fn format_bytes(
-        &self,
-        addr: PhysAddr,
-        len: usize,
-        section: &Section,
-        is_padded: bool,
-    ) -> Option<String> {
-        section.format_bytes(addr, len, self.max_instruction_width * 3 + 1, is_padded)
     }
 
     /// Relatively slow tokenization of an [`Instruction`].

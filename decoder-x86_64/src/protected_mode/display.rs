@@ -8,7 +8,7 @@ use crate::{Number, MEM_SIZE_STRINGS};
 
 use decoder::ToTokens;
 use debugvault::Index;
-use tokenizing::{ColorScheme, Colors};
+use tokenizing::{ColorScheme, Colors, TokenStream};
 
 impl fmt::Display for Decoder {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -253,7 +253,7 @@ impl fmt::Display for RegSpec {
 impl Operand {
     fn tokenize_symbolic(
         &self,
-        stream: &mut decoder::TokenStream,
+        stream: &mut TokenStream,
         symbols: &Index,
         addr: usize,
     ) -> bool {
@@ -622,7 +622,7 @@ impl Operand {
 impl Operand {
     fn tokenize(
         &self,
-        stream: &mut decoder::TokenStream,
+        stream: &mut TokenStream,
         symbols: &Index,
         imm_override: Option<usize>,
     ) {
@@ -2346,7 +2346,7 @@ impl Opcode {
 }
 
 impl ToTokens for Instruction {
-    fn tokenize(&self, stream: &mut decoder::TokenStream, symbols: &Index) {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         let opcode_name = self.opcode().name();
         let mut op = String::with_capacity(opcode_name.len());
 

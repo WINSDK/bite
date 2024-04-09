@@ -28,7 +28,7 @@ fn test_display(data: &[u8], expected: &'static str) {
 }
 
 fn test_display_under(dekoder: &Decoder, data: &[u8], expected: &'static str) {
-    let mut stream = decoder::TokenStream::new();
+    let mut stream = tokenizing::TokenStream::::new();
     let mut hex = String::new();
     for b in data {
         write!(hex, "{:02x}", b).unwrap();

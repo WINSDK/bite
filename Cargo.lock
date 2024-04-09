@@ -854,18 +854,18 @@ dependencies = [
 
 [[package]]
 name = "ecolor"
-version = "0.25.0"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57539aabcdbb733b6806ef421b66dec158dc1582107ad6d51913db3600303354"
+checksum = "20930a432bbd57a6d55e07976089708d4893f3d556cf42a0d79e9e321fa73b10"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "egui"
-version = "0.25.0"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0bf640ed7f3bf3d14ebf00d73bacc09c886443ee84ca6494bde37953012c9e3"
+checksum = "584c5d1bf9a67b25778a3323af222dbe1a1feb532190e103901187f92c7fe29a"
 dependencies = [
  "ahash",
  "epaint",
@@ -874,9 +874,9 @@ dependencies = [
 
 [[package]]
 name = "egui_dock"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "727ea33d9940fb3eea4ba59c78e47db5d0c25bdcb3f3169be68d0ee7088f5e61"
+checksum = "c3b8d9a54c0ed60f2670ad387c269663b4771431f090fa586906cf5f0bc586f4"
 dependencies = [
  "duplicate",
  "egui",
@@ -885,9 +885,9 @@ dependencies = [
 
 [[package]]
 name = "emath"
-version = "0.25.0"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ee58355767587db7ba3738930d93cad3052cd834c2b48b9ef6ef26fe4823b7e"
+checksum = "e4c3a552cfca14630702449d35f41c84a0d15963273771c6059175a803620f3f"
 dependencies = [
  "bytemuck",
 ]
@@ -927,9 +927,9 @@ dependencies = [
 
 [[package]]
 name = "epaint"
-version = "0.25.0"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e638cb066bff0903bbb6143116cfd134a42279c7d68f19c0352a94f15a402de7"
+checksum = "b381f8b149657a4acf837095351839f32cd5c4aec1817fc4df84e18d76334176"
 dependencies = [
  "ab_glyph",
  "ahash",
@@ -1306,6 +1306,7 @@ dependencies = [
  "dirs",
  "egui",
  "egui_dock",
+ "infinite_scroll",
  "log 0.0.0",
  "once_cell",
  "png",
@@ -1395,6 +1396,13 @@ checksum = "433de089bd45971eecf4668ee0ee8f4cec17db4f8bd8f7bc3197a6ce37aa7d9b"
 dependencies = [
  "equivalent",
  "hashbrown",
+]
+
+[[package]]
+name = "infinite_scroll"
+version = "0.0.0"
+dependencies = [
+ "egui",
 ]
 
 [[package]]

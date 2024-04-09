@@ -8,7 +8,6 @@ use tree_sitter::{Language, QueryError};
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
 use crate::common::*;
-use crate::widgets::TextSelection;
 use commands::CONFIG;
 use debugvault::FileAttr;
 use tokenizing::colors;
@@ -185,8 +184,7 @@ impl Source {
             }
         }
 
-        let text_area = TextSelection::precomputed(&output);
-        ui.add(text_area);
+        ui.label(output);
     }
 
     fn show_line_numbers(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {

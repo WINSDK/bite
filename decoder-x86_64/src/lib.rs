@@ -12,7 +12,7 @@ pub mod protected_mode;
 mod safer_unchecked;
 
 use debugvault::Index;
-use tokenizing::{ColorScheme, Colors};
+use tokenizing::{ColorScheme, Colors, TokenStream};
 
 const MEM_SIZE_STRINGS: [&str; 64] = [
     "byte ", "word ", "BUG ", "dword ", "ptr ", "far ", "BUG ", "qword ", "BUG ", "mword ", "BUG ",
@@ -26,7 +26,7 @@ const MEM_SIZE_STRINGS: [&str; 64] = [
 struct Number(i32);
 
 impl decoder::ToTokens for Number {
-    fn tokenize(&self, stream: &mut decoder::TokenStream, _: &Index) {
+    fn tokenize(&self, stream: &mut TokenStream, _: &Index) {
         if self.0 == i32::MIN {
             stream.push(" - ", Colors::expr());
             stream.push("0x7fffffff", Colors::immediate());

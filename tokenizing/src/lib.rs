@@ -146,7 +146,7 @@ pub mod colors {
     }
 
     pub const WHITE: Color = color!(0xff, 0xff, 0xff);
-    pub const BLUE: Color = color!(0x0f, 0x62, 0xfe);
+    pub const BLUE: Color = color!(0x3e, 0xbc, 0xe6);
     pub const MAGENTA: Color = color!(0xf5, 0x12, 0x81);
     pub const RED: Color = color!(0xff, 0x00, 0x0b);
     pub const PURPLE: Color = color!(0x89, 0x1f, 0xff);
@@ -207,5 +207,40 @@ impl PartialEq for Token {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         *self.text == *other.text
+    }
+}
+
+#[derive(Debug)]
+pub struct TokenStream {
+    pub inner: Vec<Token>,
+}
+
+impl TokenStream {
+    pub fn new() -> Self {
+        Self {
+            inner: Vec::with_capacity(25),
+        }
+    }
+
+    pub fn push_token(&mut self, token: Token) {
+        self.inner.push(token);
+    }
+
+    pub fn push(&mut self, text: &'static str, color: Color) {
+        self.push_token(Token::from_str(text, color));
+    }
+
+    pub fn push_owned(&mut self, text: String, color: Color) {
+        self.push_token(Token::from_string(text, color));
+    }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+}
+
+impl ToString for TokenStream {
+    fn to_string(&self) -> String {
+        self.inner.iter().map(|t| &t.text as &str).collect()
     }
 }

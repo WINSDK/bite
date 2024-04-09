@@ -1,5 +1,4 @@
 use crate::common::*;
-use crate::widgets::TextSelection;
 
 use debugvault::Addressed;
 use egui::text::LayoutJob;
@@ -72,8 +71,7 @@ impl Display for Functions {
                 self.max_row = row_range.end;
             }
 
-            let text_area = TextSelection::precomputed(&self.lines);
-            ui.add(text_area);
+            ui.label(self.lines.clone());
         });
     }
 }

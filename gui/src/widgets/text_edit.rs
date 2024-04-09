@@ -5,7 +5,7 @@ use egui::output::IMEOutput;
 use std::sync::Arc;
 
 use egui::epaint::text::{cursor::*, Galley, LayoutJob};
-use egui::widgets::text_edit::{CCursorRange, CursorRange};
+use egui::text_selection::{CCursorRange, CursorRange};
 use egui::{output::OutputEvent, *};
 
 type Undoer = egui::util::undoer::Undoer<(CCursorRange, String)>;

@@ -47,12 +47,13 @@ impl<Arch: crate::Target> super::UI<Arch> {
                     }
                 };
 
-                if listing.jump(addr) {
-                    listing.update();
-                    tprint!(self.panels.terminal(), "Jumped to address {addr:#X}.");
-                } else {
-                    tprint!(self.panels.terminal(), "Address {addr:#X} is undefined.");
-                }
+                todo!()
+                //if listing.jump(addr) {
+                //    listing.update();
+                //    tprint!(self.panels.terminal(), "Jumped to address {addr:#X}.");
+                //} else {
+                //    tprint!(self.panels.terminal(), "Address {addr:#X} is undefined.");
+                //}
             }
             Ok(Command::Quit) => return false,
             Ok(Command::Run(_args)) => todo!("debugger"),
