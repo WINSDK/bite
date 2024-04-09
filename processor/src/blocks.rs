@@ -101,7 +101,7 @@ impl Block {
                 // Never print more than 100 lines, this is a little scuffed.
                 for chunk in bytes.chunks(32).take(100) {
                     stream.push_owned(format!("{:0>10X}  ", self.addr + off), colors::GRAY40);
-                    let s = processor_shared::encode_hex_bytes_truncated(chunk, chunk.len(), false);
+                    let s = processor_shared::encode_hex_bytes_truncated(chunk, usize::MAX, false);
                     stream.push_owned(s, colors::GREEN);
                     stream.push("\n", colors::WHITE);
                     off += chunk.len();
@@ -114,16 +114,13 @@ impl Block {
 }
 
 impl Processor {
-    fn bytes_by_addr(&self, addr: usize, len: usize) -> &[u8] {
-        let section = self.sections().find(|sec| sec.contains(addr)).expect("Invalid address.");
-        section.bytes_by_addr(addr, len)
-    }
-
     fn parse_data_or_code(&self, addr: usize) -> Option<Block> {
+        let section = self.section_by_addr(addr).expect("Invalid address.");
+
         if let Some(inst) = self.instruction_by_addr(addr) {
             let width = self.instruction_width(&inst);
             let inst = self.instruction_tokens(&inst, &self.index);
-            let bytes = self.bytes_by_addr(addr, width);
+            let bytes = section.bytes_by_addr(addr, width);
             let bytes =
                 encode_hex_bytes_truncated(&bytes, self.max_instruction_width * 3 + 1, true);
             return Some(Block {
@@ -133,7 +130,7 @@ impl Processor {
         }
 
         if let Some(err) = self.error_by_addr(addr) {
-            let bytes = self.bytes_by_addr(addr, err.size());
+            let bytes = section.bytes_by_addr(addr, err.size());
             let bytes =
                 encode_hex_bytes_truncated(&bytes, self.max_instruction_width * 3 + 1, true);
             return Some(Block {
@@ -145,18 +142,30 @@ impl Processor {
             });
         }
 
-        let section = self.sections().find(|sec| sec.contains(addr)).expect("Invalid address.");
-        let mut bytes_len = 0;
-        while self.error_by_addr(addr).is_none()
-            && self.instruction_by_addr(addr).is_none()
-            && self.index.get_func_by_addr(addr).is_none()
-            && addr < section.end
-        {
-            bytes_len += 1;
+        let mut baddr = addr;
+        loop {
+            if baddr == section.end {
+                break;
+            }
+
+            if self.instruction_by_addr(baddr).is_some() {
+                break;
+            }
+
+            if self.error_by_addr(baddr).is_some() {
+                break;
+            }
+
+            if addr != baddr && self.index.get_func_by_addr(baddr).is_some() {
+                break;
+            }
+
+            baddr += 1;
         }
 
+        let bytes_len = baddr - addr;
         if bytes_len > 0 {
-            let bytes = self.bytes_by_addr(addr, bytes_len).to_vec();
+            let bytes = section.bytes_by_addr(addr, bytes_len).to_vec();
             return Some(Block {
                 addr,
                 content: BlockContent::Bytes { bytes },
@@ -231,8 +240,8 @@ impl Processor {
             }
         });
 
-        boundaries.dedup();
         boundaries.sort_unstable();
+        boundaries.dedup();
         boundaries
     }
 
@@ -263,31 +272,32 @@ impl Processor {
                 continue;
             }
 
-            let mut bytes_len = 0;
+            let mut baddr = addr;
             loop {
-                if addr >= section.end {
+                if baddr == section.end {
                     break;
                 }
 
-                if self.instruction_by_addr(addr).is_some() {
+                if self.instruction_by_addr(baddr).is_some() {
                     break;
                 }
 
-                if self.error_by_addr(addr).is_some() {
+                if self.error_by_addr(baddr).is_some() {
                     break;
                 }
 
                 // We found some labelled bytes, so those would have to be in a different block.
-                if bytes_len >= 1 && self.index.get_func_by_addr(addr).is_some() {
+                if addr != baddr && self.index.get_func_by_addr(baddr).is_some() {
                     break;
                 }
 
-                bytes_len += 1;
-                addr += 1;
+                baddr += 1;
             }
 
+            let bytes_len = baddr - addr;
             if bytes_len > 0 {
                 boundaries.push(addr);
+                addr = baddr;
             }
         }
 

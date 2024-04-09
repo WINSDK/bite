@@ -40,7 +40,8 @@ impl Listing {
                     let mut idx = block_idx - 1;
                     let mut lines_parsed = 0;
                     'parse: loop {
-                        let blocks = processor.parse_blocks(boundaries[idx]);
+                        let addr = boundaries[idx];
+                        let blocks = processor.parse_blocks(addr);
                         for block in blocks.into_iter().rev() {
                             lines_parsed += block.len();
                             all_blocks.push(block);
@@ -88,7 +89,8 @@ impl Listing {
                             break;
                         }
 
-                        let blocks = processor.parse_blocks(boundaries[idx]);
+                        let addr = boundaries[idx];
+                        let blocks = processor.parse_blocks(addr);
                         for block in blocks {
                             lines_parsed += block.len();
                             all_blocks.push(block);

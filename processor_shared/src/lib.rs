@@ -57,11 +57,6 @@ impl Section {
         self.bytes
     }
 
-    #[inline]
-    pub fn contains(&self, addr: PhysAddr) -> bool {
-        (self.start..=self.end).contains(&addr)
-    }
-
     pub fn bytes_by_addr<'a>(&self, addr: PhysAddr, len: usize) -> &'a [u8] {
         let rva = addr - self.start;
         let bytes = &self.bytes[rva..];

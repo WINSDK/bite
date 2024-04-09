@@ -472,6 +472,22 @@ impl Processor {
         self.sections.iter().filter(|section| section.loaded)
     }
 
+    /// First try to find a section that matches, then if it exists, try to find a
+    /// section that matches better.
+    ///
+    /// E.g. `addr` might be the end of one section but the start of another, it will find the
+    /// later section.
+    pub fn section_by_addr(&self, addr: PhysAddr) -> Option<&Section> {
+        let mut found = None;
+        for section in self.sections() {
+            if addr >= section.start && addr <= section.end {
+                found = Some(section);
+            }
+        }
+
+        found
+    }
+
     pub fn section_name(&self, addr: PhysAddr) -> Option<&str> {
         self.sections
             .iter()
