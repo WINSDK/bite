@@ -19,9 +19,7 @@ use std::fs::File;
 use std::borrow::Cow;
 use std::mem::ManuallyDrop;
 
-pub use decoder::Error as DecoderError;
-pub use decoder::ErrorKind as DecoderErrorKind;
-pub use blocks::Block;
+pub use blocks::{BlockContent, Block};
 
 /// FIXME: This is way too large and way too broad.
 ///        Especially since these are being started for any address with a faulty decoding.

@@ -133,8 +133,8 @@ impl<T, C> LoadingState<T, C> {
     }
 }
 
+pub type Callback<T, Cursor> = Box<dyn FnOnce(CallbackResult<T, Cursor>) + Send + Sync>;
 type CallbackResult<T, Cursor> = Result<(Vec<T>, Option<Cursor>), String>;
-type Callback<T, Cursor> = Box<dyn FnOnce(CallbackResult<T, Cursor>) + Send + Sync>;
 type Loader<T, Cursor> = Box<dyn FnMut(Option<Cursor>, Callback<T, Cursor>) + Send + Sync>;
 
 type FilterType<T> = Box<dyn Fn(&T) -> bool + Send + Sync>;
