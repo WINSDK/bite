@@ -63,7 +63,7 @@ macro_rules! decode_instructions {
         let binary = section.uncompressed_data()?;
         let mut decoded = Vec::new();
         let mut reader = decoder::Reader::new(&binary[..]);
-        let mut line = decoder::TokenStream::new();
+        let mut line = tokenizing::TokenStream::new();
         let decoder = crate::Decoder { is_64: true };
         let symbols = debugvault::Index::default();
 
@@ -72,7 +72,7 @@ macro_rules! decode_instructions {
                 Ok(inst) => {
                     inst.tokenize(&mut line, &symbols);
                     decoded.push(line.to_string());
-                    line = decoder::TokenStream::new();
+                    line = tokenizing::TokenStream::new();
                 }
                 Err(err) => {
                     if err.kind == decoder::ErrorKind::ExhaustedInput {

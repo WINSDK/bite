@@ -1,10 +1,10 @@
 #![cfg(test)]
 
-use decoder::{Decodable, ToTokens};
+use decoder::{ToTokens, Decodable};
 
 fn test_display(bytes: &[u8], str: &str) {
     let mut reader = decoder::Reader::new(bytes);
-    let mut line = decoder::TokenStream::new();
+    let mut line = tokenizing::TokenStream::new();
     let symbols = debugvault::Index::default();
     let decoder = crate::Decoder::default();
 
