@@ -5,8 +5,8 @@ use crate::dwarf::{self, Dwarf};
 use crate::{AddressMap, Addressed, Symbol};
 use object::endian::{U16, U32, U64};
 use object::macho::{self, DyldInfoCommand, DysymtabCommand, LinkeditDataCommand};
-use object::read::macho::{MachHeader, MachOFile, Nlist, SymbolTable};
-use object::{Endian, Endianness, Object, ObjectSection, ObjectSegment, ReadRef};
+use object::read::macho::{MachHeader, MachOFile, SymbolTable};
+use object::{Endian, Endianness, Object, ObjectSegment, ReadRef};
 use std::mem::size_of;
 use std::path::Path;
 use std::process::Command;
@@ -150,11 +150,11 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
         this.parse_base_addr()?;
         this.parse_load_cmds()?;
         this.parse_global_syms()?;
-        this.parse_imports()?;
         if let Some(chained_fixups) = this.chained_fixups {
             parse_chained_fixups::<Mach>(
                 this.base_addr,
                 &mut this.syms,
+                &this.dylibs,
                 chained_fixups,
                 this.obj.data(),
                 this.obj.endian(),
@@ -271,43 +271,6 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
     }
 
     fn parse_imports(&mut self) -> Result<(), object::Error> {
-        let endian = self.obj.endian();
-        let stub = self.obj.section_by_name_bytes(b"__stubs");
-        let (symtab, dsymtab, stub) = match (self.symtab, self.dysymtab, stub) {
-            (Some(sym), Some(dsym), Some(stub)) => (sym, dsym, stub),
-            _ => return Ok(()),
-        };
-
-        let idx = dsymtab.iundefsym.get(endian) as usize;
-        let number = dsymtab.nundefsym.get(endian) as usize;
-        for jdx in idx..(idx.wrapping_add(number)) {
-            let symbol: &Mach::Nlist = symtab.symbol(jdx)?;
-
-            let name = symbol.name(endian, symtab.strings())?;
-            let name = match std::str::from_utf8(name) {
-                Ok(name) => name,
-                Err(..) => continue,
-            };
-
-            let mut func = Symbol::new(crate::demangler::parse(name)).as_import();
-            if let Some(lib) = self.dylibs.get(symbol.library_ordinal(endian) as usize) {
-                // Strip path prefix.
-                let module = String::from_utf8_lossy(lib);
-                let module = module.rsplit_once("/").map(|x| x.1).unwrap_or(&module).to_string();
-
-                func = func.with_module(module);
-            }
-
-            // Each stub entry appears to be 12 bytes, so the address is calculated
-            // as (__stub section addr) + (symbol index) * 12.
-            let addr = stub.address() as usize + (jdx - idx) * 12;
-
-            self.syms.push(Addressed {
-                addr,
-                item: Arc::new(func),
-            });
-        }
-
         Ok(())
     }
 }
@@ -481,6 +444,7 @@ fn parse_page_starts_table_starts(page_starts: u64, page_count: u64, data: &[u8]
 fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
     base_addr: u64,
     syms: &mut AddressMap<Arc<Symbol>>,
+    dylibs: &[&'data [u8]],
     chained_fixups: &LinkeditDataCommand<Mach::Endian>,
     data: &'data [u8],
     endian: Endianness,
@@ -674,7 +638,20 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                             let target_addr = base_addr + chain_entry_addr;
 
                             if !entry.name.is_empty() {
-                                let symbol = Symbol::new(demangler::parse(entry.name));
+                                let mut symbol = Symbol::new(demangler::parse(entry.name));
+
+                                if let Some(lib) = dylibs.get(entry.lib_ordinal as usize) {
+                                    // Strip path prefix.
+                                    let module = String::from_utf8_lossy(lib);
+                                    let module = module
+                                        .rsplit_once("/")
+                                        .map(|x| x.1)
+                                        .unwrap_or(&module)
+                                        .to_string();
+
+                                    symbol = symbol.with_module(module);
+                                }
+
                                 syms.push(Addressed {
                                     addr: target_addr as usize,
                                     item: Arc::new(symbol),
