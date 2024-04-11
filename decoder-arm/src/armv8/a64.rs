@@ -5125,70 +5125,70 @@ fn read(
 
                             use crate::armv8::a64::SIMDSizeCode::*;
 
-                            const TABLE_A: &'static OperandSizeTable = &[
+                            const TABLE_A: &OperandSizeTable = &[
                                 Ok((D, B, D, B)), Ok((Q, B, Q, B)),
                                 Ok((D, H, D, H)), Ok((Q, H, Q, H)),
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                             ];
 
-                            const TABLE_B: &'static OperandSizeTable = &[
+                            const TABLE_B: &OperandSizeTable = &[
                                 Ok((D, B, D, B)), Ok((Q, B, Q, B)),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                             ];
 
-                            const TABLE_C: &'static OperandSizeTable = &[
+                            const TABLE_C: &OperandSizeTable = &[
                                 Ok((D, H, D, B)), Ok((Q, H, Q, B)),
                                 Ok((D, S, D, H)), Ok((Q, S, Q, H)),
                                 Ok((D, D, D, S)), Ok((Q, D, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                             ];
 
-                            const TABLE_E: &'static OperandSizeTable = &[
+                            const TABLE_E: &OperandSizeTable = &[
                                 Ok((D, B, Q, H)), Ok((Q, B, Q, H)),
                                 Ok((D, H, Q, S)), Ok((Q, H, Q, S)),
                                 Ok((D, S, Q, D)), Ok((Q, S, Q, D)),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                             ];
 
-                            const TABLE_F: &'static OperandSizeTable = &[
+                            const TABLE_F: &OperandSizeTable = &[
                                 Ok((D, H, Q, S)), Ok((Q, H, Q, S)),
                                 Ok((D, S, Q, D)), Ok((Q, S, Q, D)),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                             ];
 
-                            const TABLE_G: &'static OperandSizeTable = &[
+                            const TABLE_G: &OperandSizeTable = &[
                                 Ok((Q, S, D, H)), Ok((Q, S, Q, H)),
                                 Ok((Q, D, D, S)), Ok((Q, D, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                             ];
 
-                            const TABLE_H: &'static OperandSizeTable = &[
+                            const TABLE_H: &OperandSizeTable = &[
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Ok((Q, D, Q, D)),
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Ok((Q, D, Q, D)),
                             ];
 
-                            const TABLE_I: &'static OperandSizeTable = &[
+                            const TABLE_I: &OperandSizeTable = &[
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Ok((Q, D, Q, D)),
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Ok((Q, D, Q, D)),
                             ];
 
-                            const TABLE_J: &'static OperandSizeTable = &[
+                            const TABLE_J: &OperandSizeTable = &[
                                 Ok((Q, H, D, B)), Ok((Q, H, Q, B)),
                                 Ok((Q, S, D, H)), Ok((Q, S, Q, H)),
                                 Ok((Q, D, D, S)), Ok((Q, D, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Err(ErrorKind::InvalidOperand),
                             ];
 
-                            const TABLE_K: &'static OperandSizeTable = &[
+                            const TABLE_K: &OperandSizeTable = &[
                                 Ok((D, B, D, B)), Ok((Q, B, Q, B)),
                                 Ok((D, H, D, H)), Ok((Q, H, Q, H)),
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
@@ -5197,7 +5197,7 @@ fn read(
 
                             if op2 & 0b0111 == 0b0100 {
                                 // `Advanced SIMD two-register miscellaneous`
-                                const OPCODES_U0_LOW: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>; 20] = &[
+                                const OPCODES_U0_LOW: &[Result<(Opcode, &OperandSizeTable), ErrorKind>; 20] = &[
                                     Ok((Opcode::REV64, TABLE_A)),
                                     Ok((Opcode::REV16, TABLE_B)),
                                     Ok((Opcode::SADDLP, TABLE_C)),
@@ -5223,7 +5223,7 @@ fn read(
                                     // 0b10100
                                 ];
                                 // index by low 3 of opcode | upper bit of size
-                                const OPCODES_U0_HIGH: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>] = &[
+                                const OPCODES_U0_HIGH: &[Result<(Opcode, &OperandSizeTable), ErrorKind>] = &[
                                     Ok((Opcode::SQXTN, TABLE_E)),
                                     Ok((Opcode::SQXTN, TABLE_E)),
                                     Err(ErrorKind::InvalidOpcode),
@@ -5253,7 +5253,7 @@ fn read(
                                 ];
 
                                 // `Advanced SIMD two-register miscellaneous`, U == 1
-                                const OPCODES_U1_LOW: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>; 20] = &[
+                                const OPCODES_U1_LOW: &[Result<(Opcode, &OperandSizeTable), ErrorKind>; 20] = &[
                                     Ok((Opcode::REV32, TABLE_A)),
                                     Err(ErrorKind::InvalidOpcode),
                                     Ok((Opcode::UADDLP, TABLE_C)),
@@ -5279,7 +5279,7 @@ fn read(
                                     // 0b10100
                                 ];
                                 // index by low 3 of opcode | upper bit of size
-                                const OPCODES_U1_HIGH: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>] = &[
+                                const OPCODES_U1_HIGH: &[Result<(Opcode, &OperandSizeTable), ErrorKind>] = &[
                                     Ok((Opcode::UQXTN, TABLE_E)),
                                     Ok((Opcode::UQXTN, TABLE_E)),
                                     Err(ErrorKind::InvalidOpcode),
@@ -6606,14 +6606,14 @@ fn read(
                             type OperandSizeTable = [Result<(SIMDSizeCode, SIMDSizeCode, SIMDSizeCode, SIMDSizeCode), ErrorKind>; 8];
                             use crate::armv8::a64::SIMDSizeCode::*;
 
-                            const TABLE_A: &'static OperandSizeTable = &[
+                            const TABLE_A: &OperandSizeTable = &[
                                 Ok((D, B, D, B)), Ok((Q, B, Q, B)),
                                 Ok((D, H, D, H)), Ok((Q, H, Q, H)),
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Ok((Q, D, Q, D)),
                             ];
 
-                            const TABLE_C: &'static OperandSizeTable = &[
+                            const TABLE_C: &OperandSizeTable = &[
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
                                 Err(ErrorKind::InvalidOperand), Ok((Q, D, Q, D)),
                                 Ok((D, S, D, S)), Ok((Q, S, Q, S)),
@@ -6621,7 +6621,7 @@ fn read(
                             ];
 
                             if opcode < 0b11000 {
-                                const OPCODES_U0_LOW: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>] = &[
+                                const OPCODES_U0_LOW: &[Result<(Opcode, &OperandSizeTable), ErrorKind>] = &[
                                     Err(ErrorKind::InvalidOpcode),
                                     Ok((Opcode::SQADD, TABLE_A)),
                                     Err(ErrorKind::InvalidOpcode),
@@ -6647,7 +6647,7 @@ fn read(
                                     Ok((Opcode::SQDMULH, TABLE_A)),
                                     Err(ErrorKind::InvalidOpcode),
                                 ];
-                                const OPCODES_U1_LOW: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>] = &[
+                                const OPCODES_U1_LOW: &[Result<(Opcode, &OperandSizeTable), ErrorKind>] = &[
                                     Err(ErrorKind::InvalidOpcode),
                                     Ok((Opcode::UQADD, TABLE_A)),
                                     Err(ErrorKind::InvalidOpcode),
@@ -6689,7 +6689,7 @@ fn read(
                                 ]
                             } else {
                                 // indexed by ((opcode - 0b11000) << 1) | (size >> 1)
-                                const OPCODES_U0_HIGH: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>; 16] = &[
+                                const OPCODES_U0_HIGH: &[Result<(Opcode, &OperandSizeTable), ErrorKind>; 16] = &[
                                     Err(ErrorKind::InvalidOpcode),
                                     Err(ErrorKind::InvalidOpcode),
                                     Err(ErrorKind::InvalidOpcode),
@@ -6707,7 +6707,7 @@ fn read(
                                     Ok((Opcode::FRECPS, TABLE_C)),
                                     Ok((Opcode::FRSQRTS, TABLE_C)),
                                 ];
-                                const OPCODES_U1_HIGH: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>; 16] = &[
+                                const OPCODES_U1_HIGH: &[Result<(Opcode, &OperandSizeTable), ErrorKind>; 16] = &[
                                     Err(ErrorKind::InvalidOpcode),
                                     Err(ErrorKind::InvalidOpcode),
                                     Err(ErrorKind::InvalidOpcode),
@@ -6806,28 +6806,28 @@ fn read(
 
                                     use crate::armv8::a64::SIMDSizeCode::*;
 
-                                    const TABLE_A: &'static OperandSizeTable = &[
+                                    const TABLE_A: &OperandSizeTable = &[
                                         Ok((Q, B, Q, B)),
                                         Ok((Q, H, Q, H)),
                                         Ok((Q, S, Q, S)),
                                         Ok((Q, D, Q, D)),
                                     ];
 
-                                    const TABLE_B: &'static OperandSizeTable = &[
+                                    const TABLE_B: &OperandSizeTable = &[
                                         Ok((Q, B, Q, H)),
                                         Ok((Q, H, Q, S)),
                                         Ok((Q, S, Q, D)),
                                         Err(ErrorKind::InvalidOperand),
                                     ];
 
-                                    const TABLE_C: &'static OperandSizeTable = &[
+                                    const TABLE_C: &OperandSizeTable = &[
                                         Err(ErrorKind::InvalidOperand),
                                         Ok((Q, S, Q, D)),
                                         Err(ErrorKind::InvalidOperand),
                                         Ok((Q, S, Q, D)),
                                     ];
 
-                                    const TABLE_D: &'static OperandSizeTable = &[
+                                    const TABLE_D: &OperandSizeTable = &[
                                         Ok((Q, S, Q, S)),
                                         Ok((Q, D, Q, D)),
                                         Ok((Q, S, Q, S)),
@@ -6837,7 +6837,7 @@ fn read(
                                     // indexed by `opcode << 2 | size & 0b10 | U`
                                     // opcodes for the section `Advanced SIMD scalar
                                     // two-register miscellaneous`.
-                                    const ADV_SIMD_SCALAR_TWO_REG_MISC: &[Result<(Opcode, &'static OperandSizeTable), ErrorKind>; 128] = &[
+                                    const ADV_SIMD_SCALAR_TWO_REG_MISC: &[Result<(Opcode, &OperandSizeTable), ErrorKind>; 128] = &[
                                         Err(ErrorKind::InvalidOpcode),
                                         Err(ErrorKind::InvalidOpcode),
                                         Err(ErrorKind::InvalidOpcode),
@@ -9109,7 +9109,7 @@ fn read(
                     // load/store no-allocate pair (offset)
                     // V == 0
                     let opc_L = ((word >> 22) & 1) | ((word >> 29) & 0x6);
-                    const ENCODINGS: &'static [Result<(Opcode, SizeCode), ErrorKind>] = &[
+                    const ENCODINGS: &[Result<(Opcode, SizeCode), ErrorKind>] = &[
                         Ok((Opcode::STNP, SizeCode::W)),
                         Ok((Opcode::LDNP, SizeCode::W)),
                         Err(ErrorKind::InvalidOpcode),
@@ -9146,7 +9146,7 @@ fn read(
                     // load/store no-allocate pair (offset)
                     // V == 1
                     let opc_L = ((word >> 22) & 1) | ((word >> 29) & 0x6);
-                    const ENCODINGS: &'static [Result<(Opcode, SIMDSizeCode), ErrorKind>] = &[
+                    const ENCODINGS: &[Result<(Opcode, SIMDSizeCode), ErrorKind>] = &[
                         Ok((Opcode::STNP, SIMDSizeCode::S)),
                         Ok((Opcode::LDNP, SIMDSizeCode::S)),
                         Ok((Opcode::STNP, SIMDSizeCode::D)),
@@ -9570,7 +9570,7 @@ fn read(
                                     inst.opcode = opc;
                                     inst.operands = [
                                         Operand::Register(size, Rs as u16),
-                                        Operand::Register(size, Rt as u16),
+                                        Operand::Register(size, Rt),
                                         Operand::RegPreIndex(Rn, 0, false),
                                         Operand::Nothing,
                                     ];
@@ -9588,7 +9588,7 @@ fn read(
 
                                         inst.operands = [
                                             Operand::Register(size, Rs as u16),
-                                            Operand::Register(size, Rt as u16),
+                                            Operand::Register(size, Rt),
                                             Operand::RegPreIndex(Rn, 0, false),
                                             Operand::Nothing,
                                         ];
@@ -9607,7 +9607,7 @@ fn read(
 
                                         // TOOD: should_is_must, Rs = 11111
                                         inst.operands = [
-                                            Operand::Register(size, Rt as u16),
+                                            Operand::Register(size, Rt),
                                             Operand::RegPreIndex(Rn, 0, false),
                                             Operand::Nothing,
                                             Operand::Nothing,
@@ -9781,7 +9781,7 @@ fn read(
 
                                 inst.operands = [
                                     Operand::Register(size, Rt),
-                                    Operand::RegPreIndex(Rn, imm9 as i32, false),
+                                    Operand::RegPreIndex(Rn, imm9, false),
                                     Operand::Nothing,
                                     Operand::Nothing,
                                 ];
@@ -9813,9 +9813,9 @@ fn read(
                                 inst.operands = [
                                     Operand::Register(size, Rt),
                                     if category == 0b01 {
-                                        Operand::RegPostIndex(Rn, imm9 as i32)
+                                        Operand::RegPostIndex(Rn, imm9)
                                     } else {
-                                        Operand::RegPreIndex(Rn, imm9 as i32, true)
+                                        Operand::RegPreIndex(Rn, imm9, true)
                                     },
                                     Operand::Nothing,
                                     Operand::Nothing,
@@ -10223,7 +10223,7 @@ fn read(
                     inst.opcode = opc;
                     inst.operands = [
                         Operand::SIMDRegister(size, Rt as u16),
-                        Operand::RegPreIndex(Rn as u16, (imm12 as u32 * offset_scale) as i32, false),
+                        Operand::RegPreIndex(Rn as u16, (imm12 * offset_scale) as i32, false),
                         Operand::Nothing,
                         Operand::Nothing,
                     ];
@@ -10630,10 +10630,7 @@ fn read(
         Section::BranchExceptionSystem => {
             let group_bits = ((word >> 29) << 2) | ((word >> 24) & 0x03);
             match group_bits {
-                0b00000 |
-                0b00001 |
-                0b00010 |
-                0b00011 => { // unconditional branch (imm)
+                0b00000..=0b00011 => { // unconditional branch (imm)
                     let offset = ((word & 0x03ff_ffff) << 2) as i32;
                     let extended_offset = (offset << 4) >> 4;
                     inst.opcode = Opcode::B;
@@ -10711,10 +10708,7 @@ fn read(
                     return Err(ErrorKind::InvalidOpcode);
                 }
                 /* 0b01010 to 0b01111 seem all invalid? */
-                0b10000 |
-                0b10001 |
-                0b10010 |
-                0b10011 => { // unconditional branch (imm)
+                0b10000..=0b10011 => { // unconditional branch (imm)
                     let offset = ((word & 0x03ff_ffff) << 2) as i32;
                     let extended_offset = (offset << 4) >> 4;
                     inst.opcode = Opcode::BL;

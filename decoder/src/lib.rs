@@ -102,6 +102,7 @@ impl<'data> Reader<'data> {
     }
 
     #[inline]
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<u8> {
         let width = self.end as usize - self.position as usize;
 

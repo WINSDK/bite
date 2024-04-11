@@ -66,7 +66,7 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
                         let module = module.strip_prefix(".dll").unwrap_or(&module).to_owned();
                         let func = Symbol::new(crate::demangler::parse(name))
                             .with_module(module)
-                            .as_import();
+                            .into_import();
 
                         functions.push(Addressed {
                             addr: addr as usize,

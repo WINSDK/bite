@@ -70,7 +70,7 @@ impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
                     };
 
                     // TODO: find modules
-                    let func = Symbol::new(crate::demangler::parse(name)).as_import();
+                    let func = Symbol::new(crate::demangler::parse(name)).into_import();
 
                     functions.push(Addressed {
                         addr,

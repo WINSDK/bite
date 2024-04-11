@@ -1919,46 +1919,44 @@ pub fn read(
                                     }
                                 }
                             }
-                        } else {
-                            if op == 0b1111111 {
-                                if op1 == 0b000 {
-                                    // `SMC` (aka `SMI`) (`B9-1988`)
-                                    // "Security Extensions"
-                                    let imm = instr & 0b1111;
-                                    inst.opcode = Opcode::SMC;
-                                    inst.operands = [
-                                        Operand::Imm12(imm),
-                                        Operand::Nothing,
-                                        Operand::Nothing,
-                                        Operand::Nothing,
-                                    ];
-                                } else {
-                                    // `UDF` (`A8-759`)
-                                    // All (first defined in issue `C.a`)
-                                    // TODO: should this decode to an intentional `UDF`
-                                    // instruction?
-                                    return Err(ErrorKind::Undefined);
-                                }
-                            } else if op == 0b1111110 {
-                                if op1 == 0b000 {
-                                    // `HVC` (`B8-1970`)
-                                    // v7VE
-                                    let imm = lower & 0b1111_1111_1111;
-                                    inst.opcode = Opcode::HVC;
-                                    inst.operands = [
-                                        Operand::Imm12(imm),
-                                        Operand::Nothing,
-                                        Operand::Nothing,
-                                        Operand::Nothing,
-                                    ];
-                                } else {
-                                    // undefined, but by not being mentioned in the manual
-                                    return Err(ErrorKind::Undefined);
-                                }
+                        } else if op == 0b1111111{
+                            if op1 == 0b000 {
+                                // `SMC` (aka `SMI`) (`B9-1988`)
+                                // "Security Extensions"
+                                let imm = instr & 0b1111;
+                                inst.opcode = Opcode::SMC;
+                                inst.operands = [
+                                    Operand::Imm12(imm),
+                                    Operand::Nothing,
+                                    Operand::Nothing,
+                                    Operand::Nothing,
+                                ];
+                            } else {
+                                // `UDF` (`A8-759`)
+                                // All (first defined in issue `C.a`)
+                                // TODO: should this decode to an intentional `UDF`
+                                // instruction?
+                                return Err(ErrorKind::Undefined);
+                            }
+                        } else if op == 0b1111110 {
+                            if op1 == 0b000 {
+                                // `HVC` (`B8-1970`)
+                                // v7VE
+                                let imm = lower & 0b1111_1111_1111;
+                                inst.opcode = Opcode::HVC;
+                                inst.operands = [
+                                    Operand::Imm12(imm),
+                                    Operand::Nothing,
+                                    Operand::Nothing,
+                                    Operand::Nothing,
+                                ];
                             } else {
                                 // undefined, but by not being mentioned in the manual
                                 return Err(ErrorKind::Undefined);
                             }
+                        } else {
+                            // undefined, but by not being mentioned in the manual
+                            return Err(ErrorKind::Undefined);
                         }
                     }
                 } else {

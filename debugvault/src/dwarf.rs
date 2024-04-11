@@ -64,7 +64,7 @@ impl Dwarf {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
-        let file = std::fs::File::open(&path)?;
+        let file = std::fs::File::open(path)?;
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         let obj = object::File::parse(&*mmap)?;
         Self::parse(&obj)
@@ -406,12 +406,12 @@ fn dump_line_program<R: Reader>(
                     let mut path = comp_dir.clone();
 
                     if let Some(dir) = file.directory(header) {
-                        if let Ok(path_comp) = dwarf.attr_string(&unit, dir)?.to_string_lossy() {
+                        if let Ok(path_comp) = dwarf.attr_string(unit, dir)?.to_string_lossy() {
                             path.push(&*path_comp);
                         }
                     }
 
-                    if let Ok(path_comp) = dwarf.attr_string(&unit, file.path_name())?.to_string_lossy() {
+                    if let Ok(path_comp) = dwarf.attr_string(unit, file.path_name())?.to_string_lossy() {
                         path.push(&*path_comp);
                     }
 

@@ -416,7 +416,7 @@ fn parse_page_starts_table_starts(page_starts: u64, page_count: u64, data: &[u8]
 
         if start & DYLD_CHAINED_PTR_START_MULTI != 0 && start != DYLD_CHAINED_PTR_START_NONE {
             let overflow_idx = (start & !DYLD_CHAINED_PTR_START_MULTI) as u64;
-            let mut sub_page_addr = page_starts + size_of::<u16> as u64 * overflow_idx;
+            let mut sub_page_addr = page_starts + size_of::<u16>() as u64 * overflow_idx;
             let mut page_start_sub_starts = Vec::new();
             loop {
                 let sub_page_start: u16 = match data.read_at(sub_page_addr) {
@@ -426,7 +426,7 @@ fn parse_page_starts_table_starts(page_starts: u64, page_count: u64, data: &[u8]
                 if sub_page_start & DYLD_CHAINED_PTR_START_LAST == 0 {
                     page_start_sub_starts.push(sub_page_start);
                     page_start_offs.push(page_start_sub_starts.clone());
-                    sub_page_addr += size_of::<u16> as u64;
+                    sub_page_addr += size_of::<u16>() as u64;
                 } else {
                     page_start_sub_starts.push(sub_page_start & !DYLD_CHAINED_PTR_START_LAST);
                     page_start_offs.push(page_start_sub_starts);
@@ -644,7 +644,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                                     // Strip path prefix.
                                     let module = String::from_utf8_lossy(lib);
                                     let module = module
-                                        .rsplit_once("/")
+                                        .rsplit_once('/')
                                         .map(|x| x.1)
                                         .unwrap_or(&module)
                                         .to_string();
@@ -686,7 +686,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                                 entry_addr
                             }
                             DYLD_CHAINED_PTR_64 => ptr & 0x7FFFFFFFFFF,
-                            DYLD_CHAINED_PTR_64_OFFSET => ptr & 0x7FFFFFFFFFF + base_addr,
+                            DYLD_CHAINED_PTR_64_OFFSET => (ptr & 0x7FFFFFFFFFF) + base_addr,
                             DYLD_CHAINED_PTR_64_KERNEL_CACHE
                             | DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE => ptr & 0x3FFFFFFF,
                             DYLD_CHAINED_PTR_32

@@ -80,7 +80,7 @@ impl Symbol {
         }
     }
 
-    fn as_import(mut self) -> Self {
+    fn into_import(mut self) -> Self {
         self.is_import = true;
         self
     }
@@ -281,7 +281,7 @@ impl Index {
 
         // Radix-prefix tree for fast lookups.
         for Addressed { item: func, .. } in self.symbols.iter() {
-            self.trie.insert(func.name_as_str.clone(), Arc::clone(&func));
+            self.trie.insert(func.name_as_str.clone(), Arc::clone(func));
             log::PROGRESS.step();
         }
     }

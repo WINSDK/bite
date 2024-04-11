@@ -53,15 +53,14 @@ impl Section {
     }
 
     #[inline]
-    pub fn bytes<'a>(&'a self) -> &'a [u8] {
+    pub fn bytes(&self) -> &[u8] {
         self.bytes
     }
 
     pub fn bytes_by_addr<'a>(&self, addr: PhysAddr, len: usize) -> &'a [u8] {
         let rva = addr - self.start;
         let bytes = &self.bytes[rva..];
-        let bytes = &bytes[..std::cmp::min(bytes.len(), len)];
-        bytes
+        &bytes[..std::cmp::min(bytes.len(), len)]
     }
 }
 
