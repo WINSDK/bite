@@ -173,23 +173,19 @@ impl Index {
 
         match obj {
             object::File::MachO32(macho) => {
-                let debug_info = macho::MachoDebugInfo::parse(macho)?;
+                let mut debug_info = macho::MachoDebugInfo::parse(macho)?;
                 let dwarf = macho::dwarf(obj, path)?;
-                let imports = debug_info.imports()?;
-                let symbols = debug_info.symbols()?;
+                let symbols = debug_info.take_symbols();
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(imports);
                 this.symbols.extend(symbols);
             }
             object::File::MachO64(macho) => {
-                let debug_info = macho::MachoDebugInfo::parse(macho)?;
+                let mut debug_info = macho::MachoDebugInfo::parse(macho)?;
                 let dwarf = macho::dwarf(obj, path)?;
-                let imports = debug_info.imports()?;
-                let symbols = debug_info.symbols()?;
+                let symbols = debug_info.take_symbols();
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(imports);
                 this.symbols.extend(symbols);
             }
             object::File::Elf32(elf) => {

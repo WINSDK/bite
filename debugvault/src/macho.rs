@@ -1,121 +1,758 @@
-use crate::demangler::TokenStream;
+#![allow(dead_code)]
+
+use crate::demangler::{self, TokenStream};
 use crate::dwarf::{self, Dwarf};
 use crate::{AddressMap, Addressed, Symbol};
-use object::macho::{self, DysymtabCommand};
-use object::read::macho::{LoadCommandData, MachHeader, MachOFile, Nlist, SymbolTable};
-use object::{Endianness, Object, ObjectSection, ObjectSegment};
+use object::endian::{U16, U32, U64};
+use object::macho::{self, DyldInfoCommand, DysymtabCommand, LinkeditDataCommand};
+use object::read::macho::{MachHeader, MachOFile, Nlist, SymbolTable};
+use object::{Endian, Endianness, Object, ObjectSection, ObjectSegment, ReadRef};
+use std::mem::size_of;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct DyldChainedFixupsHeader<E: Endian> {
+    /// 0
+    fixups_version: U32<E>,
+    /// Offset of dyld\_chained\_starts\_in\_image in chain\_data..
+    starts_offset: U32<E>,
+    /// Offset of imports table in chain_data.
+    imports_offset: U32<E>,
+    /// Offset of symbol strings in chain_data.
+    symbols_offset: U32<E>,
+    /// Number of imported symbol names.
+    imports_count: U32<E>,
+    /// DYLD_CHAINED_IMPORT*.
+    imports_format: U32<E>,
+    /// 0 => uncompressed, 1 => zlib compressed.
+    symbols_format: U32<E>,
+}
+
+/// This struct is embedded in LC_DYLD_CHAINED_FIXUPS payload.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct DyldChainedStartsInImage<E: Endian> {
+    seg_count: U32<E>,
+    // Each entry is offset into this struct for that segment.
+    // followed by pool of dyld\_chain\_starts\_in\_segment data.
+    // seg_info_offset: U32<E>,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct DyldChainedStartsInSegment<E: Endian> {
+    /// size of this (amount kernel needs to copy).
+    size: U32<E>,
+    /// 0x1000 or 0x4000
+    page_size: U16<E>,
+    /// DYLD_CHAINED_PTR_*.
+    pointer_format: U16<E>,
+    /// Offset in memory to start of segment.
+    segment_offset: U64<E>,
+    /// For 32-bit OS, any value beyond this is not a pointer.
+    max_valid_pointer: U32<E>,
+    /// How many pages are in the array.
+    page_count: U16<E>,
+    // Each entry is offset in each page of first element in chain
+    // or DYLD_CHAINED_PTR_START_NONE if no fixups on page.
+    // page_start: U16<E>
+}
+
+unsafe impl<E: Endian> object::Pod for DyldChainedFixupsHeader<E> {}
+unsafe impl<E: Endian> object::Pod for DyldChainedStartsInImage<E> {}
+unsafe impl<E: Endian> object::Pod for DyldChainedStartsInSegment<E> {}
+
+const DYLD_CHAINED_IMPORT: u32 = 1;
+const DYLD_CHAINED_IMPORT_ADDEND: u32 = 2;
+const DYLD_CHAINED_IMPORT_ADDEND64: u32 = 3;
+
+/// stride 8, unauth target is vmaddr.
+const DYLD_CHAINED_PTR_ARM64E: u16 = 1;
+/// Target is vmaddr.
+const DYLD_CHAINED_PTR_64: u16 = 2;
+const DYLD_CHAINED_PTR_32: u16 = 3;
+const DYLD_CHAINED_PTR_32_CACHE: u16 = 4;
+const DYLD_CHAINED_PTR_32_FIRMWARE: u16 = 5;
+/// Target is vm offset.
+const DYLD_CHAINED_PTR_64_OFFSET: u16 = 6;
+/// Old name.
+const DYLD_CHAINED_PTR_ARM64E_OFFSET: u16 = 7;
+/// Stride 4, unauth target is vm offset.
+const DYLD_CHAINED_PTR_ARM64E_KERNEL: u16 = 7;
+const DYLD_CHAINED_PTR_64_KERNEL_CACHE: u16 = 8;
+/// Stride 8, unauth target is vm offset.
+const DYLD_CHAINED_PTR_ARM64E_USERLAND: u16 = 9;
+/// Stride 4, unauth target is vmaddr.
+const DYLD_CHAINED_PTR_ARM64E_FIRMWARE: u16 = 10;
+/// Stride 1, x86_64 kernel caches.
+const DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE: u16 = 11;
+/// Stride 8, unauth target is vm offset, 24-bit bind
+const DYLD_CHAINED_PTR_ARM64E_USERLAND24: u16 = 12;
+
+/// used in page_start[] to denote a page with no fixups.
+const DYLD_CHAINED_PTR_START_NONE: u16 = 0xFFFF;
+/// used in page_start[] to denote a page which has multiple starts.
+const DYLD_CHAINED_PTR_START_MULTI: u16 = 0x8000;
+/// used in chain_starts[] to denote last start in list for page.
+const DYLD_CHAINED_PTR_START_LAST: u16 = 0x8000;
+
+#[derive(Debug, Clone, Copy)]
+enum ChainedFixupPointerGeneric {
+    Generic32,
+    Generic64,
+    GenericArm64e,
+    Firmware32,
+}
+
+impl ChainedFixupPointerGeneric {
+    fn bind_and_stride(&self, ptr: u64) -> (bool, u64) {
+        match self {
+            Self::Generic32 => ((ptr >> 31) != 0, (ptr >> 21) & 0x3FF),
+            Self::Generic64 => ((ptr >> 63) != 0, (ptr >> 51) & 0xFFF),
+            Self::GenericArm64e => ((ptr >> 63) != 0, (ptr >> 52) & 0x7FF),
+            Self::Firmware32 => (false, (ptr >> 26) & 0x3F),
+        }
+    }
+}
+
 pub struct MachoDebugInfo<'data, Mach: MachHeader> {
+    /// Parsed Mach-O header.
     obj: &'data MachOFile<'data, Mach>,
-    load_cmds: Vec<LoadCommandData<'data, Mach::Endian>>,
+    /// Where the first segment starts.
+    base_addr: u64,
+    /// Dynamic libraries found when parsing load commands.
+    dylibs: Vec<&'data [u8]>,
+    /// Any parsed but not yet relocated symbols.
+    syms: AddressMap<Arc<Symbol>>,
+    // ---- Required load commands ----
+    chained_fixups: Option<&'data LinkeditDataCommand<Mach::Endian>>,
     symtab: Option<SymbolTable<'data, Mach>>,
     dysymtab: Option<&'data DysymtabCommand<Mach::Endian>>,
+    dylid_info: Option<&'data DyldInfoCommand<Mach::Endian>>,
+    // --------------------------------
 }
 
 impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
     pub fn parse(obj: &'data MachOFile<'data, Mach>) -> Result<Self, object::Error> {
-        let header = obj.raw_header();
-        let mut symtab = None;
-        let mut dysymtab = None;
-
-        let mut load_cmds = Vec::new();
-        let mut load_cmds_iter = header.load_commands(header.endian()?, obj.data(), 0)?;
-        while let Some(lcmd) = load_cmds_iter.next()? {
-            if let Some(cmd) = lcmd.symtab()? {
-                symtab = Some(cmd.symbols(obj.endian(), obj.data())?);
-            }
-            if let Some(cmd) = lcmd.dysymtab()? {
-                dysymtab = Some(cmd);
-            }
-            load_cmds.push(lcmd);
-        }
-
-        Ok(Self {
+        let mut this = Self {
             obj,
-            load_cmds,
-            symtab,
-            dysymtab,
-        })
+            base_addr: obj.segments().next().map(|seg| seg.address()).unwrap_or(0),
+            syms: AddressMap::default(),
+            dylibs: Vec::new(),
+            chained_fixups: None,
+            symtab: None,
+            dysymtab: None,
+            dylid_info: None,
+        };
+        this.parse_base_addr()?;
+        this.parse_load_cmds()?;
+        this.parse_global_syms()?;
+        this.parse_imports()?;
+        if let Some(chained_fixups) = this.chained_fixups {
+            parse_chained_fixups::<Mach>(
+                this.base_addr,
+                &mut this.syms,
+                chained_fixups,
+                this.obj.data(),
+                this.obj.endian(),
+            );
+        }
+        this.parse_dylid_info()?;
+        Ok(this)
     }
 
-    pub fn imports(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
+    fn parse_load_cmds(&mut self) -> Result<(), object::Error> {
         let header = self.obj.raw_header();
         let endian = self.obj.endian();
 
-        let mut libraries = Vec::new();
         let twolevel = header.flags(endian) & macho::MH_TWOLEVEL != 0;
         if twolevel {
-            libraries.push(&[][..]);
-            for lcmd in self.load_cmds.iter() {
-                if let Some(dylib) = lcmd.dylib()? {
-                    libraries.push(lcmd.string(endian, dylib.dylib.name)?);
-                }
+            self.dylibs.push(&[][..]);
+        }
+
+        let mut load_cmds_iter = header.load_commands(endian, self.obj.data(), 0)?;
+        while let Some(lcmd) = load_cmds_iter.next()? {
+            if let Some(cmd) = lcmd.symtab()? {
+                self.symtab = Some(cmd.symbols(endian, self.obj.data())?);
+            }
+            if let Some(cmd) = lcmd.dysymtab()? {
+                self.dysymtab = Some(cmd);
+            }
+            if let Some(dylib_info) = lcmd.dyld_info()? {
+                self.dylid_info = Some(dylib_info);
+            }
+            if let Some(dylib) = lcmd.dylib()? {
+                self.dylibs.push(lcmd.string(endian, dylib.dylib.name)?);
+            }
+            if lcmd.cmd() == macho::LC_DYLD_CHAINED_FIXUPS {
+                self.chained_fixups = Some(lcmd.data()?);
             }
         }
 
-        let stub = self.obj.section_by_name_bytes(b"__stubs");
-        let mut functions = AddressMap::default();
-
-        if let (Some(symtab), Some(dysymtab), Some(stub)) = (self.symtab, self.dysymtab, stub) {
-            let idx = dysymtab.iundefsym.get(endian) as usize;
-            let number = dysymtab.nundefsym.get(endian) as usize;
-            for jdx in idx..(idx.wrapping_add(number)) {
-                let symbol: &Mach::Nlist = symtab.symbol(jdx)?;
-
-                let name = symbol.name(endian, symtab.strings())?;
-                let name = match std::str::from_utf8(name) {
-                    Ok(name) => name,
-                    Err(..) => continue,
-                };
-
-                let mut func = Symbol::new(crate::demangler::parse(name)).as_import();
-                if twolevel {
-                    let library = libraries
-                        .get(symbol.library_ordinal(endian) as usize)
-                        .copied()
-                        .unwrap_or_default();
-
-                    // Strip path prefix.
-                    let module = String::from_utf8_lossy(library);
-                    let module =
-                        module.rsplit_once("/").map(|x| x.1).unwrap_or(&module).to_string();
-
-                    func = func.with_module(module);
-                }
-
-                // Each stub entry appears to be 12 bytes, so the address is calculated
-                // as (__stub section addr) + (symbol index) * 12.
-                let addr = stub.address() as usize + (jdx - idx) * 12;
-
-                functions.push(Addressed {
-                    addr,
-                    item: Arc::new(func),
-                });
-            }
-        }
-
-        Ok(functions)
+        Ok(())
     }
 
-    pub fn symbols(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
-        let mut symbols = crate::parse_symbol_names(self.obj)?;
+    fn parse_dylid_info(&mut self) -> Result<(), object::Error> {
+        let endian = self.obj.endian();
+        let dylib_info = match self.dylid_info {
+            Some(dylib_info) => dylib_info,
+            None => return Ok(()),
+        };
 
-        // Macho entrypoints are relative to the __TEXT segment.
+        let rebase_off = dylib_info.rebase_off.get(endian) as u64;
+        let rebase_size = dylib_info.rebase_size.get(endian) as u64;
+        match self.obj.data().read_bytes_at(rebase_off, rebase_size) {
+            Ok(bytes) => parse_dynamic_table(bytes, &mut self.syms)?,
+            Err(()) => log::complex!(
+                w "[macho::parse_dylid_info] ",
+                y "Failed to read rebase when parsing import at offset ",
+                g format!("{rebase_off:#x}"),
+                w "."
+            ),
+        }
+
+        let bind_off = dylib_info.bind_off.get(endian) as u64;
+        let bind_size = dylib_info.bind_size.get(endian) as u64;
+        match self.obj.data().read_bytes_at(bind_off, bind_size) {
+            Ok(bytes) => parse_dynamic_table(bytes, &mut self.syms)?,
+            Err(()) => log::complex!(
+                w "[macho::parse_dylid_info] ",
+                y "Failed to read bind when parsing import at offset ",
+                g format!("{rebase_off:#x}"),
+                w "."
+            ),
+        }
+
+        let lazy_bind_off = dylib_info.lazy_bind_off.get(endian) as u64;
+        let lazy_bind_size = dylib_info.lazy_bind_size.get(endian) as u64;
+        match self.obj.data().read_bytes_at(lazy_bind_off, lazy_bind_size) {
+            Ok(bytes) => parse_dynamic_table(bytes, &mut self.syms)?,
+            Err(()) => log::complex!(
+                w "[macho::parse_dylid_info] ",
+                y "Failed to read lazy bind when parsing import at offset ",
+                g format!("{rebase_off:#x}"),
+                w "."
+            ),
+        }
+
+        Ok(())
+    }
+
+    fn parse_base_addr(&mut self) -> Result<(), object::Error> {
+        // Macho addresses are relative to the __TEXT segment.
         for segment in self.obj.segments() {
             if let Some(b"__TEXT") = segment.name_bytes()? {
-                let entrypoint = self.obj.entry() + segment.address();
-                let entry_func = Symbol::new(TokenStream::simple("entry"));
-                symbols.push(Addressed {
-                    addr: entrypoint as usize,
-                    item: Arc::new(entry_func),
-                });
+                self.base_addr = segment.address();
+                break;
             }
         }
 
-        Ok(symbols)
+        Ok(())
+    }
+
+    fn parse_global_syms(&mut self) -> Result<(), object::Error> {
+        self.syms.extend(crate::parse_symbol_names(self.obj)?);
+
+        let entrypoint = self.obj.entry() + self.base_addr;
+        let entry_func = Symbol::new(TokenStream::simple("entry"));
+        self.syms.push(Addressed {
+            addr: entrypoint as usize,
+            item: Arc::new(entry_func),
+        });
+
+        Ok(())
+    }
+
+    pub fn take_symbols(&mut self) -> AddressMap<Arc<Symbol>> {
+        std::mem::take(&mut self.syms)
+    }
+
+    fn parse_imports(&mut self) -> Result<(), object::Error> {
+        let endian = self.obj.endian();
+        let stub = self.obj.section_by_name_bytes(b"__stubs");
+        let (symtab, dsymtab, stub) = match (self.symtab, self.dysymtab, stub) {
+            (Some(sym), Some(dsym), Some(stub)) => (sym, dsym, stub),
+            _ => return Ok(()),
+        };
+
+        let idx = dsymtab.iundefsym.get(endian) as usize;
+        let number = dsymtab.nundefsym.get(endian) as usize;
+        for jdx in idx..(idx.wrapping_add(number)) {
+            let symbol: &Mach::Nlist = symtab.symbol(jdx)?;
+
+            let name = symbol.name(endian, symtab.strings())?;
+            let name = match std::str::from_utf8(name) {
+                Ok(name) => name,
+                Err(..) => continue,
+            };
+
+            let mut func = Symbol::new(crate::demangler::parse(name)).as_import();
+            if let Some(lib) = self.dylibs.get(symbol.library_ordinal(endian) as usize) {
+                // Strip path prefix.
+                let module = String::from_utf8_lossy(lib);
+                let module = module.rsplit_once("/").map(|x| x.1).unwrap_or(&module).to_string();
+
+                func = func.with_module(module);
+            }
+
+            // Each stub entry appears to be 12 bytes, so the address is calculated
+            // as (__stub section addr) + (symbol index) * 12.
+            let addr = stub.address() as usize + (jdx - idx) * 12;
+
+            self.syms.push(Addressed {
+                addr,
+                item: Arc::new(func),
+            });
+        }
+
+        Ok(())
+    }
+}
+
+#[allow(dead_code)]
+fn parse_dynamic_table(
+    _bytes: &[u8],
+    _symbols: &mut AddressMap<Arc<Symbol>>,
+) -> Result<(), object::Error> {
+    log::complex!(
+        w "[macho::parse_dynamic_table] ",
+        y "TODO",
+    );
+    Ok(())
+}
+
+struct ImportEntry<'data> {
+    lib_ordinal: u64,
+    addend: u64,
+    weak: bool,
+    name: &'data str,
+}
+
+fn parse_chained_import<'data>(
+    imports_addr: u64,
+    symbols_addr: u64,
+    idx: u64,
+    data: &'data [u8],
+    imports: &mut Vec<ImportEntry<'data>>,
+) {
+    let entry_off = imports_addr + idx * size_of::<u32>() as u64;
+    let raw: u32 = match data.read_at(entry_off) {
+        Ok(raw) => *raw,
+        Err(()) => {
+            log::complex!(
+                w "[macho::parse_chained_fixups] ",
+                y "Invalid import at ordinal ",
+                g idx.to_string(),
+                y ".",
+            );
+            return;
+        }
+    };
+
+    let sym_name_addr = symbols_addr + (raw >> 9) as u64;
+    let sym_name_range = sym_name_addr..data.len() as u64;
+    let sym_name = data.read_bytes_at_until(sym_name_range, 0).unwrap_or(&[]);
+    if let Ok(name) = std::str::from_utf8(sym_name) {
+        imports.push(ImportEntry {
+            lib_ordinal: (raw & 0xff) as u64,
+            addend: 0,
+            weak: (raw >> 8) != 0,
+            name,
+        });
+    }
+}
+
+fn parse_chained_import_addend<'data>(
+    imports_addr: u64,
+    symbols_addr: u64,
+    idx: u64,
+    data: &'data [u8],
+    imports: &mut Vec<ImportEntry<'data>>,
+) {
+    let entry_off = imports_addr + idx * size_of::<[u32; 2]>() as u64;
+    let raw: u32 = match data.read_at(entry_off) {
+        Ok(raw) => *raw,
+        Err(()) => {
+            log::complex!(
+                w "[macho::parse_chained_fixups] ",
+                y "Invalid import at ordinal ",
+                g idx.to_string(),
+                y ".",
+            );
+            return;
+        }
+    };
+
+    let addend: u32 = *data.read_at(entry_off).unwrap_or(&0);
+    let sym_name_addr = symbols_addr + (raw >> 9) as u64;
+    let sym_name_range = sym_name_addr..data.len() as u64;
+    let sym_name = data.read_bytes_at_until(sym_name_range, 0).unwrap_or(&[]);
+    if let Ok(name) = std::str::from_utf8(sym_name) {
+        imports.push(ImportEntry {
+            lib_ordinal: (raw & 0xff) as u64,
+            addend: addend as u64,
+            weak: (raw >> 8) != 0,
+            name,
+        });
+    }
+}
+
+fn parse_chained_import_addend64<'data>(
+    imports_addr: u64,
+    symbols_addr: u64,
+    idx: u64,
+    data: &'data [u8],
+    imports: &mut Vec<ImportEntry<'data>>,
+) {
+    let entry_off = imports_addr + idx * size_of::<[u64; 2]>() as u64;
+    let raw: u64 = match data.read_at(entry_off) {
+        Ok(raw) => *raw,
+        Err(()) => {
+            log::complex!(
+                w "[macho::parse_chained_fixups] ",
+                y "Invalid import at ordinal ",
+                g idx.to_string(),
+                y ".",
+            );
+            return;
+        }
+    };
+
+    let addend: u64 = *data.read_at(entry_off).unwrap_or(&0);
+    let sym_name_addr = symbols_addr + (raw >> 17) as u64;
+    let sym_name_range = sym_name_addr..data.len() as u64;
+    let sym_name = data.read_bytes_at_until(sym_name_range, 0).unwrap_or(&[]);
+    if let Ok(name) = std::str::from_utf8(sym_name) {
+        imports.push(ImportEntry {
+            lib_ordinal: raw & 0xffff,
+            addend,
+            weak: (raw >> 16) != 0,
+            name,
+        });
+    }
+}
+
+fn parse_page_starts_table_starts(page_starts: u64, page_count: u64, data: &[u8]) -> Vec<Vec<u16>> {
+    let mut page_start_offs = Vec::new();
+    for idx in 0..page_count {
+        let start: u16 = match data.read_at(page_starts + size_of::<u16>() as u64 * idx) {
+            Ok(start) => *start,
+            Err(()) => {
+                log::complex!(
+                    w "[macho::parse_page_table] ",
+                    y "Failed to read page offset at offset ",
+                    g idx.to_string(),
+                    y "."
+                );
+                continue;
+            }
+        };
+
+        if start & DYLD_CHAINED_PTR_START_MULTI != 0 && start != DYLD_CHAINED_PTR_START_NONE {
+            let overflow_idx = (start & !DYLD_CHAINED_PTR_START_MULTI) as u64;
+            let mut sub_page_addr = page_starts + size_of::<u16> as u64 * overflow_idx;
+            let mut page_start_sub_starts = Vec::new();
+            loop {
+                let sub_page_start: u16 = match data.read_at(sub_page_addr) {
+                    Ok(page_start) => *page_start,
+                    Err(()) => continue,
+                };
+                if sub_page_start & DYLD_CHAINED_PTR_START_LAST == 0 {
+                    page_start_sub_starts.push(sub_page_start);
+                    page_start_offs.push(page_start_sub_starts.clone());
+                    sub_page_addr += size_of::<u16> as u64;
+                } else {
+                    page_start_sub_starts.push(sub_page_start & !DYLD_CHAINED_PTR_START_LAST);
+                    page_start_offs.push(page_start_sub_starts);
+                    break;
+                }
+            }
+        } else {
+            page_start_offs.push(vec![start]);
+        }
+    }
+
+    page_start_offs
+}
+
+fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
+    base_addr: u64,
+    syms: &mut AddressMap<Arc<Symbol>>,
+    chained_fixups: &LinkeditDataCommand<Mach::Endian>,
+    data: &'data [u8],
+    endian: Endianness,
+) {
+    let data_off = chained_fixups.dataoff.get(endian) as u64;
+    let fixups_header: &DyldChainedFixupsHeader<Mach::Endian> = match data.read_at(data_off) {
+        Ok(header) => header,
+        Err(()) => {
+            log::complex!(
+                w "[macho::parse_chained_fixups] ",
+                y "failed to read lazy bind when parsing import at offset ",
+                g format!("{data_off:#x}"),
+                y "."
+            );
+            return;
+        }
+    };
+
+    let imports_addr = data_off + fixups_header.imports_offset.get(endian) as u64;
+    let import_table_size = fixups_header.imports_count.get(endian) as u64;
+    let chained_fixups_size = chained_fixups.datasize.get(endian) as u64;
+
+    if import_table_size > chained_fixups_size {
+        log::complex!(
+            w "[macho::parse_chained_fixups] ",
+            y "Binary is malformed.",
+        );
+        return;
+    }
+
+    let symbols_off = fixups_header.symbols_offset.get(endian) as u64;
+    let symbols_addr = data_off + symbols_off;
+    let import_count = fixups_header.imports_count.get(endian) as u64;
+    let import_format = fixups_header.imports_format.get(endian);
+
+    let mut imports = Vec::new();
+    match import_format {
+        DYLD_CHAINED_IMPORT => {
+            for idx in 0..import_count {
+                parse_chained_import(imports_addr, symbols_addr, idx, data, &mut imports);
+            }
+        }
+        DYLD_CHAINED_IMPORT_ADDEND => {
+            for idx in 0..import_count {
+                parse_chained_import_addend(imports_addr, symbols_addr, idx, data, &mut imports);
+            }
+        }
+        DYLD_CHAINED_IMPORT_ADDEND64 => {
+            for idx in 0..import_count {
+                parse_chained_import_addend64(imports_addr, symbols_addr, idx, data, &mut imports);
+            }
+        }
+        _ => {
+            log::complex!(
+                w "[macho::parse_chained_fixups] ",
+                y "Unknown import format (might not be supported).",
+            );
+            return;
+        }
+    }
+
+    let fixups_start_addr = data_off + fixups_header.starts_offset.get(endian) as u64;
+    let segs: &DyldChainedStartsInImage<Mach::Endian> = match data.read_at(fixups_start_addr) {
+        Ok(segs) => segs,
+        Err(()) => {
+            log::complex!(
+                w "[macho::parse_chained_fixups] ",
+                y "Failed to read image starts.",
+            );
+            return;
+        }
+    };
+
+    // Skip to seg_info_offset list.
+    let seg_info_addr =
+        fixups_start_addr + size_of::<DyldChainedStartsInImage<Mach::Endian>>() as u64;
+
+    for idx in 0..segs.seg_count.get(endian) as u64 {
+        let off = match data.read_at::<u32>(seg_info_addr + idx * size_of::<u32>() as u64) {
+            Ok(&seg_info_off) if seg_info_off != 0 => seg_info_off,
+            _ => continue,
+        };
+
+        let chain_addr = fixups_start_addr + off as u64;
+        let starts: &DyldChainedStartsInSegment<Mach::Endian> = match data.read_at(chain_addr) {
+            Ok(starts) => starts,
+            Err(()) => {
+                log::complex!(
+                    w "[macho::parse_chained_fixups] ",
+                    y "Failed to read segments starts.",
+                );
+                continue;
+            }
+        };
+
+        let pointer_format = starts.pointer_format.get(endian);
+        let (stride_size, format) = match pointer_format {
+            DYLD_CHAINED_PTR_ARM64E
+            | DYLD_CHAINED_PTR_ARM64E_USERLAND
+            | DYLD_CHAINED_PTR_ARM64E_USERLAND24 => (8, ChainedFixupPointerGeneric::GenericArm64e),
+            DYLD_CHAINED_PTR_ARM64E_KERNEL => (4, ChainedFixupPointerGeneric::GenericArm64e),
+            // DYLD_CHAINED_PTR_ARM64E_FIRMWARE not supported anywhere by the looks of it.
+            DYLD_CHAINED_PTR_64 | DYLD_CHAINED_PTR_64_OFFSET | DYLD_CHAINED_PTR_64_KERNEL_CACHE => {
+                (4, ChainedFixupPointerGeneric::Generic64)
+            }
+            DYLD_CHAINED_PTR_32_FIRMWARE => (4, ChainedFixupPointerGeneric::Generic32),
+            DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE => (1, ChainedFixupPointerGeneric::Generic64),
+            _ => {
+                log::complex!(
+                    w "[macho::parse_chained_fixups] ",
+                    y "Unknown or unsupported pointer format ",
+                    g pointer_format.to_string(),
+                    y "."
+                );
+                continue;
+            }
+        };
+
+        // Skip to page_start list.
+        let chain_addr = chain_addr + size_of::<DyldChainedStartsInSegment<Mach::Endian>>() as u64;
+
+        let page_count = starts.page_count.get(endian) as u64;
+        let page_start_offs = parse_page_starts_table_starts(chain_addr, page_count, data);
+        let segment_off = starts.segment_offset.get(endian);
+
+        for (jdx, page_starts) in page_start_offs.into_iter().enumerate() {
+            let page_addr = segment_off + jdx as u64 * starts.page_size.get(endian) as u64;
+            for start in page_starts {
+                if start == DYLD_CHAINED_PTR_START_NONE {
+                    continue;
+                }
+
+                let mut chain_entry_addr = page_addr + start as u64;
+                let mut fixups_done = false;
+                while !fixups_done {
+                    let ptr = match format {
+                        ChainedFixupPointerGeneric::Generic32
+                        | ChainedFixupPointerGeneric::Firmware32 => {
+                            data.read_at::<u32>(chain_entry_addr).map(|ptr| *ptr as u64)
+                        }
+                        ChainedFixupPointerGeneric::Generic64
+                        | ChainedFixupPointerGeneric::GenericArm64e => {
+                            data.read_at::<u64>(chain_entry_addr).copied()
+                        }
+                    };
+                    let ptr = match ptr {
+                        Ok(ptr) => ptr,
+                        Err(()) => {
+                            log::complex!(
+                                w "[macho::parse_chained_fixups] ",
+                                y "Couldn't read fixup pointer at offset ",
+                                g format!("{chain_entry_addr:#x}"),
+                                y "."
+                            );
+                            continue;
+                        }
+                    };
+
+                    let (bind, next_entry_stride_count) = format.bind_and_stride(ptr);
+                    let ptr_format = starts.pointer_format.get(endian);
+
+                    if bind {
+                        let ordinal = match ptr_format {
+                            DYLD_CHAINED_PTR_64 | DYLD_CHAINED_PTR_64_OFFSET => ptr & 0xFFFFF,
+                            DYLD_CHAINED_PTR_ARM64E
+                            | DYLD_CHAINED_PTR_ARM64E_KERNEL
+                            | DYLD_CHAINED_PTR_ARM64E_USERLAND24 => {
+                                if ptr_format == DYLD_CHAINED_PTR_ARM64E_USERLAND24 {
+                                    ptr & 0xFFFFFF
+                                } else {
+                                    ptr & 0xFFFF
+                                }
+                            }
+                            DYLD_CHAINED_PTR_32 => ptr & 0xFFFFF,
+                            _ => {
+                                log::complex!(
+                                    w "[macho::parse_chained_fixups] ",
+                                    y "Unknown bind format at ",
+                                    g format!("{chain_entry_addr:#x}"),
+                                    y "."
+                                );
+                                chain_entry_addr += next_entry_stride_count * stride_size;
+                                if next_entry_stride_count == 0 {
+                                    fixups_done = true;
+                                }
+                                continue;
+                            }
+                        };
+
+                        if let Some(entry) = imports.get(ordinal as usize) {
+                            let target_addr = base_addr + chain_entry_addr;
+
+                            if !entry.name.is_empty() {
+                                let symbol = Symbol::new(demangler::parse(entry.name));
+                                syms.push(Addressed {
+                                    addr: target_addr as usize,
+                                    item: Arc::new(symbol),
+                                });
+                            } else {
+                                log::complex!(
+                                    w "[macho::parse_chained_fixups] ",
+                                    y "Import table entry at ",
+                                    g format!("{target_addr:#x}"),
+                                    y " has no entries.",
+                                );
+                            }
+                        } else {
+                            log::complex!(
+                                w "[macho::parse_chained_fixups] ",
+                                y "Ordinal ",
+                                g ordinal.to_string(),
+                                y " has no matching import.",
+                            );
+                        }
+                    } else {
+                        let _entry_addr = match ptr_format {
+                            DYLD_CHAINED_PTR_ARM64E
+                            | DYLD_CHAINED_PTR_ARM64E_KERNEL
+                            | DYLD_CHAINED_PTR_ARM64E_USERLAND
+                            | DYLD_CHAINED_PTR_ARM64E_USERLAND24 => {
+                                let auth = ptr & 1 != 0;
+                                let mut entry_addr = if auth { ptr & 0xFFFF } else { ptr & 0xFFFA };
+                                if ptr_format != DYLD_CHAINED_PTR_ARM64E || auth {
+                                    entry_addr += base_addr;
+                                }
+                                entry_addr
+                            }
+                            DYLD_CHAINED_PTR_64 => ptr & 0x7FFFFFFFFFF,
+                            DYLD_CHAINED_PTR_64_OFFSET => ptr & 0x7FFFFFFFFFF + base_addr,
+                            DYLD_CHAINED_PTR_64_KERNEL_CACHE
+                            | DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE => ptr & 0x3FFFFFFF,
+                            DYLD_CHAINED_PTR_32
+                            | DYLD_CHAINED_PTR_32_CACHE
+                            | DYLD_CHAINED_PTR_32_FIRMWARE => ptr & 0x3FFFFFF,
+                            _ => {
+                                log::complex!(
+                                    w "[macho::parse_chained_fixups] ",
+                                    y "Unknown bind format at ",
+                                    g format!("{chain_entry_addr:#x}"),
+                                    y "."
+                                );
+                                chain_entry_addr += next_entry_stride_count * stride_size;
+                                if next_entry_stride_count == 0 {
+                                    fixups_done = true;
+                                }
+                                continue;
+                            }
+                        };
+
+                        let _reloc_addr = base_addr + chain_entry_addr;
+                        // FIXME: we just don't handle relocations.
+                        // Relocation from {reloc_addr:#x} to {entry_addr:#x}.
+                    }
+
+                    chain_entry_addr += next_entry_stride_count * stride_size;
+
+                    if chain_entry_addr > page_addr + starts.page_size.get(endian) as u64 {
+                        log::complex!(
+                            w "[macho::parse_chained_fixups] ",
+                            y "Pointer at ",
+                            g format!("{chain_entry_addr:#x}"),
+                            y " left page."
+                        );
+                        fixups_done = true;
+                    }
+
+                    if next_entry_stride_count == 0 {
+                        fixups_done = true;
+                    }
+                }
+            }
+        }
     }
 }
 
