@@ -3,10 +3,9 @@
 use crate::demangler::{self, TokenStream};
 use crate::dwarf::{self, Dwarf};
 use crate::{AddressMap, Addressed, Symbol};
-use object::endian::{U16, U32, U64};
 use object::macho::{self, DyldInfoCommand, DysymtabCommand, LinkeditDataCommand};
 use object::read::macho::{MachHeader, MachOFile, SymbolTable};
-use object::{Endian, Endianness, Object, ObjectSegment, ReadRef};
+use object::{Endianness, Object, ObjectSegment, ReadRef};
 use std::mem::size_of;
 use std::path::Path;
 use std::process::Command;
@@ -14,56 +13,56 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct DyldChainedFixupsHeader<E: Endian> {
+struct DyldChainedFixupsHeader {
     /// 0
-    fixups_version: U32<E>,
+    fixups_version: u32,
     /// Offset of dyld\_chained\_starts\_in\_image in chain\_data..
-    starts_offset: U32<E>,
+    starts_offset: u32,
     /// Offset of imports table in chain_data.
-    imports_offset: U32<E>,
+    imports_offset: u32,
     /// Offset of symbol strings in chain_data.
-    symbols_offset: U32<E>,
+    symbols_offset: u32,
     /// Number of imported symbol names.
-    imports_count: U32<E>,
+    imports_count: u32,
     /// DYLD_CHAINED_IMPORT*.
-    imports_format: U32<E>,
+    imports_format: u32,
     /// 0 => uncompressed, 1 => zlib compressed.
-    symbols_format: U32<E>,
+    symbols_format: u32,
 }
 
 /// This struct is embedded in LC_DYLD_CHAINED_FIXUPS payload.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct DyldChainedStartsInImage<E: Endian> {
-    seg_count: U32<E>,
+struct DyldChainedStartsInImage {
+    seg_count: u32,
     // Each entry is offset into this struct for that segment.
     // followed by pool of dyld\_chain\_starts\_in\_segment data.
-    // seg_info_offset: U32<E>,
+    // seg_info_offset: &[u32],
 }
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct DyldChainedStartsInSegment<E: Endian> {
+struct DyldChainedStartsInSegment {
     /// size of this (amount kernel needs to copy).
-    size: U32<E>,
+    size: u32,
     /// 0x1000 or 0x4000
-    page_size: U16<E>,
+    page_size: u16,
     /// DYLD_CHAINED_PTR_*.
-    pointer_format: U16<E>,
+    pointer_format: u16,
     /// Offset in memory to start of segment.
-    segment_offset: U64<E>,
+    segment_offset: u64,
     /// For 32-bit OS, any value beyond this is not a pointer.
-    max_valid_pointer: U32<E>,
+    max_valid_pointer: u32,
     /// How many pages are in the array.
-    page_count: U16<E>,
+    page_count: u16,
     // Each entry is offset in each page of first element in chain
     // or DYLD_CHAINED_PTR_START_NONE if no fixups on page.
-    // page_start: U16<E>
+    // page_start: &[u16]
 }
 
-unsafe impl<E: Endian> object::Pod for DyldChainedFixupsHeader<E> {}
-unsafe impl<E: Endian> object::Pod for DyldChainedStartsInImage<E> {}
-unsafe impl<E: Endian> object::Pod for DyldChainedStartsInSegment<E> {}
+unsafe impl object::Pod for DyldChainedFixupsHeader {}
+unsafe impl object::Pod for DyldChainedStartsInImage {}
+unsafe impl object::Pod for DyldChainedStartsInSegment {}
 
 const DYLD_CHAINED_IMPORT: u32 = 1;
 const DYLD_CHAINED_IMPORT_ADDEND: u32 = 2;
@@ -450,7 +449,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
     endian: Endianness,
 ) {
     let data_off = chained_fixups.dataoff.get(endian) as u64;
-    let fixups_header: &DyldChainedFixupsHeader<Mach::Endian> = match data.read_at(data_off) {
+    let fixups_header: &DyldChainedFixupsHeader = match data.read_at(data_off) {
         Ok(header) => header,
         Err(()) => {
             log::complex!(
@@ -463,8 +462,8 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
         }
     };
 
-    let imports_addr = data_off + fixups_header.imports_offset.get(endian) as u64;
-    let import_table_size = fixups_header.imports_count.get(endian) as u64;
+    let imports_addr = data_off + fixups_header.imports_offset as u64;
+    let import_table_size = fixups_header.imports_count as u64;
     let chained_fixups_size = chained_fixups.datasize.get(endian) as u64;
 
     if import_table_size > chained_fixups_size {
@@ -475,10 +474,10 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
         return;
     }
 
-    let symbols_off = fixups_header.symbols_offset.get(endian) as u64;
+    let symbols_off = fixups_header.symbols_offset as u64;
     let symbols_addr = data_off + symbols_off;
-    let import_count = fixups_header.imports_count.get(endian) as u64;
-    let import_format = fixups_header.imports_format.get(endian);
+    let import_count = fixups_header.imports_count as u64;
+    let import_format = fixups_header.imports_format;
 
     let mut imports = Vec::new();
     match import_format {
@@ -506,8 +505,8 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
         }
     }
 
-    let fixups_start_addr = data_off + fixups_header.starts_offset.get(endian) as u64;
-    let segs: &DyldChainedStartsInImage<Mach::Endian> = match data.read_at(fixups_start_addr) {
+    let fixups_start_addr = data_off + fixups_header.starts_offset as u64;
+    let segs: &DyldChainedStartsInImage = match data.read_at(fixups_start_addr) {
         Ok(segs) => segs,
         Err(()) => {
             log::complex!(
@@ -519,17 +518,16 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
     };
 
     // Skip to seg_info_offset list.
-    let seg_info_addr =
-        fixups_start_addr + size_of::<DyldChainedStartsInImage<Mach::Endian>>() as u64;
+    let seg_info_addr = fixups_start_addr + size_of::<DyldChainedStartsInImage>() as u64;
 
-    for idx in 0..segs.seg_count.get(endian) as u64 {
+    for idx in 0..segs.seg_count as u64 {
         let off = match data.read_at::<u32>(seg_info_addr + idx * size_of::<u32>() as u64) {
             Ok(&seg_info_off) if seg_info_off != 0 => seg_info_off,
             _ => continue,
         };
 
         let chain_addr = fixups_start_addr + off as u64;
-        let starts: &DyldChainedStartsInSegment<Mach::Endian> = match data.read_at(chain_addr) {
+        let starts: &DyldChainedStartsInSegment = match data.read_at(chain_addr) {
             Ok(starts) => starts,
             Err(()) => {
                 log::complex!(
@@ -540,8 +538,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
             }
         };
 
-        let pointer_format = starts.pointer_format.get(endian);
-        let (stride_size, format) = match pointer_format {
+        let (stride_size, format) = match starts.pointer_format {
             DYLD_CHAINED_PTR_ARM64E
             | DYLD_CHAINED_PTR_ARM64E_USERLAND
             | DYLD_CHAINED_PTR_ARM64E_USERLAND24 => (8, ChainedFixupPointerGeneric::GenericArm64e),
@@ -556,7 +553,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                 log::complex!(
                     w "[macho::parse_chained_fixups] ",
                     y "Unknown or unsupported pointer format ",
-                    g pointer_format.to_string(),
+                    g starts.pointer_format.to_string(),
                     y "."
                 );
                 continue;
@@ -564,14 +561,13 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
         };
 
         // Skip to page_start list.
-        let chain_addr = chain_addr + size_of::<DyldChainedStartsInSegment<Mach::Endian>>() as u64;
+        let chain_addr = chain_addr + size_of::<DyldChainedStartsInSegment>() as u64;
 
-        let page_count = starts.page_count.get(endian) as u64;
+        let page_count = starts.page_count as u64;
         let page_start_offs = parse_page_starts_table_starts(chain_addr, page_count, data);
-        let segment_off = starts.segment_offset.get(endian);
 
         for (jdx, page_starts) in page_start_offs.into_iter().enumerate() {
-            let page_addr = segment_off + jdx as u64 * starts.page_size.get(endian) as u64;
+            let page_addr = starts.segment_offset + jdx as u64 * starts.page_size as u64;
             for start in page_starts {
                 if start == DYLD_CHAINED_PTR_START_NONE {
                     continue;
@@ -604,15 +600,14 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                     };
 
                     let (bind, next_entry_stride_count) = format.bind_and_stride(ptr);
-                    let ptr_format = starts.pointer_format.get(endian);
 
                     if bind {
-                        let ordinal = match ptr_format {
+                        let ordinal = match starts.pointer_format {
                             DYLD_CHAINED_PTR_64 | DYLD_CHAINED_PTR_64_OFFSET => ptr & 0xFFFFF,
                             DYLD_CHAINED_PTR_ARM64E
                             | DYLD_CHAINED_PTR_ARM64E_KERNEL
                             | DYLD_CHAINED_PTR_ARM64E_USERLAND24 => {
-                                if ptr_format == DYLD_CHAINED_PTR_ARM64E_USERLAND24 {
+                                if starts.pointer_format == DYLD_CHAINED_PTR_ARM64E_USERLAND24 {
                                     ptr & 0xFFFFFF
                                 } else {
                                     ptr & 0xFFFF
@@ -673,14 +668,14 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                             );
                         }
                     } else {
-                        let _entry_addr = match ptr_format {
+                        let _entry_addr = match starts.pointer_format {
                             DYLD_CHAINED_PTR_ARM64E
                             | DYLD_CHAINED_PTR_ARM64E_KERNEL
                             | DYLD_CHAINED_PTR_ARM64E_USERLAND
                             | DYLD_CHAINED_PTR_ARM64E_USERLAND24 => {
                                 let auth = ptr & 1 != 0;
                                 let mut entry_addr = if auth { ptr & 0xFFFF } else { ptr & 0xFFFA };
-                                if ptr_format != DYLD_CHAINED_PTR_ARM64E || auth {
+                                if starts.pointer_format != DYLD_CHAINED_PTR_ARM64E || auth {
                                     entry_addr += base_addr;
                                 }
                                 entry_addr
@@ -714,7 +709,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
 
                     chain_entry_addr += next_entry_stride_count * stride_size;
 
-                    if chain_entry_addr > page_addr + starts.page_size.get(endian) as u64 {
+                    if chain_entry_addr > page_addr + starts.page_size as u64 {
                         log::complex!(
                             w "[macho::parse_chained_fixups] ",
                             y "Pointer at ",
