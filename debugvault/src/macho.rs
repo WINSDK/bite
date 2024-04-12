@@ -37,7 +37,7 @@ struct DyldChainedStartsInImage {
     seg_count: u32,
     // Each entry is offset into this struct for that segment.
     // followed by pool of dyld\_chain\_starts\_in\_segment data.
-    // seg_info_offset: &[u32],
+    seg_info_offset: [u32; 1],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +57,7 @@ struct DyldChainedStartsInSegment {
     page_count: u16,
     // Each entry is offset in each page of first element in chain
     // or DYLD_CHAINED_PTR_START_NONE if no fixups on page.
-    // page_start: &[u16]
+    page_start: [u16; 1],
 }
 
 unsafe impl object::Pod for DyldChainedFixupsHeader {}
@@ -518,7 +518,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
     };
 
     // Skip to seg_info_offset list.
-    let seg_info_addr = fixups_start_addr + size_of::<DyldChainedStartsInImage>() as u64;
+    let seg_info_addr = fixups_start_addr + size_of::<u32>() as u64;
 
     for idx in 0..segs.seg_count as u64 {
         let off = match data.read_at::<u32>(seg_info_addr + idx * size_of::<u32>() as u64) {
@@ -526,7 +526,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
             _ => continue,
         };
 
-        let chain_addr = fixups_start_addr + off as u64;
+        let mut chain_addr = fixups_start_addr + off as u64;
         let starts: &DyldChainedStartsInSegment = match data.read_at(chain_addr) {
             Ok(starts) => starts,
             Err(()) => {
@@ -561,7 +561,7 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
         };
 
         // Skip to page_start list.
-        let chain_addr = chain_addr + size_of::<DyldChainedStartsInSegment>() as u64;
+        chain_addr += size_of::<DyldChainedStartsInSegment>() as u64 - size_of::<u16>() as u64;
 
         let page_count = starts.page_count as u64;
         let page_start_offs = parse_page_starts_table_starts(chain_addr, page_count, data);
