@@ -52,7 +52,7 @@ impl Listing {
                         }
 
                         if idx == 0 {
-                            break;
+                            return callback(Ok((all_blocks, None)));
                         }
 
                         idx -= 1;
@@ -86,7 +86,7 @@ impl Listing {
                     let mut lines_parsed = 0;
                     'parse: loop {
                         if idx >= boundaries.len() {
-                            break;
+                            return callback(Ok((all_blocks, None)));
                         }
 
                         let addr = boundaries[idx];
@@ -96,6 +96,7 @@ impl Listing {
                             all_blocks.push(block);
 
                             if lines_parsed >= 100 {
+                                idx += 1;
                                 break 'parse;
                             }
                         }

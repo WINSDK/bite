@@ -57,7 +57,7 @@ impl Section {
         self.bytes
     }
 
-    pub fn bytes_by_addr<'a>(&self, addr: PhysAddr, len: usize) -> &'a [u8] {
+    pub fn bytes_by_addr(&self, addr: PhysAddr, len: usize) -> &[u8] {
         let rva = addr - self.start;
         let bytes = &self.bytes[rva..];
         &bytes[..std::cmp::min(bytes.len(), len)]

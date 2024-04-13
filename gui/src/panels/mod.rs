@@ -6,8 +6,6 @@ use crate::{common::*, tprint};
 use crate::style::{EGUI, STYLE};
 use crate::widgets::{Donut, Terminal};
 use processor::Processor;
-
-use egui::{Button, RichText};
 use egui_dock::{DockArea, DockState};
 
 use std::collections::BTreeMap;
@@ -183,31 +181,6 @@ impl Panels {
         self.tabs.terminal.record_input(events, index);
     }
 
-    /// Show some close/maximize/minimize buttons for the native window.
-    fn top_bar_native(&mut self, ui: &mut egui::Ui) {
-        let height = 12.0;
-        let close_response = ui.add(Button::new(RichText::new(crate::icon!(CROSS)).size(height)));
-
-        if close_response.clicked() {
-            self.winit_queue.push(crate::WinitEvent::CloseRequest);
-        }
-
-        let maximized_response = ui.add(Button::new(
-            RichText::new(crate::icon!(CHECKBOX_UNCHECKED)).size(height),
-        ));
-
-        if maximized_response.clicked() {
-            self.winit_queue.push(crate::WinitEvent::Fullscreen);
-        }
-
-        let minimized_response =
-            ui.add(Button::new(RichText::new(crate::icon!(MINUS)).size(height)));
-
-        if minimized_response.clicked() {
-            self.winit_queue.push(crate::WinitEvent::Minimize);
-        }
-    }
-
     fn goto_window(&mut self, title: Identifier) {
         match self.layout.find_tab(&title) {
             Some(tab) => self.layout.set_active_tab(tab),
@@ -215,6 +188,35 @@ impl Panels {
         }
     }
 
+    /// Show some close/maximize/minimize buttons for the native window.
+    #[cfg(target_family = "windows")]
+    fn top_bar_native(&mut self, ui: &mut egui::Ui) {
+        let height = 12.0;
+        let close_response = ui.add(egui::Button::new(
+            egui::RichText::new(crate::icon!(CROSS)).size(height)
+        ));
+
+        if close_response.clicked() {
+            self.winit_queue.push(crate::WinitEvent::CloseRequest);
+        }
+
+        let maximized_response = ui.add(egui::Button::new(
+            egui::RichText::new(crate::icon!(CHECKBOX_UNCHECKED)).size(height),
+        ));
+
+        if maximized_response.clicked() {
+            self.winit_queue.push(crate::WinitEvent::Fullscreen);
+        }
+
+        let minimized_response =
+            ui.add(egui::Button::new(egui::RichText::new(crate::icon!(MINUS)).size(height)));
+
+        if minimized_response.clicked() {
+            self.winit_queue.push(crate::WinitEvent::Minimize);
+        }
+    }
+
+    #[cfg(target_family = "windows")]
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let bar = egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -313,7 +315,8 @@ impl Panels {
         // generic keyboard inputs
         self.input(ctx);
 
-        // egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
+        #[cfg(target_family = "windows")]
+        egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
 
         // terminal needs to be rendered last as it can take focus away from other panels
         let terminal = egui::TopBottomPanel::bottom("terminal")
