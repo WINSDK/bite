@@ -201,7 +201,7 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
                 w "[macho::parse_dylid_info] ",
                 y "Failed to read rebase when parsing import at offset ",
                 g format!("{rebase_off:#x}"),
-                w "."
+                y "."
             ),
         }
 
@@ -213,7 +213,7 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
                 w "[macho::parse_dylid_info] ",
                 y "Failed to read bind when parsing import at offset ",
                 g format!("{rebase_off:#x}"),
-                w "."
+                y "."
             ),
         }
 
@@ -225,7 +225,7 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
                 w "[macho::parse_dylid_info] ",
                 y "Failed to read lazy bind when parsing import at offset ",
                 g format!("{rebase_off:#x}"),
-                w "."
+                y "."
             ),
         }
 
@@ -741,7 +741,7 @@ pub fn dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Error> {
                 w "[macho::dwarf] ",
                 y "Generating dSym failed with exit code ",
                 g exit_status.code().unwrap_or(1).to_string(),
-                w "."
+                y "."
             );
         }
     }

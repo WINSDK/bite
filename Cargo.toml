@@ -42,8 +42,9 @@ members = [
     "decoder-mips",
     "debugvault",
     "processor",
-    "processor_shared"
-, "infinite_scroll"]
+    "processor_shared",
+    "infinite_scroll"
+]
 
 [workspace.dependencies]
 egui = { version = "0.27", features = ["bytemuck"], default-features = false }

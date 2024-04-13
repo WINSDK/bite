@@ -8,10 +8,8 @@ use tokenizing::colors;
 pub struct Style {
     pub primary_background: Color32,
     pub separator_width: f32,
-    pub button_background: Color32,
     pub selection_color: Color32,
-    pub tab_color: Color32,
-    pub close_tab_color: Color32,
+    pub pane_color: Color32,
     pub tab_rounding: Rounding,
     pub active_text_color: Color32,
     pub text_color: Color32,
@@ -22,10 +20,8 @@ pub struct Style {
 pub static STYLE: Lazy<Style> = Lazy::new(|| Style {
     primary_background: Color32::from_rgb(45, 45, 45),
     separator_width: 3.0,
-    button_background: colors::GRAY20,
     selection_color: Color32::from_rgba_unmultiplied(150, 150, 150, 60),
-    close_tab_color: colors::GRAYAA,
-    tab_color: colors::GRAY30,
+    pane_color: colors::GRAY30,
     tab_rounding: Rounding::ZERO,
     active_text_color: colors::WHITE,
     text_color: colors::GRAYAA,
@@ -80,7 +76,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 expansion: 0.0,
             },
             active: WidgetVisuals {
-                bg_fill: STYLE.tab_color,
+                bg_fill: STYLE.pane_color,
                 weak_bg_fill: STYLE.primary_background,
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
@@ -111,9 +107,9 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         override_text_color: None,
         popup_shadow: egui::epaint::Shadow::NONE,
         window_rounding: STYLE.tab_rounding,
-        window_fill: STYLE.tab_color,
-        panel_fill: STYLE.tab_color,
-        extreme_bg_color: STYLE.tab_color,
+        window_fill: STYLE.pane_color,
+        panel_fill: STYLE.pane_color,
+        extreme_bg_color: STYLE.pane_color,
         text_cursor: Stroke::new(2.0, Color32::from_rgba_unmultiplied(130, 130, 130, 200)),
         ..Default::default()
     },
@@ -144,70 +140,4 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         egui::style::DebugOptions::default()
     },
     ..Default::default()
-});
-
-pub static DOCK: Lazy<egui_dock::Style> = Lazy::new(|| egui_dock::Style {
-    dock_area_padding: None,
-    main_surface_border_stroke: Stroke::NONE,
-    main_surface_border_rounding: Rounding::ZERO,
-    buttons: egui_dock::ButtonsStyle {
-        close_tab_color: STYLE.close_tab_color,
-        close_tab_active_color: STYLE.close_tab_color,
-        close_tab_bg_fill: STYLE.close_tab_color,
-        add_tab_bg_fill: STYLE.button_background,
-        ..Default::default()
-    },
-    separator: egui_dock::SeparatorStyle {
-        width: STYLE.separator_width,
-        color_idle: STYLE.separator_color,
-        color_hovered: STYLE.separator_color,
-        color_dragged: STYLE.separator_color,
-        ..Default::default()
-    },
-    tab_bar: egui_dock::TabBarStyle {
-        bg_fill: STYLE.tab_color,
-        height: 24.0,
-        show_scroll_bar_on_overflow: true,
-        rounding: STYLE.tab_rounding,
-        hline_color: STYLE.separator_color,
-        fill_tab_bar: true,
-    },
-    tab: egui_dock::TabStyle {
-        active: egui_dock::TabInteractionStyle {
-            outline_color: Color32::TRANSPARENT,
-            rounding: STYLE.tab_rounding,
-            bg_fill: STYLE.tab_color,
-            text_color: STYLE.active_text_color,
-        },
-        inactive: egui_dock::TabInteractionStyle {
-            outline_color: Color32::TRANSPARENT,
-            rounding: STYLE.tab_rounding,
-            bg_fill: STYLE.primary_background,
-            text_color: STYLE.text_color,
-        },
-        focused: egui_dock::TabInteractionStyle {
-            outline_color: Color32::TRANSPARENT,
-            rounding: STYLE.tab_rounding,
-            bg_fill: STYLE.tab_color,
-            text_color: STYLE.active_text_color,
-        },
-        hovered: egui_dock::TabInteractionStyle {
-            outline_color: Color32::TRANSPARENT,
-            rounding: STYLE.tab_rounding,
-            bg_fill: STYLE.primary_background,
-            text_color: STYLE.text_color,
-        },
-        tab_body: egui_dock::TabBodyStyle {
-            bg_fill: STYLE.tab_color,
-            ..Default::default()
-        },
-        hline_below_active_tab_name: false,
-        minimum_width: None,
-        ..Default::default()
-    },
-    overlay: egui_dock::OverlayStyle {
-        selection_color: STYLE.primary_background,
-        overlay_type: egui_dock::OverlayType::Widgets,
-        ..Default::default()
-    },
 });

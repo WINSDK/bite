@@ -10,7 +10,7 @@ bytemuck = { version = "1.14", default-features = false }
 winit = { version = "0.29"}
 wgpu = { version = "0.19" }
 egui = { workspace = true }
-egui_dock = "0.12"
+egui_tiles = "0.8"
 copypasta = "0.10"
 once_cell = { workspace = true }
 png = "0.17"

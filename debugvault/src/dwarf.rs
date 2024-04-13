@@ -110,7 +110,7 @@ fn add_relocations(
                                     b section.name().unwrap(),
                                     y " at offset ",
                                     g format!("0x{offset:08x}"),
-                                    w "."
+                                    y "."
                                 );
                             }
                         }
@@ -124,7 +124,7 @@ fn add_relocations(
                         b section.name().unwrap(),
                         y " at offset ",
                         g format!("0x{offset:08x}"),
-                        w "."
+                        y "."
                     );
                 }
             }
@@ -135,7 +135,7 @@ fn add_relocations(
                     b section.name().unwrap(),
                     y " at offset ",
                     g format!("0x{offset:08x}"),
-                    w "."
+                    y "."
                 );
             }
         }
@@ -333,7 +333,7 @@ fn dump_line<R: Reader>(dwarf: &gimli::Dwarf<R>) -> Result<AddressMap<FileAttr>>
                     w "[dwarf::dump_line] ",
                     y "Failed to parse unit root entry for dump_line: ",
                     y format!("{err:?}"),
-                    w ".",
+                    y ".",
                 );
                 continue;
             }
@@ -347,7 +347,7 @@ fn dump_line<R: Reader>(dwarf: &gimli::Dwarf<R>) -> Result<AddressMap<FileAttr>>
                     w "[dwarf::dump_line_program] ",
                     y "Failed to dump line program: ",
                     y format!("{err:?}"),
-                    w ".",
+                    y ".",
                 );
             }
         }

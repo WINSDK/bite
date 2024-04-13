@@ -2,11 +2,12 @@ mod functions;
 mod listing;
 mod source_code;
 
-use crate::{common::*, tprint};
 use crate::style::{EGUI, STYLE};
 use crate::widgets::{Donut, Terminal};
+use crate::common::*;
+use crate::tprint;
+use egui_tiles::{SimplificationOptions, Container, Tile, TileId, Tiles, Tree, UiResponse};
 use processor::Processor;
-use egui_dock::{DockArea, DockState};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -47,15 +48,62 @@ impl Tabs {
     }
 }
 
-impl egui_dock::TabViewer for Tabs {
-    type Tab = Identifier;
-
-    fn title(&mut self, title: &mut Self::Tab) -> egui::WidgetText {
-        egui::WidgetText::from(*title)
+impl egui_tiles::Behavior<Identifier> for Tabs {
+    fn tab_title_for_pane(&mut self, pane: &Identifier) -> egui::WidgetText {
+        (*pane).into()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, title: &mut Self::Tab) {
-        match self.mapping.get_mut(title) {
+    fn tab_bg_color(
+        &self,
+        _: &egui::Visuals,
+        _: &Tiles<Identifier>,
+        _: TileId,
+        active: bool,
+    ) -> egui::Color32 {
+        if active {
+            STYLE.pane_color
+        } else {
+            STYLE.primary_background
+        }
+    }
+
+    fn tab_bar_color(&self, _: &egui::Visuals) -> egui::Color32 {
+        STYLE.primary_background
+    }
+
+    fn drag_preview_color(&self, _: &egui::Visuals) -> egui::Color32 {
+        STYLE.selection_color
+    }
+
+    fn tab_bar_height(&self, _: &egui::Style) -> f32 {
+        30.0
+    }
+
+    fn gap_width(&self, _: &egui::Style) -> f32 {
+        5.0
+    }
+
+    fn min_size(&self) -> f32 {
+        300.0
+    }
+
+    fn simplification_options(&self) -> SimplificationOptions {
+        SimplificationOptions {
+            all_panes_must_have_tabs: true,
+            ..Default::default()
+        }
+    }
+
+    fn pane_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        _tile_id: egui_tiles::TileId,
+        pane: &mut Identifier,
+    ) -> egui_tiles::UiResponse {
+        // Set pane background color.
+        ui.painter().rect_filled(ui.max_rect(), 0.0, STYLE.pane_color);
+
+        match self.mapping.get_mut(pane) {
             Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
             Some(PanelKind::Functions(functions)) => functions.show(ui),
             Some(PanelKind::Source(src)) => src.show(ui),
@@ -72,32 +120,33 @@ impl egui_dock::TabViewer for Tabs {
             }
             None => {}
         };
+
+        UiResponse::None
     }
 }
 
 pub struct Panels {
-    pub layout: DockState<Identifier>,
-    pub tabs: Tabs,
+    pub tree: egui_tiles::Tree<Identifier>,
+    pub panes: Tabs,
     pub ui_queue: Arc<crate::UIQueue>,
     pub winit_queue: crate::WinitQueue,
     loading: bool,
 }
 
 impl Panels {
-    pub fn new(
-        ui_queue: Arc<crate::UIQueue>,
-        winit_queue: crate::WinitQueue,
-    ) -> Self {
-        let mut layout = DockState::new(vec![DISASSEMBLY, FUNCTIONS, LOGGING]);
-
-        layout.set_focused_node_and_surface((
-            egui_dock::SurfaceIndex::main(),
-            egui_dock::NodeIndex::root(),
-        ));
+    pub fn new(ui_queue: Arc<crate::UIQueue>, winit_queue: crate::WinitQueue) -> Self {
+        let mut tiles = Tiles::default();
+        let tabs = vec![
+            tiles.insert_pane(DISASSEMBLY),
+            tiles.insert_pane(FUNCTIONS),
+            tiles.insert_pane(LOGGING),
+        ];
+        let root: TileId = tiles.insert_tab_tile(tabs);
+        let tree = Tree::new("my_tree", root, tiles);
 
         Self {
-            layout,
-            tabs: Tabs::new(),
+            tree,
+            panes: Tabs::new(),
             ui_queue,
             winit_queue,
             loading: false,
@@ -105,7 +154,7 @@ impl Panels {
     }
 
     pub fn listing(&mut self) -> Option<&mut listing::Listing> {
-        self.tabs.mapping.get_mut(DISASSEMBLY).and_then(|kind| match kind {
+        self.panes.mapping.get_mut(DISASSEMBLY).and_then(|kind| match kind {
             PanelKind::Disassembly(listing) => Some(listing),
             _ => None,
         })
@@ -113,12 +162,12 @@ impl Panels {
 
     #[inline]
     pub fn processor(&mut self) -> Option<&Arc<Processor>> {
-        self.tabs.processor.as_ref()
+        self.panes.processor.as_ref()
     }
 
     #[inline]
     pub fn terminal(&mut self) -> &mut Terminal {
-        &mut self.tabs.terminal
+        &mut self.panes.terminal
     }
 
     pub fn is_loading(&self) -> bool {
@@ -127,7 +176,7 @@ impl Panels {
 
     pub fn start_loading(&mut self) {
         // create new donut to restart internal timer
-        self.tabs.donut = Donut::new(false);
+        self.panes.donut = Donut::new(false);
         self.loading = true;
     }
 
@@ -146,7 +195,7 @@ impl Panels {
 
         if let Ok(src) = std::fs::read_to_string(&file_attr.path) {
             let src = source_code::Source::new(src, file_attr);
-            self.tabs.mapping.insert(SOURCE, PanelKind::Source(src));
+            self.panes.mapping.insert(SOURCE, PanelKind::Source(src));
             self.goto_window(SOURCE);
         }
     }
@@ -154,17 +203,17 @@ impl Panels {
     pub fn load_binary(&mut self, processor: Processor) {
         let processor = Arc::new(processor);
 
-        self.tabs.mapping.insert(
+        self.panes.mapping.insert(
             DISASSEMBLY,
             PanelKind::Disassembly(listing::Listing::new(processor.clone())),
         );
 
-        self.tabs.mapping.insert(
+        self.panes.mapping.insert(
             FUNCTIONS,
             PanelKind::Functions(functions::Functions::new(processor.clone())),
         );
 
-        self.tabs.processor = Some(processor);
+        self.panes.processor = Some(processor);
     }
 
     fn ask_for_binary(&self) {
@@ -176,15 +225,44 @@ impl Panels {
 
     pub fn handle_events(&mut self, events: &mut Vec<egui::Event>) {
         let empty_index = debugvault::Index::default();
-        let index = self.tabs.processor.as_ref().map(|proc| &proc.index).unwrap_or(&empty_index);
+        let index = self.panes.processor.as_ref().map(|proc| &proc.index).unwrap_or(&empty_index);
 
-        self.tabs.terminal.record_input(events, index);
+        self.panes.terminal.record_input(events, index);
     }
 
-    fn goto_window(&mut self, title: Identifier) {
-        match self.layout.find_tab(&title) {
-            Some(tab) => self.layout.set_active_tab(tab),
-            None => self.layout.push_to_first_leaf(title),
+    fn goto_window(&mut self, tile: Identifier) {
+        if let Some(id) = self.tree.tiles.find_pane(&tile) {
+            if let Some(parent_id) = self.tree.tiles.parent_of(id) {
+                if let Some(Tile::Container(Container::Tabs(tabs))) =
+                    self.tree.tiles.get_mut(parent_id) {
+                    tabs.set_active(id);
+                }
+            }
+        } else {
+            let pane = self.tree.tiles.insert_pane(tile);
+            let root = self.tree.root.unwrap();
+
+            match self.tree.tiles.get_mut(root) {
+                Some(Tile::Container(Container::Tabs(tabs))) => {
+                    tabs.add_child(pane);
+                    tabs.set_active(pane);
+                }
+                Some(Tile::Container(Container::Linear(linear))) => {
+                    linear.add_child(pane);
+                }
+                Some(Tile::Container(Container::Grid(grid))) => {
+                    grid.add_child(pane);
+                }
+                Some(Tile::Pane(_)) => {
+                    let parent_id = self.tree.tiles.parent_of(root).unwrap();
+
+                    let parent = self.tree.tiles.get_mut(parent_id);
+                    if let Some(Tile::Container(container)) = parent {
+                        container.add_child(pane);
+                    }
+                }
+                None => unreachable!()
+            }
         }
     }
 
@@ -193,7 +271,7 @@ impl Panels {
     fn top_bar_native(&mut self, ui: &mut egui::Ui) {
         let height = 12.0;
         let close_response = ui.add(egui::Button::new(
-            egui::RichText::new(crate::icon!(CROSS)).size(height)
+            egui::RichText::new(crate::icon!(CROSS)).size(height),
         ));
 
         if close_response.clicked() {
@@ -208,8 +286,9 @@ impl Panels {
             self.winit_queue.push(crate::WinitEvent::Fullscreen);
         }
 
-        let minimized_response =
-            ui.add(egui::Button::new(egui::RichText::new(crate::icon!(MINUS)).size(height)));
+        let minimized_response = ui.add(egui::Button::new(
+            egui::RichText::new(crate::icon!(MINUS)).size(height),
+        ));
 
         if minimized_response.clicked() {
             self.winit_queue.push(crate::WinitEvent::Minimize);
@@ -281,31 +360,29 @@ impl Panels {
 
         // alt-tab'ing between tabs
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab)) {
-            let (focused_surface, focused_node) = self.layout.focused_leaf().unwrap_or((
-                egui_dock::SurfaceIndex::main(),
-                egui_dock::NodeIndex::root(),
-            ));
+            for id in self.tree.active_tiles() {
+                if let Some(parent_id) = self.tree.tiles.parent_of(id) {
+                    let parent = self.tree.tiles.get_mut(parent_id).unwrap();
+                    if let Tile::Container(Container::Tabs(tabs)) = parent {
+                        if tabs.children.len() < 2 {
+                            continue;
+                        }
+                        let active_tab = match tabs.active {
+                            Some(active) => active,
+                            None => continue,
+                        };
 
-            // don't do tab'ing if there are no tabs
-            if self.layout.main_surface().num_tabs() == 0 {
-                return;
-            }
+                        let mut active_idx = active_tab.0 as usize;
+                        for child in tabs.children.iter() {
+                            if *child == active_tab {
+                                active_idx = child.0 as usize;
+                            }
+                        }
 
-            let focused = &mut self.layout[focused_surface][focused_node];
-            if let egui_dock::Node::Leaf { tabs, active, .. } = focused {
-                if active.0 != tabs.len() - 1 {
-                    let tab_idx = active.0 + 1;
-                    self.layout.set_active_tab((
-                        focused_surface,
-                        focused_node,
-                        egui_dock::TabIndex(tab_idx),
-                    ));
-                } else {
-                    self.layout.set_active_tab((
-                        focused_surface,
-                        focused_node,
-                        egui_dock::TabIndex(0),
-                    ));
+                        let next_id = (active_idx + 1) % (tabs.children.len() + 1);
+                        tabs.set_active(TileId(next_id as u64));
+                        break;
+                    }
                 }
             }
         }
@@ -343,7 +420,7 @@ impl Panels {
         let term_response = terminal.show(ctx, |ui| {
             let response = ui
                 .with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
-                    self.tabs.terminal.show(ui)
+                    self.panes.terminal.show(ui)
                 });
 
             response.inner
@@ -364,20 +441,12 @@ impl Panels {
                 ui.with_layout(
                     egui::Layout::top_down_justified(egui::Align::Center),
                     |ui| {
-                        self.tabs.donut.show(ui);
+                        self.panes.donut.show(ui);
                         log::PROGRESS.show(ui);
                     },
                 );
             } else {
-                let style = crate::style::DOCK.clone();
-
-                DockArea::new(&mut self.layout)
-                    .style(style)
-                    .show_close_buttons(true)
-                    .show_window_close_buttons(true)
-                    .show_window_collapse_buttons(false)
-                    .tab_context_menus(false)
-                    .show_inside(ui, &mut self.tabs);
+                self.tree.ui(&mut self.panes, ui);
             }
 
             // give focus to terminal if any valid keyboard input happened
