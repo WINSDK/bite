@@ -77,7 +77,7 @@ pub struct Segment {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AddressMap<T> {
     pub mapping: Vec<Addressed<T>>,
 }
@@ -117,7 +117,7 @@ impl<T> std::ops::DerefMut for AddressMap<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Addressed<T> {
     pub addr: usize,
     pub item: T,

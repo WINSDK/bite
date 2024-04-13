@@ -1,15 +1,11 @@
-#![allow(dead_code)]
-
-use crate::demangler::{self, TokenStream};
 use crate::dwarf::{self, Dwarf};
-use crate::{AddressMap, Addressed, Symbol};
+use crate::{AddressMap, Addressed};
 use object::macho::{self, DyldInfoCommand, DysymtabCommand, LinkeditDataCommand};
 use object::read::macho::{MachHeader, MachOFile, SymbolTable};
 use object::{Endianness, Object, ObjectSegment, ReadRef};
 use std::mem::size_of;
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -77,15 +73,11 @@ const DYLD_CHAINED_PTR_32_CACHE: u16 = 4;
 const DYLD_CHAINED_PTR_32_FIRMWARE: u16 = 5;
 /// Target is vm offset.
 const DYLD_CHAINED_PTR_64_OFFSET: u16 = 6;
-/// Old name.
-const DYLD_CHAINED_PTR_ARM64E_OFFSET: u16 = 7;
 /// Stride 4, unauth target is vm offset.
 const DYLD_CHAINED_PTR_ARM64E_KERNEL: u16 = 7;
 const DYLD_CHAINED_PTR_64_KERNEL_CACHE: u16 = 8;
 /// Stride 8, unauth target is vm offset.
 const DYLD_CHAINED_PTR_ARM64E_USERLAND: u16 = 9;
-/// Stride 4, unauth target is vmaddr.
-const DYLD_CHAINED_PTR_ARM64E_FIRMWARE: u16 = 10;
 /// Stride 1, x86_64 kernel caches.
 const DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE: u16 = 11;
 /// Stride 8, unauth target is vm offset, 24-bit bind
@@ -125,7 +117,7 @@ pub struct MachoDebugInfo<'data, Mach: MachHeader> {
     /// Dynamic libraries found when parsing load commands.
     dylibs: Vec<&'data [u8]>,
     /// Any parsed but not yet relocated symbols.
-    syms: AddressMap<Arc<Symbol>>,
+    pub syms: AddressMap<&'data str>,
     // ---- Required load commands ----
     chained_fixups: Option<&'data LinkeditDataCommand<Mach::Endian>>,
     symtab: Option<SymbolTable<'data, Mach>>,
@@ -148,7 +140,7 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
         };
         this.parse_base_addr()?;
         this.parse_load_cmds()?;
-        this.parse_global_syms()?;
+        this.parse_global_syms();
         if let Some(chained_fixups) = this.chained_fixups {
             parse_chained_fixups::<Mach>(
                 this.base_addr,
@@ -252,32 +244,20 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
         Ok(())
     }
 
-    fn parse_global_syms(&mut self) -> Result<(), object::Error> {
-        self.syms.extend(crate::parse_symbol_names(self.obj)?);
-
+    fn parse_global_syms(&mut self) {
+        self.syms.extend(crate::parse_symbol_table(self.obj));
         let entrypoint = self.obj.entry() + self.base_addr;
-        let entry_func = Symbol::new(TokenStream::simple("entry"));
         self.syms.push(Addressed {
             addr: entrypoint as usize,
-            item: Arc::new(entry_func),
+            item: "entry",
         });
-
-        Ok(())
-    }
-
-    pub fn take_symbols(&mut self) -> AddressMap<Arc<Symbol>> {
-        std::mem::take(&mut self.syms)
-    }
-
-    fn parse_imports(&mut self) -> Result<(), object::Error> {
-        Ok(())
     }
 }
 
 #[allow(dead_code)]
-fn parse_dynamic_table(
-    _bytes: &[u8],
-    _symbols: &mut AddressMap<Arc<Symbol>>,
+fn parse_dynamic_table<'data>(
+    _bytes: &'data [u8],
+    _symbols: &mut AddressMap<&'data str>,
 ) -> Result<(), object::Error> {
     log::complex!(
         w "[macho::parse_dynamic_table] ",
@@ -442,7 +422,7 @@ fn parse_page_starts_table_starts(page_starts: u64, page_count: u64, data: &[u8]
 
 fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
     base_addr: u64,
-    syms: &mut AddressMap<Arc<Symbol>>,
+    syms: &mut AddressMap<&'data str>,
     dylibs: &[&'data [u8]],
     chained_fixups: &LinkeditDataCommand<Mach::Endian>,
     data: &'data [u8],
@@ -547,7 +527,10 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
             DYLD_CHAINED_PTR_64 | DYLD_CHAINED_PTR_64_OFFSET | DYLD_CHAINED_PTR_64_KERNEL_CACHE => {
                 (4, ChainedFixupPointerGeneric::Generic64)
             }
-            DYLD_CHAINED_PTR_32_FIRMWARE => (4, ChainedFixupPointerGeneric::Generic32),
+            DYLD_CHAINED_PTR_32 | DYLD_CHAINED_PTR_32_CACHE => {
+                (4, ChainedFixupPointerGeneric::Generic32)
+            }
+            DYLD_CHAINED_PTR_32_FIRMWARE => (4, ChainedFixupPointerGeneric::Firmware32),
             DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE => (1, ChainedFixupPointerGeneric::Generic64),
             _ => {
                 log::complex!(
@@ -633,23 +616,22 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                             let target_addr = base_addr + chain_entry_addr;
 
                             if !entry.name.is_empty() {
-                                let mut symbol = Symbol::new(demangler::parse(entry.name));
+                                // TODO: add module
+                                //if let Some(lib) = dylibs.get(entry.lib_ordinal as usize) {
+                                //    // Strip path prefix.
+                                //    let module = String::from_utf8_lossy(lib);
+                                //    let module = module
+                                //        .rsplit_once('/')
+                                //        .map(|x| x.1)
+                                //        .unwrap_or(&module)
+                                //        .to_string();
 
-                                if let Some(lib) = dylibs.get(entry.lib_ordinal as usize) {
-                                    // Strip path prefix.
-                                    let module = String::from_utf8_lossy(lib);
-                                    let module = module
-                                        .rsplit_once('/')
-                                        .map(|x| x.1)
-                                        .unwrap_or(&module)
-                                        .to_string();
-
-                                    symbol = symbol.with_module(module);
-                                }
+                                //    symbol = symbol.with_module(module);
+                                //}
 
                                 syms.push(Addressed {
                                     addr: target_addr as usize,
-                                    item: Arc::new(symbol),
+                                    item: entry.name,
                                 });
                             } else {
                                 log::complex!(

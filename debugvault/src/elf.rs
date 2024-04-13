@@ -1,31 +1,34 @@
-use std::sync::Arc;
 use object::{Endian, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind, RelocationTarget};
 use object::read::elf::{ElfFile, FileHeader};
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
-use crate::demangler::TokenStream;
-use crate::{AddressMap, Addressed, Symbol};
+use crate::{AddressMap, Addressed};
 
 pub struct ElfDebugInfo<'data, Elf: FileHeader> {
+    /// Parsed ELF header.
     obj: &'data ElfFile<'data, Elf>,
+    /// Any parsed but not yet relocated symbols.
+    pub syms: AddressMap<&'data str>,
 }
 
 impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
-    pub fn parse(obj: &'data ElfFile<'data, Elf>) -> Self {
-        Self { obj, }
+    pub fn parse(obj: &'data ElfFile<'data, Elf>) -> Result<Self, object::Error> {
+        let mut this = Self { obj, syms: AddressMap::default() };
+        this.parse_symbols();
+        this.parse_imports();
+        Ok(this)
     }
 
-    pub fn imports(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
+    pub fn parse_imports(&mut self) {
         let relocations = match self.obj.dynamic_relocations() {
             Some(relocations) => relocations,
-            None => return Ok(AddressMap::default()),
+            None => return,
         };
 
         let dyn_syms = match self.obj.dynamic_symbol_table() {
             Some(dyn_syms) => dyn_syms,
-            None => return Ok(AddressMap::default()),
+            None => return,
         };
 
-        let mut functions = AddressMap::default();
         for (r_offset, reloc) in relocations {
             if let RelocationTarget::Symbol(idx) = reloc.target() {
                 let opt_section = self.obj.sections().find(|section| {
@@ -70,29 +73,17 @@ impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
                     };
 
                     // TODO: find modules
-                    let func = Symbol::new(crate::demangler::parse(name)).into_import();
-
-                    functions.push(Addressed {
-                        addr,
-                        item: Arc::new(func),
-                    });
+                    self.syms.push(Addressed { addr, item: name });
                 }
             }
         }
-
-        Ok(functions)
     }
 
-    pub fn symbols(&self) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
-        let mut symbols = crate::parse_symbol_names(self.obj)?;
-        let entrypoint = self.obj.entry();
-
-        let entry_func = Symbol::new(TokenStream::simple("entry"));
-        symbols.push(Addressed {
-            addr: entrypoint as usize,
-            item: Arc::new(entry_func),
+    pub fn parse_symbols(&mut self) {
+        self.syms.extend(crate::parse_symbol_table(self.obj));
+        self.syms.push(Addressed {
+            addr: self.obj.entry() as usize,
+            item: "entry",
         });
-
-        Ok(symbols)
     }
 }

@@ -29,7 +29,7 @@ pub enum Error {
     Imports(object::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileAttr {
     pub path: Arc<Path>,
     pub line: usize,
@@ -144,98 +144,99 @@ pub struct Index {
     named_len: usize,
 }
 
-fn parse_symbol_names<'d, O: Object<'d, 'd>>(
-    obj: &'d O,
-) -> Result<AddressMap<Arc<Symbol>>, object::Error> {
-    let names: Vec<_> = obj
-        .symbols()
-        .filter_map(|symbol| symbol.name().map(|name| (symbol.address() as usize, name)).ok())
-        .collect();
-
-    // Insert defined symbols.
-    log::PROGRESS.set("Parsing symbols.", names.len());
-    let mut symbols = AddressMap::default();
-    parallel_compute(names, &mut symbols, |&(addr, symbol)| {
-        let func = Symbol::new(demangler::parse(symbol));
-        log::PROGRESS.step();
-        Addressed {
-            addr,
-            item: Arc::new(func),
+fn parse_symbol_table<'data, O: Object<'data, 'data>>(
+    obj: &'data O,
+) -> AddressMap<&'data str> {
+    let mut syms = AddressMap::default();
+    for sym in obj.symbols() {
+        match sym.name() {
+            Ok(name) => syms.push(Addressed {
+                addr: sym.address() as usize,
+                item: name,
+            }),
+            Err(err) => {
+                log::complex!(
+                    w "[parse_symbol_table] ",
+                    y err.to_string(),
+                    y "."
+                );
+                continue;
+            }
         }
-    });
-
-    Ok(symbols)
+    }
+    syms
 }
 
 impl Index {
     pub fn parse(obj: &object::File, path: &Path) -> Result<Self, Error> {
         let mut this = Self::default();
+        let mut syms = AddressMap::default();
 
         match obj {
             object::File::MachO32(macho) => {
-                let mut debug_info = macho::MachoDebugInfo::parse(macho)?;
+                let debug_info = macho::MachoDebugInfo::parse(macho)?;
                 let dwarf = macho::dwarf(obj, path)?;
-                let symbols = debug_info.take_symbols();
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(symbols);
+                syms.extend(debug_info.syms);
             }
             object::File::MachO64(macho) => {
-                let mut debug_info = macho::MachoDebugInfo::parse(macho)?;
+                let debug_info = macho::MachoDebugInfo::parse(macho)?;
                 let dwarf = macho::dwarf(obj, path)?;
-                let symbols = debug_info.take_symbols();
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(symbols);
+                syms.extend(debug_info.syms);
             }
             object::File::Elf32(elf) => {
-                let debug_info = elf::ElfDebugInfo::parse(elf);
+                let debug_info = elf::ElfDebugInfo::parse(elf)?;
                 let dwarf = dwarf::Dwarf::parse(obj)?;
-                let imports = debug_info.imports()?;
-                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(imports);
-                this.symbols.extend(symbols);
+                syms.extend(debug_info.syms);
             }
             object::File::Elf64(elf) => {
-                let debug_info = elf::ElfDebugInfo::parse(elf);
+                let debug_info = elf::ElfDebugInfo::parse(elf)?;
                 let dwarf = dwarf::Dwarf::parse(obj)?;
-                let imports = debug_info.imports()?;
-                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(imports);
-                this.symbols.extend(symbols);
+                syms.extend(debug_info.syms);
             }
             object::File::Pe32(pe) => {
-                let debug_info = pe::PeDebugInfo::parse(pe);
+                let debug_info = pe::PeDebugInfo::parse(pe)?;
                 let dwarf = dwarf::Dwarf::parse(obj)?;
-                let imports = debug_info.imports()?;
-                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(imports);
-                this.symbols.extend(symbols);
+                syms.extend(debug_info.syms);
             }
             object::File::Pe64(pe) => {
-                let debug_info = pe::PeDebugInfo::parse(pe);
+                let debug_info = pe::PeDebugInfo::parse(pe)?;
                 let dwarf = dwarf::Dwarf::parse(obj)?;
-                let imports = debug_info.imports()?;
-                let symbols = debug_info.symbols()?;
 
                 this.file_attrs.extend(dwarf.file_attrs);
-                this.symbols.extend(imports);
-                this.symbols.extend(symbols);
+                syms.extend(debug_info.syms);
             }
             _ => {}
         }
 
-        if let Some(pdb) = pdb::PDB::parse(obj) {
-            let pdb = pdb?;
-            this.file_attrs.extend(pdb.file_attrs);
-            this.symbols.extend(pdb.functions);
+        let mut pdb = None;
+        if let Some(parsed_pdb) = pdb::PDB::parse(obj) {
+            pdb = Some(parsed_pdb?);
         }
+
+        if let Some(mut pdb) = pdb {
+            this.file_attrs.extend(std::mem::take(&mut pdb.file_attrs));
+            syms.extend(std::mem::take(&mut pdb.syms));
+        }
+
+        log::PROGRESS.set("Parsing symbols.", syms.len());
+        parallel_compute(syms.mapping, &mut this.symbols, |sym| {
+            let demangled = Symbol::new(demangler::parse(sym.item));
+            log::PROGRESS.step();
+            Addressed {
+                addr: sym.addr,
+                item: Arc::new(demangled),
+            }
+        });
 
         this.sort_and_validate();
         this.build_prefix_tree();

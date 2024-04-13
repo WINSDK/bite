@@ -1,23 +1,23 @@
-use std::path::Path;
-use std::sync::Arc;
 use crate::intern::InternMap;
-use crate::{AddressMap, Addressed, FileAttr, Symbol};
+use crate::{AddressMap, Addressed, FileAttr};
 use crossbeam_queue::SegQueue;
 use object::Object;
-use pdb::{SymbolData, FallibleIterator};
+use pdb::{FallibleIterator, SymbolData};
+use std::path::Path;
+use std::pin::Pin;
+use std::sync::Arc;
 
-#[derive(Default)]
-pub struct PDB {
+pub struct PDB<'data> {
     /// Mapping from addresses starting at the header base to source files.
-    /// NOTE: not yet sorted.
     pub file_attrs: AddressMap<FileAttr>,
+    /// Container for holding syms.
+    global_syms: pdb::SymbolTable<'data>,
     /// Mapping from addresses starting at the header base to functions.
-    /// NOTE: not yet sorted.
-    pub functions: AddressMap<Arc<Symbol>>,
+    pub syms: AddressMap<&'data str>,
 }
 
-impl PDB {
-    pub fn parse(obj: &object::File) -> Option<Result<Self, pdb::Error>> {
+impl<'data> PDB<'data> {
+    pub fn parse(obj: &object::File<'data>) -> Option<Result<Pin<Box<Self>>, pdb::Error>> {
         fn open_pdb(obj: &object::File) -> Option<std::fs::File> {
             let pdb = obj.pdb_info().ok()??;
             let path = std::str::from_utf8(pdb.path()).ok()?;
@@ -28,26 +28,33 @@ impl PDB {
     }
 }
 
-fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error> {
-    let mut mangled_funcs = AddressMap::default();
+fn parse_pdb<'data>(
+    obj: &object::File<'data>,
+    file: std::fs::File,
+) -> Result<Pin<Box<PDB<'data>>>, pdb::Error> {
     let base_addr = obj.relative_address_base() as usize;
-
     let mut pdb = pdb::PDB::open(file)?;
 
-    // mapping from offset's to rva's
+    let mut this = Box::pin(PDB {
+        file_attrs: AddressMap::default(),
+        syms: AddressMap::default(),
+        global_syms: pdb.global_symbols()?,
+    });
+
+    // Mapping from offset's to rva's.
     let address_map = pdb.address_map()?;
 
-    // mapping from string ref's to strings
+    // Mapping from string ref's to strings.
     let string_table = pdb.string_table()?;
 
-    // pdb module's
+    // PDB module's.
     let dbi = pdb.debug_information()?;
     let mut modules = dbi.modules()?;
 
-    // create concurrent hashmap for caching file path's
+    // Create concurrent interner for caching file path's.
     let path_cache = InternMap::new();
 
-    // iterate over the modules and store them in a queue
+    // Iterate over the modules and store them in a queue.
     let module_info_queue = SegQueue::new();
     let mut id = 0;
     while let Some(module) = modules.next()? {
@@ -62,14 +69,14 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
 
     log::PROGRESS.set("Parsing pdb.", module_info_queue.len());
 
-    // parse local symbols
+    // Parse local symbols.
     let mut file_attrs = AddressMap::default();
     std::thread::scope(|s| -> Result<_, pdb::Error> {
         let thread_count = std::thread::available_parallelism().unwrap().get();
         let threads: Vec<_> = (0..thread_count)
             .map(|_| {
                 s.spawn(|| -> Result<_, pdb::Error> {
-                    let mut symbols = AddressMap::default();
+                    let mut syms = AddressMap::default();
                     let mut file_attrs = AddressMap::default();
 
                     while let Some((module_id, module_info)) = module_info_queue.pop() {
@@ -81,20 +88,20 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
                             &address_map,
                             &string_table,
                             &mut file_attrs,
-                            &mut symbols,
+                            &mut syms,
                         )?;
                         log::PROGRESS.step();
                     }
 
-                    Ok((file_attrs, symbols))
+                    Ok((file_attrs, syms))
                 })
             })
             .collect();
 
         for thread in threads {
-            let (local_file_attrs, local_functions) = thread.join().unwrap()?;
+            let (local_file_attrs, local_syms) = thread.join().unwrap()?;
             file_attrs.extend(local_file_attrs);
-            mangled_funcs.extend(local_functions);
+            this.syms.extend(local_syms);
         }
 
         Ok(())
@@ -108,11 +115,12 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
         );
     }
 
-    // iterate through global symbols
-    let global_symbols = pdb.global_symbols()?;
-    let mut symbol_table = global_symbols.iter();
+    // Iterate through global symbols.
+    // SAFETY: this is fine because global_syms is pinned as part of the PDB.
+    let mut symbol_table: pdb::SymbolIter<'data> = 
+        unsafe { std::mem::transmute(this.global_syms.iter()) };
 
-    // parse global symbols
+    // Parse global symbols.
     while let Some(symbol) = symbol_table.next()? {
         match symbol.parse() {
             Ok(SymbolData::Public(symbol)) if symbol.function => {
@@ -126,38 +134,23 @@ fn parse_pdb(obj: &object::File, file: std::fs::File) -> Result<PDB, pdb::Error>
                     Err(_) => continue,
                 };
 
-                mangled_funcs.push(Addressed {
+                this.syms.push(Addressed {
                     addr: base_addr + addr,
                     item: name,
                 });
             }
             Ok(_) => {
                 // TODO: implement support for other types of symbols
-            },
-            Err(pdb::Error::UnimplementedSymbolKind(_)) => {},
+            }
+            Err(pdb::Error::UnimplementedSymbolKind(_)) => {}
             Err(err) => log::complex!(
                 w "[index::pdb::parse] ",
                 y format!("{err}."),
-            )
+            ),
         };
     }
 
-    // insert defined symbols
-    log::PROGRESS.set("Parsing symbols.", mangled_funcs.len());
-    let mut symbols = AddressMap::default();
-    crate::common::parallel_compute(mangled_funcs.mapping, &mut symbols, |func| {
-        let demangled_func = Symbol::new(crate::demangler::parse(func.item));
-        log::PROGRESS.step();
-        Addressed {
-            addr: func.addr,
-            item: Arc::new(demangled_func),
-        }
-    });
-
-    Ok(PDB {
-        file_attrs,
-        functions: symbols,
-    })
+    Ok(this)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -169,7 +162,7 @@ fn parse_pdb_module<'data>(
     address_map: &pdb::AddressMap,
     string_table: &pdb::StringTable<'data>,
     file_attrs: &mut AddressMap<FileAttr>,
-    functions: &mut AddressMap<&'data str>,
+    syms: &mut AddressMap<&'data str>,
 ) -> Result<(), pdb::Error> {
     let program = module_info.line_program()?;
     let mut symbols = module_info.symbols()?;
@@ -187,11 +180,11 @@ fn parse_pdb_module<'data>(
                     Err(_) => continue,
                 };
 
-                functions.push(Addressed {
+                syms.push(Addressed {
                     addr: base_addr + addr,
                     item: name,
                 });
-            },
+            }
             Ok(SymbolData::Procedure(proc)) => {
                 let mut lines = program.lines_for_symbol(proc.offset);
                 while let Some(line_info) = lines.next()? {
@@ -234,11 +227,11 @@ fn parse_pdb_module<'data>(
             Ok(_) => {
                 // TODO: implement support for other types of symbols
             }
-            Err(pdb::Error::UnimplementedSymbolKind(_)) => {},
+            Err(pdb::Error::UnimplementedSymbolKind(_)) => {}
             Err(err) => log::complex!(
                 w "[index::pdb::parse_module] ",
                 y format!("{err}."),
-            )
+            ),
         }
     }
 
