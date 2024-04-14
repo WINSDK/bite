@@ -20,9 +20,8 @@ pub enum SectionKind {
     Ptr32,
     /// 64-bite pointers.
     Ptr64,
+    /// Null terminator string literal.
     CString,
-    Utf8,
-    Utf16,
     /// DWARF or something similar.
     Debug
 }

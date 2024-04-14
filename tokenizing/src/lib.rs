@@ -148,6 +148,7 @@ pub mod colors {
     pub const WHITE: Color = color!(0xff, 0xff, 0xff);
     pub const BLUE: Color = color!(0x3e, 0xbc, 0xe6);
     pub const MAGENTA: Color = color!(0xf5, 0x12, 0x81);
+    pub const ORANGE: Color = color!(0xe6, 0xab, 0x3e);
     pub const RED: Color = color!(0xff, 0x00, 0x0b);
     pub const PURPLE: Color = color!(0x89, 0x1f, 0xff);
     pub const GREEN: Color = color!(0x02, 0xed, 0x6e);

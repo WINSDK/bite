@@ -33,6 +33,9 @@ pub enum BlockContent {
         err: decoder::ErrorKind,
         bytes: String,
     },
+    CString {
+        inner: String,
+    },
     Bytes {
         bytes: Vec<u8>,
     },
@@ -53,6 +56,7 @@ impl Block {
             BlockContent::Label { .. } => 2,
             BlockContent::Instruction { .. } => 1,
             BlockContent::Error { .. } => 1,
+            BlockContent::CString { inner } => inner.len() + 1,
             BlockContent::Bytes { bytes } => (bytes.len() / 32) + 1,
         }
     }
@@ -96,6 +100,10 @@ impl Block {
                 stream.push_owned(format!("{err:?}"), colors::RED);
                 stream.push(">", colors::GRAY40);
             }
+            BlockContent::CString { inner } => {
+                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
+                stream.push_owned(inner.clone(), colors::ORANGE);
+            }
             BlockContent::Bytes { bytes } => {
                 let mut off = 0;
                 for chunk in bytes.chunks(32) {
@@ -113,83 +121,6 @@ impl Block {
 }
 
 impl Processor {
-    fn parse_bytes(&self, addr: usize, section: &Section, blocks: &mut Vec<Block>) {
-        let mut baddr = addr;
-        loop {
-            if baddr == section.end {
-                break;
-            }
-
-            if self.instruction_by_addr(baddr).is_some() {
-                break;
-            }
-
-            if self.error_by_addr(baddr).is_some() {
-                break;
-            }
-
-            if addr != baddr && self.index.get_func_by_addr(baddr).is_some() {
-                break;
-            }
-
-            baddr += 1;
-        }
-
-        let bytes_len = baddr - addr;
-        if bytes_len > 0 {
-            let bytes = section.bytes_by_addr(addr, bytes_len).to_vec();
-            blocks.push(Block {
-                addr,
-                content: BlockContent::Bytes { bytes },
-            });
-        }
-    }
-
-    fn parse_code(&self, addr: usize, section: &Section, blocks: &mut Vec<Block>) {
-        let opt_inst = self.instruction_by_addr(addr);
-        let opt_err = self.error_by_addr(addr);
-
-        if opt_inst.is_some() || opt_err.is_some() {
-            if let Some(symbol) = self.index.get_func_by_addr(addr) {
-                blocks.push(Block {
-                    addr,
-                    content: BlockContent::Label { symbol },
-                })
-            }
-        }
-
-        if let Some(inst) = opt_inst {
-            let width = self.instruction_width(&inst);
-            let inst = self.instruction_tokens(&inst, &self.index);
-            let bytes = section.bytes_by_addr(addr, width);
-            let bytes =
-                encode_hex_bytes_truncated(&bytes, self.max_instruction_width * 3 + 1, true);
-            blocks.push(Block {
-                addr,
-                content: BlockContent::Instruction { inst, bytes },
-            });
-            return;
-        }
-
-        if let Some(err) = opt_err {
-            let bytes = section.bytes_by_addr(addr, err.size());
-            let bytes =
-                encode_hex_bytes_truncated(&bytes, self.max_instruction_width * 3 + 1, true);
-
-            blocks.push(Block {
-                addr,
-                content: BlockContent::Error {
-                    err: err.kind,
-                    bytes,
-                },
-            });
-            return;
-        }
-
-        // If we don't find any code, find bytes at the boundary.
-        self.parse_bytes(addr, section, blocks);
-    }
-
     /// Pars blocks given an address boundary.
     pub fn parse_blocks(&self, addr: usize) -> Vec<Block> {
         let mut blocks = Vec::new();
@@ -240,6 +171,7 @@ impl Processor {
         let section = self.section_by_addr(addr).unwrap();
         match section.kind {
             SectionKind::Code => self.parse_code(addr, section, &mut blocks),
+            SectionKind::CString => self.parse_cstring(addr, section, &mut blocks),
             // For any other section kinds just assume they're made of bytes.
             // As a note, we calculate the byte boundaries in blocks of [`BYTES_BLOCK_SIZE`],
             // so this block can be up to [`BYTES_BLOCK_SIZE`] bytes.
@@ -253,6 +185,100 @@ impl Processor {
         }
 
         blocks
+    }
+
+    fn parse_cstring(&self, addr: usize, section: &Section, blocks: &mut Vec<Block>) {
+        let rva = addr - section.start;
+        let bytes = &section.bytes()[rva..];
+        if bytes.is_empty() {
+            return;
+        }
+
+        let end = bytes.iter().position(|&b| b == b'\0').unwrap_or(bytes.len());
+        let bytes_string = String::from_utf8_lossy(&bytes[..end]);
+        let escaped = format!("\"{}\"", bytes_string.escape_debug());
+
+        blocks.push(Block {
+            addr,
+            content: BlockContent::CString { inner: escaped }
+        });
+    }
+
+    fn parse_code(&self, addr: usize, section: &Section, blocks: &mut Vec<Block>) {
+        let opt_inst = self.instruction_by_addr(addr);
+        let opt_err = self.error_by_addr(addr);
+
+        if opt_inst.is_some() || opt_err.is_some() {
+            if let Some(symbol) = self.index.get_func_by_addr(addr) {
+                blocks.push(Block {
+                    addr,
+                    content: BlockContent::Label { symbol },
+                })
+            }
+        }
+
+        if let Some(inst) = opt_inst {
+            let width = self.instruction_width(&inst);
+            let inst = self.instruction_tokens(&inst, &self.index);
+            let bytes = section.bytes_by_addr(addr, width);
+            let bytes =
+                encode_hex_bytes_truncated(&bytes, self.max_instruction_width * 3 + 1, true);
+            blocks.push(Block {
+                addr,
+                content: BlockContent::Instruction { inst, bytes },
+            });
+            return;
+        }
+
+        if let Some(err) = opt_err {
+            let bytes = section.bytes_by_addr(addr, err.size());
+            let bytes =
+                encode_hex_bytes_truncated(&bytes, self.max_instruction_width * 3 + 1, true);
+
+            blocks.push(Block {
+                addr,
+                content: BlockContent::Error {
+                    err: err.kind,
+                    bytes,
+                },
+            });
+            return;
+        }
+
+        // If we don't find any code, find bytes at the boundary.
+        self.parse_bytes(addr, section, blocks);
+    }
+
+    fn parse_bytes(&self, addr: usize, section: &Section, blocks: &mut Vec<Block>) {
+        let mut baddr = addr;
+        loop {
+            if baddr == section.end {
+                break;
+            }
+
+            if self.instruction_by_addr(baddr).is_some() {
+                break;
+            }
+
+            if self.error_by_addr(baddr).is_some() {
+                break;
+            }
+
+            if addr != baddr && self.index.get_func_by_addr(baddr).is_some() {
+                break;
+            }
+
+            baddr += 1;
+        }
+
+        let bytes_len = baddr - addr;
+        if bytes_len > 0 {
+            let bytes = section.bytes_by_addr(addr, bytes_len).to_vec();
+            blocks.push(Block {
+                addr,
+                content: BlockContent::Bytes { bytes },
+            });
+        }
     }
 
     /// Only need to compute the start's of blocks.
@@ -279,8 +305,12 @@ impl Processor {
         boundaries.push(section.start);
         match section.kind {
             SectionKind::Code => self.compute_code_boundaries(section, &mut boundaries),
-            // For any other section kinds just assume they're made of bytes.
-            _ => self.compute_bytes_boundaries(section, &mut boundaries),
+            SectionKind::CString => self.compute_cstring_boundaries(section, &mut boundaries),
+            // For any kind of DWARF debugging info, don't show any of the section.
+            SectionKind::Debug => {},
+            // For any other section kinds just assume they evenly
+            // split in blocks of [`BYTES_BLOCK_SIZE`].
+            _ => self.compute_raw_boundaries(section, &mut boundaries),
         }
         boundaries.push(section.end);
         boundaries
@@ -340,8 +370,22 @@ impl Processor {
         }
     }
 
-    /// Split's section made of bytes into [`Block`]'s of [`BYTES_BLOCK_SIZE`] byte chunks.
-    fn compute_bytes_boundaries(&self, section: &Section, boundaries: &mut Vec<usize>) {
+    fn compute_cstring_boundaries(&self, section: &Section, boundaries: &mut Vec<usize>) {
+        let mut start_off = 0;
+        for (idx, &byte) in section.bytes().iter().enumerate() {
+            if byte == b'\0' {
+                // Check if there isn't two consecutive null bytes.
+                if idx != start_off {
+                    boundaries.push(section.start + start_off);
+                }
+                // Update the start to the byte after the null byte.
+                start_off = idx + 1;
+            }
+        }
+    }
+
+    /// Split's section into [`Block`]'s of [`BYTES_BLOCK_SIZE`] byte chunks.
+    fn compute_raw_boundaries(&self, section: &Section, boundaries: &mut Vec<usize>) {
         let mut addr = section.addr;
         while addr < section.end {
             boundaries.push(addr);

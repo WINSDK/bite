@@ -125,7 +125,6 @@ impl Platform {
 
                     if let winit::keyboard::PhysicalKey::Code(key) = event.physical_key {
                         if pressed_modi && key == KeyCode::KeyC {
-                            dbg!();
                             self.raw_input.events.push(egui::Event::Copy);
                             return;
                         }

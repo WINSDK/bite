@@ -36,10 +36,6 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
   - [ ] [GDB](https://www.sourceware.org/gdb)
   - [ ] [LLDB](https://lldb.llvm.org)
   - [ ] [WinDbg](https://windbg.org)
-- [ ] Debugging back-end
-  - [ ] Initial MacOS support
-  - [ ] Initial Windows support
-  - [x] Initial Linux support
 - [x] X86-64 support
 - [x] AArch64/Armv7 support
 - [x] Riscv64gc/Riscv32gc support
@@ -50,4 +46,5 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
   - [x] Rust
 - [ ] Assembly listing lifting
   - [x] Resolving addresses
+  - [x] Interpreting non-code data
   - [ ] Creating labels for relative jumps
