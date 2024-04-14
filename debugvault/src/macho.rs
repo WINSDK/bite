@@ -1,5 +1,5 @@
 use crate::dwarf::{self, Dwarf};
-use crate::{AddressMap, Addressed};
+use crate::{AddressMap, Addressed, RawSymbol};
 use object::macho::{self, DyldInfoCommand, DysymtabCommand, LinkeditDataCommand};
 use object::read::macho::{MachHeader, MachOFile, SymbolTable};
 use object::{Endianness, Object, ObjectSegment, ReadRef};
@@ -115,9 +115,9 @@ pub struct MachoDebugInfo<'data, Mach: MachHeader> {
     /// Where the first segment starts.
     base_addr: u64,
     /// Dynamic libraries found when parsing load commands.
-    dylibs: Vec<&'data [u8]>,
+    dylibs: Vec<&'data str>,
     /// Any parsed but not yet relocated symbols.
-    pub syms: AddressMap<&'data str>,
+    pub syms: AddressMap<RawSymbol<'data>>,
     // ---- Required load commands ----
     chained_fixups: Option<&'data LinkeditDataCommand<Mach::Endian>>,
     symtab: Option<SymbolTable<'data, Mach>>,
@@ -161,7 +161,7 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
 
         let twolevel = header.flags(endian) & macho::MH_TWOLEVEL != 0;
         if twolevel {
-            self.dylibs.push(&[][..]);
+            self.dylibs.push("");
         }
 
         let mut load_cmds_iter = header.load_commands(endian, self.obj.data(), 0)?;
@@ -176,7 +176,9 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
                 self.dylid_info = Some(dylib_info);
             }
             if let Some(dylib) = lcmd.dylib()? {
-                self.dylibs.push(lcmd.string(endian, dylib.dylib.name)?);
+                let dylib = lcmd.string(endian, dylib.dylib.name)?;
+                let dylib = std::str::from_utf8(dylib).unwrap_or("");
+                self.dylibs.push(dylib);
             }
             if lcmd.cmd() == macho::LC_DYLD_CHAINED_FIXUPS {
                 self.chained_fixups = Some(lcmd.data()?);
@@ -249,7 +251,10 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
         let entrypoint = self.obj.entry() + self.base_addr;
         self.syms.push(Addressed {
             addr: entrypoint as usize,
-            item: "entry",
+            item: RawSymbol {
+                name: "entry",
+                module: None,
+            },
         });
     }
 }
@@ -257,7 +262,7 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
 #[allow(dead_code)]
 fn parse_dynamic_table<'data>(
     _bytes: &'data [u8],
-    _symbols: &mut AddressMap<&'data str>,
+    _symbols: &mut AddressMap<RawSymbol<'data>>,
 ) -> Result<(), object::Error> {
     log::complex!(
         w "[macho::parse_dynamic_table] ",
@@ -422,8 +427,8 @@ fn parse_page_starts_table_starts(page_starts: u64, page_count: u64, data: &[u8]
 
 fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
     base_addr: u64,
-    syms: &mut AddressMap<&'data str>,
-    dylibs: &[&'data [u8]],
+    syms: &mut AddressMap<RawSymbol<'data>>,
+    dylibs: &[&'data str],
     chained_fixups: &LinkeditDataCommand<Mach::Endian>,
     data: &'data [u8],
     endian: Endianness,
@@ -616,22 +621,21 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
                             let target_addr = base_addr + chain_entry_addr;
 
                             if !entry.name.is_empty() {
-                                // TODO: add module
-                                //if let Some(lib) = dylibs.get(entry.lib_ordinal as usize) {
-                                //    // Strip path prefix.
-                                //    let module = String::from_utf8_lossy(lib);
-                                //    let module = module
-                                //        .rsplit_once('/')
-                                //        .map(|x| x.1)
-                                //        .unwrap_or(&module)
-                                //        .to_string();
-
-                                //    symbol = symbol.with_module(module);
-                                //}
+                                let module = dylibs.get(entry.lib_ordinal as usize).map(|lib| {
+                                    // Strip path prefix.
+                                    lib
+                                        .rsplit_once('/')
+                                        .map(|x| x.1)
+                                        .filter(|x| !x.is_empty())
+                                        .unwrap_or(lib)
+                                });
 
                                 syms.push(Addressed {
                                     addr: target_addr as usize,
-                                    item: entry.name,
+                                    item: RawSymbol {
+                                        name: entry.name,
+                                        module,
+                                    }
                                 });
                             } else {
                                 log::complex!(

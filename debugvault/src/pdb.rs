@@ -1,8 +1,9 @@
 use crate::intern::InternMap;
-use crate::{AddressMap, Addressed, FileAttr};
+use crate::{AddressMap, Addressed, FileAttr, RawSymbol};
 use crossbeam_queue::SegQueue;
 use object::Object;
 use pdb::{FallibleIterator, SymbolData};
+use std::borrow::Cow;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,8 +13,10 @@ pub struct PDB<'data> {
     pub file_attrs: AddressMap<FileAttr>,
     /// Container for holding syms.
     global_syms: pdb::SymbolTable<'data>,
+    /// Container for holding libraries.
+    dbi: pdb::DebugInformation<'data>,
     /// Mapping from addresses starting at the header base to functions.
-    pub syms: AddressMap<&'data str>,
+    pub syms: AddressMap<RawSymbol<'data>>,
 }
 
 impl<'data> PDB<'data> {
@@ -37,8 +40,9 @@ fn parse_pdb<'data>(
 
     let mut this = Box::pin(PDB {
         file_attrs: AddressMap::default(),
-        syms: AddressMap::default(),
         global_syms: pdb.global_symbols()?,
+        dbi: pdb.debug_information()?,
+        syms: AddressMap::default(),
     });
 
     // Mapping from offset's to rva's.
@@ -48,8 +52,8 @@ fn parse_pdb<'data>(
     let string_table = pdb.string_table()?;
 
     // PDB module's.
-    let dbi = pdb.debug_information()?;
-    let mut modules = dbi.modules()?;
+    // SAFETY: this is fine because dbi is pinned as part of the PDB.
+    let mut modules: pdb::ModuleIter<'data> = unsafe { std::mem::transmute(this.dbi.modules()?) };
 
     // Create concurrent interner for caching file path's.
     let path_cache = InternMap::new();
@@ -58,12 +62,27 @@ fn parse_pdb<'data>(
     let module_info_queue = SegQueue::new();
     let mut id = 0;
     while let Some(module) = modules.next()? {
+        let mut module_name = module.module_name();
+
+        // This is sort of insane but this is fine only when the module_name is valid utf8.
+        // As when module_name isn't utf8 it will be allocated, so check if it's Cow::Owned
+        if let Cow::Owned(_) = module_name {
+            module_name = Cow::Borrowed("");
+        }
+
+        let module_name = module_name
+            .strip_prefix("Import:")
+            .and_then(|x| x.strip_suffix(".dll"));
+
+        // Explained in earlier comment.
+        let module_name: Option<&'data str> = unsafe { std::mem::transmute(module_name) };
+
         let module_info = match pdb.module_info(&module)? {
             Some(info) => info,
             None => continue,
         };
 
-        module_info_queue.push((id, module_info));
+        module_info_queue.push((id, module_name, module_info));
         id += 1;
     }
 
@@ -79,9 +98,10 @@ fn parse_pdb<'data>(
                     let mut syms = AddressMap::default();
                     let mut file_attrs = AddressMap::default();
 
-                    while let Some((module_id, module_info)) = module_info_queue.pop() {
+                    while let Some((id, module_name, module_info)) = module_info_queue.pop() {
                         parse_pdb_module(
-                            module_id,
+                            id,
+                            module_name,
                             base_addr,
                             &path_cache,
                             module_info,
@@ -136,7 +156,7 @@ fn parse_pdb<'data>(
 
                 this.syms.push(Addressed {
                     addr: base_addr + addr,
-                    item: name,
+                    item: RawSymbol { name, module: None },
                 });
             }
             Ok(_) => {
@@ -156,13 +176,14 @@ fn parse_pdb<'data>(
 #[allow(clippy::too_many_arguments)]
 fn parse_pdb_module<'data>(
     module_id: u64,
+    module_name: Option<&'data str>,
     base_addr: usize,
     path_cache: &InternMap<u64, Path>,
     module_info: pdb::ModuleInfo,
     address_map: &pdb::AddressMap,
     string_table: &pdb::StringTable<'data>,
     file_attrs: &mut AddressMap<FileAttr>,
-    syms: &mut AddressMap<&'data str>,
+    syms: &mut AddressMap<RawSymbol<'data>>,
 ) -> Result<(), pdb::Error> {
     let program = module_info.line_program()?;
     let mut symbols = module_info.symbols()?;
@@ -182,7 +203,7 @@ fn parse_pdb_module<'data>(
 
                 syms.push(Addressed {
                     addr: base_addr + addr,
-                    item: name,
+                    item: RawSymbol { name, module: module_name },
                 });
             }
             Ok(SymbolData::Procedure(proc)) => {

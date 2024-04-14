@@ -37,6 +37,11 @@ pub struct FileAttr {
     pub column_end: usize,
 }
 
+struct RawSymbol<'data> {
+    name: &'data str,
+    module: Option<&'data str>,
+}
+
 pub struct Symbol {
     name: TokenStream,
     name_as_str: ArcStr,
@@ -66,7 +71,7 @@ fn is_name_an_intrinsic(name: &str) -> bool {
 }
 
 impl Symbol {
-    pub fn new(name: TokenStream) -> Self {
+    pub fn new(name: TokenStream, module: Option<&str>) -> Self {
         let is_intrinsics = is_name_an_intrinsic(name.inner());
         let name_as_str = String::from_iter(name.tokens().iter().map(|t| &t.text[..]));
         let name_as_str = ArcStr::new(&name_as_str);
@@ -74,7 +79,7 @@ impl Symbol {
         Self {
             name_as_str,
             name,
-            module: None,
+            module: module.map(|x| x.to_string()),
             is_import: false,
             is_intrinsics,
         }
@@ -82,11 +87,6 @@ impl Symbol {
 
     fn into_import(mut self) -> Self {
         self.is_import = true;
-        self
-    }
-
-    fn with_module(mut self, module: String) -> Self {
-        self.module = Some(module);
         self
     }
 
@@ -146,13 +146,16 @@ pub struct Index {
 
 fn parse_symbol_table<'data, O: Object<'data, 'data>>(
     obj: &'data O,
-) -> AddressMap<&'data str> {
+) -> AddressMap<RawSymbol<'data>> {
     let mut syms = AddressMap::default();
     for sym in obj.symbols() {
         match sym.name() {
             Ok(name) => syms.push(Addressed {
                 addr: sym.address() as usize,
-                item: name,
+                item: RawSymbol {
+                    name,
+                    module: None
+                },
             }),
             Err(err) => {
                 log::complex!(
@@ -232,7 +235,7 @@ impl Index {
 
         log::PROGRESS.set("Parsing symbols.", syms.len());
         parallel_compute(syms.mapping, &mut this.symbols, |sym| {
-            let demangled = Symbol::new(demangler::parse(sym.item));
+            let demangled = Symbol::new(demangler::parse(sym.item.name), sym.item.module);
             log::PROGRESS.step();
             Addressed {
                 addr: sym.addr,
@@ -323,7 +326,7 @@ impl Index {
     pub fn insert_func(&mut self, addr: usize, name: &str) {
         self.symbols.push(Addressed {
             addr,
-            item: Arc::new(Symbol::new(TokenStream::simple(name))),
+            item: Arc::new(Symbol::new(TokenStream::simple(name), None)),
         })
     }
 

@@ -1,18 +1,21 @@
-use object::Object;
+use crate::{AddressMap, Addressed, RawSymbol};
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::LittleEndian as LE;
-use crate::{AddressMap, Addressed};
+use object::Object;
 
 pub struct PeDebugInfo<'data, Pe: ImageNtHeaders> {
     /// Parsed PE32/64 header.
     obj: &'data PeFile<'data, Pe>,
     /// Any parsed but not yet relocated symbols.
-    pub syms: AddressMap<&'data str>,
+    pub syms: AddressMap<RawSymbol<'data>>,
 }
 
 impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
     pub fn parse(obj: &'data PeFile<'data, Pe>) -> Result<Self, object::Error> {
-        let mut this = Self { obj, syms: AddressMap::default() };
+        let mut this = Self {
+            obj,
+            syms: AddressMap::default(),
+        };
         this.parse_symbols();
         this.parse_imports()?;
         Ok(this)
@@ -21,12 +24,12 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
     pub fn parse_imports(&mut self) -> Result<(), object::Error> {
         let import_table = match self.obj.import_table()? {
             Some(table) => table,
-            None => return Ok(())
+            None => return Ok(()),
         };
 
         let mut import_descs = import_table.descriptors()?;
         while let Some(import_desc) = import_descs.next()? {
-            let _module = import_table.name(import_desc.name.get(LE))?;
+            let module = import_table.name(import_desc.name.get(LE))?;
             let first_thunk = import_desc.first_thunk.get(LE);
             let original_first_thunk = import_desc.original_first_thunk.get(LE);
 
@@ -67,12 +70,11 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
                         func_rva as u64 + self.obj.relative_address_base()
                     };
 
-                    // TODO: add module support
-                    // let module = String::from_utf8_lossy(module);
-                    // let module = module.strip_prefix(".dll").unwrap_or(&module).to_owned();
+                    let module =
+                        std::str::from_utf8(module).ok().and_then(|x| x.strip_suffix(".dll"));
                     self.syms.push(Addressed {
                         addr: addr as usize,
-                        item: name,
+                        item: RawSymbol { name, module },
                     });
                 }
 
@@ -88,7 +90,10 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
         self.syms.extend(crate::parse_symbol_table(self.obj));
         self.syms.push(Addressed {
             addr: self.obj.entry() as usize,
-            item: "entry",
+            item: RawSymbol {
+                name: "entry",
+                module: None,
+            },
         });
     }
 }

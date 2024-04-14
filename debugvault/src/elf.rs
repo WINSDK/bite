@@ -1,18 +1,24 @@
-use object::{Endian, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind, RelocationTarget};
-use object::read::elf::{ElfFile, FileHeader};
+use crate::{AddressMap, Addressed, RawSymbol};
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
-use crate::{AddressMap, Addressed};
+use object::read::elf::{ElfFile, FileHeader};
+use object::{
+    Endian, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationKind,
+    RelocationTarget,
+};
 
 pub struct ElfDebugInfo<'data, Elf: FileHeader> {
     /// Parsed ELF header.
     obj: &'data ElfFile<'data, Elf>,
     /// Any parsed but not yet relocated symbols.
-    pub syms: AddressMap<&'data str>,
+    pub syms: AddressMap<RawSymbol<'data>>,
 }
 
 impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
     pub fn parse(obj: &'data ElfFile<'data, Elf>) -> Result<Self, object::Error> {
-        let mut this = Self { obj, syms: AddressMap::default() };
+        let mut this = Self {
+            obj,
+            syms: AddressMap::default(),
+        };
         this.parse_symbols();
         this.parse_imports();
         Ok(this)
@@ -73,7 +79,10 @@ impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
                     };
 
                     // TODO: find modules
-                    self.syms.push(Addressed { addr, item: name });
+                    self.syms.push(Addressed {
+                        addr,
+                        item: RawSymbol { name, module: None },
+                    });
                 }
             }
         }
@@ -83,7 +92,10 @@ impl<'data, Elf: FileHeader> ElfDebugInfo<'data, Elf> {
         self.syms.extend(crate::parse_symbol_table(self.obj));
         self.syms.push(Addressed {
             addr: self.obj.entry() as usize,
-            item: "entry",
+            item: RawSymbol {
+                name: "entry",
+                module: None,
+            },
         });
     }
 }
