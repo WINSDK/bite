@@ -223,7 +223,9 @@ impl Index {
             pdb = Some(parsed_pdb?);
         }
 
-        if let Some(mut pdb) = pdb {
+        // NOTE: This is a little scuffed. We have to take a `ref mut` here
+        //       otherwise the PDB will be dropped and so will the symbols.
+        if let Some(ref mut pdb) = pdb {
             this.file_attrs.extend(std::mem::take(&mut pdb.file_attrs));
             syms.extend(std::mem::take(&mut pdb.syms));
         }
