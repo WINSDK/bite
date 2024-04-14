@@ -1,3 +1,4 @@
+use egui::mutex::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use crate::common::*;
@@ -7,14 +8,25 @@ use tokenizing::{colors, TokenStream};
 
 pub struct Listing {
     processor: Arc<Processor>,
-    boundaries: Arc<Vec<usize>>,
+    boundaries: Arc<RwLock<Vec<usize>>>,
     scroll: InfiniteScroll<Block, usize>,
     reset_position: Arc<AtomicUsize>
 }
 
 impl Listing {
     pub fn new(processor: Arc<Processor>) -> Self {
-        let boundaries = Arc::new(processor.compute_block_boundaries());
+        let boundaries: Arc<RwLock<Vec<usize>>> = Arc::default();
+
+        {
+            // Compute boundaries on a separate thread to prevent GUI from blocking.
+            let processor = Arc::clone(&processor);
+            let boundaries = Arc::clone(&boundaries);
+            std::thread::spawn(move || {
+                let mut locked_boundaries = boundaries.write();
+                *locked_boundaries = processor.compute_block_boundaries();
+            });
+        };
+
         let reset_position = Arc::new(AtomicUsize::new(0));
 
         let start_loader = {
@@ -31,6 +43,7 @@ impl Listing {
                 });
 
                 std::thread::spawn(move || {
+                    let boundaries = boundaries.read();
                     let mut all_blocks = Vec::new();
 
                     if block_idx == 0 {
@@ -80,9 +93,10 @@ impl Listing {
                 });
 
                 std::thread::spawn(move || {
+                    let boundaries = boundaries.read();
                     let mut all_blocks = Vec::new();
-                    let mut idx = block_idx;
 
+                    let mut idx = block_idx;
                     let mut lines_parsed = 0;
                     'parse: loop {
                         if idx >= boundaries.len() {
@@ -118,7 +132,7 @@ impl Listing {
     }
 
     pub fn jump(&mut self, addr: usize) -> bool {
-        if let Ok(boundary) = self.boundaries.binary_search(&addr) {
+        if let Ok(boundary) = self.boundaries.read().binary_search(&addr) {
             self.reset_position.store(boundary, Ordering::SeqCst);
             self.scroll.reset();
             return true
@@ -155,10 +169,6 @@ impl Display for Listing {
 
         area.show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.vertical_centered(|ui| {
-                ui.set_visible(self.scroll.top_loading_state().loading());
-                ui.spinner();
-            });
 
             self.scroll.ui(ui, 10, |ui, _, block| {
                 if current_addr.is_none() {
