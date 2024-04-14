@@ -2,6 +2,7 @@
 //! Use `begin_frame()` and `end_frame()` to start drawing the egui UI.
 
 use crate::Window;
+use crate::Arch;
 
 use std::collections::HashMap;
 
@@ -33,7 +34,7 @@ pub struct Platform {
 }
 
 impl Platform {
-    pub fn new<Arch: crate::Target>(window: &Window) -> Self {
+    pub fn new(window: &Window) -> Self {
         let scale_factor = window.scale_factor() as f32;
         let context = Context::default();
         let mut fonts = FontDefinitions::default();

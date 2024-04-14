@@ -4,16 +4,21 @@ mod icon;
 mod interp;
 mod panels;
 mod style;
-pub mod unix;
 mod wgpu_backend;
 pub mod widgets;
+pub mod unix;
 pub mod windows;
 mod winit_backend;
 
-use copypasta::ClipboardProvider;
+#[cfg(target_family = "unix")]
+use unix::Arch;
+
+#[cfg(target_family = "windows")]
+use windows::Arch;
+
 use std::sync::Arc;
 use winit::event::{Event, WindowEvent};
-use winit::event_loop::{EventLoop, EventLoopBuilder};
+use winit::event_loop::EventLoop;
 
 /// Print to the terminal.
 #[macro_export]
@@ -38,25 +43,6 @@ pub enum Error {
 }
 
 type Window = winit::window::Window;
-
-pub trait Target: Sized {
-    #[cfg(target_family = "windows")]
-    fn new(arch_desc: windows::ArchDescriptor) -> Self;
-
-    #[cfg(target_family = "unix")]
-    fn new() -> Self;
-
-    fn create_window<T>(
-        title: &str,
-        width: u32,
-        height: u32,
-        event_loop: &winit::event_loop::EventLoop<T>,
-    ) -> Result<Window, Error>;
-
-    fn fullscreen(&mut self, window: &Window);
-
-    fn clipboard(window: &Window) -> Box<dyn ClipboardProvider>;
-}
 
 /// A custom event type for the winit backend.
 pub enum WinitEvent {
@@ -96,7 +82,7 @@ impl UIQueue {
     }
 }
 
-pub struct UI<Arch: Target> {
+pub struct UI {
     arch: Arch,
     window: &'static Window, // Box::leak'd
     event_loop: Option<EventLoop<WinitEvent>>,
@@ -107,11 +93,9 @@ pub struct UI<Arch: Target> {
     ui_queue: Arc<UIQueue>,
 }
 
-impl<Arch: Target> UI<Arch> {
+impl UI {
     pub fn new() -> Result<Self, Error> {
-        let event_loop = EventLoopBuilder::<WinitEvent>::with_user_event()
-            .build()
-            .map_err(Error::EventLoopCreation)?;
+        let event_loop = Arch::create_event_loop()?;
 
         let window = Arch::create_window("bite", 1200, 1200, &event_loop)?;
         let window: &'static Window = Box::leak(Box::new(window));
@@ -136,7 +120,7 @@ impl<Arch: Target> UI<Arch> {
         let panels = panels::Panels::new(ui_queue.clone(), winit_queue.clone());
         let instance = wgpu_backend::Instance::new(window)?;
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
-        let platform = winit_backend::Platform::new::<Arch>(window);
+        let platform = winit_backend::Platform::new(window);
 
         Ok(Self {
             arch,
@@ -174,14 +158,43 @@ impl<Arch: Target> UI<Arch> {
     }
 
     fn handle_ui_events(&mut self) {
+        #[cfg(target_family = "unix")]
+        while let Ok(event) = self.arch.menu_channel.try_recv() {
+            match event.id.0.as_str() {
+                "open" => self.panels.ask_for_binary(),
+                panels::SOURCE => {
+                    self.panels.goto_window(panels::SOURCE);
+                    self.arch.bar.set_checked(panels::SOURCE);
+                }
+                panels::DISASSEMBLY => {
+                    self.panels.goto_window(panels::DISASSEMBLY);
+                    self.arch.bar.set_checked(panels::DISASSEMBLY);
+                }
+                panels::FUNCTIONS => {
+                    self.panels.goto_window(panels::FUNCTIONS);
+                    self.arch.bar.set_checked(panels::FUNCTIONS);
+                }
+                panels::LOGGING => {
+                    self.panels.goto_window(panels::LOGGING);
+                    self.arch.bar.set_checked(panels::LOGGING);
+                }
+                _ => {}
+            }
+        }
+
         while let Some(event) = self.ui_queue.inner.pop() {
             match event {
                 UIEvent::BinaryFailed(err) => {
                     self.panels.stop_loading();
                     log::warning!("{err:?}");
                 }
-                UIEvent::BinaryRequested(path) => self.offload_binary_processing(path),
+                UIEvent::BinaryRequested(path) => {
+                    self.offload_binary_processing(path);
+                }
                 UIEvent::BinaryLoaded(disassembly) => {
+                    #[cfg(target_family = "unix")]
+                    self.arch.bar.set_path(&disassembly.path);
+
                     self.panels.stop_loading();
                     self.panels.load_binary(disassembly);
                 }

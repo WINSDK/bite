@@ -1,7 +1,7 @@
 use crate::tprint;
 use commands::{Command, CommandError};
 
-impl<Arch: crate::Target> super::UI<Arch> {
+impl super::UI {
     /// Runs all queued commands, returning if they trigger a process exit.
     pub fn process_commands(&mut self, commands: &[String]) -> bool {
         commands.iter().all(|cmd| self.process_cmd(cmd))

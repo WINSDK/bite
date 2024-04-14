@@ -31,5 +31,8 @@ processor = { path = "../processor" }
 processor_shared = { path = "../processor_shared" }
 infinite_scroll = { path = "../infinite_scroll" }
 
+[target.'cfg(unix)'.dependencies]
+muda = "0.13"
+
 [build-dependencies]
 cc = "1" # tree-sitter requirement

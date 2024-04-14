@@ -1,13 +1,13 @@
 #![cfg(target_os = "windows")]
 
+use crate::{Error, Window, WinitEvent};
 use copypasta::{ClipboardContext, ClipboardProvider};
 use winit::dpi::{PhysicalPosition, PhysicalSize, LogicalSize};
+use winit::event_loop::{EventLoop, EventLoopBuilder};
 use winit::platform::windows::HMONITOR;
 use winit::platform::windows::HWND;
 use winit::platform::windows::{MonitorHandleExtWindows, WindowBuilderExtWindows};
 use winit::raw_window_handle::HasWindowHandle;
-
-use crate::{Error, Window};
 
 pub struct ArchDescriptor {
     pub initial_size: PhysicalSize<u32>,
@@ -31,26 +31,26 @@ const STYLE: isize = WS_BORDER | WS_CLIPSIBLINGS | WS_SYSMENU | WS_VISIBLE | WS_
 const STYLE_MAXIMIZED: isize = WS_VISIBLE | WS_OVERLAPPED;
 const STYLE_EX: isize = WS_EX_ACCEPTFILES | WS_EX_WINDOWEDGE;
 
-impl crate::Target for Arch {
-    fn new(arch_desc: ArchDescriptor) -> Self {
+impl Arch {
+    pub fn new(arch_desc: ArchDescriptor) -> Self {
         Self {
             unwindowed_size: arch_desc.initial_size,
             unwindowed_pos: arch_desc.initial_pos,
         }
     }
 
-    fn clipboard(_: &crate::Window) -> Box<dyn ClipboardProvider> {
-        ClipboardContext::new()
-            .map(|clip| Box::new(clip) as Box<dyn ClipboardProvider>)
-            .unwrap()
+    pub fn create_event_loop() -> Result<EventLoop<WinitEvent>, Error> {
+        EventLoopBuilder::<WinitEvent>::with_user_event()
+            .build()
+            .map_err(Error::EventLoopCreation)
     }
 
-    fn create_window<T>(
+    pub fn create_window(
         title: &str,
         width: u32,
         height: u32,
-        event_loop: &winit::event_loop::EventLoop<T>,
-    ) -> Result<winit::window::Window, Error> {
+        event_loop: &EventLoop<WinitEvent>,
+    ) -> Result<Window, Error> {
         let icon = include_bytes!("../../assets/iconx256.png");
         let icon = crate::icon::PngIcon::decode_bytes(icon)?;
         let icon = winit::window::Icon::from_rgba(icon.data, icon.width, icon.height).ok();
@@ -85,7 +85,7 @@ impl crate::Target for Arch {
         Ok(window)
     }
 
-    fn fullscreen(&mut self, window: &crate::Window) {
+    pub fn fullscreen(&mut self, window: &Window) {
         unsafe {
             let mut info = MonitorInfo {
                 size: std::mem::size_of::<MonitorInfo>() as u32,
@@ -136,6 +136,12 @@ impl crate::Target for Arch {
                 );
             }
         }
+    }
+
+    pub fn clipboard(_: &Window) -> Box<dyn ClipboardProvider> {
+        ClipboardContext::new()
+            .map(|clip| Box::new(clip) as Box<dyn ClipboardProvider>)
+            .unwrap()
     }
 }
 

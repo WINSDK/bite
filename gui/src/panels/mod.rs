@@ -216,9 +216,8 @@ impl Panels {
         self.panes.processor = Some(processor);
     }
 
-    fn ask_for_binary(&self) {
-        use rfd::FileDialog;
-        if let Some(path) = FileDialog::new().pick_file() {
+    pub fn ask_for_binary(&self) {
+        if let Some(path) = rfd::FileDialog::new().pick_file() {
             self.ui_queue.push(crate::UIEvent::BinaryRequested(path));
         }
     }
@@ -230,7 +229,7 @@ impl Panels {
         self.panes.terminal.record_input(events, index);
     }
 
-    fn goto_window(&mut self, tile: Identifier) {
+    pub fn goto_window(&mut self, tile: Identifier) {
         if let Some(id) = self.tree.tiles.find_pane(&tile) {
             if let Some(parent_id) = self.tree.tiles.parent_of(id) {
                 if let Some(Tile::Container(Container::Tabs(tabs))) =

@@ -18,12 +18,7 @@ fn main() {
     }
 
     if ARGS.disassemble {
-        #[cfg(target_family = "windows")]
-        let mut ui = gui::UI::<gui::windows::Arch>::new().unwrap();
-
-        #[cfg(target_family = "unix")]
-        let mut ui = gui::UI::<gui::unix::Arch>::new().unwrap();
-
+        let mut ui = gui::UI::new().unwrap();
         ui.process_args();
         ui.run();
 
