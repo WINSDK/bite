@@ -356,6 +356,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
+name = "binformat"
+version = "0.0.0"
+dependencies = [
+ "log 0.0.0",
+ "object",
+ "processor_shared",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -856,6 +865,7 @@ dependencies = [
 name = "debugvault"
 version = "0.0.0"
 dependencies = [
+ "binformat",
  "bitflags 2.4.2",
  "crossbeam-queue",
  "dashmap",
@@ -2520,6 +2530,7 @@ name = "processor"
 version = "0.0.0"
 dependencies = [
  "arm",
+ "binformat",
  "debugvault",
  "decoder",
  "log 0.0.0",

@@ -1,7 +1,9 @@
-use crate::{AddressMap, Addressed, RawSymbol};
+use crate::RawSymbol;
+use processor_shared::{AddressMap, Addressed};
 use object::read::pe::{ImageNtHeaders, ImageThunkData, PeFile};
 use object::LittleEndian as LE;
 use object::Object;
+use std::mem::size_of;
 
 pub struct PeDebugInfo<'data, Pe: ImageNtHeaders> {
     /// Parsed PE32/64 header.
@@ -47,7 +49,7 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
                         Ok(val) => val,
                         Err(..) => {
                             // skip over an entry
-                            func_rva += std::mem::size_of::<Pe::ImageThunkData>() as u32;
+                            func_rva += size_of::<Pe::ImageThunkData>() as u32;
                             continue;
                         }
                     };
@@ -56,7 +58,7 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
                         Ok(name) => name,
                         Err(..) => {
                             // skip over an entry
-                            func_rva += std::mem::size_of::<Pe::ImageThunkData>() as u32;
+                            func_rva += size_of::<Pe::ImageThunkData>() as u32;
                             continue;
                         }
                     };
@@ -79,7 +81,7 @@ impl<'data, Pe: ImageNtHeaders> PeDebugInfo<'data, Pe> {
                 }
 
                 // skip over an entry
-                func_rva += std::mem::size_of::<Pe::ImageThunkData>() as u32;
+                func_rva += size_of::<Pe::ImageThunkData>() as u32;
             }
         }
 

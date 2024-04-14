@@ -8,9 +8,8 @@
 /// ```
 use std::sync::Arc;
 use debugvault::Symbol;
-use processor_shared::{encode_hex_bytes_truncated, Section};
+use processor_shared::{encode_hex_bytes_truncated, Section, SectionKind};
 use tokenizing::{colors, Token, TokenStream};
-use object::SectionKind;
 use crate::Processor;
 
 const BYTES_BLOCK_SIZE: usize = 256;
@@ -240,7 +239,7 @@ impl Processor {
 
         let section = self.section_by_addr(addr).unwrap();
         match section.kind {
-            SectionKind::Text => self.parse_code(addr, section, &mut blocks),
+            SectionKind::Code => self.parse_code(addr, section, &mut blocks),
             // For any other section kinds just assume they're made of bytes.
             // As a note, we calculate the byte boundaries in blocks of [`BYTES_BLOCK_SIZE`],
             // so this block can be up to [`BYTES_BLOCK_SIZE`] bytes.
@@ -279,7 +278,7 @@ impl Processor {
         let mut boundaries = Vec::new();
         boundaries.push(section.start);
         match section.kind {
-            SectionKind::Text => self.compute_code_boundaries(section, &mut boundaries),
+            SectionKind::Code => self.compute_code_boundaries(section, &mut boundaries),
             // For any other section kinds just assume they're made of bytes.
             _ => self.compute_bytes_boundaries(section, &mut boundaries),
         }

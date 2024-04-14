@@ -30,8 +30,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<object::read::Error> for Error {
-    fn from(err: object::read::Error) -> Self {
+impl From<object::Error> for Error {
+    fn from(err: object::Error) -> Self {
         Error::Object(err)
     }
 }

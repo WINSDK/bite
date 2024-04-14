@@ -1,22 +1,42 @@
-use object::SectionKind;
-use std::borrow::Cow;
-
 /// Address in memory.
 pub type VirtAddr = usize;
 
 /// Address in the file world.
 pub type PhysAddr = usize;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SectionKind {
+    /// Anything we don't know how to parse or anything that is just bytes.
+    Raw,
+    /// Something we don't know how to parse in chunks of 4 bytes.
+    Raw4,
+    /// Something we don't know how to parse in chunks of 8 bytes.
+    Raw8,
+    /// Something we don't know how to parse in chunks of 16 bytes.
+    Raw16,
+    /// Instructions.
+    Code,
+    /// 32-bite pointers.
+    Ptr32,
+    /// 64-bite pointers.
+    Ptr64,
+    CString,
+    Utf8,
+    Utf16,
+    /// DWARF or something similar.
+    Debug
+}
+
 #[derive(Debug, Clone)]
 pub struct Section {
-    /// Section identifier.
-    pub name: Cow<'static, str>,
+    /// Section name.
+    pub name: String,
+
+    /// Some more fancy Identifier.
+    pub ident: &'static str,
 
     /// What kind of data the section holds.
     pub kind: SectionKind,
-
-    /// Whether or not it's being shown in the ASM listing as regular code/data.
-    pub loaded: bool,
 
     /// Section data.
     bytes: &'static [u8],
@@ -33,9 +53,9 @@ pub struct Section {
 
 impl Section {
     pub fn new(
-        name: Cow<'static, str>,
+        name: String,
+        ident: &'static str,
         kind: SectionKind,
-        loaded: bool,
         bytes: &'static [u8],
         addr: VirtAddr,
         start: PhysAddr,
@@ -43,8 +63,8 @@ impl Section {
     ) -> Self {
         Self {
             name,
+            ident,
             kind,
-            loaded,
             bytes,
             addr,
             start,
@@ -67,7 +87,7 @@ impl Section {
 #[derive(Debug)]
 pub struct Segment {
     /// Segment identifier.
-    pub name: Cow<'static, str>,
+    pub name: String,
 
     /// Physical address.
     pub start: PhysAddr,

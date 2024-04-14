@@ -1,4 +1,5 @@
-use crate::{AddressMap, Addressed, RawSymbol};
+use crate::RawSymbol;
+use processor_shared::{AddressMap, Addressed};
 use object::elf::{R_X86_64_COPY, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT};
 use object::read::elf::{ElfFile, FileHeader};
 use object::{

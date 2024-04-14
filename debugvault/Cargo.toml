@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 log = { path = "../log" }
+binformat = { path = "../binformat" }
 tokenizing = { path = "../tokenizing" }
 processor_shared = { path = "../processor_shared" }
 bitflags = "2"

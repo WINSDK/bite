@@ -1,11 +1,9 @@
-use crate::dwarf::{self, Dwarf};
-use crate::{AddressMap, Addressed, RawSymbol};
+use crate::RawSymbol;
+use processor_shared::{AddressMap, Addressed, Section, SectionKind};
 use object::macho::{self, DyldInfoCommand, DysymtabCommand, LinkeditDataCommand};
 use object::read::macho::{MachHeader, MachOFile, SymbolTable};
-use object::{Endianness, Object, ObjectSegment, ReadRef};
+use object::{Endianness, Object, ObjectSection, ObjectSegment, ReadRef, SectionFlags};
 use std::mem::size_of;
-use std::path::Path;
-use std::process::Command;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -118,6 +116,7 @@ pub struct MachoDebugInfo<'data, Mach: MachHeader> {
     dylibs: Vec<&'data str>,
     /// Any parsed but not yet relocated symbols.
     pub syms: AddressMap<RawSymbol<'data>>,
+    pub sections: Vec<Section>,
     // ---- Required load commands ----
     chained_fixups: Option<&'data LinkeditDataCommand<Mach::Endian>>,
     symtab: Option<SymbolTable<'data, Mach>>,
@@ -132,12 +131,14 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
             obj,
             base_addr: obj.segments().next().map(|seg| seg.address()).unwrap_or(0),
             syms: AddressMap::default(),
+            sections: Vec::new(),
             dylibs: Vec::new(),
             chained_fixups: None,
             symtab: None,
             dysymtab: None,
             dylid_info: None,
         };
+        this.sections = parse_sections(obj);
         this.parse_base_addr()?;
         this.parse_load_cmds()?;
         this.parse_global_syms();
@@ -257,6 +258,170 @@ impl<'data, Mach: MachHeader<Endian = Endianness>> MachoDebugInfo<'data, Mach> {
             },
         });
     }
+}
+
+/// Common Mach-O dwarf section names I've found so far.
+const DWARF_SECTIONS: [&str; 20] = [
+    "__debug_abbrev",
+    "__debug_addr",
+    "__debug_aranges",
+    "__debug_cu_index",
+    "__debug_frame",
+    "__debug_info",
+    "__debug_line",
+    "__debug_line_str",
+    "__debug_loc",
+    "__debug_loclists",
+    "__debug_macinfo",
+    "__debug_macro",
+    "__debug_pubnames",
+    "__debug_pubtypes",
+    "__debug_ranges",
+    "__debug_rnglists",
+    "__debug_str",
+    "__debug_str_offsets",
+    "__debug_tu_index",
+    "__debug_types",
+];
+
+fn parse_sections<'data, Mach: MachHeader>(obj: &'data MachOFile<'data, Mach>) -> Vec<Section> {
+    let mut sections = Vec::new();
+    for section in obj.sections() {
+        let name = match section.name() {
+            Ok(name) => name,
+            Err(_) => {
+                log::complex!(
+                    w "[macho::parse_sections] ",
+                    y "Failed to read name.",
+                );
+                "unknown"
+            }
+        };
+
+        let section_flags = match section.flags() {
+            SectionFlags::MachO { flags } => flags,
+            _ => unreachable!()
+        };
+
+        let (kind, ident) = match section_flags & macho::SECTION_TYPE {
+            // Standard section containing regular data (e.g., code, data).
+            macho::S_REGULAR => if section_flags & macho::S_ATTR_SOME_INSTRUCTIONS != 0 {
+                (SectionKind::Code, "CODE")
+            } else if section_flags & macho::S_ATTR_PURE_INSTRUCTIONS != 0 {
+                (SectionKind::Code, "PURE_CODE")
+            } else if DWARF_SECTIONS.contains(&name) {
+                (SectionKind::Debug, "REGULAR")
+            } else {
+                (SectionKind::Raw, "REGULAR")
+            },
+            // Section that doesn't occupy file space but is
+            // zero-filled at runtime, used for uninitialized data.
+            macho::S_ZEROFILL => (SectionKind::Raw, "ZEROFILL"),
+            // Section containing C string literals. Null-terminated ASCII strings.
+            macho::S_CSTRING_LITERALS => (SectionKind::CString, "CSTRING_LITERALS"),
+            // Section containing 4-byte literals.
+            macho::S_4BYTE_LITERALS => (SectionKind::Raw4, "4BYTE_LITERALS"),
+            // Section containing 8-byte literals.
+            macho::S_8BYTE_LITERALS => (SectionKind::Raw8, "8BYTE_LITERALS"),
+            // Section containing 16-byte literals.
+            macho::S_16BYTE_LITERALS => (SectionKind::Raw16, "16BYTE_LITERALS"),
+            // Section with pointers to literals.
+            macho::S_LITERAL_POINTERS => if obj.is_64() {
+                (SectionKind::Ptr64, "LITERAL_POINTERS")
+            } else {
+                (SectionKind::Ptr32, "LITERAL_POINTERS")
+            },
+            // Section containing GOT indirect pointers.
+            macho::S_NON_LAZY_SYMBOL_POINTERS => if obj.is_64() {
+                (SectionKind::Ptr64, "NON_LAZY_SYMBOL_POINTERS")
+            } else {
+                (SectionKind::Ptr32, "NON_LAZY_SYMBOL_POINTERS")
+            },
+            // Section with stubs for symbols, used to handle imports from dynamic libraries.
+            macho::S_SYMBOL_STUBS => (SectionKind::Code, "SYMBOL_STUBS"),
+            // Section containing function pointers for module initialization.
+            // These functions are called at module load.
+            macho::S_MOD_INIT_FUNC_POINTERS => if obj.is_64() {
+                (SectionKind::Ptr64, "MOD_INIT_FUNC_POINTERS")
+            } else {
+                (SectionKind::Ptr32, "MOD_INIT_FUNC_POINTERS")
+            },
+            // Section containing function pointers for module termination.
+            // These functions are called at module unload.
+            macho::S_MOD_TERM_FUNC_POINTERS => if obj.is_64() {
+                (SectionKind::Ptr64, "MOD_TERM_FUNC_POINTERS")
+            } else {
+                (SectionKind::Ptr32, "MOD_TERM_FUNC_POINTERS")
+            },
+            // Section contains symbols that are coalesced by the static linker
+            // and possibly the dynamic linker
+            macho::S_COALESCED => (SectionKind::Raw, "COALESCED"),
+            // Section containing pairs of function pointers for interposing.
+            // Used to intercept and redirect calls for patching or hooking.
+            macho::S_INTERPOSING => if obj.is_64() {
+                (SectionKind::Ptr64, "INTERPOSING")
+            } else {
+                (SectionKind::Ptr32, "INTERPOSING")
+            },
+            // Section dedicated to DTrace's dynamically generated Object Format.
+            macho::S_DTRACE_DOF => (SectionKind::Raw, "DTRACE_DOF"),
+            // Section containing lazy symbol pointers specifically for dynamic libraries.
+            // Bound on first access.
+            macho::S_LAZY_DYLIB_SYMBOL_POINTERS => if obj.is_64() {
+                (SectionKind::Ptr64, "LAZY_DYLIB_SYMBOL_POINTERS")
+            } else {
+                (SectionKind::Ptr32, "LAZY_DYLIB_SYMBOL_POINTERS")
+            },
+            // Section containing thread-local data that is not zero-filled and does need initialization.
+            macho::S_THREAD_LOCAL_REGULAR => (SectionKind::Raw, "THREAD_LOCAL_REGULAR"),
+            // Section containing thread-local data that is zero-filled at runtime.
+            macho::S_THREAD_LOCAL_ZEROFILL => (SectionKind::Raw, "THREAD_LOCAL_ZEROFILL"),
+            // Similar to S_THREAD_LOCAL_REGULAR.
+            macho::S_THREAD_LOCAL_VARIABLES => (SectionKind::Raw, "THREAD_LOCAL_VARIABLES"),
+            // Section containing pointers to thread-local variables.
+            macho::S_THREAD_LOCAL_VARIABLE_POINTERS => if obj.is_64() {
+                (SectionKind::Ptr64, "THREAD_LOCAL_VARIABLE_POINTERS")
+            } else {
+                (SectionKind::Ptr32, "THREAD_LOCAL_VARIABLE_POINTERS")
+            },
+            // Section containing pointers to initialization functions for thread-local data
+            macho::S_THREAD_LOCAL_INIT_FUNCTION_POINTERS => if obj.is_64() {
+                (SectionKind::Ptr64, "THREAD_LOCAL_INIT_FUNCTION_POINTERS")
+            } else {
+                (SectionKind::Ptr32, "THREAD_LOCAL_INIT_FUNCTION_POINTERS")
+            },
+            _ => (SectionKind::Raw, "UNKNOWN")
+        };
+
+        let bytes: &'static [u8] = match section.data() {
+            // The file is memory mapped so only the bytes are of lifetime &'static [u8].
+            Ok(data) => unsafe { std::mem::transmute(data) },
+            Err(..) => {
+                log::complex!(
+                    w "[macho::parse_sections] ",
+                    y "Failed to read section ",
+                    b name,
+                    y "."
+                );
+                continue;
+            }
+        };
+
+        let start = section.address() as usize;
+        let end = bytes.len() + start;
+
+        sections.push(Section::new(
+            name.to_string(),
+            ident,
+            kind,
+            bytes,
+            section.address() as usize,
+            start,
+            end
+        ));
+    }
+
+    sections
 }
 
 #[allow(dead_code)]
@@ -714,46 +879,4 @@ fn parse_chained_fixups<'data, Mach: MachHeader<Endian = Endianness>>(
             }
         }
     }
-}
-
-pub fn dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Error> {
-    let mut dwarf = Dwarf::parse(obj)?;
-
-    let ext = if let Some(exist_ext) = path.extension().and_then(|ext| ext.to_str()) {
-        exist_ext.to_string() + ".dSYM"
-    } else {
-        "dSYM".to_string()
-    };
-
-    let opt_dsym = path
-        .with_extension(ext)
-        .join("Contents/Resources/DWARF")
-        .join(path.file_name().unwrap());
-
-    if !opt_dsym.is_file() {
-        let dsymutil_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/dsymutil");
-        assert!(dsymutil_path.exists(), "dsymutil somehow missing");
-
-        log::PROGRESS.set("Running dsymutil.", 1);
-        let exit_status = Command::new(dsymutil_path)
-            .arg("--linker=parallel")
-            .arg(path)
-            .spawn()?
-            .wait()?;
-        log::PROGRESS.step();
-
-        if !exit_status.success() {
-            log::complex!(
-                w "[macho::dwarf] ",
-                y "Generating dSym failed with exit code ",
-                g exit_status.code().unwrap_or(1).to_string(),
-                y "."
-            );
-        }
-    }
-
-    let dsym_dwarf = Dwarf::load(&opt_dsym)?;
-    dwarf.merge(dsym_dwarf);
-
-    Ok(dwarf)
 }

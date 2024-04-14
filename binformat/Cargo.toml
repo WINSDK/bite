@@ -1,0 +1,9 @@
+[package]
+name = "binformat"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+processor_shared = { path = "../processor_shared" }
+log = { path = "../log" }
+object = { workspace = true }

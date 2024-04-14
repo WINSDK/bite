@@ -7,6 +7,7 @@ edition = "2021"
 memmap2 = { workspace = true }
 object = { workspace = true }
 log = { path = "../log" }
+binformat = { path = "../binformat" }
 processor_shared = { path = "../processor_shared" }
 tokenizing = { path = "../tokenizing" }
 debugvault = { path = "../debugvault" }

@@ -1,24 +1,22 @@
-use std::fmt;
-use std::path::Path;
-use std::sync::Arc;
+use binformat::RawSymbol;
 use common::*;
 use demangler::TokenStream;
-use object::{Object, ObjectSymbol};
+use dwarf::Dwarf;
+use processor_shared::{AddressMap, Addressed};
 use radix_trie::{Trie, TrieCommon};
+use std::path::Path;
+use std::sync::Arc;
+use std::{fmt, process::Command};
 use tokenizing::{Colors, Token};
-use processor_shared::{Addressed, AddressMap};
 
 mod common;
 mod demangler;
 mod dwarf;
-mod elf;
 mod error;
 mod intern;
 mod itanium;
-mod macho;
 mod msvc;
 mod pdb;
-mod pe;
 mod rust;
 mod rust_legacy;
 
@@ -35,11 +33,6 @@ pub struct FileAttr {
     pub line: usize,
     pub column_start: usize,
     pub column_end: usize,
-}
-
-struct RawSymbol<'data> {
-    name: &'data str,
-    module: Option<&'data str>,
 }
 
 pub struct Symbol {
@@ -111,11 +104,11 @@ impl PartialEq for Symbol {
 pub struct Index {
     /// Mapping from addresses starting at the header base to functions.
     /// The addresses are sorted.
-    symbols: AddressMap<Arc<Symbol>>,
+    pub syms: AddressMap<Arc<Symbol>>,
 
     /// Mapping from addresses starting at the header base to source files.
     /// The addresses are sorted.
-    file_attrs: AddressMap<FileAttr>,
+    pub file_attrs: AddressMap<FileAttr>,
 
     /// Prefix tree for finding symbols.
     trie: Trie<ArcStr, Arc<Symbol>>,
@@ -124,82 +117,21 @@ pub struct Index {
     named_len: usize,
 }
 
-fn parse_symbol_table<'data, O: Object<'data, 'data>>(
-    obj: &'data O,
-) -> AddressMap<RawSymbol<'data>> {
-    let mut syms = AddressMap::default();
-    for sym in obj.symbols() {
-        match sym.name() {
-            Ok(name) => syms.push(Addressed {
-                addr: sym.address() as usize,
-                item: RawSymbol {
-                    name,
-                    module: None,
-                },
-            }),
-            Err(err) => {
-                log::complex!(
-                    w "[parse_symbol_table] ",
-                    y err.to_string(),
-                    y "."
-                );
-                continue;
-            }
-        }
-    }
-    syms
-}
-
 impl Index {
-    pub fn parse(obj: &object::File, path: &Path) -> Result<Self, Error> {
+    pub fn parse<'data>(
+        obj: &object::File<'data>,
+        path: &Path,
+        mut syms: AddressMap<RawSymbol<'data>>,
+    ) -> Result<Self, Error> {
         let mut this = Self::default();
-        let mut syms = AddressMap::default();
 
-        match obj {
-            object::File::MachO32(macho) => {
-                let debug_info = macho::MachoDebugInfo::parse(macho)?;
-                let dwarf = macho::dwarf(obj, path)?;
+        let dwarf = match obj {
+            object::File::MachO32(_) => macho_dwarf(obj, path)?,
+            object::File::MachO64(_) => macho_dwarf(obj, path)?,
+            _ => dwarf::Dwarf::parse(obj)?,
+        };
 
-                this.file_attrs.extend(dwarf.file_attrs);
-                syms.extend(debug_info.syms);
-            }
-            object::File::MachO64(macho) => {
-                let debug_info = macho::MachoDebugInfo::parse(macho)?;
-                let dwarf = macho::dwarf(obj, path)?;
-
-                this.file_attrs.extend(dwarf.file_attrs);
-                syms.extend(debug_info.syms);
-            }
-            object::File::Elf32(elf) => {
-                let debug_info = elf::ElfDebugInfo::parse(elf)?;
-                let dwarf = dwarf::Dwarf::parse(obj)?;
-
-                this.file_attrs.extend(dwarf.file_attrs);
-                syms.extend(debug_info.syms);
-            }
-            object::File::Elf64(elf) => {
-                let debug_info = elf::ElfDebugInfo::parse(elf)?;
-                let dwarf = dwarf::Dwarf::parse(obj)?;
-
-                this.file_attrs.extend(dwarf.file_attrs);
-                syms.extend(debug_info.syms);
-            }
-            object::File::Pe32(pe) => {
-                let debug_info = pe::PeDebugInfo::parse(pe)?;
-                let dwarf = dwarf::Dwarf::parse(obj)?;
-
-                this.file_attrs.extend(dwarf.file_attrs);
-                syms.extend(debug_info.syms);
-            }
-            object::File::Pe64(pe) => {
-                let debug_info = pe::PeDebugInfo::parse(pe)?;
-                let dwarf = dwarf::Dwarf::parse(obj)?;
-
-                this.file_attrs.extend(dwarf.file_attrs);
-                syms.extend(debug_info.syms);
-            }
-            _ => {}
-        }
+        this.file_attrs.extend(dwarf.file_attrs);
 
         let mut pdb = None;
         if let Some(parsed_pdb) = pdb::PDB::parse(obj) {
@@ -214,7 +146,7 @@ impl Index {
         }
 
         log::PROGRESS.set("Parsing symbols.", syms.len());
-        parallel_compute(syms.mapping, &mut this.symbols, |Addressed { addr, item }| {
+        parallel_compute(syms.mapping, &mut this.syms, |Addressed { addr, item }| {
             let demangled = demangler::parse(item.name);
             let is_intrinsics = is_name_an_intrinsic(item.name);
             let name_as_str = String::from_iter(demangled.tokens().iter().map(|t| &t.text[..]));
@@ -238,7 +170,7 @@ impl Index {
 
         log::complex!(
             w "[index::parse] found ",
-            g this.symbols.len().to_string(),
+            g this.syms.len().to_string(),
             w " functions."
         );
 
@@ -247,10 +179,10 @@ impl Index {
 
     fn sort_and_validate(&mut self) {
         // Only keep one symbol per address.
-        self.symbols.dedup_by_key(|func| func.addr);
+        self.syms.dedup_by_key(|func| func.addr);
 
         // Only keep valid symbols.
-        self.symbols.retain(|Addressed { addr, item: func }| {
+        self.syms.retain(|Addressed { addr, item: func }| {
             if *addr == 0 {
                 return false;
             }
@@ -263,20 +195,20 @@ impl Index {
         });
 
         // Count the number of function's that aren't compiler intrinsics.
-        self.named_len = self.symbols.iter().filter(|func| !func.item.intrinsic()).count();
+        self.named_len = self.syms.iter().filter(|func| !func.item.intrinsic()).count();
 
         // Keep functions sorted so it can be binary searched.
-        self.symbols.sort_unstable();
+        self.syms.sort_unstable();
 
         // Keep file attrs sorted so it can be binary searched.
         self.file_attrs.sort_unstable();
     }
 
     fn build_prefix_tree(&mut self) {
-        log::PROGRESS.set("Building prefix tree", self.symbols.len());
+        log::PROGRESS.set("Building prefix tree", self.syms.len());
 
         // Radix-prefix tree for fast lookups.
-        for Addressed { item: func, .. } in self.symbols.iter() {
+        for Addressed { item: func, .. } in self.syms.iter() {
             self.trie.insert(func.name_as_str.clone(), Arc::clone(func));
             log::PROGRESS.step();
         }
@@ -287,7 +219,7 @@ impl Index {
     }
 
     pub fn functions(&self) -> impl Iterator<Item = &Addressed<Arc<Symbol>>> {
-        self.symbols.iter()
+        self.syms.iter()
     }
 
     pub fn get_file_by_addr(&self, addr: usize) -> Option<&FileAttr> {
@@ -298,23 +230,20 @@ impl Index {
     }
 
     pub fn get_func_by_addr(&self, addr: usize) -> Option<Arc<Symbol>> {
-        match self.symbols.search(addr) {
-            Ok(idx) => Some(self.symbols[idx].item.clone()),
+        match self.syms.search(addr) {
+            Ok(idx) => Some(self.syms[idx].item.clone()),
             Err(..) => None,
         }
     }
 
     pub fn get_func_by_name(&self, name: &str) -> Option<usize> {
-        self.symbols
-            .iter()
-            .find(|func| func.item.as_str() == name)
-            .map(|func| func.addr)
+        self.syms.iter().find(|func| func.item.as_str() == name).map(|func| func.addr)
     }
 
     /// Only used for tests.
     #[doc(hidden)]
     pub fn insert_func(&mut self, addr: usize, name: &str) {
-        self.symbols.push(Addressed {
+        self.syms.push(Addressed {
             addr,
             item: Arc::new(Symbol {
                 name: TokenStream::simple(name),
@@ -353,4 +282,43 @@ fn sort_by_shortest_match(input: &[&ArcStr], prefix: &str) -> Vec<String> {
     // sort the matches by length
     matches.sort_by_key(|a| a.len());
     matches
+}
+
+pub fn macho_dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Error> {
+    let mut dwarf = Dwarf::parse(obj)?;
+
+    let ext = if let Some(exist_ext) = path.extension().and_then(|ext| ext.to_str()) {
+        exist_ext.to_string() + ".dSYM"
+    } else {
+        "dSYM".to_string()
+    };
+
+    let opt_dsym = path
+        .with_extension(ext)
+        .join("Contents/Resources/DWARF")
+        .join(path.file_name().unwrap());
+
+    if !opt_dsym.is_file() {
+        let dsymutil_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/dsymutil");
+        assert!(dsymutil_path.exists(), "dsymutil somehow missing");
+
+        log::PROGRESS.set("Running dsymutil.", 1);
+        let exit_status =
+            Command::new(dsymutil_path).arg("--linker=parallel").arg(path).spawn()?.wait()?;
+        log::PROGRESS.step();
+
+        if !exit_status.success() {
+            log::complex!(
+                w "[macho::dwarf] ",
+                y "Generating dSym failed with exit code ",
+                g exit_status.code().unwrap_or(1).to_string(),
+                y "."
+            );
+        }
+    }
+
+    let dsym_dwarf = Dwarf::load(&opt_dsym)?;
+    dwarf.merge(dsym_dwarf);
+
+    Ok(dwarf)
 }

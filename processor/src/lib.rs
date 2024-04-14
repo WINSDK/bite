@@ -2,12 +2,13 @@ mod fmt;
 mod blocks;
 
 use decoder::{Decodable, Decoded};
-use object::{Object, ObjectSegment, ObjectSection};
-use object::{Architecture, BinaryFormat, SectionKind};
+use object::{Object, ObjectSegment};
+use object::{Architecture, BinaryFormat};
 use object::read::File as ObjectFile;
-use processor_shared::{PhysAddr, Section, Segment, AddressMap, Addressed};
+use processor_shared::{AddressMap, Addressed, PhysAddr, Section, SectionKind, Segment};
 use debugvault::Index;
 use tokenizing::Token;
+use binformat::{pe, elf, macho};
 
 use memmap2::Mmap;
 use x86_64::long_mode as x64;
@@ -16,7 +17,6 @@ use arm::armv7 as armv7;
 use arm::armv8::a64 as aarch64;
 
 use std::fs::File;
-use std::borrow::Cow;
 use std::mem::ManuallyDrop;
 
 pub use blocks::{BlockContent, Block};
@@ -52,8 +52,7 @@ macro_rules! impl_recursion {
             5
         };
 
-        for section in $sections.iter().filter(|s| s.kind == SectionKind::Text ||
-                                                   s.kind == SectionKind::Unknown) {
+        for section in $sections.iter().filter(|s| s.kind == SectionKind::Code) {
             let mut reader = decoder::Reader::new(section.bytes());
             let mut ip = section.start;
 
@@ -171,12 +170,44 @@ impl Processor {
         let file = std::fs::File::open(path.as_ref()).map_err(Error::IO)?;
         let mmap = unsafe { Mmap::map(&file).map_err(Error::IO)? };
         let binary: &'static [u8] = unsafe { std::mem::transmute(&mmap[..]) };
-        let obj = ObjectFile::parse(binary).map_err(Error::Object)?;
+        let obj = ObjectFile::parse(binary)?;
 
         let path = path.as_ref().to_path_buf();
         let now = std::time::Instant::now();
 
-        let index = Index::parse(&obj, &path).map_err(Error::Debug)?;
+        let mut syms = AddressMap::default();
+        let mut sections = Vec::new();
+        match &obj {
+            object::File::MachO32(macho) => {
+                let debug_info = macho::MachoDebugInfo::parse(macho)?;
+                sections.extend(debug_info.sections);
+                syms.extend(debug_info.syms);
+            }
+            object::File::MachO64(macho) => {
+                let debug_info = macho::MachoDebugInfo::parse(macho)?;
+                sections.extend(debug_info.sections);
+                syms.extend(debug_info.syms);
+            }
+            object::File::Elf32(elf) => {
+                let debug_info = elf::ElfDebugInfo::parse(elf)?;
+                syms.extend(debug_info.syms);
+            }
+            object::File::Elf64(elf) => {
+                let debug_info = elf::ElfDebugInfo::parse(elf)?;
+                syms.extend(debug_info.syms);
+            }
+            object::File::Pe32(pe) => {
+                let debug_info = pe::PeDebugInfo::parse(pe)?;
+                syms.extend(debug_info.syms);
+            }
+            object::File::Pe64(pe) => {
+                let debug_info = pe::PeDebugInfo::parse(pe)?;
+                syms.extend(debug_info.syms);
+            }
+            _ => {}
+        }
+
+        let index = Index::parse(&obj, &path, syms).map_err(Error::Debug)?;
         let entrypoint = index.get_func_by_name("entry").unwrap_or(0);
 
         if entrypoint != 0 {
@@ -187,81 +218,17 @@ impl Processor {
             );
         }
 
-        let mut sections = Vec::new();
         let mut segments = Vec::new();
-
         for segment in obj.segments() {
-            let name = match segment.name().map_err(Error::Object)? {
-                Some(name) => Cow::Owned(name.to_string()),
-                _ => Cow::Borrowed("unnamed"),
-            };
-
+            let name = segment.name()?.unwrap_or("unknown").to_string();
             let start = segment.address() as PhysAddr;
             let end = start + segment.size() as PhysAddr;
 
             segments.push(Segment { name, start, end });
         }
 
-        for section in obj.sections() {
-            let name = match section.name() {
-                Ok(name) => Cow::Owned(name.to_string()),
-                _ => Cow::Borrowed("unnamed"),
-            };
-
-            let section_bytes = match section.data() {
-                Ok(data) => data,
-                Err(..) => {
-                    log::complex!(
-                        w "[processor::new] ",
-                        y "failed to read section ",
-                        b name,
-                        y "."
-                    );
-
-                    continue;
-                }
-            };
-
-            const DWARF_SECTIONS: [&str; 22] = [
-                ".debug_abbrev",
-                ".debug_addr",
-                ".debug_aranges",
-                ".debug_cu_index",
-                ".debug_frame",
-                ".eh_frame",
-                ".eh_frame_hdr",
-                ".debug_info",
-                ".debug_line",
-                ".debug_line_str",
-                ".debug_loc",
-                ".debug_loclists",
-                ".debug_macinfo",
-                ".debug_macro",
-                ".debug_pubnames",
-                ".debug_pubtypes",
-                ".debug_ranges",
-                ".debug_rnglists",
-                ".debug_str",
-                ".debug_str_offsets",
-                ".debug_tu_index",
-                ".debug_types",
-            ];
-
-            let start = section.address() as PhysAddr;
-            let end = section_bytes.len() + start;
-            let loaded = !DWARF_SECTIONS.contains(&&*name) && section.address() != 0;
-            let section = Section::new(
-                name,
-                section.kind(),
-                loaded,
-                section_bytes,
-                section.address() as PhysAddr,
-                start,
-                end
-            );
-
-            sections.push(section);
-        }
+        segments.sort_unstable_by_key(|s| s.start);
+        sections.sort_unstable_by_key(|s| s.start);
 
         if sections.is_empty() {
             let addr = if obj.format() == BinaryFormat::Pe {
@@ -274,9 +241,9 @@ impl Processor {
             let start = obj.relative_address_base() as PhysAddr + rva;
             let end = start + binary.len() - rva;
             let section = Section::new(
-                Cow::Borrowed("flat (generated)"),
-                SectionKind::Text,
-                true,
+                "flat".to_string(),
+                "GENERATED",
+                SectionKind::Code,
                 &binary[rva..],
                 addr,
                 start,
@@ -290,16 +257,13 @@ impl Processor {
             let start = obj.relative_address_base() as PhysAddr;
             let end = start + binary.len();
             let segment = Segment {
-                name: Cow::Borrowed("flat (generated)"),
+                name: "flat (generated)".to_string(),
                 start,
                 end,
             };
 
             segments.push(segment);
         }
-
-        segments.sort_unstable_by_key(|s| s.start);
-        sections.sort_unstable_by_key(|s| s.start);
 
         let arch = obj.architecture();
         let (instruction_tokens, instruction_width) = unsafe {
@@ -474,7 +438,7 @@ impl Processor {
 
     /// Iterate through all non-debug sections.
     pub fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
-        self.sections.iter().filter(|section| section.loaded)
+        self.sections.iter()
     }
 
     /// First try to find a section that matches, then if it exists, try to find a
@@ -519,5 +483,11 @@ impl Drop for Processor {
                 _ => {}
             }
         }
+    }
+}
+
+impl From<object::Error> for Error {
+    fn from(err: object::Error) -> Self {
+        Error::Object(err)
     }
 }
