@@ -31,7 +31,7 @@ processor = { path = "../processor" }
 processor_shared = { path = "../processor_shared" }
 infinite_scroll = { path = "../infinite_scroll" }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 muda = "0.13"
 
 [build-dependencies]

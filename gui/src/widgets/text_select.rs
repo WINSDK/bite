@@ -33,52 +33,6 @@ impl<'l> TextSelection<'l> {
         this
     }
 
-    pub fn append(&mut self, text: &str) {
-        debug_assert!(
-            self.precomputed.is_none(),
-            "can't append to precomputed text"
-        );
-        self.text.push_str(text);
-    }
-
-    /// Color highlighting for [`TextSelection`].
-    ///
-    /// Example code for setting a layout:
-    /// ```
-    /// # use egui::text::LayoutJob;
-    /// # use gui::widgets::TextSelection;
-    /// let mut text_area = TextSelection::new(egui::FontId::default());
-    /// let mut layouter = |input: &str| {
-    ///     let mut output = LayoutJob::default();
-
-    ///     for (idx, s) in input.split_inclusive(' ').enumerate() {
-    ///         let color = if idx % 2 == 0 {
-    ///             egui::Color32::LIGHT_RED
-    ///         } else {
-    ///             egui::Color32::LIGHT_BLUE
-    ///         };
-
-    ///         output.append(
-    ///             s,
-    ///             0.0,
-    ///             egui::TextFormat {
-    ///                 color,
-    ///                 ..Default::default()
-    ///             }
-    ///         );
-    ///     }
-    ///     output
-    /// };
-    /// text_area.set_layouter(&mut layouter);
-    /// ```
-    pub fn set_layouter(&mut self, layouter: Layouter<'l>) {
-        debug_assert!(
-            self.precomputed.is_none(),
-            "can't set layout for precomputed text"
-        );
-        self.layouter = Some(layouter);
-    }
-
     pub fn set_reset_position(&mut self, reset_position: usize) {
         self.reset_position = Some(reset_position);
     }

@@ -1,136 +1,167 @@
 #![cfg(target_family = "unix")]
 
-use std::mem::ManuallyDrop;
-use std::path::Path;
-
-use crate::panels::{self, Identifier};
 use crate::{Error, Window, WinitEvent};
 use copypasta::{ClipboardContext, ClipboardProvider};
-use muda::{
-    accelerator::{Accelerator, Code, Modifiers},
-    CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
-};
-use muda::{MenuEvent, MenuEventReceiver};
 use winit::event_loop::{EventLoop, EventLoopBuilder};
-use winit::platform::macos::EventLoopBuilderExtMacOS;
 use winit::raw_window_handle::HasDisplayHandle;
 use winit::window::WindowBuilder;
 
-pub struct Arch {
-    pub menu_channel: MenuEventReceiver,
-    pub bar: MenuBar,
-}
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::*;
+    use winit::platform::macos::EventLoopBuilderExtMacOS;
+    use muda::{
+        accelerator::{Accelerator, Code, Modifiers},
+        CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
+    };
+    use muda::{MenuEvent, MenuEventReceiver};
+    use std::mem::ManuallyDrop;
+    use std::path::Path;
+    use crate::panels::{self, Identifier};
 
-pub struct MenuBar {
-    bar: Menu,
-    windows: Vec<CheckMenuItem>,
-}
+    pub struct Arch {
+        pub menu_channel: MenuEventReceiver,
+        pub bar: MenuBar,
+    }
 
-impl MenuBar {
-    fn build() -> muda::Result<Self> {
-        let bar = Menu::new();
-        let app_m = ManuallyDrop::new(Submenu::new("App", true));
-        bar.append(&*app_m)?;
-        app_m.append_items(&[
-            &PredefinedMenuItem::services(None),
-            &PredefinedMenuItem::separator(),
-            &PredefinedMenuItem::hide(None),
-            &PredefinedMenuItem::hide_others(None),
-            &PredefinedMenuItem::show_all(None),
-            &PredefinedMenuItem::separator(),
-            &MenuItem::with_id(
-                "open",
-                "Open...",
+    impl Arch {
+        pub fn new() -> Self {
+            Self {
+                menu_channel: MenuEvent::receiver().clone(),
+                bar: MenuBar::build().unwrap(),
+            }
+        }
+
+        pub fn create_event_loop() -> Result<EventLoop<WinitEvent>, Error> {
+            EventLoopBuilder::<WinitEvent>::with_user_event()
+                .with_default_menu(false)
+                .build()
+                .map_err(Error::EventLoopCreation)
+        }
+    }
+
+    pub struct MenuBar {
+        bar: Menu,
+        windows: Vec<CheckMenuItem>,
+    }
+
+    impl MenuBar {
+        fn build() -> muda::Result<Self> {
+            let bar = Menu::new();
+            let app_m = ManuallyDrop::new(Submenu::new("App", true));
+            bar.append(&*app_m)?;
+            app_m.append_items(&[
+                &PredefinedMenuItem::services(None),
+                &PredefinedMenuItem::separator(),
+                &PredefinedMenuItem::hide(None),
+                &PredefinedMenuItem::hide_others(None),
+                &PredefinedMenuItem::show_all(None),
+                &PredefinedMenuItem::separator(),
+                &MenuItem::with_id(
+                    "open",
+                    "Open...",
+                    true,
+                    Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyO)),
+                ),
+                &PredefinedMenuItem::quit(None),
+            ])?;
+
+            let edit_m = ManuallyDrop::new(Submenu::new("&Edit", true));
+            edit_m.append_items(&[
+                &PredefinedMenuItem::copy(None),
+                &PredefinedMenuItem::cut(None),
+                &PredefinedMenuItem::paste(None),
+            ])?;
+
+            let window_m = ManuallyDrop::new(Submenu::new("&Window", true));
+
+            let mut windows = Vec::new();
+            windows.push(CheckMenuItem::with_id(
+                panels::DISASSEMBLY,
+                "Disassembly",
                 true,
-                Some(Accelerator::new(Some(Modifiers::SUPER), Code::KeyO)),
-            ),
-            &PredefinedMenuItem::quit(None),
-        ])?;
+                true,
+                None,
+            ));
+            windows.push(CheckMenuItem::with_id(
+                panels::FUNCTIONS,
+                "Functions",
+                true,
+                false,
+                None,
+            ));
+            windows.push(CheckMenuItem::with_id(
+                panels::SOURCE,
+                "Source",
+                true,
+                false,
+                None,
+            ));
+            windows.push(CheckMenuItem::with_id(
+                panels::LOGGING,
+                "Logging",
+                true,
+                false,
+                None,
+            ));
 
-        let edit_m = ManuallyDrop::new(Submenu::new("&Edit", true));
-        edit_m.append_items(&[
-            &PredefinedMenuItem::copy(None),
-            &PredefinedMenuItem::cut(None),
-            &PredefinedMenuItem::paste(None),
-        ])?;
+            for item in windows.iter() {
+                window_m.append(item)?;
+            }
 
-        let window_m = ManuallyDrop::new(Submenu::new("&Window", true));
+            window_m.append_items(&[
+                &PredefinedMenuItem::separator(),
+                &PredefinedMenuItem::fullscreen(None),
+            ])?;
+            bar.append_items(&[&*edit_m, &*window_m])?;
 
-        let mut windows = Vec::new();
-        windows.push(CheckMenuItem::with_id(
-            panels::DISASSEMBLY,
-            "Disassembly",
-            true,
-            true,
-            None,
-        ));
-        windows.push(CheckMenuItem::with_id(
-            panels::FUNCTIONS,
-            "Functions",
-            true,
-            false,
-            None,
-        ));
-        windows.push(CheckMenuItem::with_id(
-            panels::SOURCE,
-            "Source",
-            true,
-            false,
-            None,
-        ));
-        windows.push(CheckMenuItem::with_id(
-            panels::LOGGING,
-            "Logging",
-            true,
-            false,
-            None,
-        ));
+            window_m.set_as_windows_menu_for_nsapp();
+            bar.init_for_nsapp();
 
-        for item in windows.iter() {
-            window_m.append(item)?;
+            Ok(Self { bar, windows })
         }
 
-        window_m.append_items(&[
-            &PredefinedMenuItem::separator(),
-            &PredefinedMenuItem::fullscreen(None),
-        ])?;
-        window_m.set_as_windows_menu_for_nsapp();
-
-        bar.append_items(&[&*edit_m, &*window_m])?;
-        bar.init_for_nsapp();
-
-        Ok(Self { bar, windows })
-    }
-
-    pub fn set_checked(&self, ident: Identifier) {
-        for item in self.windows.iter() {
-            let is_ident = item.id().0.as_str() == ident;
-            item.set_checked(is_ident);
+        pub fn set_checked(&self, ident: Identifier) {
+            for item in self.windows.iter() {
+                let is_ident = item.id().0.as_str() == ident;
+                item.set_checked(is_ident);
+            }
         }
-    }
 
-    pub fn set_path(&self, path: &Path) {
-        let path = path.to_string_lossy();
-        let title_m = ManuallyDrop::new(Submenu::new(format!(":: {path}"), false));
-        let _ = self.bar.append(&*title_m);
+        pub fn set_path(&self, path: &Path) {
+            let path = path.to_string_lossy();
+            let title_m = ManuallyDrop::new(Submenu::new(format!(":: {path}"), false));
+            let _ = self.bar.append(&*title_m);
+        }
     }
 }
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::*;
+
+    pub struct Arch {}
+
+    impl Arch {
+        pub fn new() -> Self {
+            Self {}
+        }
+
+        pub fn create_event_loop() -> Result<EventLoop<WinitEvent>, Error> {
+            EventLoopBuilder::<WinitEvent>::with_user_event()
+                .build()
+                .map_err(Error::EventLoopCreation)
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub use macos::*;
+
+#[cfg(target_os = "linux")]
+pub use linux::*;
 
 impl Arch {
-    pub fn new() -> Self {
-        Self {
-            menu_channel: MenuEvent::receiver().clone(),
-            bar: MenuBar::build().unwrap(),
-        }
-    }
-
-    pub fn create_event_loop() -> Result<EventLoop<WinitEvent>, Error> {
-        EventLoopBuilder::<WinitEvent>::with_user_event()
-            .with_default_menu(false)
-            .build()
-            .map_err(Error::EventLoopCreation)
-    }
-
     pub fn create_window(
         title: &str,
         width: u32,

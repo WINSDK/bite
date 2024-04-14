@@ -5,9 +5,9 @@ mod interp;
 mod panels;
 mod style;
 mod wgpu_backend;
-pub mod widgets;
-pub mod unix;
-pub mod windows;
+mod widgets;
+mod unix;
+mod windows;
 mod winit_backend;
 
 #[cfg(target_family = "unix")]
@@ -158,7 +158,7 @@ impl UI {
     }
 
     fn handle_ui_events(&mut self) {
-        #[cfg(target_family = "unix")]
+        #[cfg(target_os = "macos")]
         while let Ok(event) = self.arch.menu_channel.try_recv() {
             match event.id.0.as_str() {
                 "open" => self.panels.ask_for_binary(),
@@ -192,7 +192,7 @@ impl UI {
                     self.offload_binary_processing(path);
                 }
                 UIEvent::BinaryLoaded(disassembly) => {
-                    #[cfg(target_family = "unix")]
+                    #[cfg(target_os = "macos")]
                     self.arch.bar.set_path(&disassembly.path);
 
                     self.panels.stop_loading();
