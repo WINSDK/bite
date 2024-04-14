@@ -151,6 +151,7 @@ impl Display for Listing {
             .animated(false);
 
         let mut current_addr = None;
+        let start_y = ui.cursor().min.y;
 
         area.show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -187,7 +188,7 @@ impl Display for Listing {
             let text = self.processor.section_name(addr).unwrap();
             let max_width = ui.available_width();
             let size = egui::vec2(9.0 * text.len() as f32, 25.0);
-            let offset = egui::pos2(20.0, 60.0);
+            let offset = egui::pos2(8.0, start_y + 6.0);
             let rect = egui::Rect::from_two_pos(
                 egui::pos2(max_width - offset.x, offset.y),
                 egui::pos2(max_width - offset.x - size.x, offset.y + size.y),

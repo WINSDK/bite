@@ -2,11 +2,11 @@ mod functions;
 mod listing;
 mod source_code;
 
-use crate::style::{EGUI, STYLE};
-use crate::widgets::{Donut, Terminal};
 use crate::common::*;
+use crate::style::{EGUI, STYLE};
 use crate::tprint;
-use egui_tiles::{SimplificationOptions, Container, Tile, TileId, Tiles, Tree, UiResponse};
+use crate::widgets::{Donut, Terminal};
+use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 use processor::Processor;
 
 use std::collections::BTreeMap;
@@ -103,23 +103,25 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         // Set pane background color.
         ui.painter().rect_filled(ui.max_rect(), 0.0, STYLE.pane_color);
 
-        match self.mapping.get_mut(pane) {
-            Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
-            Some(PanelKind::Functions(functions)) => functions.show(ui),
-            Some(PanelKind::Source(src)) => src.show(ui),
-            Some(PanelKind::Logging) => {
-                let area = egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .drag_to_scroll(false)
-                    .stick_to_bottom(true);
+        egui::Frame::default().inner_margin(egui::Margin::same(5.0)).show(ui, |ui| {
+            match self.mapping.get_mut(pane) {
+                Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
+                Some(PanelKind::Functions(functions)) => functions.show(ui),
+                Some(PanelKind::Source(src)) => src.show(ui),
+                Some(PanelKind::Logging) => {
+                    let area = egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .drag_to_scroll(false)
+                        .stick_to_bottom(true);
 
-                area.show(ui, |ui| {
-                    let layout = log::LOGGER.read().unwrap().format();
-                    ui.label(layout);
-                });
-            }
-            None => {}
-        };
+                    area.show(ui, |ui| {
+                        let layout = log::LOGGER.read().unwrap().format();
+                        ui.label(layout);
+                    });
+                }
+                None => {}
+            };
+        });
 
         UiResponse::None
     }
@@ -233,7 +235,8 @@ impl Panels {
         if let Some(id) = self.tree.tiles.find_pane(&tile) {
             if let Some(parent_id) = self.tree.tiles.parent_of(id) {
                 if let Some(Tile::Container(Container::Tabs(tabs))) =
-                    self.tree.tiles.get_mut(parent_id) {
+                    self.tree.tiles.get_mut(parent_id)
+                {
                     tabs.set_active(id);
                 }
             }
@@ -260,7 +263,7 @@ impl Panels {
                         container.add_child(pane);
                     }
                 }
-                None => unreachable!()
+                None => unreachable!(),
             }
         }
     }
@@ -427,14 +430,8 @@ impl Panels {
 
         ctx.set_visuals(EGUI.visuals.clone());
 
-        let dock_area = egui::CentralPanel::default().frame({
-            egui::Frame::default().inner_margin(egui::Margin {
-                top: crate::style::STYLE.separator_width,
-                ..Default::default()
-            })
-        });
-
-        dock_area.show(ctx, |ui| {
+        let frame = egui::Frame::default().inner_margin(egui::Margin::same(0.0));
+        egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
             if self.loading {
                 ui.spacing_mut().item_spacing.y = 20.0;
                 ui.with_layout(
