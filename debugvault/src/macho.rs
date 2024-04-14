@@ -273,7 +273,9 @@ fn parse_dynamic_table<'data>(
 
 struct ImportEntry<'data> {
     lib_ordinal: u64,
+    #[allow(dead_code)]
     addend: u64,
+    #[allow(dead_code)]
     weak: bool,
     name: &'data str,
 }

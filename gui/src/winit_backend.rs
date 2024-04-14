@@ -1,8 +1,8 @@
 //! You need to create a [`Platform`] and feed it with `winit::event::Event` events.
 //! Use `begin_frame()` and `end_frame()` to start drawing the egui UI.
 
-use crate::Window;
 use crate::Arch;
+use crate::Window;
 
 use std::collections::HashMap;
 
@@ -115,22 +115,27 @@ impl Platform {
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
                     let pressed = event.state == winit::event::ElementState::Pressed;
-                    let ctrl = self.modifier_state.control_key();
-                    let shift = self.modifier_state.shift_key();
-                    let supa = self.modifier_state.super_key();
+
+                    #[cfg(target_os = "macos")]
+                    let pressed_modi = self.modifier_state.super_key();
+                    #[cfg(not(target_os = "macos"))]
+                    let pressed_modi = self.modifier_state.control_key()
+                        && self.modifier_state.shift_key()
+                        && pressed;
 
                     if let winit::keyboard::PhysicalKey::Code(key) = event.physical_key {
-                        if ((ctrl && shift) || supa) && (pressed && key == KeyCode::KeyC) {
+                        if pressed_modi && key == KeyCode::KeyC {
+                            dbg!();
                             self.raw_input.events.push(egui::Event::Copy);
                             return;
                         }
 
-                        if ((ctrl && shift) || supa) && (pressed && key == KeyCode::KeyX) {
+                        if pressed_modi && key == KeyCode::KeyX {
                             self.raw_input.events.push(egui::Event::Cut);
                             return;
                         }
 
-                        if ((ctrl && shift) || supa) && (pressed && key == KeyCode::KeyV) {
+                        if pressed_modi && key == KeyCode::KeyV {
                             if let Ok(contents) = self.clipboard.get_contents() {
                                 self.raw_input.events.push(egui::Event::Text(contents))
                             }

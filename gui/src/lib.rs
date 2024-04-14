@@ -178,7 +178,7 @@ impl UI {
                     self.panels.goto_window(panels::LOGGING);
                     self.arch.bar.set_checked(panels::LOGGING);
                 }
-                _ => {}
+                _ => { dbg!(event.id.0.as_str()); }
             }
         }
 
