@@ -8,6 +8,7 @@
 /// ```
 use std::sync::Arc;
 use debugvault::Symbol;
+use object::Endian;
 use processor_shared::{encode_hex_bytes_truncated, Section, SectionKind};
 use tokenizing::{colors, Token, TokenStream};
 use crate::Processor;
@@ -34,7 +35,16 @@ pub enum BlockContent {
         bytes: String,
     },
     CString {
-        inner: String,
+        bytes: Vec<u8>,
+    },
+    Got {
+        size: usize,
+        symbol: Arc<Symbol>,
+    },
+    Pointer {
+        size: usize,
+        value: u64,
+        symbol: Option<Arc<Symbol>>,
     },
     Bytes {
         bytes: Vec<u8>,
@@ -56,7 +66,9 @@ impl Block {
             BlockContent::Label { .. } => 2,
             BlockContent::Instruction { .. } => 1,
             BlockContent::Error { .. } => 1,
-            BlockContent::CString { inner } => inner.len() + 1,
+            BlockContent::CString { bytes } => bytes.len() + 1,
+            BlockContent::Pointer { size, .. } => *size,
+            BlockContent::Got { size, .. } => *size,
             BlockContent::Bytes { bytes } => (bytes.len() / 32) + 1,
         }
     }
@@ -100,9 +112,26 @@ impl Block {
                 stream.push_owned(format!("{err:?}"), colors::RED);
                 stream.push(">", colors::GRAY40);
             }
-            BlockContent::CString { inner } => {
+            BlockContent::CString { bytes } => {
                 stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
-                stream.push_owned(inner.clone(), colors::ORANGE);
+                let lossy_string = String::from_utf8_lossy(&bytes);
+                let escaped = format!("\"{}\"", lossy_string.escape_debug());
+                stream.push_owned(escaped, colors::ORANGE);
+            }
+            BlockContent::Got { symbol, .. } => {
+                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
+                stream.push("<", colors::BLUE);
+                stream.inner.extend_from_slice(symbol.name());
+                stream.push(">", colors::BLUE);
+            }
+            BlockContent::Pointer { value, symbol, .. } => {
+                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
+                stream.push_owned(format!("{:#x}", value), colors::GREEN);
+                if let Some(symbol) = symbol {
+                    stream.push(" <", colors::BLUE);
+                    stream.inner.extend_from_slice(symbol.name());
+                    stream.push(">", colors::BLUE);
+                }
             }
             BlockContent::Bytes { bytes } => {
                 let mut off = 0;
@@ -113,7 +142,7 @@ impl Block {
                     stream.push("\n", colors::WHITE);
                     off += chunk.len();
                 }
-                // Pop last newline
+                // Pop last newline.
                 stream.inner.pop();
             }
         }
@@ -169,9 +198,18 @@ impl Processor {
         }
 
         let section = self.section_by_addr(addr).unwrap();
+
+        if addr == section.end {
+            return blocks;
+        }
+
         match section.kind {
             SectionKind::Code => self.parse_code(addr, section, &mut blocks),
             SectionKind::CString => self.parse_cstring(addr, section, &mut blocks),
+            SectionKind::Ptr32 => self.parse_pointer(addr, section, 4, &mut blocks),
+            SectionKind::Ptr64 => self.parse_pointer(addr, section, 8, &mut blocks),
+            SectionKind::Got32 => self.parse_got(addr, 4, &mut blocks),
+            SectionKind::Got64 => self.parse_got(addr, 4, &mut blocks),
             // For any other section kinds just assume they're made of bytes.
             // As a note, we calculate the byte boundaries in blocks of [`BYTES_BLOCK_SIZE`],
             // so this block can be up to [`BYTES_BLOCK_SIZE`] bytes.
@@ -187,20 +225,36 @@ impl Processor {
         blocks
     }
 
-    fn parse_cstring(&self, addr: usize, section: &Section, blocks: &mut Vec<Block>) {
-        let rva = addr - section.start;
-        let bytes = &section.bytes()[rva..];
-        if bytes.is_empty() {
-            return;
-        }
+    fn parse_got(&self, addr: usize, size: usize ,blocks: &mut Vec<Block>) {
+        let symbol = self.index.get_func_by_addr(addr).unwrap_or_default();
+        blocks.push(Block {
+            addr,
+            content: BlockContent::Got { size, symbol }
+        });
+    }
 
-        let end = bytes.iter().position(|&b| b == b'\0').unwrap_or(bytes.len());
-        let bytes_string = String::from_utf8_lossy(&bytes[..end]);
-        let escaped = format!("\"{}\"", bytes_string.escape_debug());
+    fn parse_pointer(&self, addr: usize, section: &Section, size: usize ,blocks: &mut Vec<Block>) {
+        let bytes = section.bytes_by_addr(addr, size);
+        let value = if size == 4 {
+            self.endianness.read_u32_bytes(bytes.try_into().unwrap()) as u64
+        } else {
+            self.endianness.read_u64_bytes(bytes.try_into().unwrap())
+        };
+
+        let symbol = self.index.get_func_by_addr(addr);
 
         blocks.push(Block {
             addr,
-            content: BlockContent::CString { inner: escaped }
+            content: BlockContent::Pointer { size, value, symbol }
+        });
+    }
+
+    fn parse_cstring(&self, addr: usize, section: &Section, blocks: &mut Vec<Block>) {
+        let bytes = section.bytes_by_addr(addr, usize::MAX);
+        let end = bytes.iter().position(|&b| b == b'\0').unwrap_or(bytes.len());
+        blocks.push(Block {
+            addr,
+            content: BlockContent::CString { bytes: bytes[..end].to_vec() }
         });
     }
 
@@ -306,11 +360,31 @@ impl Processor {
         match section.kind {
             SectionKind::Code => self.compute_code_boundaries(section, &mut boundaries),
             SectionKind::CString => self.compute_cstring_boundaries(section, &mut boundaries),
+            SectionKind::Ptr32 | SectionKind::Got32 => {
+                let mut addr = section.addr;
+                while addr < section.end {
+                    boundaries.push(addr);
+                    addr += 4;
+                }
+            },
+            SectionKind::Ptr64 | SectionKind::Got64 => {
+                let mut addr = section.addr;
+                while addr < section.end {
+                    boundaries.push(addr);
+                    addr += 8;
+                }
+            },
             // For any kind of DWARF debugging info, don't show any of the section.
             SectionKind::Debug => {},
             // For any other section kinds just assume they evenly
             // split in blocks of [`BYTES_BLOCK_SIZE`].
-            _ => self.compute_raw_boundaries(section, &mut boundaries),
+            _ => {
+                let mut addr = section.addr;
+                while addr < section.end {
+                    boundaries.push(addr);
+                    addr += BYTES_BLOCK_SIZE;
+                }
+            },
         }
         boundaries.push(section.end);
         boundaries
@@ -381,15 +455,6 @@ impl Processor {
                 // Update the start to the byte after the null byte.
                 start_off = idx + 1;
             }
-        }
-    }
-
-    /// Split's section into [`Block`]'s of [`BYTES_BLOCK_SIZE`] byte chunks.
-    fn compute_raw_boundaries(&self, section: &Section, boundaries: &mut Vec<usize>) {
-        let mut addr = section.addr;
-        while addr < section.end {
-            boundaries.push(addr);
-            addr += BYTES_BLOCK_SIZE;
         }
     }
 }

@@ -20,6 +20,10 @@ pub enum SectionKind {
     Ptr32,
     /// 64-bite pointers.
     Ptr64,
+    /// Not yet initialized pointers we can find by looking up the address (32-bit).
+    Got32,
+    /// Not yet initialized pointers we can find by looking up the address (64-bit).
+    Got64,
     /// Null terminator string literal.
     CString,
     /// DWARF or something similar.

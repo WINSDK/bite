@@ -62,6 +62,17 @@ fn is_name_an_intrinsic(name: &str) -> bool {
     false
 }
 
+impl Default for Symbol {
+    fn default() -> Self {
+        Self {
+            name: TokenStream::new(""),
+            name_as_str: ArcStr::new(""),
+            module: None,
+            is_intrinsics: false,
+        }
+    }
+}
+
 impl Symbol {
     #[inline]
     pub fn name(&self) -> &[Token] {

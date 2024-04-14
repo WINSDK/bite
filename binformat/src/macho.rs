@@ -323,9 +323,9 @@ fn parse_sections<'data, Mach: MachHeader>(obj: &'data MachOFile<'data, Mach>) -
             },
             // Section containing GOT indirect pointers.
             macho::S_NON_LAZY_SYMBOL_POINTERS => if obj.is_64() {
-                (SectionKind::Ptr64, "NON_LAZY_SYMBOL_POINTERS")
+                (SectionKind::Got64, "NON_LAZY_SYMBOL_POINTERS")
             } else {
-                (SectionKind::Ptr32, "NON_LAZY_SYMBOL_POINTERS")
+                (SectionKind::Got32, "NON_LAZY_SYMBOL_POINTERS")
             },
             // Section with stubs for symbols, used to handle imports from dynamic libraries.
             macho::S_SYMBOL_STUBS => (SectionKind::Code, "SYMBOL_STUBS"),

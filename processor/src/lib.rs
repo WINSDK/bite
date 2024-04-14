@@ -2,7 +2,7 @@ mod fmt;
 mod blocks;
 
 use decoder::{Decodable, Decoded};
-use object::{Object, ObjectSegment};
+use object::{Endianness, Object, ObjectSegment};
 use object::{Architecture, BinaryFormat};
 use object::read::File as ObjectFile;
 use processor_shared::{AddressMap, Addressed, PhysAddr, Section, SectionKind, Segment};
@@ -163,6 +163,9 @@ pub struct Processor {
 
     /// Target's instruction set.
     arch: Architecture,
+
+    /// Target's endianness.
+    endianness: Endianness,
 }
 
 impl Processor {
@@ -405,6 +408,7 @@ impl Processor {
             instruction_tokens,
             instruction_width,
             arch,
+            endianness: obj.endianness(),
         })
     }
 
