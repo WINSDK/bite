@@ -43,8 +43,9 @@ members = [
     "debugvault",
     "processor",
     "processor_shared",
-    "infinite_scroll"
-, "binformat"]
+    "infinite_scroll",
+    "binformat"
+]
 
 [workspace.dependencies]
 egui = { version = "0.27", features = ["bytemuck"], default-features = false }

@@ -287,17 +287,7 @@ const DWARF_SECTIONS: [&str; 20] = [
 fn parse_sections<'data, Mach: MachHeader>(obj: &'data MachOFile<'data, Mach>) -> Vec<Section> {
     let mut sections = Vec::new();
     for section in obj.sections() {
-        let name = match section.name() {
-            Ok(name) => name,
-            Err(_) => {
-                log::complex!(
-                    w "[macho::parse_sections] ",
-                    y "Failed to read name.",
-                );
-                "unknown"
-            }
-        };
-
+        let (name, bytes, start, end) = crate::parse_section_generics(&section);
         let section_flags = match section.flags() {
             SectionFlags::MachO { flags } => flags,
             _ => unreachable!()
@@ -309,7 +299,7 @@ fn parse_sections<'data, Mach: MachHeader>(obj: &'data MachOFile<'data, Mach>) -
                 (SectionKind::Code, "CODE")
             } else if section_flags & macho::S_ATTR_PURE_INSTRUCTIONS != 0 {
                 (SectionKind::Code, "PURE_CODE")
-            } else if DWARF_SECTIONS.contains(&name) {
+            } else if DWARF_SECTIONS.contains(&name.as_str()) {
                 (SectionKind::Debug, "REGULAR")
             } else {
                 (SectionKind::Raw, "REGULAR")
@@ -393,25 +383,8 @@ fn parse_sections<'data, Mach: MachHeader>(obj: &'data MachOFile<'data, Mach>) -
             _ => (SectionKind::Raw, "UNKNOWN")
         };
 
-        let bytes: &'static [u8] = match section.data() {
-            // The file is memory mapped so only the bytes are of lifetime &'static [u8].
-            Ok(data) => unsafe { std::mem::transmute(data) },
-            Err(..) => {
-                log::complex!(
-                    w "[macho::parse_sections] ",
-                    y "Failed to read section ",
-                    b name,
-                    y "."
-                );
-                continue;
-            }
-        };
-
-        let start = section.address() as usize;
-        let end = bytes.len() + start;
-
         sections.push(Section::new(
-            name.to_string(),
+            name,
             ident,
             kind,
             bytes,
