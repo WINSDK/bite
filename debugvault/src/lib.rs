@@ -46,7 +46,6 @@ pub struct Symbol {
     name: TokenStream,
     name_as_str: ArcStr,
     module: Option<String>,
-    is_import: bool,
     is_intrinsics: bool,
 }
 
@@ -71,25 +70,6 @@ fn is_name_an_intrinsic(name: &str) -> bool {
 }
 
 impl Symbol {
-    pub fn new(name: TokenStream, module: Option<&str>) -> Self {
-        let is_intrinsics = is_name_an_intrinsic(name.inner());
-        let name_as_str = String::from_iter(name.tokens().iter().map(|t| &t.text[..]));
-        let name_as_str = ArcStr::new(&name_as_str);
-
-        Self {
-            name_as_str,
-            name,
-            module: module.map(|x| x.to_string()),
-            is_import: false,
-            is_intrinsics,
-        }
-    }
-
-    fn into_import(mut self) -> Self {
-        self.is_import = true;
-        self
-    }
-
     #[inline]
     pub fn name(&self) -> &[Token] {
         self.name.tokens()
@@ -109,8 +89,8 @@ impl Symbol {
         self.is_intrinsics
     }
 
-    pub fn import(&self) -> bool {
-        self.is_import
+    pub fn imported(&self) -> bool {
+        self.module.is_some()
     }
 }
 
@@ -154,7 +134,7 @@ fn parse_symbol_table<'data, O: Object<'data, 'data>>(
                 addr: sym.address() as usize,
                 item: RawSymbol {
                     name,
-                    module: None
+                    module: None,
                 },
             }),
             Err(err) => {
@@ -234,12 +214,22 @@ impl Index {
         }
 
         log::PROGRESS.set("Parsing symbols.", syms.len());
-        parallel_compute(syms.mapping, &mut this.symbols, |sym| {
-            let demangled = Symbol::new(demangler::parse(sym.item.name), sym.item.module);
+        parallel_compute(syms.mapping, &mut this.symbols, |Addressed { addr, item }| {
+            let demangled = demangler::parse(item.name);
+            let is_intrinsics = is_name_an_intrinsic(item.name);
+            let name_as_str = String::from_iter(demangled.tokens().iter().map(|t| &t.text[..]));
+            let name_as_str = ArcStr::new(&name_as_str);
+            let symbol = Symbol {
+                name_as_str,
+                name: demangled,
+                module: item.module.map(|x| x.to_string()),
+                is_intrinsics,
+            };
+
             log::PROGRESS.step();
             Addressed {
-                addr: sym.addr,
-                item: Arc::new(demangled),
+                addr: *addr,
+                item: Arc::new(symbol),
             }
         });
 
@@ -326,7 +316,12 @@ impl Index {
     pub fn insert_func(&mut self, addr: usize, name: &str) {
         self.symbols.push(Addressed {
             addr,
-            item: Arc::new(Symbol::new(TokenStream::simple(name), None)),
+            item: Arc::new(Symbol {
+                name: TokenStream::simple(name),
+                name_as_str: ArcStr::new(name),
+                module: None,
+                is_intrinsics: false,
+            }),
         })
     }
 

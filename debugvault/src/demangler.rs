@@ -78,11 +78,6 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn pop(&mut self) {
-        self.tokens.pop();
-    }
-
-    #[inline]
     pub fn tokens(&self) -> &[Token] {
         self.tokens.as_slice()
     }

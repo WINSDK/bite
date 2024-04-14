@@ -43,7 +43,7 @@ fn main() {
         println!("{path}:");
 
         for func in index.functions() {
-            if !func.item.import() {
+            if !func.item.imported() {
                 continue;
             }
 
