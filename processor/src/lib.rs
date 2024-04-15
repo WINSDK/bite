@@ -53,6 +53,7 @@ macro_rules! impl_recursion {
         };
 
         for section in $sections.iter().filter(|s| s.kind == SectionKind::Code) {
+            let mut prev_inst = None;
             let mut reader = decoder::Reader::new(section.bytes());
             let mut ip = section.start;
 
@@ -89,7 +90,7 @@ macro_rules! impl_recursion {
 
                 match $decoder.decode(&mut reader) {
                     Ok(mut instruction) => {
-                        instruction.update_rel_addrs(ip);
+                        instruction.update_rel_addrs(ip, prev_inst);
 
                         let width = instruction.width();
                         $instructions.push(Addressed {
@@ -99,6 +100,9 @@ macro_rules! impl_recursion {
                             }
                         });
 
+                        prev_inst = $instructions.last().map(|inst| {
+                            unsafe { &*inst.item.$arch }
+                        });
                         ip += width;
                     }
                     Err(error) => {
@@ -111,6 +115,7 @@ macro_rules! impl_recursion {
                             addr: ip,
                             item: error
                         });
+                        prev_inst = None;
                         ip += width;
                     }
                 }

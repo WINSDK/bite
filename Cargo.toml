@@ -1,6 +1,6 @@
 [package]
 name = "bite"
-description = "Debugger / Disassembler"
+description = "Disassembler"
 version = "0.2.0"
 edition = "2021"
 
@@ -11,10 +11,6 @@ commands = { path = "./commands" }
 log = { path = "./log" }
 gui = { path = "./gui" }
 debugvault = { path = "./debugvault" }
-
-[package.metadata.bundle]
-name = "bite"
-identifier = "io.github.WINSDK.bite"
 
 [profile.dev]
 panic = 'abort'

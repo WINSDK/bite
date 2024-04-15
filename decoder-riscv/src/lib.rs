@@ -761,7 +761,7 @@ impl decoder::Decoded for Instruction {
         self.len
     }
 
-    fn update_rel_addrs(&mut self, addr: usize) {
+    fn update_rel_addrs(&mut self, addr: usize, _: Option<&Instruction>) {
         if !self.opcode.is_relative() {
             return;
         }

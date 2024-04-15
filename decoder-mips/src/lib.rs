@@ -76,7 +76,7 @@ impl decoder::Decoded for Instruction {
         4
     }
 
-    fn update_rel_addrs(&mut self, _: usize) {}
+    fn update_rel_addrs(&mut self, _: usize, _: Option<&Instruction>) {}
 }
 
 #[derive(Default)]

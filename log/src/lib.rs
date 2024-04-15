@@ -342,7 +342,7 @@ impl<const N: usize> Logger<N> {
                 0.0,
                 egui::TextFormat {
                     font_id: egui::FontId {
-                        size: 12.0,
+                        size: 14.0,
                         family: egui::FontFamily::Monospace,
                     },
                     color: match color {

@@ -1607,6 +1607,10 @@ pub enum Operand {
     Imm32(u32),
     /// a 64-bit immediate, stored in a `u64`.
     Imm64(u64),
+    /// Generated 64-bit immediate's.
+    ///
+    /// These operands don't try to get resolved.
+    Imm64Special(u64),
     /// a pc-relative branch, with 32-bit signed offset, left-shifted by 2.
     BranchOffset(i32),
     /// a pc-relative branch, with 32-bit signed offset, left-shifted by 1.
@@ -1633,6 +1637,16 @@ pub enum Operand {
     /// "no operand". since an instruction's `operands` array is always four entries, this is used
     /// to fill space, if any, after recording an instruction's extant operands.
     Nothing,
+}
+
+impl Operand {
+    fn offset(&self) -> i64 {
+        match self {
+            Operand::BranchOffset(offs) => (*offs as i64) << 2,
+            Operand::BranchThumbOffset(offs) => (*offs as i64) << 1,
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// a register bank for a register in `armv7` or below.
@@ -1769,9 +1783,14 @@ impl Operand {
                         stream.push(">", colors::BLUE);
                     }
                     None => {
+                        stream.push("#", Colors::expr());
                         stream.push_owned(decoder::encode_uhex(*imm), Colors::immediate());
                     }
                 }
+            }
+            Operand::Imm64Special(imm) => {
+                stream.push("#", Colors::expr());
+                stream.push_owned(decoder::encode_uhex(*imm), Colors::immediate());
             }
             Operand::BranchOffset(offs) => {
                 if *offs >= 0 {
@@ -2053,20 +2072,29 @@ impl Decoded for Instruction {
         4
     }
 
-    fn update_rel_addrs(&mut self, addr: usize) {
-        for operand in self.operands.iter_mut() {
-            match operand {
-                Operand::BranchOffset(offs) => {
-                    let offs = *offs as i64 * 4;
-                    let addr = (addr as u64).saturating_add_signed(offs);
-                    *operand = Operand::Imm64(addr);
+    fn update_rel_addrs(&mut self, addr: usize, _: Option<&Instruction>) {
+        match self.opcode {
+            Opcode::ADR => {
+                let offs = self.operands[1].offset();
+                let addr = (addr as u64).saturating_add_signed(offs);
+                self.operands[1] = Operand::Imm64Special(addr);
+            },
+            _ => {
+                for operand in self.operands.iter_mut() {
+                    match operand {
+                        Operand::BranchOffset(offs) => {
+                            let offs = (*offs as i64) << 2;
+                            let addr = (addr as u64).saturating_add_signed(offs);
+                            *operand = Operand::Imm64(addr);
+                        }
+                        Operand::BranchThumbOffset(offs) => {
+                            let offs = (*offs as i64) << 1;
+                            let addr = (addr as u64).saturating_add_signed(offs);
+                            *operand = Operand::Imm64(addr);
+                        }
+                        _ => {}
+                    }
                 }
-                Operand::BranchThumbOffset(offs) => {
-                    let offs = *offs as i64 * 2;
-                    let addr = (addr as u64).saturating_add_signed(offs);
-                    *operand = Operand::Imm64(addr);
-                }
-                _ => {}
             }
         }
     }

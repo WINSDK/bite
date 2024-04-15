@@ -67,7 +67,7 @@ pub trait Decoded: ToTokens {
         self.tokenize(&mut stream, symbols);
         stream.inner
     }
-    fn update_rel_addrs(&mut self, addr: usize);
+    fn update_rel_addrs(&mut self, addr: usize, prev_inst: Option<&Self>);
 }
 
 pub trait Decodable {

@@ -2567,7 +2567,7 @@ impl Decoded for Instruction {
         self.length as usize
     }
 
-    fn update_rel_addrs(&mut self, addr: usize) {
+    fn update_rel_addrs(&mut self, addr: usize, _: Option<&Instruction>) {
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
             let addr = addr as u32;

@@ -121,7 +121,12 @@ impl Block {
             BlockContent::Got { symbol, .. } => {
                 stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
                 stream.push("<", colors::BLUE);
-                stream.inner.extend_from_slice(symbol.name());
+                let name = symbol.name();
+                if name.is_empty() {
+                stream.push("unresolved", colors::RED);
+                } else {
+                    stream.inner.extend_from_slice(symbol.name());
+                }
                 stream.push(">", colors::BLUE);
             }
             BlockContent::Pointer { value, symbol, .. } => {
