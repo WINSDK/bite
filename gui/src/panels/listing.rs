@@ -175,11 +175,8 @@ impl Display for Listing {
                     current_addr = Some(block.addr);
                 }
 
-                match block.content {
-                    BlockContent::SectionStart { .. } => {
-                        draw_horizontal_line(ui);
-                    }
-                    _ => {}
+                if let BlockContent::SectionStart { .. } = block.content {
+                    draw_horizontal_line(ui);
                 }
 
                 let mut stream = TokenStream::new();

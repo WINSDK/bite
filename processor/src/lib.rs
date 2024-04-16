@@ -481,6 +481,7 @@ impl Processor {
     pub fn section_name(&self, addr: PhysAddr) -> Option<&str> {
         self.sections
             .iter()
+            .filter(|sec| !matches!(sec.kind, SectionKind::Unloaded | SectionKind::Debug))
             .find(|s| (s.start..=s.end).contains(&addr))
             .map(|s| &s.name as &str)
     }
