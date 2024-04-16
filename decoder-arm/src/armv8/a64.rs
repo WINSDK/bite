@@ -3515,7 +3515,7 @@ impl ToTokens for Operand {
                 }
                 stream.push_owned(decoder::encode_hex(*offs), Colors::immediate());
             }
-            Operand::Immediate(imm) => match symbols.get_func_by_addr(*imm as usize) {
+            Operand::Immediate(imm) => match symbols.get_sym_by_addr(*imm as usize) {
                 Some(symbol) => {
                     stream.push("<", colors::BLUE);
                     for token in symbol.name() {
@@ -3537,7 +3537,7 @@ impl ToTokens for Operand {
                     stream.push_owned(imm, Colors::immediate());
                 }
             }
-            Operand::Imm16(imm) => match symbols.get_func_by_addr(*imm as usize) {
+            Operand::Imm16(imm) => match symbols.get_sym_by_addr(*imm as usize) {
                 Some(symbol) => {
                     stream.push("<", colors::BLUE);
                     for token in symbol.name() {
@@ -3550,7 +3550,7 @@ impl ToTokens for Operand {
                     stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
                 }
             },
-            Operand::Imm64(imm) => match symbols.get_func_by_addr(*imm as usize) {
+            Operand::Imm64(imm) => match symbols.get_sym_by_addr(*imm as usize) {
                 Some(symbol) => {
                     stream.push("<", colors::BLUE);
                     for token in symbol.name() {

@@ -734,7 +734,7 @@ impl ToTokens for Operand {
         match self {
             Self::Register(reg) => stream.push(reg.as_str(), Colors::register()),
             Self::Immediate(imm) => {
-                match symbols.get_func_by_addr(*imm as usize) {
+                match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
                         for token in symbol.name() {
                             stream.push_token(token.clone());

@@ -1746,7 +1746,7 @@ impl Operand {
                 }
             }
             Operand::Imm12(imm) => {
-                match symbols.get_func_by_addr(*imm as usize) {
+                match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -1760,7 +1760,7 @@ impl Operand {
                 }
             }
             Operand::Imm32(imm) => {
-                match symbols.get_func_by_addr(*imm as usize) {
+                match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {
@@ -1774,7 +1774,7 @@ impl Operand {
                 }
             }
             Operand::Imm64(imm) => {
-                match symbols.get_func_by_addr(*imm as usize) {
+                match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
                         stream.push("<", colors::BLUE);
                         for token in symbol.name() {

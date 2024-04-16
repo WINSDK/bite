@@ -42,7 +42,6 @@ pub enum BlockContent {
         symbol: Arc<Symbol>,
     },
     Pointer {
-        size: usize,
         value: u64,
         symbol: Option<Arc<Symbol>>,
     },
@@ -67,8 +66,8 @@ impl Block {
             BlockContent::Instruction { .. } => 1,
             BlockContent::Error { .. } => 1,
             BlockContent::CString { bytes } => bytes.len() + 1,
-            BlockContent::Pointer { size, .. } => *size,
-            BlockContent::Got { size, .. } => *size,
+            BlockContent::Pointer { .. } => 1,
+            BlockContent::Got { .. } => 1,
             BlockContent::Bytes { bytes } => (bytes.len() / 32) + 1,
         }
     }
@@ -155,9 +154,25 @@ impl Block {
 }
 
 impl Processor {
-    /// Pars blocks given an address boundary.
+    /// Use this instead of get_sym_by_addr for any case where a section symbol
+    /// might conflict with a label.
+    fn get_symbol_by_addr(&self, addr: usize, section: &Section) -> Option<Arc<Symbol>> {
+        if addr == section.start {
+            return None;
+        }
+
+        self.index.get_sym_by_addr(addr)
+    }
+
+
+    /// Parse blocks given an address boundary.
     pub fn parse_blocks(&self, addr: usize) -> Vec<Block> {
         let mut blocks = Vec::new();
+        let section = self.section_by_addr(addr).unwrap();
+
+        if section.kind == SectionKind::Unloaded {
+            return blocks;
+        }
 
         let section_start = self.sections().find(|sec| sec.start == addr);
         let section_end = self.sections().find(|sec| sec.end == addr);
@@ -177,7 +192,7 @@ impl Processor {
                     },
                 });
 
-                // Empty sections end at the same address but won't be accounted for otherwise.
+                // Empty sections at the same address but won't be accounted for otherwise.
                 if start.bytes().is_empty() {
                     blocks.push(Block {
                         addr,
@@ -202,8 +217,6 @@ impl Processor {
             (None, None) => {}
         }
 
-        let section = self.section_by_addr(addr).unwrap();
-
         if addr == section.end {
             return blocks;
         }
@@ -213,8 +226,8 @@ impl Processor {
             SectionKind::CString => self.parse_cstring(addr, section, &mut blocks),
             SectionKind::Ptr32 => self.parse_pointer(addr, section, 4, &mut blocks),
             SectionKind::Ptr64 => self.parse_pointer(addr, section, 8, &mut blocks),
-            SectionKind::Got32 => self.parse_got(addr, 4, &mut blocks),
-            SectionKind::Got64 => self.parse_got(addr, 4, &mut blocks),
+            SectionKind::Got32 => self.parse_got(addr, 4, section, &mut blocks),
+            SectionKind::Got64 => self.parse_got(addr, 4, section, &mut blocks),
             // For any other section kinds just assume they're made of bytes.
             // As a note, we calculate the byte boundaries in blocks of [`BYTES_BLOCK_SIZE`],
             // so this block can be up to [`BYTES_BLOCK_SIZE`] bytes.
@@ -230,8 +243,8 @@ impl Processor {
         blocks
     }
 
-    fn parse_got(&self, addr: usize, size: usize ,blocks: &mut Vec<Block>) {
-        let symbol = self.index.get_func_by_addr(addr).unwrap_or_default();
+    fn parse_got(&self, addr: usize, size: usize, section: &Section, blocks: &mut Vec<Block>) {
+        let symbol = self.get_symbol_by_addr(addr, section).unwrap_or_default();
         blocks.push(Block {
             addr,
             content: BlockContent::Got { size, symbol }
@@ -246,11 +259,11 @@ impl Processor {
             self.endianness.read_u64_bytes(bytes.try_into().unwrap())
         };
 
-        let symbol = self.index.get_func_by_addr(addr);
+        let symbol = self.get_symbol_by_addr(addr, section);
 
         blocks.push(Block {
             addr,
-            content: BlockContent::Pointer { size, value, symbol }
+            content: BlockContent::Pointer { value, symbol }
         });
     }
 
@@ -268,7 +281,7 @@ impl Processor {
         let opt_err = self.error_by_addr(addr);
 
         if opt_inst.is_some() || opt_err.is_some() {
-            if let Some(symbol) = self.index.get_func_by_addr(addr) {
+            if let Some(symbol) = self.get_symbol_by_addr(addr, section) {
                 blocks.push(Block {
                     addr,
                     content: BlockContent::Label { symbol },
@@ -282,6 +295,7 @@ impl Processor {
             let bytes = section.bytes_by_addr(addr, width);
             let bytes =
                 encode_hex_bytes_truncated(&bytes, self.max_instruction_width * 3 + 1, true);
+
             blocks.push(Block {
                 addr,
                 content: BlockContent::Instruction { inst, bytes },
@@ -323,7 +337,7 @@ impl Processor {
                 break;
             }
 
-            if addr != baddr && self.index.get_func_by_addr(baddr).is_some() {
+            if self.get_symbol_by_addr(addr, section).is_some() {
                 break;
             }
 
@@ -361,19 +375,33 @@ impl Processor {
 
     fn compute_section_boundaries(&self, section: &Section) -> Vec<usize> {
         let mut boundaries = Vec::new();
+
+        if let SectionKind::Unloaded | SectionKind::Debug = section.kind {
+            return boundaries;
+        }
+
+        // Don't bother calculating boundaries for sections that don't contain data at compile
+        // time. Sections like the .bss will be filled by the program loader but there's little
+        // point to reading them here.
+        if section.bytes().is_empty() {
+            boundaries.push(section.start);
+            boundaries.push(section.end);
+            return boundaries;
+        }
+
         boundaries.push(section.start);
         match section.kind {
             SectionKind::Code => self.compute_code_boundaries(section, &mut boundaries),
             SectionKind::CString => self.compute_cstring_boundaries(section, &mut boundaries),
             SectionKind::Ptr32 | SectionKind::Got32 => {
-                let mut addr = section.addr;
+                let mut addr = section.start;
                 while addr < section.end {
                     boundaries.push(addr);
                     addr += 4;
                 }
             },
             SectionKind::Ptr64 | SectionKind::Got64 => {
-                let mut addr = section.addr;
+                let mut addr = section.start;
                 while addr < section.end {
                     boundaries.push(addr);
                     addr += 8;
@@ -384,7 +412,7 @@ impl Processor {
             // For any other section kinds just assume they evenly
             // split in blocks of [`BYTES_BLOCK_SIZE`].
             _ => {
-                let mut addr = section.addr;
+                let mut addr = section.start;
                 while addr < section.end {
                     boundaries.push(addr);
                     addr += BYTES_BLOCK_SIZE;
@@ -396,14 +424,14 @@ impl Processor {
     }
 
     fn compute_code_boundaries(&self, section: &Section, boundaries: &mut Vec<usize>) {
-        let mut addr = section.addr;
+        let mut addr = section.start;
 
         loop {
             if addr == section.end {
                 break;
             }
 
-            if self.index.get_func_by_addr(addr).is_some() {
+            if self.index.get_sym_by_addr(addr).is_some() {
                 boundaries.push(addr);
             }
 
@@ -434,7 +462,7 @@ impl Processor {
                 }
 
                 // We found some labelled bytes, so those would have to be in a different block.
-                if addr != baddr && self.index.get_func_by_addr(baddr).is_some() {
+                if addr != baddr && self.index.get_sym_by_addr(baddr).is_some() {
                     break;
                 }
 

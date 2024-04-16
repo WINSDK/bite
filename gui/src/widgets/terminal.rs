@@ -309,6 +309,7 @@ impl Terminal {
         self.commands_unprocessed += 1;
         self.cursor_position = 0;
         self.command_position = self.commands.len() - 1;
+        self.autocomplete.clear();
     }
 
     /// Consumes terminal commands recorded since last frame.

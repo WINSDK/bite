@@ -62,7 +62,7 @@ fn parse_section_generics<'data, Obj: ObjectSection<'data>>(
     };
 
     let start = section.address() as usize;
-    let end = bytes.len() + start;
+    let end = start + section.size() as usize;
 
     (name.to_string(), bytes, start, end)
 }

@@ -52,16 +52,16 @@ impl Listing {
 
                     let mut idx = block_idx - 1;
                     let mut lines_parsed = 0;
-                    'parse: loop {
+                    loop {
                         let addr = boundaries[idx];
                         let blocks = processor.parse_blocks(addr);
                         for block in blocks.into_iter().rev() {
                             lines_parsed += block.len();
                             all_blocks.push(block);
+                        }
 
-                            if lines_parsed >= 100 {
-                                break 'parse;
-                            }
+                        if lines_parsed >= 100 {
+                            break;
                         }
 
                         if idx == 0 {
@@ -98,7 +98,7 @@ impl Listing {
 
                     let mut idx = block_idx;
                     let mut lines_parsed = 0;
-                    'parse: loop {
+                    loop {
                         if idx >= boundaries.len() {
                             return callback(Ok((all_blocks, None)));
                         }
@@ -108,11 +108,11 @@ impl Listing {
                         for block in blocks {
                             lines_parsed += block.len();
                             all_blocks.push(block);
+                        }
 
-                            if lines_parsed >= 100 {
-                                idx += 1;
-                                break 'parse;
-                            }
+                        if lines_parsed >= 100 {
+                            idx += 1;
+                            break;
                         }
 
                         idx += 1;

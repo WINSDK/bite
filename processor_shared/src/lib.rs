@@ -26,8 +26,10 @@ pub enum SectionKind {
     Got64,
     /// Null terminator string literal.
     CString,
-    /// DWARF or something similar.
-    Debug
+    /// DWARF debug info.
+    Debug,
+    /// Zero sized special sections.
+    Unloaded
 }
 
 #[derive(Debug, Clone)]
@@ -44,9 +46,6 @@ pub struct Section {
     /// Section data.
     bytes: &'static [u8],
 
-    /// Virtual address.
-    pub addr: VirtAddr,
-
     /// Address where section starts.
     pub start: PhysAddr,
 
@@ -60,7 +59,6 @@ impl Section {
         ident: &'static str,
         kind: SectionKind,
         bytes: &'static [u8],
-        addr: VirtAddr,
         start: PhysAddr,
         end: PhysAddr,
     ) -> Self {
@@ -69,7 +67,6 @@ impl Section {
             ident,
             kind,
             bytes,
-            addr,
             start,
             end
         }
@@ -82,7 +79,7 @@ impl Section {
 
     pub fn bytes_by_addr(&self, addr: PhysAddr, len: usize) -> &[u8] {
         let rva = addr - self.start;
-        let bytes = &self.bytes[rva..];
+        let bytes = &self.bytes.get(rva..).unwrap_or(&[]);
         &bytes[..std::cmp::min(bytes.len(), len)]
     }
 }

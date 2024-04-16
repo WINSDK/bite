@@ -8,7 +8,7 @@ use object::read::File as ObjectFile;
 use processor_shared::{AddressMap, Addressed, PhysAddr, Section, SectionKind, Segment};
 use debugvault::Index;
 use tokenizing::Token;
-use binformat::{pe, elf, macho};
+use binformat::{elf, macho, pe, RawSymbol};
 
 use memmap2::Mmap;
 use x86_64::long_mode as x64;
@@ -198,21 +198,34 @@ impl Processor {
             }
             object::File::Elf32(elf) => {
                 let debug_info = elf::ElfDebugInfo::parse(elf)?;
+                sections.extend(debug_info.sections);
                 syms.extend(debug_info.syms);
             }
             object::File::Elf64(elf) => {
                 let debug_info = elf::ElfDebugInfo::parse(elf)?;
+                sections.extend(debug_info.sections);
                 syms.extend(debug_info.syms);
             }
             object::File::Pe32(pe) => {
                 let debug_info = pe::PeDebugInfo::parse(pe)?;
+                // sections.extend(debug_info.sections);
                 syms.extend(debug_info.syms);
+                todo!()
             }
             object::File::Pe64(pe) => {
                 let debug_info = pe::PeDebugInfo::parse(pe)?;
+                // sections.extend(debug_info.sections);
                 syms.extend(debug_info.syms);
+                todo!()
             }
             _ => {}
+        }
+
+        for section in sections.iter() {
+            syms.push(Addressed {
+                addr: section.start,
+                item: RawSymbol { name: &section.name, module: None }
+            });
         }
 
         let index = Index::parse(&obj, &path, syms).map_err(Error::Debug)?;
@@ -239,7 +252,7 @@ impl Processor {
         sections.sort_unstable_by_key(|s| s.start);
 
         if sections.is_empty() {
-            let addr = if obj.format() == BinaryFormat::Pe {
+            let base = if obj.format() == BinaryFormat::Pe {
                 0x1000
             } else {
                 0
@@ -253,8 +266,7 @@ impl Processor {
                 "GENERATED",
                 SectionKind::Code,
                 &binary[rva..],
-                addr,
-                start,
+                base + start,
                 end,
             );
 

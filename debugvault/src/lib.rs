@@ -240,7 +240,7 @@ impl Index {
         }
     }
 
-    pub fn get_func_by_addr(&self, addr: usize) -> Option<Arc<Symbol>> {
+    pub fn get_sym_by_addr(&self, addr: usize) -> Option<Arc<Symbol>> {
         match self.syms.search(addr) {
             Ok(idx) => Some(self.syms[idx].item.clone()),
             Err(..) => None,

@@ -13,18 +13,14 @@ use debugvault::FileAttr;
 use tokenizing::colors;
 
 pub struct Source {
-    src: String,
-    lines: Vec<Line>,
+    output: LayoutJob,
+    line_count: usize,
     max_number_width: usize,
     scroll: Option<usize>,
 }
 
-struct Line {
-    number: String,
-    sections: Vec<HighlightedSection>,
-}
-
-fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSection> {
+fn compute_highlighting<P: AsRef<Path>>(path: P, src: &str) -> LayoutJob {
+    let mut output = LayoutJob::default();
     let lang_cfg = match LanguageConfig::guess(path) {
         Some(cfg) => cfg,
         None => {
@@ -32,8 +28,7 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
                 w "[source::compute_sections] ",
                 y "failed to guess source code language."
             );
-
-            return Vec::new();
+            return output;
         }
     };
 
@@ -48,8 +43,7 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
                 w "[source::compute_sections] ",
                 y format!("source code highlighting failed: '{err}'.")
             );
-
-            return Vec::new();
+            return output;
         }
     };
 
@@ -106,60 +100,42 @@ fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSectio
     }
 
     sections.sort_unstable();
-    sections
-}
 
-fn find_matching_sections(
-    line: &str,
-    offset: usize,
-    sections: &[HighlightedSection],
-) -> Vec<HighlightedSection> {
-    let line_end = offset + line.len() + 1;
-    sections
-        .iter()
-        .filter(|s| {
-            // check if there is any overlap between the section and the current line
-            s.range.end > offset && s.range.start < line_end
-        })
-        .cloned()
-        .map(|mut s| {
-            // adjust the range of the section to fit within the current line
-            s.range.start = s.range.start.max(offset);
-            s.range.end = s.range.end.min(line_end);
-            s
-        })
-        .collect()
+    for section in sections {
+        output.append(
+            &src[section.range],
+            0.0,
+            egui::TextFormat {
+                color: section.fg_color,
+                background: section.bg_color,
+                font_id: FONT,
+                ..Default::default()
+            },
+        );
+    }
+
+    output
 }
 
 impl Source {
-    pub fn new(src: String, file_attr: &FileAttr) -> Self {
+    pub fn new(src: &str, file_attr: &FileAttr) -> Self {
         let max_width = (src.lines().count().ilog10() + 1) as usize;
-        let mut lines = Vec::new();
-        let sections = compute_sections(&file_attr.path, &src);
+        let output = compute_highlighting(&file_attr.path, &src);
+        let line_count = src.lines().count();
 
-        let mut offset = 0;
         for (idx, line) in src.lines().enumerate() {
-            let line_nr = idx + 1;
-            let line_len = line.len();
-            let mut line = Line {
-                number: format!("{line_nr:max_width$} \n"),
-                sections: find_matching_sections(line, offset, &sections),
-            };
-
-            if line_nr == file_attr.line {
-                for section in line.sections.iter_mut() {
-                    section.bg_color = CONFIG.colors.highlight;
-                    section.fg_color = Color32::WHITE;
-                }
-            }
-
-            lines.push(line);
-            offset += line_len + 1;
+            // let line_nr = idx + 1;
+            // if line_nr == file_attr.line {
+            //     for section in line.sections.iter_mut() {
+            //         section.bg_color = CONFIG.colors.highlight;
+            //         section.fg_color = Color32::WHITE;
+            //     }
+            // }
         }
 
         Self {
-            src,
-            lines,
+            output,
+            line_count,
             max_number_width: max_width,
             scroll: Some(file_attr.line.saturating_sub(1)),
         }
@@ -167,26 +143,6 @@ impl Source {
 }
 
 impl Source {
-    fn show_code(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {
-        let mut output = LayoutJob::default();
-        for line in &self.lines[row_range] {
-            for section in &line.sections {
-                output.append(
-                    &self.src[section.range.clone()],
-                    0.0,
-                    egui::TextFormat {
-                        color: section.fg_color,
-                        background: section.bg_color,
-                        font_id: FONT,
-                        ..Default::default()
-                    },
-                );
-            }
-        }
-
-        ui.label(output);
-    }
-
     fn show_line_numbers(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {
         let num_format = egui::TextFormat {
             font_id: FONT,
@@ -195,8 +151,8 @@ impl Source {
         };
 
         let mut output = LayoutJob::default();
-        for line in &self.lines[row_range.clone()] {
-            output.append(&line.number, 0.0, num_format.clone());
+        for idx in 0..self.line_count {
+            output.append(&(idx + 1).to_string(), 0.0, num_format.clone());
         }
         ui.label(output);
     }
@@ -211,15 +167,25 @@ impl Source {
             area = area.vertical_scroll_offset(y)
         }
 
-        area.show_rows(ui, FONT.size, self.lines.len(), |ui, row_range| {
+        area.show(ui, |ui| {
             let width = ui.fonts(|f| f.glyph_width(&FONT, ' ')) * self.max_number_width as f32;
             let split = (width / ui.available_width()) * 1.2;
 
             draw_columns(ui, split, |lcolumn, rcolumn| {
-                self.show_line_numbers(lcolumn, row_range.clone());
-                self.show_code(rcolumn, row_range.clone());
+                self.show_line_numbers(lcolumn, 0..0);
+                rcolumn.label(self.output.clone());
             });
         });
+
+        // area.show_rows(ui, FONT.size, self.lines.len(), |ui, row_range| {
+        //     let width = ui.fonts(|f| f.glyph_width(&FONT, ' ')) * self.max_number_width as f32;
+        //     let split = (width / ui.available_width()) * 1.2;
+
+        //     draw_columns(ui, split, |lcolumn, rcolumn| {
+        //         self.show_line_numbers(lcolumn, row_range.clone());
+        //         self.show_code(rcolumn, row_range.clone());
+        //     });
+        // });
     }
 }
 

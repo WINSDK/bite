@@ -116,6 +116,7 @@ pub struct MachoDebugInfo<'data, Mach: MachHeader> {
     dylibs: Vec<&'data str>,
     /// Any parsed but not yet relocated symbols.
     pub syms: AddressMap<RawSymbol<'data>>,
+    /// Parsed sections with extra metadata.
     pub sections: Vec<Section>,
     // ---- Required load commands ----
     chained_fixups: Option<&'data LinkeditDataCommand<Mach::Endian>>,
@@ -293,14 +294,12 @@ fn parse_sections<'data, Mach: MachHeader>(obj: &'data MachOFile<'data, Mach>) -
             _ => unreachable!()
         };
 
-        let (kind, ident) = match section_flags & macho::SECTION_TYPE {
+        let (mut kind, ident) = match section_flags & macho::SECTION_TYPE {
             // Standard section containing regular data (e.g., code, data).
             macho::S_REGULAR => if section_flags & macho::S_ATTR_SOME_INSTRUCTIONS != 0 {
                 (SectionKind::Code, "CODE")
             } else if section_flags & macho::S_ATTR_PURE_INSTRUCTIONS != 0 {
                 (SectionKind::Code, "PURE_CODE")
-            } else if DWARF_SECTIONS.contains(&name.as_str()) {
-                (SectionKind::Debug, "REGULAR")
             } else {
                 (SectionKind::Raw, "REGULAR")
             },
@@ -383,12 +382,16 @@ fn parse_sections<'data, Mach: MachHeader>(obj: &'data MachOFile<'data, Mach>) -
             _ => (SectionKind::Raw, "UNKNOWN")
         };
 
+        // Section contains DWARF debug info.
+        if DWARF_SECTIONS.contains(&name.as_str()) {
+            kind = SectionKind::Debug;
+        }
+
         sections.push(Section::new(
             name,
             ident,
             kind,
             bytes,
-            section.address() as usize,
             start,
             end
         ));
