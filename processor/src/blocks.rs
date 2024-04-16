@@ -1,10 +1,13 @@
 use crate::Processor;
+use binformat::elf::{Elf32Dyn, Elf32Sym, Elf64Dyn, Elf64Sym};
 use binformat::pe::ExceptionDirectoryEntry;
+use binformat::ToData;
 use commands::CONFIG;
 use debugvault::Symbol;
 use object::Endian;
 use processor_shared::{encode_hex_bytes_truncated, Section, SectionKind};
-use std::{mem::size_of, sync::Arc};
+use std::mem::size_of;
+use std::sync::Arc;
 use tokenizing::{colors, Token, TokenStream};
 
 const BYTES_BLOCK_SIZE: usize = 256;
@@ -41,7 +44,8 @@ pub enum BlockContent {
     },
     DataStructure {
         ident: &'static str,
-        fields: Vec<(usize, &'static str, &'static str, String)>, // (addr, field, type, value)
+        /// (addr, field, type, value).
+        fields: Vec<(usize, &'static str, &'static str, String)>,
     },
     Bytes {
         bytes: Vec<u8>,
@@ -82,7 +86,11 @@ impl Block {
                 stream.push("section started", colors::WHITE);
                 stream.push_owned(format!(" {} ", section.name), colors::BLUE);
                 stream.push("{", colors::GRAY60);
-                stream.push_owned(format!("{:?}", section.kind), colors::MAGENTA);
+                if section.ident == "UNKNOWN" {
+                    stream.push_owned(format!("{:?}", section.kind), colors::MAGENTA);
+                } else {
+                    stream.push(section.ident, colors::MAGENTA);
+                }
                 stream.push("} ", colors::GRAY60);
                 stream.push_owned(format!("{:x}", section.start), colors::GREEN);
                 stream.push("-", colors::GRAY60);
@@ -251,15 +259,19 @@ impl Processor {
             SectionKind::Got64 => self.parse_got(addr, 4, section, &mut blocks),
             SectionKind::CString => self.parse_cstring(addr, section, &mut blocks),
             SectionKind::ExceptionDirEntry => {
-                if let Ok(entry) = section.read_at::<ExceptionDirectoryEntry>(addr) {
-                    blocks.push(Block {
-                        addr,
-                        content: BlockContent::DataStructure {
-                            ident: "ExceptionDirectoryEntry",
-                            fields: entry.to_fields(addr),
-                        },
-                    })
-                }
+                self.parse_datastructure::<ExceptionDirectoryEntry>(addr, section, &mut blocks);
+            }
+            SectionKind::Elf32Sym => {
+                self.parse_datastructure::<Elf32Sym>(addr, section, &mut blocks);
+            }
+            SectionKind::Elf64Sym => {
+                self.parse_datastructure::<Elf64Sym>(addr, section, &mut blocks);
+            }
+            SectionKind::Elf32Dyn => {
+                self.parse_datastructure::<Elf32Dyn>(addr, section, &mut blocks);
+            }
+            SectionKind::Elf64Dyn => {
+                self.parse_datastructure::<Elf64Dyn>(addr, section, &mut blocks);
             }
             // For any other section kinds just assume they're made of bytes.
             // As a note, we calculate the byte boundaries in blocks of [`BYTES_BLOCK_SIZE`],
@@ -274,6 +286,24 @@ impl Processor {
         }
 
         blocks
+    }
+
+    fn parse_datastructure<T: ToData + object::Pod>(
+        &self,
+        addr: usize,
+        section: &Section,
+        blocks: &mut Vec<Block>,
+    ) {
+        if let Ok(datastructure) = section.read_at::<T>(addr) {
+            let datastructure = datastructure.to_fields(addr);
+            blocks.push(Block {
+                addr,
+                content: BlockContent::DataStructure {
+                    ident: datastructure.ident,
+                    fields: datastructure.fields,
+                },
+            })
+        }
     }
 
     fn parse_got(&self, addr: usize, size: usize, section: &Section, blocks: &mut Vec<Block>) {
@@ -447,6 +477,34 @@ impl Processor {
                 while addr < section.end {
                     boundaries.push(addr);
                     addr += size_of::<ExceptionDirectoryEntry>();
+                }
+            }
+            SectionKind::Elf32Sym => {
+                let mut addr = section.start;
+                while addr < section.end {
+                    boundaries.push(addr);
+                    addr += size_of::<Elf32Sym>();
+                }
+            }
+            SectionKind::Elf64Sym => {
+                let mut addr = section.start;
+                while addr < section.end {
+                    boundaries.push(addr);
+                    addr += size_of::<Elf64Sym>();
+                }
+            }
+            SectionKind::Elf32Dyn => {
+                let mut addr = section.start;
+                while addr < section.end {
+                    boundaries.push(addr);
+                    addr += size_of::<Elf32Dyn>();
+                }
+            }
+            SectionKind::Elf64Dyn => {
+                let mut addr = section.start;
+                while addr < section.end {
+                    boundaries.push(addr);
+                    addr += size_of::<Elf64Dyn>();
                 }
             }
             // For any other section kinds just assume they evenly

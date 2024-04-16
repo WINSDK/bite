@@ -30,6 +30,14 @@ pub enum SectionKind {
     CString,
     /// ExceptionDirectoryEntry's (PE only).
     ExceptionDirEntry,
+    /// Elf32Sym.
+    Elf32Sym,
+    /// Elf64Sym.
+    Elf64Sym,
+    /// Elf32Dyn.
+    Elf32Dyn,
+    /// Elf64Dyn.
+    Elf64Dyn,
     /// DWARF debug info.
     Debug,
     /// Zero sized special sections.

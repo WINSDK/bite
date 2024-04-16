@@ -67,13 +67,21 @@ fn parse_section_generics<'data, Obj: ObjectSection<'data>>(
     (name.to_string(), bytes, start, end)
 }
 
+pub struct Datastructure {
+    pub ident: &'static str,
+    pub fields: Vec<(usize, &'static str, &'static str, String)>,
+}
+
+pub trait ToData {
+    fn to_fields(&self, addr: usize) -> Datastructure;
+}
+
+// FIXME: This assumes little endianness.
 #[macro_export]
 macro_rules! datastructure {
     (
         pub struct $name:ident {
-            $(
-                $field:ident: $ftype:ty,
-            )*
+            $($field:ident: $ftype:ty,)*
         }
     ) => {
         // Apply attributes to the struct
@@ -83,9 +91,8 @@ macro_rules! datastructure {
             pub $($field: $ftype),*
         }
 
-        impl $name {
-            pub fn to_fields(&self, mut addr: usize)
-                -> Vec<(usize, &'static str, &'static str, String)> {
+        impl $crate::ToData for $name {
+            fn to_fields(&self, mut addr: usize) -> $crate::Datastructure {
                 let mut fields = Vec::new();
                 $(
                     fields.push((
@@ -97,8 +104,13 @@ macro_rules! datastructure {
                     #[allow(unused_assignments)]
                     { addr += ::std::mem::size_of::<$ftype>(); }
                 )*
-                fields
+                $crate::Datastructure {
+                    ident: stringify!($name),
+                    fields,
+                }
             }
         }
+
+        unsafe impl object::Pod for $name {}
     };
 }

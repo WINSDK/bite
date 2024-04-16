@@ -14,8 +14,6 @@ datastructure! {
     }
 }
 
-unsafe impl object::Pod for ExceptionDirectoryEntry {}
-
 pub struct PeDebugInfo<'data, Pe: ImageNtHeaders> {
     /// Parsed PE32/64 header.
     obj: &'data PeFile<'data, Pe>,
