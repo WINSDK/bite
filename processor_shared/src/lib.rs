@@ -1,3 +1,5 @@
+use object::{Pod, ReadRef};
+
 /// Address in memory.
 pub type VirtAddr = usize;
 
@@ -24,8 +26,10 @@ pub enum SectionKind {
     Got32,
     /// Not yet initialized pointers we can find by looking up the address (64-bit).
     Got64,
-    /// Null terminator string literal.
+    /// Null terminated string literals.
     CString,
+    /// ExceptionDirectoryEntry's (PE only).
+    ExceptionDirEntry,
     /// DWARF debug info.
     Debug,
     /// Zero sized special sections.
@@ -81,6 +85,12 @@ impl Section {
         let rva = addr - self.start;
         let bytes = &self.bytes.get(rva..).unwrap_or(&[]);
         &bytes[..std::cmp::min(bytes.len(), len)]
+    }
+
+    pub fn read_at<T: Pod>(&self, addr: PhysAddr) -> Result<&T, ()> {
+        let rva = addr - self.start;
+        let bytes = &self.bytes.get(rva..).unwrap_or(&[]);
+        bytes.read_at(rva as u64)
     }
 }
 

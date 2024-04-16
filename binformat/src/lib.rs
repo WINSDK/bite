@@ -34,7 +34,7 @@ fn parse_symbol_table<'data, Obj: Object<'data, 'data>>(
 }
 
 fn parse_section_generics<'data, Obj: ObjectSection<'data>>(
-    section: &Obj,
+    section: &'data Obj,
 ) -> (String, &'static [u8], usize, usize) {
     let name = match section.name() {
         Ok(name) => name,
@@ -65,4 +65,40 @@ fn parse_section_generics<'data, Obj: ObjectSection<'data>>(
     let end = start + section.size() as usize;
 
     (name.to_string(), bytes, start, end)
+}
+
+#[macro_export]
+macro_rules! datastructure {
+    (
+        pub struct $name:ident {
+            $(
+                $field:ident: $ftype:ty,
+            )*
+        }
+    ) => {
+        // Apply attributes to the struct
+        #[repr(C)]
+        #[derive(Copy, Clone, Debug)]
+        pub struct $name {
+            pub $($field: $ftype),*
+        }
+
+        impl $name {
+            pub fn to_fields(&self, mut addr: usize)
+                -> Vec<(usize, &'static str, &'static str, String)> {
+                let mut fields = Vec::new();
+                $(
+                    fields.push((
+                        addr,
+                        stringify!($field),
+                        stringify!($ftype),
+                        format!("{:#x}", self.$field)
+                    ));
+                    #[allow(unused_assignments)]
+                    { addr += ::std::mem::size_of::<$ftype>(); }
+                )*
+                fields
+            }
+        }
+    };
 }

@@ -2531,6 +2531,7 @@ version = "0.0.0"
 dependencies = [
  "arm",
  "binformat",
+ "commands",
  "debugvault",
  "decoder",
  "log 0.0.0",

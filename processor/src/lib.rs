@@ -208,15 +208,13 @@ impl Processor {
             }
             object::File::Pe32(pe) => {
                 let debug_info = pe::PeDebugInfo::parse(pe)?;
-                // sections.extend(debug_info.sections);
+                sections.extend(debug_info.sections);
                 syms.extend(debug_info.syms);
-                todo!()
             }
             object::File::Pe64(pe) => {
                 let debug_info = pe::PeDebugInfo::parse(pe)?;
-                // sections.extend(debug_info.sections);
+                sections.extend(debug_info.sections);
                 syms.extend(debug_info.syms);
-                todo!()
             }
             _ => {}
         }
