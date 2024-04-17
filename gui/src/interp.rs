@@ -13,7 +13,6 @@ impl super::UI {
         let index = self.panels.processor().map(|proc| &proc.index).unwrap_or(&empty_index);
 
         match Command::parse(index, cmd, 0) {
-            Ok(Command::GotoSource(addr)) => self.panels.load_source(addr),
             Ok(Command::Load(path)) => self.offload_binary_processing(path),
             Ok(Command::PrintPath) => match std::env::current_dir() {
                 Ok(path) => tprint!(
@@ -52,16 +51,10 @@ impl super::UI {
                 } else {
                     tprint!(self.panels.terminal(), "Address {addr:#X} is undefined.");
                 }
+
+                self.panels.load_src(addr);
             }
             Ok(Command::Quit) => return false,
-            Ok(Command::Run(_args)) => todo!("debugger"),
-            Ok(Command::Break(_addr)) => todo!("debugger"),
-            Ok(Command::BreakDelete(_addr)) => todo!("debugger"),
-            Ok(Command::SetEnv(_env)) => todo!("debugger"),
-            Ok(Command::Stop) => todo!("debugger"),
-            Ok(Command::Continue) => todo!("debugger"),
-            Ok(Command::Trace) => todo!("debugger"),
-            Ok(Command::FollowChildren) => todo!("debugger"),
             Ok(Command::Clear) => {
                 log::LOGGER.write().unwrap().clear();
                 self.panels.terminal().clear();

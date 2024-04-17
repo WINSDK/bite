@@ -5,21 +5,11 @@ use crate::debug::CompleteExpr;
 
 pub const HELP: &str = "\
 Available commands:
-    exec <path>        -- Load a binary from the specified path
     pwd                -- Display the current path
     cd <path>          -- Change the current directory to the specified path
     quit               -- Exit the program
-    run [--] [<args>]  -- Execute the program with specified arguments
     goto <expr>        -- Jump to code/data at the specified expression
-    goto-source <expr> -- Open source code at the specified expression
-    break <expr>       -- Set a breakpoint at the specified expression
-    breakdelete <expr> -- Remove a breakpoint at the specified expression
-    setenv <var>=<val> -- Set an environment variable
-    stop               -- Stop the program execution temporarily
-    continue           -- Resume the program execution
-    clear              -- Clear the console and it's history
-    trace              -- Trace syscalls executed by target
-    follow-children    -- Also trace syscalls of any spawned children
+    clear              -- Clear out terminal
     help               -- Display this help message";
 
 #[derive(Debug, PartialEq)]
@@ -28,17 +18,8 @@ pub enum Command {
     PrintPath,
     ChangeDir(PathBuf),
     Quit,
-    Run(Vec<String>),
     Goto(usize),
-    GotoSource(usize),
-    Break(usize),
-    BreakDelete(usize),
-    SetEnv(String),
-    Stop,
-    Continue,
     Clear,
-    Trace,
-    FollowChildren,
     Help,
 }
 
@@ -324,6 +305,7 @@ impl<'src> Context<'src> {
         }
     }
 
+    #[allow(dead_code)]
     fn parse_env(&mut self) -> Result<String, Error> {
         let s = self.parse_arg("environmental variable")?;
         let (var, val) = s.split_once("=").ok_or(Error::InvalidEnv)?;
@@ -364,25 +346,8 @@ impl<'src> Context<'src> {
             "pwd" => Command::PrintPath,
             "cd" => Command::ChangeDir(self.parse_dir_path()?),
             "quit" | "q" => Command::Quit,
-            "run" | "r" => {
-                let mut args = Vec::new();
-                if let Ok("--") = self.parse_next("split") {
-                    while let Ok(arg) = self.parse_next("arg") {
-                        args.push(arg.to_string());
-                    }
-                }
-                Command::Run(args)
-            }
-            "set" => Command::SetEnv(self.parse_env()?),
-            "goto-src" | "gs" => Command::GotoSource(self.parse_debug_expr()?),
             "goto" | "g" => Command::Goto(self.parse_debug_expr()?),
-            "break" | "b" => Command::Break(self.parse_debug_expr()?),
-            "delete" | "bd" => Command::BreakDelete(self.parse_debug_expr()?),
-            "stop" | "s" => Command::Stop,
-            "continue" | "c" => Command::Continue,
             "clear" => Command::Clear,
-            "trace" => Command::Trace,
-            "follow-children" => Command::FollowChildren,
             "help" | "?" => Command::Help,
             name => return Err(Error::UnknownName(name.to_string())),
         };
@@ -434,62 +399,28 @@ mod tests {
     #[test]
     #[should_panic]
     fn empty() {
-        eval_eq!("", Command::Continue);
+        eval_eq!("", Command::Load(PathBuf::new()));
     }
 
     #[test]
     fn breaking() {
-        eval_eq!("break 3 * 32", Command::Break(96));
+        eval_eq!("goto 3 * 32", Command::Goto(96));
     }
 
     #[test]
     #[should_panic]
     fn breaking_invalid() {
-        eval_eq!(["f"; 0x1234], "break main", Command::Break(96));
+        eval_eq!(["f"; 0x1234], "goto main", Command::Goto(96));
     }
 
     #[test]
-    fn goto() {
+    fn expr_eval() {
         eval_eq!(["abc::f"; 0x1234], "goto abc::f", Command::Goto(0x1234));
         eval_eq!(
             ["abc::f"; 0x1234],
             "      goto   2 * abc::f ",
             Command::Goto(2 * 0x1234)
         );
-    }
-
-    #[test]
-    fn run() {
-        eval_eq!("r", Command::Run(Vec::new()));
-        eval_eq!("run", Command::Run(Vec::new()));
-        eval_eq!("run --", Command::Run(Vec::new()));
-        eval_eq!("run -- abc", Command::Run(vec!["abc".to_string()]));
-        eval_eq!("r -- abc", Command::Run(vec!["abc".to_string()]));
-        eval_eq!(
-            "r -- abc dba",
-            Command::Run(vec!["abc".to_string(), "dba".to_string()])
-        );
-        eval_eq!(
-            "r --   abc       dba    ",
-            Command::Run(vec!["abc".to_string(), "dba".to_string()])
-        );
-    }
-
-    #[test]
-    fn set_env() {
-        eval_eq!("set a=10", Command::SetEnv("a=10".to_string()));
-    }
-
-    #[test]
-    #[should_panic]
-    fn set_env_invalid() {
-        eval_eq!("set a10", Command::SetEnv("a=10".to_string()));
-    }
-
-    #[test]
-    #[should_panic]
-    fn set_env_expected() {
-        eval_eq!("set", Command::SetEnv("a=10".to_string()));
     }
 
     #[test]

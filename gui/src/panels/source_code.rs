@@ -212,7 +212,6 @@ impl Source {
     }
 
     fn show_line_numbers(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {
-        ui.style_mut().wrap = None;
         let mut output = String::new();
         for line in &self.lines[row_range.clone()] {
             output.push_str(&line.number);

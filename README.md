@@ -17,9 +17,9 @@ Here is an example of the assembly listing viewing.
 
 ![Assembly listing](./assets/screenshot.png)
 
-The ability of viewing source code for debugging purposes. 
+The ability of viewing source code and the associated disassembly.
 
-![Source Code](./assets/source_code.png)
+![Source Code](./assets/split_source.png)
 
 ## Features yet to be implemented
 

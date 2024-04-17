@@ -138,13 +138,16 @@ pub struct Panels {
 impl Panels {
     pub fn new(ui_queue: Arc<crate::UIQueue>, winit_queue: crate::WinitQueue) -> Self {
         let mut tiles = Tiles::default();
+
+        let dtile = tiles.insert_pane(DISASSEMBLY);
+        let stile = tiles.insert_pane(SOURCE);
         let tabs = vec![
-            tiles.insert_pane(DISASSEMBLY),
+            tiles.insert_grid_tile(vec![dtile, stile]),
             tiles.insert_pane(FUNCTIONS),
             tiles.insert_pane(LOGGING),
         ];
         let root: TileId = tiles.insert_tab_tile(tabs);
-        let tree = Tree::new("my_tree", root, tiles);
+        let tree = Tree::new("tree", root, tiles);
 
         Self {
             tree,
@@ -186,7 +189,8 @@ impl Panels {
         self.loading = false;
     }
 
-    pub fn load_source(&mut self, addr: usize) {
+    /// Jump to both the source and the assembly.
+    pub fn load_src(&mut self, addr: usize) {
         let file_attr = match self.processor().and_then(|proc| proc.index.get_file_by_addr(addr)) {
             Some(file_attr) => file_attr,
             None => {
@@ -198,7 +202,6 @@ impl Panels {
         if let Ok(src) = std::fs::read_to_string(&file_attr.path) {
             let src = source_code::Source::new(&src, file_attr);
             self.panes.mapping.insert(SOURCE, PanelKind::Source(src));
-            self.goto_window(SOURCE);
         }
     }
 
