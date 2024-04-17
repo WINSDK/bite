@@ -457,7 +457,9 @@ impl Processor {
 
     /// Iterate through all non-debug sections.
     pub fn sections(&self) -> impl DoubleEndedIterator<Item = &Section> {
-        self.sections.iter()
+        self.sections
+            .iter()
+            .filter(|sec| !matches!(sec.kind, SectionKind::Unloaded | SectionKind::Debug))
     }
 
     /// First try to find a section that matches, then if it exists, try to find a
@@ -477,9 +479,7 @@ impl Processor {
     }
 
     pub fn section_name(&self, addr: PhysAddr) -> Option<&str> {
-        self.sections
-            .iter()
-            .filter(|sec| !matches!(sec.kind, SectionKind::Unloaded | SectionKind::Debug))
+        self.sections()
             .find(|s| (s.start..=s.end).contains(&addr))
             .map(|s| &s.name as &str)
     }

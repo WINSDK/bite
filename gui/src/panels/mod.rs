@@ -195,7 +195,6 @@ impl Panels {
             }
         };
 
-        dbg!(&file_attr.path);
         if let Ok(src) = std::fs::read_to_string(&file_attr.path) {
             let src = source_code::Source::new(&src, file_attr);
             self.panes.mapping.insert(SOURCE, PanelKind::Source(src));

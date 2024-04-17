@@ -332,24 +332,17 @@ fn dump_line<R: Reader>(dwarf: &gimli::Dwarf<R>) -> Result<AddressMap<FileAttr>>
                 log::complex!(
                     w "[dwarf::dump_line] ",
                     y "Failed to parse unit root entry for dump_line: ",
-                    y format!("{err:?}"),
-                    y ".",
+                    y format!("{err:?}."),
                 );
                 continue;
             }
         };
-        match dump_line_program(id, &path_cache, &unit, dwarf) {
-            Ok(program_file_attrs) => {
-                file_attrs.extend(program_file_attrs);
-            }
-            Err(err) => {
-                log::complex!(
-                    w "[dwarf::dump_line_program] ",
-                    y "Failed to dump line program: ",
-                    y format!("{err:?}"),
-                    y ".",
-                );
-            }
+        if let Err(err) = dump_line_program(id, &path_cache, &unit, dwarf, &mut file_attrs) {
+            log::complex!(
+                w "[dwarf::dump_line_program] ",
+                y "Failed to dump line program: ",
+                y format!("{err:?}."),
+            );
         }
         id += 1;
     }
@@ -368,8 +361,8 @@ fn dump_line_program<R: Reader>(
     path_cache: &InternMap<u64, Path>,
     unit: &gimli::Unit<R>,
     dwarf: &gimli::Dwarf<R>,
-) -> Result<AddressMap<FileAttr>> {
-    let mut file_attrs = AddressMap::default();
+    file_attrs: &mut AddressMap<FileAttr>,
+) -> Result<()> {
     if let Some(program) = unit.line_program.clone() {
         let mut rows = program.rows();
         let comp_dir = unit
@@ -431,5 +424,5 @@ fn dump_line_program<R: Reader>(
         }
     }
 
-    Ok(file_attrs)
+    Ok(())
 }

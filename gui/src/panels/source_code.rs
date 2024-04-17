@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::Path;
+use std::sync::Arc;
 
-use egui::text::LayoutJob;
 use egui::Color32;
+use egui::{text::LayoutJob, Galley};
 use tree_sitter::{Language, QueryError};
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
@@ -13,14 +14,19 @@ use debugvault::FileAttr;
 use tokenizing::colors;
 
 pub struct Source {
-    output: LayoutJob,
-    line_count: usize,
+    src: String,
+    lines: Vec<Line>,
     max_number_width: usize,
     scroll: Option<usize>,
+    cache: (Range<usize>, Arc<Galley>),
 }
 
-fn compute_highlighting<P: AsRef<Path>>(path: P, src: &str) -> LayoutJob {
-    let mut output = LayoutJob::default();
+struct Line {
+    number: String,
+    sections: Vec<HighlightedSection>,
+}
+
+fn compute_sections<P: AsRef<Path>>(path: P, src: &str) -> Vec<HighlightedSection> {
     let lang_cfg = match LanguageConfig::guess(path) {
         Some(cfg) => cfg,
         None => {
@@ -28,7 +34,8 @@ fn compute_highlighting<P: AsRef<Path>>(path: P, src: &str) -> LayoutJob {
                 w "[source::compute_sections] ",
                 y "failed to guess source code language."
             );
-            return output;
+
+            return Vec::new();
         }
     };
 
@@ -43,7 +50,8 @@ fn compute_highlighting<P: AsRef<Path>>(path: P, src: &str) -> LayoutJob {
                 w "[source::compute_sections] ",
                 y format!("source code highlighting failed: '{err}'.")
             );
-            return output;
+
+            return Vec::new();
         }
     };
 
@@ -100,61 +108,116 @@ fn compute_highlighting<P: AsRef<Path>>(path: P, src: &str) -> LayoutJob {
     }
 
     sections.sort_unstable();
+    sections
+}
 
-    for section in sections {
-        output.append(
-            &src[section.range],
-            0.0,
-            egui::TextFormat {
-                color: section.fg_color,
-                background: section.bg_color,
-                font_id: FONT,
-                ..Default::default()
-            },
-        );
-    }
-
-    output
+fn find_matching_sections(
+    line: &str,
+    offset: usize,
+    sections: &[HighlightedSection],
+) -> Vec<HighlightedSection> {
+    let line_end = offset + line.len() + 1;
+    sections
+        .iter()
+        .filter(|s| {
+            // check if there is any overlap between the section and the current line
+            s.range.end > offset && s.range.start < line_end
+        })
+        .cloned()
+        .map(|mut s| {
+            // adjust the range of the section to fit within the current line
+            s.range.start = s.range.start.max(offset);
+            s.range.end = s.range.end.min(line_end);
+            s
+        })
+        .collect()
 }
 
 impl Source {
     pub fn new(src: &str, file_attr: &FileAttr) -> Self {
         let max_width = (src.lines().count().ilog10() + 1) as usize;
-        let output = compute_highlighting(&file_attr.path, &src);
-        let line_count = src.lines().count();
+        let mut lines = Vec::new();
+        let sections = compute_sections(&file_attr.path, &src);
 
+        let mut offset = 0;
         for (idx, line) in src.lines().enumerate() {
-            // let line_nr = idx + 1;
-            // if line_nr == file_attr.line {
-            //     for section in line.sections.iter_mut() {
-            //         section.bg_color = CONFIG.colors.highlight;
-            //         section.fg_color = Color32::WHITE;
-            //     }
-            // }
+            let line_nr = idx + 1;
+            let line_len = line.len();
+            let mut line = Line {
+                number: format!("{line_nr:max_width$} \n"),
+                sections: find_matching_sections(line, offset, &sections),
+            };
+
+            if line_nr == file_attr.line {
+                for section in line.sections.iter_mut() {
+                    section.bg_color = CONFIG.colors.highlight;
+                    section.fg_color = Color32::WHITE;
+                }
+            }
+
+            lines.push(line);
+            offset += line_len + 1;
         }
 
+        let cache = (
+            0..0,
+            Arc::new(Galley {
+                job: Arc::new(LayoutJob::default()),
+                rows: Vec::new(),
+                elided: false,
+                rect: egui::Rect::NOTHING,
+                mesh_bounds: egui::Rect::NOTHING,
+                num_indices: 0,
+                num_vertices: 0,
+                pixels_per_point: 1.0,
+            }),
+        );
+
         Self {
-            output,
-            line_count,
+            src: src.to_string(),
+            lines,
             max_number_width: max_width,
             scroll: Some(file_attr.line.saturating_sub(1)),
+            cache,
         }
     }
 }
 
 impl Source {
-    fn show_line_numbers(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {
-        let num_format = egui::TextFormat {
-            font_id: FONT,
-            color: colors::GRAY60,
-            ..Default::default()
-        };
+    fn show_code(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {
+        if self.cache.0 == row_range {
+            ui.label(Arc::clone(&self.cache.1));
+            return;
+        }
 
         let mut output = LayoutJob::default();
-        for idx in 0..self.line_count {
-            output.append(&(idx + 1).to_string(), 0.0, num_format.clone());
+        for line in &self.lines[row_range.clone()] {
+            for section in &line.sections {
+                output.append(
+                    &self.src[section.range.clone()],
+                    0.0,
+                    egui::TextFormat {
+                        color: section.fg_color,
+                        background: section.bg_color,
+                        font_id: FONT,
+                        ..Default::default()
+                    },
+                );
+            }
         }
+
+        let output = ui.fonts(|f| f.layout_job(output));
+        self.cache = (row_range, Arc::clone(&output));
         ui.label(output);
+    }
+
+    fn show_line_numbers(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {
+        ui.style_mut().wrap = None;
+        let mut output = String::new();
+        for line in &self.lines[row_range.clone()] {
+            output.push_str(&line.number);
+        }
+        ui.label(egui::RichText::new(output).font(FONT).color(colors::GRAY60));
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
@@ -167,25 +230,19 @@ impl Source {
             area = area.vertical_scroll_offset(y)
         }
 
-        area.show(ui, |ui| {
+        area.show_rows(ui, FONT.size, self.lines.len(), |ui, row_range| {
             let width = ui.fonts(|f| f.glyph_width(&FONT, ' ')) * self.max_number_width as f32;
-            let split = (width / ui.available_width()) * 1.2;
+            let split = (width / ui.available_width()) * 1.4;
+
+            let overshoot = 5;
+            let end = std::cmp::min(self.lines.len(), row_range.end + overshoot);
+            let row_range = row_range.start..end;
 
             draw_columns(ui, split, |lcolumn, rcolumn| {
-                self.show_line_numbers(lcolumn, 0..0);
-                rcolumn.label(self.output.clone());
+                self.show_line_numbers(lcolumn, row_range.clone());
+                self.show_code(rcolumn, row_range.clone());
             });
         });
-
-        // area.show_rows(ui, FONT.size, self.lines.len(), |ui, row_range| {
-        //     let width = ui.fonts(|f| f.glyph_width(&FONT, ' ')) * self.max_number_width as f32;
-        //     let split = (width / ui.available_width()) * 1.2;
-
-        //     draw_columns(ui, split, |lcolumn, rcolumn| {
-        //         self.show_line_numbers(lcolumn, row_range.clone());
-        //         self.show_code(rcolumn, row_range.clone());
-        //     });
-        // });
     }
 }
 
@@ -311,7 +368,7 @@ fn draw_columns<R>(
         max_height = column.min_size().y.max(max_height);
     }
 
-    // make sure we fit everything next frame
+    // Make sure we fit everything next frame.
     let total_required_width = total_spacing + max_column_width * 2.0;
 
     let size = egui::vec2(ui.available_width().max(total_required_width), max_height);

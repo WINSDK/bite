@@ -10,7 +10,7 @@ pub struct Listing {
     processor: Arc<Processor>,
     boundaries: Arc<RwLock<Vec<usize>>>,
     scroll: InfiniteScroll<Block, usize>,
-    reset_position: Arc<AtomicUsize>
+    reset_position: Arc<AtomicUsize>,
 }
 
 impl Listing {
