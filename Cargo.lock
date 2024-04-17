@@ -381,7 +381,7 @@ checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
 
 [[package]]
 name = "bite"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "commands",
  "debugvault",
