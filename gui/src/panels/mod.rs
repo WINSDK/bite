@@ -4,7 +4,6 @@ mod source_code;
 
 use crate::common::*;
 use crate::style::{EGUI, STYLE};
-use crate::tprint;
 use crate::widgets::{Donut, Terminal};
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 use processor::Processor;
@@ -193,10 +192,7 @@ impl Panels {
     pub fn load_src(&mut self, addr: usize) {
         let file_attr = match self.processor().and_then(|proc| proc.index.get_file_by_addr(addr)) {
             Some(file_attr) => file_attr,
-            None => {
-                tprint!(self.terminal(), "No associated source file found.");
-                return;
-            }
+            None => return,
         };
 
         if let Ok(src) = std::fs::read_to_string(&file_attr.path) {

@@ -16,10 +16,7 @@ debugvault = { path = "./debugvault" }
 panic = 'abort'
 
 [profile.release]
-# strip = true
-debug = true
-panic = 'abort'
-# lto = "thin"
+lto = 'thin'
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
