@@ -144,7 +144,7 @@ impl Source {
             let line_nr = idx + 1;
             let line_len = line.len();
             let mut line = Line {
-                number: format!("{line_nr:max_width$} \n"),
+                number: format!("{line_nr:max_width$}\n"),
                 sections: find_matching_sections(line, offset, &sections),
             };
 
@@ -230,8 +230,10 @@ impl Source {
         }
 
         area.show_rows(ui, FONT.size, self.lines.len(), |ui, row_range| {
-            let width = ui.fonts(|f| f.glyph_width(&FONT, ' ')) * self.max_number_width as f32;
-            let split = (width / ui.available_width()) * 1.4;
+            let pad = 8.0;
+            let char_width = ui.fonts(|f| f.glyph_width(&FONT, '1'));
+            let width = char_width * self.max_number_width as f32 + pad;
+            let split = width / ui.available_width();
 
             let overshoot = 5;
             let end = std::cmp::min(self.lines.len(), row_range.end + overshoot);

@@ -83,7 +83,7 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
     }
 
     fn min_size(&self) -> f32 {
-        300.0
+        100.0
     }
 
     fn simplification_options(&self) -> SimplificationOptions {
@@ -137,11 +137,8 @@ pub struct Panels {
 impl Panels {
     pub fn new(ui_queue: Arc<crate::UIQueue>, winit_queue: crate::WinitQueue) -> Self {
         let mut tiles = Tiles::default();
-
-        let dtile = tiles.insert_pane(DISASSEMBLY);
-        let stile = tiles.insert_pane(SOURCE);
         let tabs = vec![
-            tiles.insert_grid_tile(vec![dtile, stile]),
+            tiles.insert_pane(DISASSEMBLY),
             tiles.insert_pane(FUNCTIONS),
             tiles.insert_pane(LOGGING),
         ];
@@ -268,7 +265,7 @@ impl Panels {
     }
 
     /// Show some close/maximize/minimize buttons for the native window.
-    #[cfg(target_family = "windows")]
+    #[cfg(any(target_family = "windows", target_os = "linux"))]
     fn top_bar_native(&mut self, ui: &mut egui::Ui) {
         let height = 12.0;
         let close_response = ui.add(egui::Button::new(
@@ -296,7 +293,7 @@ impl Panels {
         }
     }
 
-    #[cfg(target_family = "windows")]
+    #[cfg(any(target_family = "windows", target_os = "linux"))]
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let bar = egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
@@ -394,7 +391,7 @@ impl Panels {
         // generic keyboard inputs
         self.input(ctx);
 
-        #[cfg(target_family = "windows")]
+        #[cfg(any(target_family = "windows", target_os = "linux"))]
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
 
         // terminal needs to be rendered last as it can take focus away from other panels
