@@ -11,20 +11,34 @@
 
 <h4 align="center">Ever wanted to inspect every <i>bite</i> of your binary.</h4>
 
+[![Test](https://github.com/WINSDK/bite/actions/workflows/ci.yml/badge.svg)](https://github.com/WINSDK/bite/actions/workflows/ci.yml)
+![](https://img.shields.io/github/license/WINSDK/bite)
+
+`BiTE` is a platform-agnostic executable analysis tool. It aims to offer an
+environment for inspecting the content of binaries and it's debug info. While it is
+still in early development, it supports various architectures.
+
 ## Showcase
 
 Here is an example of the assembly listing viewing.
 
 ![Assembly listing](./assets/screenshot.png)
 
-The ability of viewing source code and the associated disassembly.
+The ability to view a binaries disassembly and it's associated source code.
 
 ![Source Code](./assets/split_source.png)
+
+## Installation
+
+Building from source.
+```
+cargo install --path .
+```
 
 ## Features yet to be implemented
 
 Whenever I have time this year I'll try implementing most of these. \
-If you're feeling like it, submit a pull request and I'll have a look at it.
+If you feel like it, submit a pull request and I'll have a look at it!
 
 - [x] Port GUI to wgpu + winit
 - [x] Header with buttons and options
@@ -44,6 +58,7 @@ If you're feeling like it, submit a pull request and I'll have a look at it.
   - [x] MSVC
   - [x] Itanium
   - [x] Rust
+- [x] Decoding datastructures depending on each section
 - [ ] Assembly listing lifting
   - [x] Resolving addresses
   - [x] Interpreting non-code data
