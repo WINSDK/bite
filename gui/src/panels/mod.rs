@@ -373,15 +373,16 @@ impl Panels {
                             None => continue,
                         };
 
-                        let mut active_idx = active_tab.0 as usize;
-                        for child in tabs.children.iter() {
+                        let mut active_idx = 0;
+                        for (idx, child) in tabs.children.iter().enumerate() {
                             if *child == active_tab {
-                                active_idx = child.0 as usize;
+                                active_idx = idx;
                             }
                         }
 
-                        let next_id = (active_idx + 1) % (tabs.children.len() + 1);
-                        tabs.set_active(TileId(next_id as u64));
+                        let next_idx = (active_idx + 1) % tabs.children.len();
+                        let next_id = tabs.children[next_idx];
+                        tabs.set_active(next_id);
                         break;
                     }
                 }
