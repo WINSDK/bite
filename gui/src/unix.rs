@@ -17,7 +17,7 @@ mod macos {
     use muda::{MenuEvent, MenuEventReceiver};
     use std::mem::ManuallyDrop;
     use std::path::Path;
-    use crate::panels::{self, Identifier};
+    use crate::panes::{self, Identifier};
 
     pub struct Arch {
         pub menu_channel: MenuEventReceiver,
@@ -77,28 +77,28 @@ mod macos {
 
             let mut windows = Vec::new();
             windows.push(CheckMenuItem::with_id(
-                panels::DISASSEMBLY,
+                panes::DISASSEMBLY,
                 "Disassembly",
                 true,
                 true,
                 None,
             ));
             windows.push(CheckMenuItem::with_id(
-                panels::FUNCTIONS,
+                panes::FUNCTIONS,
                 "Functions",
                 true,
                 false,
                 None,
             ));
             windows.push(CheckMenuItem::with_id(
-                panels::SOURCE,
+                panes::SOURCE,
                 "Source",
                 true,
                 false,
                 None,
             ));
             windows.push(CheckMenuItem::with_id(
-                panels::LOGGING,
+                panes::LOGGING,
                 "Logging",
                 true,
                 false,

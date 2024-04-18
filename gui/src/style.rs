@@ -40,7 +40,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
-                    width: 5.0,
+                    width: 0.0,
                     color: STYLE.active_text_color,
                 },
                 expansion: 0.0,
@@ -51,7 +51,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
-                    width: 5.0,
+                    width: 0.0,
                     color: STYLE.text_color,
                 },
                 expansion: 0.0,
@@ -62,7 +62,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
-                    width: 5.0,
+                    width: 0.0,
                     color: STYLE.text_color,
                 },
                 expansion: 0.0,
@@ -73,7 +73,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
-                    width: 5.0,
+                    width: 0.0,
                     color: STYLE.active_text_color,
                 },
                 expansion: 0.0,
@@ -84,7 +84,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 rounding: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
-                    width: 5.0,
+                    width: 0.0,
                     color: STYLE.text_color,
                 },
                 expansion: 0.0,

@@ -124,7 +124,7 @@ impl<'window> Instance<'window> {
         window: &crate::Window,
         platform: &mut crate::winit_backend::Platform,
         render_pass: &mut egui::Pipeline,
-        panels: &mut crate::panels::Panels,
+        panels: &mut crate::panes::Panels,
     ) -> Result<(), Error> {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,

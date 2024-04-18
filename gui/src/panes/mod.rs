@@ -2,11 +2,11 @@ mod functions;
 mod listing;
 mod source_code;
 
-use crate::common::*;
 use crate::style::{EGUI, STYLE};
 use crate::widgets::{Donut, Terminal};
-use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
+use crate::{common::*, WinitQueue};
 use config::CONFIG;
+use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 use processor::Processor;
 use tokenizing::colors;
 
@@ -100,7 +100,7 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         ui: &mut egui::Ui,
         _tile_id: egui_tiles::TileId,
         pane: &mut Identifier,
-    ) -> egui_tiles::UiResponse {
+    ) -> UiResponse {
         // Set pane background color.
         ui.painter().rect_filled(ui.max_rect(), 0.0, CONFIG.colors.bg_primary);
 
@@ -129,15 +129,16 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
 }
 
 pub struct Panels {
-    pub tree: egui_tiles::Tree<Identifier>,
-    pub panes: Tabs,
-    pub ui_queue: Arc<crate::UIQueue>,
-    pub winit_queue: crate::WinitQueue,
+    tree: Tree<Identifier>,
+    panes: Tabs,
+    ui_queue: Arc<crate::UIQueue>,
+    #[allow(dead_code)] // used on windows and linux for top bar
+    winit_queue: WinitQueue,
     loading: bool,
 }
 
 impl Panels {
-    pub fn new(ui_queue: Arc<crate::UIQueue>, winit_queue: crate::WinitQueue) -> Self {
+    pub fn new(ui_queue: Arc<crate::UIQueue>, winit_queue: WinitQueue) -> Self {
         let mut tiles = Tiles::default();
         let tabs = vec![
             tiles.insert_pane(DISASSEMBLY),
@@ -205,12 +206,18 @@ impl Panels {
 
         self.panes.mapping.insert(
             DISASSEMBLY,
-            PanelKind::Disassembly(listing::Listing::new(processor.clone())),
+            PanelKind::Disassembly(listing::Listing::new(
+                processor.clone(),
+                self.ui_queue.clone(),
+            )),
         );
 
         self.panes.mapping.insert(
             FUNCTIONS,
-            PanelKind::Functions(functions::Functions::new(processor.clone())),
+            PanelKind::Functions(functions::Functions::new(
+                processor.clone(),
+                self.ui_queue.clone(),
+            )),
         );
 
         self.panes.processor = Some(processor);

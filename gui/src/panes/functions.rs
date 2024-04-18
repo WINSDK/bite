@@ -1,27 +1,28 @@
 use crate::common::*;
-
+use crate::{UIQueue, UIEvent};
 use config::CONFIG;
 use processor_shared::Addressed;
-use egui::text::LayoutJob;
 use processor::Processor;
 use std::sync::Arc;
 use tokenizing::{colors, Token};
 
 pub struct Functions {
     processor: Arc<Processor>,
-    lines: LayoutJob,
+    ui_queue: Arc<UIQueue>,
+    lines: Vec<(usize, Vec<Token>)>,
     lines_count: usize,
     min_row: usize,
     max_row: usize,
 }
 
 impl Functions {
-    pub fn new(processor: Arc<Processor>) -> Self {
+    pub fn new(processor: Arc<Processor>, ui_queue: Arc<UIQueue>) -> Self {
         let function_count = processor.index.named_funcs_count();
 
         Self {
             processor,
-            lines: LayoutJob::default(),
+            ui_queue,
+            lines: Vec::new(),
             lines_count: function_count,
             min_row: 0,
             max_row: 0,
@@ -29,9 +30,8 @@ impl Functions {
     }
 }
 
-fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) -> Vec<Token> {
-    let mut tokens: Vec<Token> = Vec::new();
-
+fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) -> Vec<(usize, Vec<Token>)> {
+    let mut functions = Vec::new();
     let lines_to_read = range.end - range.start;
     let lines = index
         .functions()
@@ -39,8 +39,8 @@ fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) 
         .skip(range.start)
         .take(lines_to_read + 10);
 
-    // for each instruction
     for Addressed { addr, item } in lines {
+        let mut tokens = Vec::new();
         tokens.push(Token::from_string(format!("{addr:0>10X}"), colors::WHITE));
         tokens.push(Token::from_str(" | ", colors::WHITE));
 
@@ -53,10 +53,10 @@ fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) 
             tokens.push(token.clone());
         }
 
-        tokens.push(Token::from_str("\n", colors::WHITE));
+        functions.push((*addr, tokens));
     }
 
-    tokens
+    functions
 }
 
 impl Display for Functions {
@@ -65,14 +65,19 @@ impl Display for Functions {
 
         area.show_rows(ui, FONT.size, self.lines_count, |ui, row_range| {
             if row_range != (self.min_row..self.max_row) {
-                let functions = tokenize_functions(&self.processor.index, row_range.clone());
-                self.lines = tokens_to_layoutjob(functions);
+                self.lines = tokenize_functions(&self.processor.index, row_range.clone());
                 self.lines_count = self.processor.index.named_funcs_count();
                 self.min_row = row_range.start;
                 self.max_row = row_range.end;
             }
 
-            ui.label(self.lines.clone());
+            for (addr, line) in self.lines.iter() {
+                let output = tokens_to_layoutjob(line.clone());
+
+                if ui.link(output).clicked() {
+                    self.ui_queue.push(UIEvent::GotoAddr(*addr));
+                }
+            }
         });
     }
 }

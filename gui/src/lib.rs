@@ -2,7 +2,7 @@ mod common;
 mod fmt;
 mod icon;
 mod interp;
-mod panels;
+mod panes;
 mod style;
 mod wgpu_backend;
 mod widgets;
@@ -57,6 +57,7 @@ pub enum UIEvent {
     BinaryRequested(std::path::PathBuf),
     BinaryFailed(processor::Error),
     BinaryLoaded(processor::Processor),
+    GotoAddr(usize),
 }
 
 #[derive(Clone)]
@@ -86,7 +87,7 @@ pub struct UI {
     arch: Arch,
     window: &'static Window, // Box::leak'd
     event_loop: Option<EventLoop<WinitEvent>>,
-    panels: panels::Panels,
+    panels: panes::Panels,
     instance: wgpu_backend::Instance<'static>,
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
@@ -117,7 +118,7 @@ impl UI {
             inner: event_loop.create_proxy(),
         };
 
-        let panels = panels::Panels::new(ui_queue.clone(), winit_queue.clone());
+        let panels = panes::Panels::new(ui_queue.clone(), winit_queue);
         let instance = wgpu_backend::Instance::new(window)?;
         let egui_render_pass = wgpu_backend::egui::Pipeline::new(&instance, 1);
         let platform = winit_backend::Platform::new(window);
@@ -162,23 +163,23 @@ impl UI {
         while let Ok(event) = self.arch.menu_channel.try_recv() {
             match event.id.0.as_str() {
                 "open" => self.panels.ask_for_binary(),
-                panels::SOURCE => {
-                    self.panels.goto_window(panels::SOURCE);
-                    self.arch.bar.set_checked(panels::SOURCE);
+                panes::SOURCE => {
+                    self.panels.goto_window(panes::SOURCE);
+                    self.arch.bar.set_checked(panes::SOURCE);
                 }
-                panels::DISASSEMBLY => {
-                    self.panels.goto_window(panels::DISASSEMBLY);
-                    self.arch.bar.set_checked(panels::DISASSEMBLY);
+                panes::DISASSEMBLY => {
+                    self.panels.goto_window(panes::DISASSEMBLY);
+                    self.arch.bar.set_checked(panes::DISASSEMBLY);
                 }
-                panels::FUNCTIONS => {
-                    self.panels.goto_window(panels::FUNCTIONS);
-                    self.arch.bar.set_checked(panels::FUNCTIONS);
+                panes::FUNCTIONS => {
+                    self.panels.goto_window(panes::FUNCTIONS);
+                    self.arch.bar.set_checked(panes::FUNCTIONS);
                 }
-                panels::LOGGING => {
-                    self.panels.goto_window(panels::LOGGING);
-                    self.arch.bar.set_checked(panels::LOGGING);
+                panes::LOGGING => {
+                    self.panels.goto_window(panes::LOGGING);
+                    self.arch.bar.set_checked(panes::LOGGING);
                 }
-                _ => { dbg!(event.id.0.as_str()); }
+                _ => {}
             }
         }
 
@@ -197,6 +198,12 @@ impl UI {
 
                     self.panels.stop_loading();
                     self.panels.load_binary(disassembly);
+                }
+                UIEvent::GotoAddr(addr) => {
+                    if let Some(listing) = self.panels.listing() {
+                        listing.jump(addr);
+                        self.panels.goto_window(panes::DISASSEMBLY);
+                    }
                 }
             }
         }

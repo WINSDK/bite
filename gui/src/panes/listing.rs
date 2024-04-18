@@ -1,4 +1,4 @@
-use crate::common::*;
+use crate::{common::*, UIQueue};
 use config::CONFIG;
 use egui::mutex::RwLock;
 use egui::Color32;
@@ -10,6 +10,8 @@ use tokenizing::{colors, TokenStream};
 
 pub struct Listing {
     processor: Arc<Processor>,
+    #[allow(dead_code)]
+    ui_queue: Arc<UIQueue>,
     boundaries: Arc<RwLock<Vec<usize>>>,
     scroll: InfiniteScroll<Block, usize>,
     reset_position: Arc<AtomicUsize>,
@@ -18,7 +20,7 @@ pub struct Listing {
 }
 
 impl Listing {
-    pub fn new(processor: Arc<Processor>) -> Self {
+    pub fn new(processor: Arc<Processor>, ui_queue: Arc<UIQueue>) -> Self {
         let boundaries: Arc<RwLock<Vec<usize>>> = Arc::default();
 
         {
@@ -128,6 +130,7 @@ impl Listing {
 
         Self {
             scroll,
+            ui_queue,
             boundaries,
             processor,
             reset_position,
