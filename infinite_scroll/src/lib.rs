@@ -455,7 +455,7 @@ impl<T: Debug + Send + Sync + 'static, Cursor: Clone + Debug + Send + 'static>
         columns: usize,
         max_row_height: Option<f32>,
         mut item_ui: impl FnMut(&mut Ui, usize, &mut T),
-    ) {
+    ) -> VirtualListResponse {
         let max_width = ui.available_width();
         let item_width = max_width / columns as f32
             - (ui.spacing().item_spacing.x / columns as f32 * (columns - 1) as f32);
@@ -476,7 +476,7 @@ impl<T: Debug + Send + Sync + 'static, Cursor: Clone + Debug + Send + 'static>
             });
 
             count
-        });
+        })
     }
 
     /// A single column layout.
@@ -485,7 +485,7 @@ impl<T: Debug + Send + Sync + 'static, Cursor: Clone + Debug + Send + 'static>
         ui: &mut Ui,
         prefetch_count: usize,
         mut item_ui: impl FnMut(&mut Ui, usize, &mut T),
-    ) {
+    ) -> VirtualListResponse {
         self.ui_custom_layout(ui, prefetch_count, |ui, start_index, items| {
             if let Some(item) = items.first_mut() {
                 item_ui(ui, start_index, item);
@@ -493,6 +493,6 @@ impl<T: Debug + Send + Sync + 'static, Cursor: Clone + Debug + Send + 'static>
             } else {
                 0
             }
-        });
+        })
     }
 }

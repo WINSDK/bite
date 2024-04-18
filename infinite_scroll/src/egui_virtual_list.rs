@@ -73,7 +73,7 @@ impl VirtualList {
             rows: vec![],
             average_items_per_row: None,
             max_rows_calculated_per_frame: 1000,
-            over_scan: 200.0,
+            over_scan: 0.0,
             items_inserted_at_start: None,
             check_for_resize: true,
             scroll_position_sync_on_resize: true,
@@ -91,7 +91,7 @@ impl VirtualList {
     }
 
     /// Set the overscan, or how much the list should render outside of the visible area.
-    /// The default is 200.0.
+    /// The default is 0.0.
     pub fn over_scan(&mut self, over_scan: f32) {
         self.over_scan = over_scan;
     }
@@ -156,8 +156,6 @@ impl VirtualList {
         // This calculates the visible rect inside the scroll area
         // Should be equivalent to to viewport from ScrollArea::show_viewport(), offset by whatever is above the scroll area
         let visible_rect = ui.clip_rect().translate(-min);
-
-        let visible_rect = visible_rect.expand2(Vec2::new(0.0, self.over_scan));
 
         let mut index_offset = 0;
 

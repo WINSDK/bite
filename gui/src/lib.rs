@@ -97,7 +97,7 @@ impl UI {
     pub fn new() -> Result<Self, Error> {
         let event_loop = Arch::create_event_loop()?;
 
-        let window = Arch::create_window("bite", 1400, 900, &event_loop)?;
+        let window = Arch::create_window("bite", 1000, 900, &event_loop)?;
         let window: &'static Window = Box::leak(Box::new(window));
 
         #[cfg(target_family = "windows")]
