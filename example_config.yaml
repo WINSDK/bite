@@ -17,8 +17,8 @@ colors:
     opcode: "#ffffff"
     # component1::component2::component3 or just component for function names without mangling.
     # Also used for section type identifiers.
-    component: "#f51281"
-    register: "#f51281"
+    component: "#f56281"
+    register: "#f56281"
     # <label> the brackets around a label.
     label: "#3ebce6"
     segment: "#02ed6e"

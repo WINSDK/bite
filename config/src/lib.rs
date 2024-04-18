@@ -196,7 +196,7 @@ mod defaults {
         Color32::from_rgb(0xff, 0xff, 0xff)
     }
     pub fn component() -> Color32 {
-        Color32::from_rgb(0xf5, 0x12, 0x81)
+        Color32::from_rgb(0xf5, 0x62, 0x81)
     }
     pub fn register() -> Color32 {
         component()
