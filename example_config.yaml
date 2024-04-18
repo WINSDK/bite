@@ -23,7 +23,7 @@ colors:
     label: "#3ebce6"
     segment: "#02ed6e"
     invalid: "#ff1fff"
-    pointer: "#ff0000"
+    pointer: "#ff4343"
     # Any kind of math expression.
     expr: "#999999"
     immediate: "#3ebce6"

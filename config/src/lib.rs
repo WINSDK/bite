@@ -208,7 +208,7 @@ mod defaults {
         Color32::from_rgb(0x02, 0xed, 0x6e)
     }
     pub fn invalid() -> Color32 {
-        Color32::from_rgb(0xff, 0x1f, 0xff)
+        Color32::from_rgb(0xff, 0x43, 0x43)
     }
     pub fn pointer() -> Color32 {
         invalid()
