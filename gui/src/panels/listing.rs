@@ -1,9 +1,9 @@
+use crate::common::*;
 use egui::mutex::RwLock;
+use infinite_scroll::{Callback, InfiniteScroll};
+use processor::{Block, BlockContent, Processor};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use crate::common::*;
-use processor::{Block, BlockContent, Processor};
-use infinite_scroll::{InfiniteScroll, Callback};
 use tokenizing::{colors, TokenStream};
 
 pub struct Listing {
@@ -12,6 +12,7 @@ pub struct Listing {
     scroll: InfiniteScroll<Block, usize>,
     reset_position: Arc<AtomicUsize>,
     current_addr: usize,
+    jump_list: Vec<usize>,
 }
 
 impl Listing {
@@ -39,9 +40,7 @@ impl Listing {
                 let boundaries = Arc::clone(&boundaries);
                 let processor = Arc::clone(&processor);
 
-                let block_idx = cursor.unwrap_or_else(|| {
-                    reset_position.load(Ordering::SeqCst)
-                });
+                let block_idx = cursor.unwrap_or_else(|| reset_position.load(Ordering::SeqCst));
 
                 std::thread::spawn(move || {
                     let boundaries = boundaries.read();
@@ -89,9 +88,7 @@ impl Listing {
                 let boundaries = Arc::clone(&boundaries);
                 let processor = Arc::clone(&processor);
 
-                let block_idx = cursor.unwrap_or_else(|| {
-                    reset_position.load(Ordering::SeqCst)
-                });
+                let block_idx = cursor.unwrap_or_else(|| reset_position.load(Ordering::SeqCst));
 
                 std::thread::spawn(move || {
                     let boundaries = boundaries.read();
@@ -124,24 +121,47 @@ impl Listing {
             }
         };
 
-        let infinite_scroll = InfiniteScroll::new()
-            .start_loader(start_loader)
-            .end_loader(end_loader);
-
+        let scroll = InfiniteScroll::new().start_loader(start_loader).end_loader(end_loader);
         let current_addr = processor.sections().next().unwrap().start;
 
-        // we show one block higher, not one boundary
-        Self { scroll: infinite_scroll, boundaries, processor, reset_position, current_addr }
+        Self {
+            scroll,
+            boundaries,
+            processor,
+            reset_position,
+            current_addr,
+            jump_list: Vec::new(),
+        }
     }
 
     pub fn jump(&mut self, addr: usize) -> bool {
         if let Ok(boundary) = self.boundaries.read().binary_search(&addr) {
+            self.jump_list.push(self.current_addr);
             self.reset_position.store(boundary, Ordering::SeqCst);
             self.scroll.reset();
-            return true
+            return true;
         }
 
         false
+    }
+
+    pub fn record_input(&mut self, events: &mut Vec<egui::Event>) {
+        events.retain(|event| match event {
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+                ..
+            } => {
+                if let Some(addr) = self.jump_list.pop() {
+                    let boundary = self.boundaries.read().binary_search(&addr).unwrap();
+                    self.reset_position.store(boundary, Ordering::SeqCst);
+                    self.scroll.reset();
+                }
+                false
+            }
+            _ => true,
+        });
     }
 }
 
@@ -172,7 +192,12 @@ impl Display for Listing {
         area.show(ui, |ui| {
             ui.set_width(ui.available_width());
 
-            let response = self.scroll.ui(ui, 10, |ui, _, block| {
+            let mut idx = 0;
+            self.scroll.ui(ui, 10, |ui, _, block| {
+                if idx == 0 {
+                    self.current_addr = block.addr;
+                }
+
                 if let BlockContent::SectionStart { .. } = block.content {
                     draw_horizontal_line(ui);
                 }
@@ -180,10 +205,8 @@ impl Display for Listing {
                 let mut stream = TokenStream::new();
                 block.tokenize(&mut stream);
                 ui.label(tokens_to_layoutjob(stream.inner));
+                idx += 1;
             });
-
-            let start_block_idx = response.item_range.start;
-            self.current_addr = self.boundaries.read()[start_block_idx];
 
             ui.vertical_centered(|ui| {
                 ui.set_visible(self.scroll.bottom_loading_state().loading());

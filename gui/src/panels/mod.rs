@@ -221,9 +221,12 @@ impl Panels {
     }
 
     pub fn handle_events(&mut self, events: &mut Vec<egui::Event>) {
+        if let Some(listing) = self.listing() {
+            listing.record_input(events);
+        }
+
         let empty_index = debugvault::Index::default();
         let index = self.panes.processor.as_ref().map(|proc| &proc.index).unwrap_or(&empty_index);
-
         self.panes.terminal.record_input(events, index);
     }
 
