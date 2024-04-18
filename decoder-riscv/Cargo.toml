@@ -7,6 +7,7 @@ edition = "2021"
 decoder = { path = "../decoder" }
 tokenizing = { path = "../tokenizing" }
 debugvault = { path = "../debugvault" }
+config = { path = "../config" }
 once_cell = { workspace = true }
 
 [dev-dependencies]

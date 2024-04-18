@@ -6,7 +6,9 @@ use crate::common::*;
 use crate::style::{EGUI, STYLE};
 use crate::widgets::{Donut, Terminal};
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
+use config::CONFIG;
 use processor::Processor;
+use tokenizing::colors;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -60,14 +62,14 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         active: bool,
     ) -> egui::Color32 {
         if active {
-            STYLE.pane_color
+            CONFIG.colors.bg_primary
         } else {
-            STYLE.primary_background
+            CONFIG.colors.bg_secondary
         }
     }
 
     fn tab_bar_color(&self, _: &egui::Visuals) -> egui::Color32 {
-        STYLE.primary_background
+        CONFIG.colors.bg_secondary
     }
 
     fn drag_preview_color(&self, _: &egui::Visuals) -> egui::Color32 {
@@ -100,7 +102,7 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         pane: &mut Identifier,
     ) -> egui_tiles::UiResponse {
         // Set pane background color.
-        ui.painter().rect_filled(ui.max_rect(), 0.0, STYLE.pane_color);
+        ui.painter().rect_filled(ui.max_rect(), 0.0, CONFIG.colors.bg_primary);
 
         egui::Frame::default().inner_margin(egui::Margin::same(5.0)).show(ui, |ui| {
             match self.mapping.get_mut(pane) {
@@ -405,13 +407,13 @@ impl Panels {
             .frame({
                 egui::Frame::default()
                     .inner_margin(egui::Margin::same(STYLE.separator_width * 2.0))
-                    .fill(tokenizing::colors::GRAY35)
+                    .fill(colors::GRAY35)
             });
 
         let mut visuals = EGUI.visuals.clone();
 
         // set alternative background color
-        visuals.extreme_bg_color = STYLE.primary_background;
+        visuals.extreme_bg_color = CONFIG.colors.bg_secondary;
         // disable on-hover highlighting for terminal
         visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
         visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;

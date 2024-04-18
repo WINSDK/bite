@@ -1,5 +1,5 @@
-use crate::{Colors, TokenStream};
-use tokenizing::ColorScheme;
+use crate::TokenStream;
+use config::CONFIG;
 
 mod tests;
 
@@ -51,16 +51,16 @@ pub fn parse(s: &str) -> Option<TokenStream> {
         }
 
         if !in_first_part {
-            stream.push("::", Colors::delimiter());
+            stream.push("::", CONFIG.colors.delimiter);
         }
 
         loop {
             if part.starts_with('.') {
                 if part[1..].starts_with('.') {
-                    stream.push("::", Colors::delimiter());
+                    stream.push("::", CONFIG.colors.delimiter);
                     part = &part[2..];
                 } else {
-                    stream.push(".", Colors::comment());
+                    stream.push(".", CONFIG.colors.comment);
                     part = &part[1..];
                 }
             } else if part.starts_with('$') {
@@ -71,21 +71,21 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 
                 // source: compiler/rustc_symbol_mangling/src/legacy.rs
                 match escape {
-                    "SP" => stream.push("@", Colors::comment()),
-                    "BP" => stream.push("*", Colors::special()),
-                    "RF" => stream.push("&", Colors::special()),
-                    "LT" => stream.push("<", Colors::annotation()),
-                    "GT" => stream.push(">", Colors::annotation()),
-                    "LP" => stream.push("(", Colors::brackets()),
-                    "RP" => stream.push(")", Colors::brackets()),
+                    "SP" => stream.push("@", CONFIG.colors.comment),
+                    "BP" => stream.push("*", CONFIG.colors.asm.pointer),
+                    "RF" => stream.push("&", CONFIG.colors.asm.pointer),
+                    "LT" => stream.push("<", CONFIG.colors.asm.annotation),
+                    "GT" => stream.push(">", CONFIG.colors.asm.annotation),
+                    "LP" => stream.push("(", CONFIG.colors.asm.label),
+                    "RP" => stream.push(")", CONFIG.colors.asm.label),
                     "C" => {
                         // if the next character is a space don't print one
                         //
                         // this is to allow for a space between comma separated items
                         if let Some(b"$u20$") = after_escape.as_bytes().get(..5) {
-                            stream.push(",", Colors::expr());
+                            stream.push(",", CONFIG.colors.asm.expr);
                         } else {
-                            stream.push(", ", Colors::expr());
+                            stream.push(", ", CONFIG.colors.asm.expr);
                         }
                     }
                     _ => {
@@ -98,7 +98,8 @@ pub fn parse(s: &str) -> Option<TokenStream> {
 
                             if let (true, Some(chr)) = (all_lower_hex, chr) {
                                 if !chr.is_control() {
-                                    stream.push_string(chr.to_string(), Colors::item());
+                                    let color = CONFIG.colors.asm.component;
+                                    stream.push_string(chr.to_string(), color);
                                     part = after_escape;
                                     continue;
                                 }
@@ -112,14 +113,14 @@ pub fn parse(s: &str) -> Option<TokenStream> {
                 part = after_escape;
             } else if let Some(idx) = part.find(|c| c == '$' || c == '.') {
                 let ident = &part[..idx];
-                stream.push(ident, Colors::item());
+                stream.push(ident, CONFIG.colors.asm.component);
                 part = &part[idx..];
             } else {
                 break;
             }
         }
 
-        stream.push(part, Colors::item());
+        stream.push(part, CONFIG.colors.asm.component);
         in_first_part = false;
     }
 

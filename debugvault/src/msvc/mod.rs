@@ -67,9 +67,8 @@ mod tests;
 
 use bitflags::bitflags;
 use context::{Backrefs, Context};
-use tokenizing::ColorScheme;
-
-use crate::Colors;
+use tokenizing::colors;
+use config::CONFIG;
 
 #[cfg(test)]
 const PRINTING_SCOPE: bool = true;
@@ -425,141 +424,141 @@ impl<'a> PositionalDemangle<'a> for Type {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
             Type::Unit => {}
-            Type::Nullptr => ctx.stream.push("std::nullptr_t", Colors::known()),
+            Type::Nullptr => ctx.stream.push("std::nullptr_t", CONFIG.colors.asm.primitive),
             Type::Void(modi) => {
-                ctx.stream.push("void", Colors::known());
+                ctx.stream.push("void", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Char(modi) => {
-                ctx.stream.push("char", Colors::known());
+                ctx.stream.push("char", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Char8(modi) => {
-                ctx.stream.push("char8_t", Colors::known());
+                ctx.stream.push("char8_t", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Char16(modi) => {
-                ctx.stream.push("char16_t", Colors::known());
+                ctx.stream.push("char16_t", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Char32(modi) => {
-                ctx.stream.push("char32_t", Colors::known());
+                ctx.stream.push("char32_t", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::IChar(modi) => {
-                ctx.stream.push("signed char", Colors::known());
+                ctx.stream.push("signed char", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::UChar(modi) => {
-                ctx.stream.push("unsigned char", Colors::known());
+                ctx.stream.push("unsigned char", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::WChar(modi) => {
-                ctx.stream.push("wchar_t", Colors::known());
+                ctx.stream.push("wchar_t", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::IShort(modi) => {
-                ctx.stream.push("short", Colors::known());
+                ctx.stream.push("short", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::UShort(modi) => {
-                ctx.stream.push("unsigned short", Colors::known());
+                ctx.stream.push("unsigned short", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Int(modi) => {
-                ctx.stream.push("int", Colors::known());
+                ctx.stream.push("int", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::UInt(modi) => {
-                ctx.stream.push("unsigned int", Colors::known());
+                ctx.stream.push("unsigned int", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Float(modi) => {
-                ctx.stream.push("float", Colors::known());
+                ctx.stream.push("float", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Double(modi) => {
-                ctx.stream.push("double", Colors::known());
+                ctx.stream.push("double", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::LDouble(modi) => {
-                ctx.stream.push("long double", Colors::known());
+                ctx.stream.push("long double", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Long(modi) => {
-                ctx.stream.push("long", Colors::known());
+                ctx.stream.push("long", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::ULong(modi) => {
-                ctx.stream.push("unsigned long", Colors::known());
+                ctx.stream.push("unsigned long", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::W64(modi, tipe) => {
-                ctx.stream.push("__w64 ", Colors::known());
+                ctx.stream.push("__w64 ", CONFIG.colors.asm.primitive);
                 tipe.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Int8(modi) => {
-                ctx.stream.push("__int8", Colors::known());
+                ctx.stream.push("__int8", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::UInt8(modi) => {
-                ctx.stream.push("unsigned __int8", Colors::known());
+                ctx.stream.push("unsigned __int8", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Int16(modi) => {
-                ctx.stream.push("__int16", Colors::known());
+                ctx.stream.push("__int16", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::UInt16(modi) => {
-                ctx.stream.push("unsigned __int16", Colors::known());
+                ctx.stream.push("unsigned __int16", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Int32(modi) => {
-                ctx.stream.push("__int32", Colors::known());
+                ctx.stream.push("__int32", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::UInt32(modi) => {
-                ctx.stream.push("unsigned __int32", Colors::known());
+                ctx.stream.push("unsigned __int32", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Int64(modi) => {
-                ctx.stream.push("__int64", Colors::known());
+                ctx.stream.push("__int64", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::UInt64(modi) => {
-                ctx.stream.push("unsigned __int64", Colors::known());
+                ctx.stream.push("unsigned __int64", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Int128(modi) => {
-                ctx.stream.push("__int128", Colors::known());
+                ctx.stream.push("__int128", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Uint128(modi) => {
-                ctx.stream.push("unsigned __int128", Colors::known());
+                ctx.stream.push("unsigned __int128", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Bool(modi) => {
-                ctx.stream.push("bool", Colors::known());
+                ctx.stream.push("bool", CONFIG.colors.asm.primitive);
                 modi.demangle(ctx, backrefs);
             }
             Type::Union(modi, name) => {
-                ctx.stream.push("union ", Colors::known());
+                ctx.stream.push("union ", CONFIG.colors.asm.primitive);
                 name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Enum(modi, name) => {
-                ctx.stream.push("enum ", Colors::known());
+                ctx.stream.push("enum ", CONFIG.colors.asm.primitive);
                 name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Struct(modi, name) => {
-                ctx.stream.push("struct ", Colors::known());
+                ctx.stream.push("struct ", CONFIG.colors.asm.primitive);
                 name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
             Type::Class(modi, name) => {
-                ctx.stream.push("class ", Colors::known());
+                ctx.stream.push("class ", CONFIG.colors.asm.primitive);
                 name.demangle(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
             }
@@ -572,7 +571,7 @@ impl<'a> PositionalDemangle<'a> for Type {
                 match &**tipe {
                     Type::Function(func) => {
                         func.return_type.demangle_pre(ctx, backrefs);
-                        ctx.stream.push("(", Colors::brackets());
+                        ctx.stream.push("(", CONFIG.colors.brackets);
                         func.calling_conv.demangle(ctx, backrefs);
                     }
                     Type::MemberFunction(func) => {
@@ -583,20 +582,20 @@ impl<'a> PositionalDemangle<'a> for Type {
                     Type::MemberFunctionPtr(func) => {
                         func.storage_scope.demangle(ctx, backrefs);
                         func.return_type.demangle_pre(ctx, backrefs);
-                        ctx.stream.push("(", Colors::brackets());
+                        ctx.stream.push("(", CONFIG.colors.brackets);
                         func.calling_conv.demangle(ctx, backrefs);
                     }
                     Type::Array(..) => {
                         tipe.demangle_pre(ctx, backrefs);
-                        ctx.stream.push(" (", Colors::brackets());
+                        ctx.stream.push(" (", CONFIG.colors.brackets);
                     }
                     _ => tipe.demangle_pre(ctx, backrefs),
                 }
 
                 match self {
-                    Type::Ptr(..) => ctx.stream.push(" *", Colors::special()),
-                    Type::Ref(..) => ctx.stream.push(" &", Colors::special()),
-                    Type::RValueRef(..) => ctx.stream.push(" &&", Colors::special()),
+                    Type::Ptr(..) => ctx.stream.push(" *", CONFIG.colors.asm.pointer),
+                    Type::Ref(..) => ctx.stream.push(" &", CONFIG.colors.asm.pointer),
+                    Type::RValueRef(..) => ctx.stream.push(" &&", CONFIG.colors.asm.pointer),
                     _ => {}
                 }
 
@@ -605,42 +604,42 @@ impl<'a> PositionalDemangle<'a> for Type {
             Type::Function(func) => {
                 func.return_type.demangle_pre(ctx, backrefs);
                 func.calling_conv.demangle(ctx, backrefs);
-                ctx.stream.push(" ", Colors::spacing());
+                ctx.stream.push(" ", colors::WHITE);
             }
             Type::MemberFunction(func) => {
                 func.storage_scope.demangle(ctx, backrefs);
                 func.return_type.demangle_pre(ctx, backrefs);
                 func.calling_conv.demangle(ctx, backrefs);
-                ctx.stream.push(" ", Colors::spacing());
+                ctx.stream.push(" ", colors::WHITE);
             }
             Type::MemberFunctionPtr(func) => {
                 func.storage_scope.demangle(ctx, backrefs);
                 func.return_type.demangle_pre(ctx, backrefs);
                 func.calling_conv.demangle(ctx, backrefs);
-                ctx.stream.push(" ", Colors::spacing());
+                ctx.stream.push(" ", colors::WHITE);
                 func.class_name.demangle(ctx, backrefs);
             }
             Type::Inherited(func) => {
-                ctx.stream.push("&", Colors::special());
+                ctx.stream.push("&", CONFIG.colors.asm.pointer);
                 func.storage_scope.demangle(ctx, backrefs);
                 func.return_type.demangle_pre(ctx, backrefs);
                 func.calling_conv.demangle(ctx, backrefs);
-                ctx.stream.push(" ", Colors::spacing());
+                ctx.stream.push(" ", colors::WHITE);
                 func.class_name.demangle(ctx, backrefs);
                 func.params.demangle(ctx, backrefs);
             }
             Type::Constant(val) => {
-                ctx.stream.push_string(val.to_string(), Colors::item());
+                ctx.stream.push_string(val.to_string(), CONFIG.colors.asm.component);
             }
             Type::TemplateParameterIdx(idx) => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("template-parameter", Colors::known());
-                ctx.stream.push("-", Colors::delimiter());
-                ctx.stream.push_string(idx.to_string(), Colors::item());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("template-parameter", CONFIG.colors.asm.primitive);
+                ctx.stream.push("-", CONFIG.colors.delimiter);
+                ctx.stream.push_string(idx.to_string(), CONFIG.colors.asm.component);
+                ctx.stream.push("'", CONFIG.colors.brackets);
             }
             Type::Typedef(modi, name) => {
-                ctx.push_literal(name, Colors::item());
+                ctx.push_literal(name, CONFIG.colors.asm.component);
                 modi.demangle(ctx, backrefs);
             }
             Type::Variable(Variable {
@@ -651,7 +650,7 @@ impl<'a> PositionalDemangle<'a> for Type {
                 storage.demangle(ctx, backrefs);
                 tipe.demangle_pre(ctx, backrefs);
                 modi.demangle(ctx, backrefs);
-                ctx.stream.push(" ", Colors::spacing());
+                ctx.stream.push(" ", colors::WHITE);
             }
             Type::Encoded(_) => {}
             Type::Array(array) => {
@@ -664,22 +663,22 @@ impl<'a> PositionalDemangle<'a> for Type {
                 quali.demangle(ctx, backrefs);
             }
             Type::VCallThunk(_, calling_conv) => {
-                ctx.stream.push("[: ", Colors::brackets());
-                ctx.stream.push("thunk", Colors::known());
-                ctx.stream.push("]: ", Colors::brackets());
+                ctx.stream.push("[: ", CONFIG.colors.brackets);
+                ctx.stream.push("thunk", CONFIG.colors.asm.primitive);
+                ctx.stream.push("]: ", CONFIG.colors.brackets);
 
                 calling_conv.demangle(ctx, backrefs);
             }
             Type::Extern(tipe) => {
-                ctx.stream.push("extern ", Colors::special());
-                ctx.stream.push("\"", Colors::brackets());
-                ctx.stream.push("C", Colors::item());
-                ctx.stream.push("\" ", Colors::brackets());
+                ctx.stream.push("extern ", CONFIG.colors.asm.pointer);
+                ctx.stream.push("\"", CONFIG.colors.brackets);
+                ctx.stream.push("C", CONFIG.colors.asm.component);
+                ctx.stream.push("\" ", CONFIG.colors.brackets);
 
                 tipe.demangle_pre(ctx, backrefs);
             }
             Type::Variadic => {
-                ctx.stream.push("...", Colors::item());
+                ctx.stream.push("...", CONFIG.colors.asm.component);
             }
         }
     }
@@ -688,10 +687,10 @@ impl<'a> PositionalDemangle<'a> for Type {
         match self {
             Type::Ptr(_, tipe) | Type::Ref(_, tipe) => {
                 match **tipe {
-                    Type::Function(..) => ctx.stream.push(")", Colors::brackets()),
-                    Type::MemberFunction(..) => ctx.stream.push(")", Colors::brackets()),
-                    Type::MemberFunctionPtr(..) => ctx.stream.push(")", Colors::brackets()),
-                    Type::Array(..) => ctx.stream.push(")", Colors::brackets()),
+                    Type::Function(..) => ctx.stream.push(")", CONFIG.colors.brackets),
+                    Type::MemberFunction(..) => ctx.stream.push(")", CONFIG.colors.brackets),
+                    Type::MemberFunctionPtr(..) => ctx.stream.push(")", CONFIG.colors.brackets),
+                    Type::Array(..) => ctx.stream.push(")", CONFIG.colors.brackets),
                     _ => {}
                 }
 
@@ -715,26 +714,26 @@ impl<'a> PositionalDemangle<'a> for Type {
             Type::Variable(Variable { tipe, .. }) => tipe.demangle_post(ctx, backrefs),
             Type::Array(array) => {
                 for len in array.lens.iter() {
-                    ctx.stream.push("[", Colors::brackets());
-                    ctx.stream.push_string(len.to_string(), Colors::annotation());
-                    ctx.stream.push("]", Colors::brackets());
+                    ctx.stream.push("[", CONFIG.colors.brackets);
+                    ctx.stream.push_string(len.to_string(), CONFIG.colors.asm.annotation);
+                    ctx.stream.push("]", CONFIG.colors.brackets);
                 }
             }
             Type::VBTable(_, scope) | Type::VFTable(_, scope) => match scope {
                 Some(scope) if !scope.0.is_empty() => {
-                    ctx.stream.push("{for `", Colors::brackets());
+                    ctx.stream.push("{for `", CONFIG.colors.brackets);
                     scope.demangle(ctx, backrefs);
-                    ctx.stream.push("'}", Colors::brackets());
+                    ctx.stream.push("'}", CONFIG.colors.brackets);
                 }
                 None => {
-                    ctx.stream.push("{for ??}", Colors::brackets());
+                    ctx.stream.push("{for ??}", CONFIG.colors.brackets);
                 }
                 _ => {}
             },
             Type::VCallThunk(offset, _) => {
-                ctx.stream.push("{{", Colors::brackets());
-                ctx.stream.push_string(offset.to_string(), Colors::item());
-                ctx.stream.push(", {{flat}}}}", Colors::brackets());
+                ctx.stream.push("{{", CONFIG.colors.brackets);
+                ctx.stream.push_string(offset.to_string(), CONFIG.colors.asm.component);
+                ctx.stream.push(", {{flat}}}}", CONFIG.colors.brackets);
             }
             Type::Extern(tipe) => tipe.demangle_post(ctx, backrefs),
             Type::W64(_, tipe) => tipe.demangle_post(ctx, backrefs),
@@ -1083,7 +1082,7 @@ impl<'a> PositionalDemangle<'a> for FunctionReturnType {
     fn demangle_pre(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.0.demangle_pre(ctx, backrefs);
         if self.0 != Type::Unit {
-            ctx.stream.push(" ", Colors::spacing());
+            ctx.stream.push(" ", colors::WHITE);
         }
     }
 
@@ -1336,53 +1335,53 @@ impl<'a> Demangle<'a> for Intrinsics {
                 match ctx.scope.0.first() {
                     Some(path) => path.demangle(ctx, backrefs),
                     _ => {
-                        ctx.stream.push("`", Colors::brackets());
-                        ctx.stream.push("unnamed constructor", Colors::known());
-                        ctx.stream.push("'", Colors::brackets());
+                        ctx.stream.push("`", CONFIG.colors.brackets);
+                        ctx.stream.push("unnamed constructor", CONFIG.colors.asm.primitive);
+                        ctx.stream.push("'", CONFIG.colors.brackets);
                     }
                 };
                 return;
             }
             Intrinsics::Dtor => {
-                ctx.stream.push("~", Colors::item());
+                ctx.stream.push("~", CONFIG.colors.asm.component);
 
                 match ctx.scope.0.first() {
                     Some(path) => path.demangle(ctx, backrefs),
                     _ => {
-                        ctx.stream.push("`", Colors::brackets());
-                        ctx.stream.push("unnamed destructor", Colors::known());
-                        ctx.stream.push("'", Colors::brackets());
+                        ctx.stream.push("`", CONFIG.colors.brackets);
+                        ctx.stream.push("unnamed destructor", CONFIG.colors.asm.primitive);
+                        ctx.stream.push("'", CONFIG.colors.brackets);
                     }
                 };
                 return;
             }
             Intrinsics::DynamicInitializer(ref tipe) => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("dynamic initializer for ", Colors::known());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("dynamic initializer for ", CONFIG.colors.asm.primitive);
+                ctx.stream.push("'", CONFIG.colors.brackets);
 
                 tipe.demangle(ctx, backrefs);
-                ctx.stream.push("''", Colors::brackets());
+                ctx.stream.push("''", CONFIG.colors.brackets);
                 return;
             }
             Intrinsics::DynamicAtExitDtor(ref tipe) => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("dynamic atexit destructor for ", Colors::known());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("dynamic atexit destructor for ", CONFIG.colors.asm.primitive);
+                ctx.stream.push("'", CONFIG.colors.brackets);
 
                 tipe.demangle(ctx, backrefs);
-                ctx.stream.push("''", Colors::brackets());
+                ctx.stream.push("''", CONFIG.colors.brackets);
                 return;
             }
             Intrinsics::SourceName(ref src) => {
-                ctx.push_literal(src, Colors::item());
+                ctx.push_literal(src, CONFIG.colors.asm.component);
                 return;
             }
             Intrinsics::RTTITypeDescriptor(_, ref tipe) => {
                 tipe.demangle(ctx, backrefs);
-                ctx.stream.push(" `", Colors::brackets());
-                ctx.stream.push("RTTI Type Descriptor", Colors::known());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push(" `", CONFIG.colors.brackets);
+                ctx.stream.push("RTTI Type Descriptor", CONFIG.colors.asm.primitive);
+                ctx.stream.push("'", CONFIG.colors.brackets);
                 return;
             }
             Intrinsics::RTTIBaseClassDescriptor {
@@ -1391,39 +1390,39 @@ impl<'a> Demangle<'a> for Intrinsics {
                 vbtable_off,
                 flags,
             } => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("RTTI Base Class Descriptor at ", Colors::known());
-                ctx.stream.push("(", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("RTTI Base Class Descriptor at ", CONFIG.colors.asm.primitive);
+                ctx.stream.push("(", CONFIG.colors.brackets);
 
-                ctx.stream.push_string(nv_off.to_string(), Colors::annotation());
-                ctx.stream.push(", ", Colors::brackets());
+                ctx.stream.push_string(nv_off.to_string(), CONFIG.colors.asm.annotation);
+                ctx.stream.push(", ", CONFIG.colors.brackets);
 
-                ctx.stream.push_string(ptr_off.to_string(), Colors::annotation());
-                ctx.stream.push(", ", Colors::brackets());
+                ctx.stream.push_string(ptr_off.to_string(), CONFIG.colors.asm.annotation);
+                ctx.stream.push(", ", CONFIG.colors.brackets);
 
-                ctx.stream.push_string(vbtable_off.to_string(), Colors::annotation());
-                ctx.stream.push(", ", Colors::brackets());
+                ctx.stream.push_string(vbtable_off.to_string(), CONFIG.colors.asm.annotation);
+                ctx.stream.push(", ", CONFIG.colors.brackets);
 
-                ctx.stream.push_string(flags.to_string(), Colors::annotation());
-                ctx.stream.push(")'", Colors::brackets());
+                ctx.stream.push_string(flags.to_string(), CONFIG.colors.asm.annotation);
+                ctx.stream.push(")'", CONFIG.colors.brackets);
                 return;
             }
             Intrinsics::RTTIBaseClassArray => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("RTTI Base Class Array", Colors::known());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("RTTI Base Class Array", CONFIG.colors.asm.primitive);
+                ctx.stream.push("'", CONFIG.colors.brackets);
                 return;
             }
             Intrinsics::RTTIClassHierarchyDescriptor => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("RTTI Class Hierarchy Descriptor", Colors::known());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("RTTI Class Hierarchy Descriptor", CONFIG.colors.asm.primitive);
+                ctx.stream.push("'", CONFIG.colors.brackets);
                 return;
             }
             Intrinsics::RTTIClassCompleteObjectLocator => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("RTTI Complete Object Locator", Colors::known());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("RTTI Complete Object Locator", CONFIG.colors.asm.primitive);
+                ctx.stream.push("'", CONFIG.colors.brackets);
                 return;
             }
             Intrinsics::TypeCast => "operatorcast",
@@ -1497,7 +1496,7 @@ impl<'a> Demangle<'a> for Intrinsics {
         };
 
         // TODO: handle each cases colors individually
-        ctx.stream.push(literal, Colors::known());
+        ctx.stream.push(literal, CONFIG.colors.asm.primitive);
     }
 }
 
@@ -1565,7 +1564,7 @@ impl<'a> Demangle<'a> for Parameters {
         }
 
         for param in params {
-            ctx.stream.push(", ", Colors::delimiter());
+            ctx.stream.push(", ", CONFIG.colors.delimiter);
             param.demangle(ctx, backrefs);
         }
     }
@@ -1591,9 +1590,9 @@ impl Parse for FunctionParameters {
 
 impl<'a> Demangle<'a> for FunctionParameters {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
-        ctx.stream.push("(", Colors::brackets());
+        ctx.stream.push("(", CONFIG.colors.brackets);
         self.0.demangle(ctx, backrefs);
-        ctx.stream.push(")", Colors::brackets());
+        ctx.stream.push(")", CONFIG.colors.brackets);
     }
 }
 
@@ -1644,7 +1643,7 @@ impl<'a> Demangle<'a> for CallingConv {
             CallingConv::Anonymous => return,
         };
 
-        ctx.stream.push(literal, Colors::root());
+        ctx.stream.push(literal, CONFIG.colors.asm.annotation);
     }
 }
 
@@ -1667,7 +1666,7 @@ impl<'a> Demangle<'a> for StorageVariable {
                 StorageVariable::Global | StorageVariable::FunctionLocalStatic => return,
             };
 
-            ctx.stream.push(literal, Colors::root());
+            ctx.stream.push(literal, CONFIG.colors.asm.annotation);
         }
     }
 }
@@ -1745,7 +1744,7 @@ impl Parse for StorageScope {
 
 impl<'a> Demangle<'a> for StorageScope {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        let color = Colors::root();
+        let color = CONFIG.colors.asm.annotation;
 
         if PRINTING_SCOPE {
             if self.contains(StorageScope::PUBLIC) {
@@ -1806,7 +1805,7 @@ impl Parse for Modifiers {
 
 impl<'a> Demangle<'a> for Modifiers {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        let color = Colors::annotation();
+        let color = CONFIG.colors.asm.annotation;
 
         if self.contains(Modifiers::CONST) {
             ctx.stream.push(" const", color);
@@ -1876,7 +1875,7 @@ impl Parse for Qualifiers {
 
 impl<'a> Demangle<'a> for Qualifiers {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        let color = Colors::annotation();
+        let color = CONFIG.colors.asm.annotation;
 
         if self.0.contains(Modifiers::CONST) {
             ctx.stream.push("const ", color);
@@ -1899,11 +1898,11 @@ impl<'a> Demangle<'a> for Qualifiers {
         }
 
         if self.0.contains(Modifiers::LVALUE) {
-            ctx.stream.push("& ", Colors::special());
+            ctx.stream.push("& ", CONFIG.colors.asm.pointer);
         }
 
         if self.0.contains(Modifiers::RVALUE) {
-            ctx.stream.push("&& ", Colors::special());
+            ctx.stream.push("&& ", CONFIG.colors.asm.pointer);
         }
     }
 }
@@ -1953,7 +1952,7 @@ impl Parse for PointeeQualifiers {
 
 impl<'a> Demangle<'a> for PointeeQualifiers {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        let color = Colors::annotation();
+        let color = CONFIG.colors.asm.annotation;
 
         if self.0.contains(Modifiers::CONST) {
             ctx.stream.push(" const", color);
@@ -1976,11 +1975,11 @@ impl<'a> Demangle<'a> for PointeeQualifiers {
         }
 
         if self.0.contains(Modifiers::LVALUE) {
-            ctx.stream.push(" &", Colors::special());
+            ctx.stream.push(" &", CONFIG.colors.asm.pointer);
         }
 
         if self.0.contains(Modifiers::RVALUE) {
-            ctx.stream.push(" &&", Colors::special());
+            ctx.stream.push(" &&", CONFIG.colors.asm.pointer);
         }
     }
 }
@@ -2048,9 +2047,9 @@ impl Parse for MD5 {
 
 impl<'a> Demangle<'a> for MD5 {
     fn demangle(&'a self, ctx: &mut Context<'a>, _: &mut Backrefs) {
-        ctx.stream.push("??@", Colors::brackets());
-        ctx.push_literal(&self.0, Colors::item());
-        ctx.stream.push("@", Colors::brackets());
+        ctx.stream.push("??@", CONFIG.colors.brackets);
+        ctx.push_literal(&self.0, CONFIG.colors.asm.component);
+        ctx.stream.push("@", CONFIG.colors.brackets);
     }
 }
 
@@ -2085,7 +2084,7 @@ impl<'a> Demangle<'a> for Scope {
             part.demangle(ctx, backrefs);
 
             if idx != self.0.len() - 1 {
-                ctx.stream.push("::", Colors::delimiter());
+                ctx.stream.push("::", CONFIG.colors.delimiter);
             }
         }
     }
@@ -2117,7 +2116,7 @@ impl<'a> Demangle<'a> for Path {
         self.scope.demangle(ctx, backrefs);
 
         if !self.scope.0.is_empty() {
-            ctx.stream.push("::", Colors::delimiter());
+            ctx.stream.push("::", CONFIG.colors.delimiter);
         }
 
         self.name.0.demangle(ctx, backrefs);
@@ -2211,25 +2210,25 @@ impl Parse for NestedPath {
 impl<'a> Demangle<'a> for NestedPath {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         match self {
-            NestedPath::Literal(ident) => ctx.push_literal(ident, Colors::item()),
+            NestedPath::Literal(ident) => ctx.push_literal(ident, CONFIG.colors.asm.component),
             NestedPath::Interface(ident) => {
-                ctx.stream.push("[", Colors::brackets());
+                ctx.stream.push("[", CONFIG.colors.brackets);
                 ident.demangle(ctx, backrefs);
-                ctx.stream.push("]", Colors::brackets());
+                ctx.stream.push("]", CONFIG.colors.brackets);
             }
             NestedPath::Template(template) => template.demangle(ctx, backrefs),
             NestedPath::Intrinsics(int) => int.demangle(ctx, backrefs),
             NestedPath::Symbol(inner) => inner.demangle(ctx, backrefs),
             NestedPath::Disambiguator(val) => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push_string(val.to_string(), Colors::item());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push_string(val.to_string(), CONFIG.colors.asm.component);
+                ctx.stream.push("'", CONFIG.colors.brackets);
             }
             NestedPath::MD5(md5) => md5.demangle(ctx, backrefs),
             NestedPath::Anonymous => {
-                ctx.stream.push("`", Colors::brackets());
-                ctx.stream.push("anonymous namespace", Colors::item());
-                ctx.stream.push("'", Colors::brackets());
+                ctx.stream.push("`", CONFIG.colors.brackets);
+                ctx.stream.push("anonymous namespace", CONFIG.colors.asm.component);
+                ctx.stream.push("'", CONFIG.colors.brackets);
             }
         }
     }
@@ -2351,9 +2350,9 @@ impl Parse for Template {
 impl<'a> Demangle<'a> for Template {
     fn demangle(&'a self, ctx: &mut Context<'a>, backrefs: &mut Backrefs) {
         self.name.0.demangle(ctx, backrefs);
-        ctx.stream.push("<", Colors::annotation());
+        ctx.stream.push("<", CONFIG.colors.asm.annotation);
         self.params.demangle(ctx, backrefs);
-        ctx.stream.push(">", Colors::annotation());
+        ctx.stream.push(">", CONFIG.colors.asm.annotation);
     }
 }
 
@@ -2437,10 +2436,10 @@ impl<'a> Demangle<'a> for Symbol {
             if let Type::MemberFunction(ref func) = self.tipe {
                 func.storage_scope.demangle(ctx, backrefs);
                 func.calling_conv.demangle(ctx, backrefs);
-                ctx.stream.push(" ", Colors::spacing());
+                ctx.stream.push(" ", colors::WHITE);
                 self.path.scope.demangle(ctx, backrefs);
-                ctx.stream.push("::", Colors::delimiter());
-                ctx.stream.push("operator ", Colors::known());
+                ctx.stream.push("::", CONFIG.colors.delimiter);
+                ctx.stream.push("operator ", CONFIG.colors.asm.primitive);
                 func.return_type.0.demangle(ctx, backrefs);
                 func.params.demangle(ctx, backrefs);
                 return;
@@ -2453,13 +2452,13 @@ impl<'a> Demangle<'a> for Symbol {
                 if let Type::MemberFunction(ref func) = self.tipe {
                     func.storage_scope.demangle(ctx, backrefs);
                     func.calling_conv.demangle(ctx, backrefs);
-                    ctx.stream.push(" ", Colors::spacing());
+                    ctx.stream.push(" ", colors::WHITE);
                     self.path.scope.demangle(ctx, backrefs);
-                    ctx.stream.push("::", Colors::delimiter());
-                    ctx.stream.push("operator", Colors::known());
-                    ctx.stream.push("<", Colors::annotation());
+                    ctx.stream.push("::", CONFIG.colors.delimiter);
+                    ctx.stream.push("operator", CONFIG.colors.asm.primitive);
+                    ctx.stream.push("<", CONFIG.colors.asm.annotation);
                     template.params.demangle(ctx, backrefs);
-                    ctx.stream.push("> ", Colors::annotation());
+                    ctx.stream.push("> ", CONFIG.colors.asm.annotation);
 
                     func.return_type.0.demangle(ctx, backrefs);
                     func.params.demangle(ctx, backrefs);

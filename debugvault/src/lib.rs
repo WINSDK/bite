@@ -7,7 +7,7 @@ use radix_trie::{Trie, TrieCommon};
 use std::path::Path;
 use std::sync::Arc;
 use std::{fmt, process::Command};
-use tokenizing::{Colors, Token};
+use tokenizing::Token;
 
 mod common;
 mod demangler;

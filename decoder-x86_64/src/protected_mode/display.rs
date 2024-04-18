@@ -8,7 +8,8 @@ use crate::{Number, MEM_SIZE_STRINGS};
 
 use decoder::ToTokens;
 use debugvault::Index;
-use tokenizing::{ColorScheme, Colors, TokenStream};
+use tokenizing::{colors, TokenStream};
+use config::CONFIG;
 
 impl fmt::Display for Decoder {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -266,7 +267,7 @@ impl Operand {
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
-                    stream.push_owned(text, Colors::immediate());
+                    stream.push_owned(text, CONFIG.colors.asm.immediate);
                 }
             },
             Operand::ImmediateU8(_) => match symbols.get_sym_by_addr(addr) {
@@ -277,7 +278,7 @@ impl Operand {
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
-                    stream.push_owned(text, Colors::immediate());
+                    stream.push_owned(text, CONFIG.colors.asm.immediate);
                 }
             },
             Operand::ImmediateI16(_) => match symbols.get_sym_by_addr(addr) {
@@ -288,7 +289,7 @@ impl Operand {
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
-                    stream.push_owned(text, Colors::immediate());
+                    stream.push_owned(text, CONFIG.colors.asm.immediate);
                 }
             },
             Operand::ImmediateU16(_) => match symbols.get_sym_by_addr(addr) {
@@ -299,7 +300,7 @@ impl Operand {
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
-                    stream.push_owned(text, Colors::immediate());
+                    stream.push_owned(text, CONFIG.colors.asm.immediate);
                 }
             },
             Operand::ImmediateI32(_) => match symbols.get_sym_by_addr(addr) {
@@ -310,7 +311,7 @@ impl Operand {
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
-                    stream.push_owned(text, Colors::immediate());
+                    stream.push_owned(text, CONFIG.colors.asm.immediate);
                 }
             },
             Operand::ImmediateU32(_) => match symbols.get_sym_by_addr(addr) {
@@ -321,11 +322,11 @@ impl Operand {
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
-                    stream.push_owned(text, Colors::immediate());
+                    stream.push_owned(text, CONFIG.colors.asm.immediate);
                 }
             },
             Operand::DisplacementU32(_) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         dbg!(symbol.as_str());
@@ -335,13 +336,13 @@ impl Operand {
                     }
                     None => {
                         let text = decoder::encode_hex(addr as i64);
-                        stream.push_owned(text, Colors::immediate());
+                        stream.push_owned(text, CONFIG.colors.asm.immediate);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegDisp(ref spec, disp) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -349,14 +350,14 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(spec), Colors::register());
+                        stream.push(regspec_label(spec), CONFIG.colors.asm.register);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegScale(ref spec, scale) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -364,15 +365,15 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(spec), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegScaleDisp(ref spec, scale, disp) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -380,16 +381,16 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(spec), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(format!("{scale}"), Colors::immediate());
+                        stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(format!("{scale}"), CONFIG.colors.asm.immediate);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBase(ref base, ref index) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -397,15 +398,15 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseDisp(ref base, ref index, disp) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -413,16 +414,16 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScale(ref base, ref index, scale) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -430,17 +431,17 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScaleDisp(ref base, ref index, scale, disp) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -448,18 +449,18 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -467,18 +468,18 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(spec), Colors::register());
+                        stream.push(regspec_label(spec), CONFIG.colors.asm.register);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegScaleMasked(ref spec, scale, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -486,19 +487,19 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(spec), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::register());
+                        stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.register);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegScaleDispMasked(ref spec, scale, disp, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -506,21 +507,21 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(spec), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::register());
-                        stream.push(" ", Colors::spacing());
+                        stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.register);
+                        stream.push(" ", colors::WHITE);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseMasked(ref base, ref index, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -528,19 +529,19 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseDispMasked(ref base, ref index, disp, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -548,21 +549,21 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
-                        stream.push(" ", Colors::spacing());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                        stream.push(" ", colors::WHITE);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScaleMasked(ref base, ref index, scale, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -570,18 +571,18 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScaleDispMasked(
                 ref base,
@@ -590,7 +591,7 @@ impl Operand {
                 disp,
                 ref mask_reg,
             ) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
                         for token in symbol.name() {
@@ -598,19 +599,19 @@ impl Operand {
                         }
                     }
                     None => {
-                        stream.push(regspec_label(base), Colors::register());
-                        stream.push(" + ", Colors::expr());
-                        stream.push(regspec_label(index), Colors::register());
-                        stream.push(" * ", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::immediate());
+                        stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                        stream.push(" + ", CONFIG.colors.asm.expr);
+                        stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                        stream.push(" * ", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
                         Number(disp).tokenize(stream, symbols);
                     }
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             _ => return false,
         }
@@ -636,231 +637,231 @@ impl Operand {
         match *self {
             Operand::ImmediateU8(imm) => {
                 let text = decoder::encode_hex(imm as i64);
-                stream.push_owned(text, Colors::immediate());
+                stream.push_owned(text, CONFIG.colors.asm.immediate);
             }
             Operand::ImmediateI8(imm) => {
                 let text = decoder::encode_hex(imm as i64);
-                stream.push_owned(text, Colors::immediate());
+                stream.push_owned(text, CONFIG.colors.asm.immediate);
             }
             Operand::ImmediateU16(imm) => {
                 let text = decoder::encode_hex(imm as i64);
-                stream.push_owned(text, Colors::immediate());
+                stream.push_owned(text, CONFIG.colors.asm.immediate);
             }
             Operand::ImmediateI16(imm) => {
                 let text = decoder::encode_hex(imm as i64);
-                stream.push_owned(text, Colors::immediate());
+                stream.push_owned(text, CONFIG.colors.asm.immediate);
             }
             Operand::ImmediateU32(imm) => {
                 let text = decoder::encode_hex(imm as i64);
-                stream.push_owned(text, Colors::immediate());
+                stream.push_owned(text, CONFIG.colors.asm.immediate);
             }
             Operand::ImmediateI32(imm) => {
                 let text = decoder::encode_hex(imm as i64);
-                stream.push_owned(text, Colors::immediate());
+                stream.push_owned(text, CONFIG.colors.asm.immediate);
             }
             Operand::AbsoluteFarAddress { segment, address } => {
-                stream.push_owned(decoder::encode_hex(segment as i64), Colors::immediate());
-                stream.push(":", Colors::expr());
-                stream.push_owned(decoder::encode_hex(address as i64), Colors::immediate());
+                stream.push_owned(decoder::encode_hex(segment as i64), CONFIG.colors.asm.immediate);
+                stream.push(":", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_hex(address as i64), CONFIG.colors.asm.immediate);
             }
             Operand::Register(ref spec) => {
-                stream.push(regspec_label(spec), Colors::register());
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
             }
             Operand::RegisterMaskMerge(ref spec, ref mask, merge_mode) => {
-                stream.push(regspec_label(spec), Colors::register());
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
 
                 if mask.num != 0 {
-                    stream.push("{", Colors::brackets());
-                    stream.push(regspec_label(mask), Colors::register());
-                    stream.push("}", Colors::brackets());
+                    stream.push("{", CONFIG.colors.brackets);
+                    stream.push(regspec_label(mask), CONFIG.colors.asm.register);
+                    stream.push("}", CONFIG.colors.brackets);
                 }
                 if let MergeMode::Zero = merge_mode {
-                    stream.push("{", Colors::brackets());
-                    stream.push("z", Colors::register());
-                    stream.push("}", Colors::brackets());
+                    stream.push("{", CONFIG.colors.brackets);
+                    stream.push("z", CONFIG.colors.asm.register);
+                    stream.push("}", CONFIG.colors.brackets);
                 }
             }
             Operand::RegisterMaskMergeSae(ref spec, ref mask, merge_mode, sae_mode) => {
-                stream.push(regspec_label(spec), Colors::register());
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
 
                 if mask.num != 0 {
-                    stream.push("{", Colors::brackets());
-                    stream.push(regspec_label(mask), Colors::register());
-                    stream.push("}", Colors::brackets());
+                    stream.push("{", CONFIG.colors.brackets);
+                    stream.push(regspec_label(mask), CONFIG.colors.asm.register);
+                    stream.push("}", CONFIG.colors.brackets);
                 }
                 if let MergeMode::Zero = merge_mode {
-                    stream.push("{", Colors::brackets());
-                    stream.push("z", Colors::register());
-                    stream.push("}", Colors::brackets());
+                    stream.push("{", CONFIG.colors.brackets);
+                    stream.push("z", CONFIG.colors.asm.register);
+                    stream.push("}", CONFIG.colors.brackets);
                 }
 
                 sae_mode.tokenize(stream, symbols);
             }
             Operand::RegisterMaskMergeSaeNoround(ref spec, ref mask, merge_mode) => {
-                stream.push(regspec_label(spec), Colors::register());
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
 
                 if mask.num != 0 {
-                    stream.push("{", Colors::brackets());
-                    stream.push(regspec_label(mask), Colors::register());
-                    stream.push("}", Colors::brackets());
+                    stream.push("{", CONFIG.colors.brackets);
+                    stream.push(regspec_label(mask), CONFIG.colors.asm.register);
+                    stream.push("}", CONFIG.colors.brackets);
                 }
                 if let MergeMode::Zero = merge_mode {
-                    stream.push("{", Colors::brackets());
-                    stream.push("z", Colors::register());
-                    stream.push("}", Colors::brackets());
+                    stream.push("{", CONFIG.colors.brackets);
+                    stream.push("z", CONFIG.colors.asm.register);
+                    stream.push("}", CONFIG.colors.brackets);
                 }
 
-                stream.push("{", Colors::brackets());
-                stream.push("sae", Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push("sae", CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::DisplacementU16(imm) => {
-                stream.push("[", Colors::brackets());
-                stream.push_owned(decoder::encode_hex(imm as i64), Colors::immediate());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push_owned(decoder::encode_hex(imm as i64), CONFIG.colors.asm.immediate);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::DisplacementU32(imm) => {
-                stream.push("[", Colors::brackets());
-                stream.push_owned(decoder::encode_hex(imm as i64), Colors::immediate());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push_owned(decoder::encode_hex(imm as i64), CONFIG.colors.asm.immediate);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegDisp(ref spec, disp) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegDeref(ref spec) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegScale(ref spec, scale) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(scale.to_string(), Colors::immediate());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegScaleDisp(ref spec, scale, disp) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(format!("{scale}"), Colors::immediate());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(format!("{scale}"), CONFIG.colors.asm.immediate);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBase(ref base, ref index) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseDisp(ref base, ref index, disp) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScale(ref base, ref index, scale) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(scale.to_string(), Colors::immediate());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScaleDisp(ref base, ref index, scale, disp) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(scale.to_string(), Colors::immediate());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegDispMasked(ref spec, disp, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegDerefMasked(ref spec, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegScaleMasked(ref spec, scale, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(scale.to_string(), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(scale.to_string(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegScaleDispMasked(ref spec, scale, disp, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(spec), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(scale.to_string(), Colors::register());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(spec), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(scale.to_string(), CONFIG.colors.asm.register);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseMasked(ref base, ref index, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseDispMasked(ref base, ref index, disp, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScaleMasked(ref base, ref index, scale, ref mask_reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(scale.to_string(), Colors::immediate());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegIndexBaseScaleDispMasked(
                 ref base,
@@ -869,18 +870,18 @@ impl Operand {
                 disp,
                 ref mask_reg,
             ) => {
-                stream.push("[", Colors::brackets());
-                stream.push(regspec_label(base), Colors::register());
-                stream.push(" + ", Colors::expr());
-                stream.push(regspec_label(index), Colors::register());
-                stream.push(" * ", Colors::expr());
-                stream.push_owned(scale.to_string(), Colors::immediate());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(regspec_label(base), CONFIG.colors.asm.register);
+                stream.push(" + ", CONFIG.colors.asm.expr);
+                stream.push(regspec_label(index), CONFIG.colors.asm.register);
+                stream.push(" * ", CONFIG.colors.asm.expr);
+                stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
                 Number(disp).tokenize(stream, symbols);
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
 
-                stream.push("{", Colors::brackets());
-                stream.push(regspec_label(mask_reg), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push(regspec_label(mask_reg), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::Nothing => {}
         }
@@ -2379,7 +2380,7 @@ impl ToTokens for Instruction {
         }
 
         op.push_str(opcode_name);
-        stream.push_owned(op, Colors::opcode());
+        stream.push_owned(op, CONFIG.colors.asm.opcode);
 
         // slightly hacky but for `int` instructions we tend to incorrectly try to
         // do symbolic resolution on the immediate which isn't correct
@@ -2391,20 +2392,20 @@ impl ToTokens for Instruction {
             };
 
         if self.operand_count > 0 {
-            stream.push(" ", Colors::spacing());
+            stream.push(" ", colors::WHITE);
 
             let op = Operand::from_spec(self, self.operands[0]);
 
             if op.is_memory() {
                 stream.push(
                     MEM_SIZE_STRINGS[self.mem_size as usize - 1],
-                    Colors::annotation(),
+                    CONFIG.colors.asm.annotation,
                 );
             }
 
             if let Some(prefix) = self.segment_override_for_op(0) {
-                stream.push_owned(prefix.to_string(), Colors::segment());
-                stream.push(":", Colors::expr());
+                stream.push_owned(prefix.to_string(), CONFIG.colors.asm.segment);
+                stream.push(":", CONFIG.colors.asm.expr);
             }
 
             op.tokenize(stream, symbols, imm_override);
@@ -2414,18 +2415,18 @@ impl ToTokens for Instruction {
                     continue;
                 }
 
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
 
                 let op = Operand::from_spec(self, self.operands[idx as usize]);
                 if op.is_memory() {
                     stream.push(
                         MEM_SIZE_STRINGS[self.mem_size as usize - 1],
-                        Colors::annotation(),
+                        CONFIG.colors.asm.annotation,
                     );
                 }
                 if let Some(prefix) = self.segment_override_for_op(idx) {
-                    stream.push_owned(prefix.to_string(), Colors::segment());
-                    stream.push(":", Colors::expr());
+                    stream.push_owned(prefix.to_string(), CONFIG.colors.asm.segment);
+                    stream.push(":", CONFIG.colors.asm.expr);
                 }
 
                 op.tokenize(stream, symbols, imm_override);
@@ -2489,10 +2490,10 @@ impl ToTokens for Instruction {
                             }
                         };
 
-                        stream.push("{", Colors::brackets());
-                        stream.push("1to", Colors::expr());
-                        stream.push_owned(scale.to_string(), Colors::immediate());
-                        stream.push("}", Colors::brackets());
+                        stream.push("{", CONFIG.colors.brackets);
+                        stream.push("1to", CONFIG.colors.asm.expr);
+                        stream.push_owned(scale.to_string(), CONFIG.colors.asm.immediate);
+                        stream.push("}", CONFIG.colors.brackets);
                     }
                 }
             }

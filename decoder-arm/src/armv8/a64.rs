@@ -9,7 +9,8 @@ use core::fmt::{self, Display, Formatter};
 
 use debugvault::Index;
 use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens};
-use tokenizing::{colors, ColorScheme, Colors, TokenStream};
+use tokenizing::TokenStream;
+use config::CONFIG;
 
 #[allow(non_snake_case)]
 mod docs {
@@ -290,7 +291,7 @@ impl ToTokens for Instruction {
     fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         match self.opcode {
             Opcode::ISB => {
-                stream.push("isb", Colors::opcode());
+                stream.push("isb", CONFIG.colors.asm.opcode);
 
                 // the default/reserved/expected value for the immediate in `isb` is `0b1111`.
                 if let Operand::Imm16(15) = self.operands[0] {
@@ -299,13 +300,13 @@ impl ToTokens for Instruction {
             }
             Opcode::SBC => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    stream.push("ngc ", Colors::opcode());
+                    stream.push("ngc ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 } else {
-                    stream.push("sbc", Colors::opcode());
+                    stream.push("sbc", CONFIG.colors.asm.opcode);
                 }
             }
             Opcode::MOVN => {
@@ -323,10 +324,10 @@ impl ToTokens for Instruction {
                 } else {
                     unreachable!("movn operand 0 is always Register");
                 };
-                stream.push("mov ", Colors::opcode());
+                stream.push("mov ", CONFIG.colors.asm.opcode);
                 self.operands[0].tokenize(stream, symbols);
-                stream.push(", #", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(imm), Colors::immediate());
+                stream.push(", #", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(imm), CONFIG.colors.asm.immediate);
                 return;
             }
             Opcode::MOVZ => {
@@ -344,100 +345,100 @@ impl ToTokens for Instruction {
                 } else {
                     unreachable!("movn operand 0 is always Register");
                 };
-                stream.push("mov ", Colors::opcode());
+                stream.push("mov ", CONFIG.colors.asm.opcode);
                 self.operands[0].tokenize(stream, symbols);
-                stream.push(", #", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(imm), Colors::immediate());
+                stream.push(", #", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(imm), CONFIG.colors.asm.immediate);
                 return;
             }
             Opcode::ORR => {
                 if let Operand::Register(_, 31) = self.operands[1] {
                     if let Operand::Immediate(0) = self.operands[2] {
-                        stream.push("mov ", Colors::opcode());
+                        stream.push("mov ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
                         return;
                     } else if let Operand::RegShift(style, amt, size, r) = self.operands[2] {
                         if style == ShiftStyle::LSL && amt == 0 {
-                            stream.push("mov ", Colors::opcode());
+                            stream.push("mov ", CONFIG.colors.asm.opcode);
                             self.operands[0].tokenize(stream, symbols);
-                            stream.push(", ", Colors::expr());
+                            stream.push(", ", CONFIG.colors.asm.expr);
                             Operand::Register(size, r).tokenize(stream, symbols);
                             return;
                         }
                     } else {
-                        stream.push("mov ", Colors::opcode());
+                        stream.push("mov ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
                 } else if self.operands[1] == self.operands[2] {
-                    stream.push("mov ", Colors::opcode());
+                    stream.push("mov ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("orr", Colors::opcode());
+                stream.push("orr", CONFIG.colors.asm.opcode);
             }
             Opcode::ORN => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    stream.push("mvn ", Colors::opcode());
+                    stream.push("mvn ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("orn", Colors::opcode());
+                stream.push("orn", CONFIG.colors.asm.opcode);
             }
             Opcode::ANDS => {
                 if let Operand::Register(_, 31) = self.operands[0] {
-                    stream.push("tst ", Colors::opcode());
+                    stream.push("tst ", CONFIG.colors.asm.opcode);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("ands", Colors::opcode());
+                stream.push("ands", CONFIG.colors.asm.opcode);
             }
             Opcode::NOT => {
                 // `This instruction is used by the alias MVN. The alias is always the preferred
                 // disassembly.`
-                stream.push("mvn", Colors::opcode());
+                stream.push("mvn", CONFIG.colors.asm.opcode);
             }
             Opcode::ADDS => {
                 if let Operand::Register(_, 31) = self.operands[0] {
-                    stream.push("cmn ", Colors::opcode());
+                    stream.push("cmn ", CONFIG.colors.asm.opcode);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    stream.push("adds ", Colors::opcode());
+                    stream.push("adds ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     Operand::Register(size, reg).tokenize(stream, symbols);
                     return;
                 }
-                stream.push("adds", Colors::opcode());
+                stream.push("adds", CONFIG.colors.asm.opcode);
             }
             Opcode::ADD => {
                 if let Operand::Immediate(0) = self.operands[2] {
                     if let Operand::RegisterOrSP(_, 31) = self.operands[0] {
-                        stream.push("mov ", Colors::opcode());
+                        stream.push("mov ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
                         return;
                     }
                     if let Operand::RegisterOrSP(_, 31) = self.operands[1] {
-                        stream.push("mov ", Colors::opcode());
+                        stream.push("mov ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
                         return;
                     }
@@ -445,67 +446,67 @@ impl ToTokens for Instruction {
                 //                } else if let Operand::Register(_, 31) = self.operands[1] {
                 //                    return write!(fmt, "mov {}, {}", self.operands[0], self.operands[2]);
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    stream.push("add ", Colors::opcode());
+                    stream.push("add ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     Operand::Register(size, reg).tokenize(stream, symbols);
                     return;
                 }
-                stream.push("add", Colors::opcode());
+                stream.push("add", CONFIG.colors.asm.opcode);
             }
             Opcode::SUBS => {
                 if let Operand::Register(_, 31) = self.operands[0] {
-                    stream.push("cmp ", Colors::opcode());
+                    stream.push("cmp ", CONFIG.colors.asm.opcode);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 } else if let Operand::Register(_, 31) = self.operands[1] {
-                    stream.push("negs ", Colors::opcode());
+                    stream.push("negs ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    stream.push("subs ", Colors::opcode());
+                    stream.push("subs ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     Operand::Register(size, reg).tokenize(stream, symbols);
                     return;
                 }
-                stream.push("subs", Colors::opcode());
+                stream.push("subs", CONFIG.colors.asm.opcode);
             }
             Opcode::SUB => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    stream.push("neg ", Colors::opcode());
+                    stream.push("neg ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 } else if let Operand::RegShift(ShiftStyle::LSL, 0, size, reg) = self.operands[2] {
-                    stream.push("sub ", Colors::opcode());
+                    stream.push("sub ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     Operand::Register(size, reg).tokenize(stream, symbols);
                     return;
                 }
-                stream.push("sub", Colors::opcode());
+                stream.push("sub", CONFIG.colors.asm.opcode);
             }
             Opcode::SBCS => {
                 if let Operand::Register(_, 31) = self.operands[1] {
-                    stream.push("ngcs ", Colors::opcode());
+                    stream.push("ngcs ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("sbcs", Colors::opcode());
+                stream.push("sbcs", CONFIG.colors.asm.opcode);
             }
             Opcode::UBFM => {
                 // TODO: handle ubfx alias
@@ -516,15 +517,15 @@ impl ToTokens for Instruction {
                 ) = (self.operands[0], self.operands[1], self.operands[2])
                 {
                     if let Operand::Immediate(7) = self.operands[3] {
-                        stream.push("uxtb ", Colors::opcode());
+                        stream.push("uxtb ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
                         return;
                     } else if let Operand::Immediate(15) = self.operands[3] {
-                        stream.push("uxth ", Colors::opcode());
+                        stream.push("uxth ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
                         return;
                     }
@@ -537,11 +538,11 @@ impl ToTokens for Instruction {
                     };
                     match (imms, size) {
                         (63, SizeCode::X) | (31, SizeCode::W) => {
-                            stream.push("lsr ", Colors::opcode());
+                            stream.push("lsr ", CONFIG.colors.asm.opcode);
                             self.operands[0].tokenize(stream, symbols);
-                            stream.push(", ", Colors::expr());
+                            stream.push(", ", CONFIG.colors.asm.expr);
                             self.operands[1].tokenize(stream, symbols);
-                            stream.push(", ", Colors::expr());
+                            stream.push(", ", CONFIG.colors.asm.expr);
                             self.operands[2].tokenize(stream, symbols);
                             return;
                         }
@@ -553,31 +554,31 @@ impl ToTokens for Instruction {
                                 unreachable!("operand 3 is a register");
                             };
                             if imms + 1 == immr {
-                                stream.push("lsl ", Colors::opcode());
+                                stream.push("lsl ", CONFIG.colors.asm.opcode);
                                 self.operands[0].tokenize(stream, symbols);
-                                stream.push(", ", Colors::expr());
+                                stream.push(", ", CONFIG.colors.asm.expr);
                                 self.operands[1].tokenize(stream, symbols);
-                                stream.push(", #", Colors::expr());
+                                stream.push(", #", CONFIG.colors.asm.expr);
                                 stream.push_owned(
                                     decoder::encode_uhex((size - imms - 1) as u64),
-                                    Colors::immediate(),
+                                    CONFIG.colors.asm.immediate,
                                 );
                                 return;
                             }
                             if imms < immr {
-                                stream.push("ubfiz ", Colors::opcode());
+                                stream.push("ubfiz ", CONFIG.colors.asm.opcode);
                                 self.operands[0].tokenize(stream, symbols);
-                                stream.push(", ", Colors::expr());
+                                stream.push(", ", CONFIG.colors.asm.expr);
                                 self.operands[1].tokenize(stream, symbols);
-                                stream.push(", #", Colors::expr());
+                                stream.push(", #", CONFIG.colors.asm.expr);
                                 stream.push_owned(
                                     decoder::encode_uhex((size - immr) as u64),
-                                    Colors::immediate(),
+                                    CONFIG.colors.asm.immediate,
                                 );
-                                stream.push(", #", Colors::expr());
+                                stream.push(", #", CONFIG.colors.asm.expr);
                                 stream.push_owned(
                                     decoder::encode_uhex((imms + 1) as u64),
-                                    Colors::immediate(),
+                                    CONFIG.colors.asm.immediate,
                                 );
                                 return;
                             }
@@ -594,13 +595,13 @@ impl ToTokens for Instruction {
                     unreachable!("last two operands of ubfm are always immediates");
                 };
 
-                stream.push("ubfx ", Colors::opcode());
+                stream.push("ubfx ", CONFIG.colors.asm.opcode);
                 self.operands[0].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[1].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[2].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 width.tokenize(stream, symbols);
                 return;
             }
@@ -617,33 +618,33 @@ impl ToTokens for Instruction {
                                 ((-(immr as i8)) as u8) & 0x3f
                             };
                             if rn == 31 {
-                                stream.push("bfc ", Colors::opcode());
+                                stream.push("bfc ", CONFIG.colors.asm.opcode);
                                 self.operands[0].tokenize(stream, symbols);
-                                stream.push(", #", Colors::expr());
+                                stream.push(", #", CONFIG.colors.asm.expr);
                                 stream.push_owned(
                                     decoder::encode_uhex(lsb as u64),
-                                    Colors::immediate(),
+                                    CONFIG.colors.asm.immediate,
                                 );
-                                stream.push(", #", Colors::expr());
+                                stream.push(", #", CONFIG.colors.asm.expr);
                                 stream.push_owned(
                                     decoder::encode_uhex(width as u64),
-                                    Colors::immediate(),
+                                    CONFIG.colors.asm.immediate,
                                 );
                                 return;
                             } else {
-                                stream.push("bfi ", Colors::opcode());
+                                stream.push("bfi ", CONFIG.colors.asm.opcode);
                                 self.operands[0].tokenize(stream, symbols);
-                                stream.push(", ", Colors::expr());
+                                stream.push(", ", CONFIG.colors.asm.expr);
                                 self.operands[1].tokenize(stream, symbols);
-                                stream.push(", #", Colors::expr());
+                                stream.push(", #", CONFIG.colors.asm.expr);
                                 stream.push_owned(
                                     decoder::encode_uhex(lsb as u64),
-                                    Colors::immediate(),
+                                    CONFIG.colors.asm.immediate,
                                 );
-                                stream.push(", #", Colors::expr());
+                                stream.push(", #", CONFIG.colors.asm.expr);
                                 stream.push_owned(
                                     decoder::encode_uhex(width as u64),
-                                    Colors::immediate(),
+                                    CONFIG.colors.asm.immediate,
                                 );
                                 return;
                             }
@@ -653,14 +654,14 @@ impl ToTokens for Instruction {
                         let lsb = immr;
                         let width = imms + 1 - lsb;
 
-                        stream.push("bfxil ", Colors::opcode());
+                        stream.push("bfxil ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
-                        stream.push(", #", Colors::expr());
-                        stream.push_owned(decoder::encode_uhex(lsb as u64), Colors::immediate());
-                        stream.push(", #", Colors::expr());
-                        stream.push_owned(decoder::encode_uhex(width as u64), Colors::immediate());
+                        stream.push(", #", CONFIG.colors.asm.expr);
+                        stream.push_owned(decoder::encode_uhex(lsb as u64), CONFIG.colors.asm.immediate);
+                        stream.push(", #", CONFIG.colors.asm.expr);
+                        stream.push_owned(decoder::encode_uhex(width as u64), CONFIG.colors.asm.immediate);
                         return;
                     }
                 }
@@ -668,22 +669,22 @@ impl ToTokens for Instruction {
             Opcode::SBFM => {
                 if let Operand::Immediate(63) = self.operands[3] {
                     if let Operand::Register(SizeCode::X, _) = self.operands[0] {
-                        stream.push("asr ", Colors::opcode());
+                        stream.push("asr ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
                 }
                 if let Operand::Immediate(31) = self.operands[3] {
                     if let Operand::Register(SizeCode::W, _) = self.operands[0] {
-                        stream.push("asr ", Colors::opcode());
+                        stream.push("asr ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -695,14 +696,14 @@ impl ToTokens for Instruction {
                         unreachable!("operand 1 is always a register");
                     };
                     if let Operand::Immediate(7) = self.operands[3] {
-                        stream.push("sxtb ", Colors::opcode());
+                        stream.push("sxtb ", CONFIG.colors.asm.opcode);
                     } else if let Operand::Immediate(15) = self.operands[3] {
-                        stream.push("sxth ", Colors::opcode());
+                        stream.push("sxth ", CONFIG.colors.asm.opcode);
                     } else if let Operand::Immediate(31) = self.operands[3] {
-                        stream.push("sxtw ", Colors::opcode());
+                        stream.push("sxtw ", CONFIG.colors.asm.opcode);
                     }
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     newsrc.tokenize(stream, symbols);
                     return;
                 }
@@ -719,19 +720,19 @@ impl ToTokens for Instruction {
                         } else {
                             unreachable!("operand 0 is always a register");
                         };
-                        stream.push("sbfiz ", Colors::opcode());
+                        stream.push("sbfiz ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
-                        stream.push(", #", Colors::expr());
+                        stream.push(", #", CONFIG.colors.asm.expr);
                         stream.push_owned(
                             decoder::encode_uhex((size - imms) as u64),
-                            Colors::immediate(),
+                            CONFIG.colors.asm.immediate,
                         );
-                        stream.push(", #", Colors::expr());
+                        stream.push(", #", CONFIG.colors.asm.expr);
                         stream.push_owned(
                             decoder::encode_uhex((immr + 1) as u64),
-                            Colors::immediate(),
+                            CONFIG.colors.asm.immediate,
                         );
                         return;
                     }
@@ -745,13 +746,13 @@ impl ToTokens for Instruction {
                 } else {
                     unreachable!("last two operands of sbfm are always immediates");
                 };
-                stream.push("sbfx ", Colors::opcode());
+                stream.push("sbfx ", CONFIG.colors.asm.opcode);
                 self.operands[0].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[1].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[2].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 width.tokenize(stream, symbols);
                 return;
             }
@@ -760,19 +761,19 @@ impl ToTokens for Instruction {
                     (self.operands[1], self.operands[2])
                 {
                     if Rn == Rm {
-                        stream.push("ror ", Colors::opcode());
+                        stream.push("ror ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[3].tokenize(stream, symbols);
                         return;
                     }
                 }
-                stream.push("extr", Colors::opcode());
+                stream.push("extr", CONFIG.colors.asm.opcode);
             }
             Opcode::RET => {
-                stream.push("ret", Colors::opcode());
+                stream.push("ret", CONFIG.colors.asm.opcode);
                 if let Operand::Register(SizeCode::X, 30) = self.operands[0] {
                     // C5.6.148:  Defaults to X30 if absent.
                     // so ret x30 is probably expected to be read as just `ret`
@@ -780,29 +781,29 @@ impl ToTokens for Instruction {
                 }
             }
             Opcode::SYS(ops) => {
-                stream.push("sys #", Colors::opcode());
-                stream.push_owned(decoder::encode_uhex(ops.op1() as u64), Colors::immediate());
-                stream.push(", ", Colors::expr());
+                stream.push("sys #", CONFIG.colors.asm.opcode);
+                stream.push_owned(decoder::encode_uhex(ops.op1() as u64), CONFIG.colors.asm.immediate);
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[1].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[2].tokenize(stream, symbols);
-                stream.push(", #", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(ops.op2() as u64), Colors::immediate());
-                stream.push(", ", Colors::expr());
+                stream.push(", #", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(ops.op2() as u64), CONFIG.colors.asm.immediate);
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[0].tokenize(stream, symbols);
                 return;
             }
             Opcode::SYSL(ops) => {
-                stream.push("sysl ", Colors::opcode());
+                stream.push("sysl ", CONFIG.colors.asm.opcode);
                 self.operands[2].tokenize(stream, symbols);
-                stream.push(", #", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(ops.op1() as u64), Colors::immediate());
-                stream.push(", ", Colors::expr());
+                stream.push(", #", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(ops.op1() as u64), CONFIG.colors.asm.immediate);
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[0].tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 self.operands[1].tokenize(stream, symbols);
-                stream.push(", #", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(ops.op2() as u64), Colors::immediate());
+                stream.push(", #", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(ops.op2() as u64), CONFIG.colors.asm.immediate);
                 return;
             }
             Opcode::HINT => {
@@ -811,21 +812,21 @@ impl ToTokens for Instruction {
                 {
                     let hint_num = (CRn << 3) | op2 as u16;
                     match hint_num & 0b111111 {
-                        0x0 => stream.push("nop", Colors::opcode()),
-                        0x1 => stream.push("yield", Colors::opcode()),
-                        0x2 => stream.push("wfe", Colors::opcode()),
-                        0x3 => stream.push("wfi", Colors::opcode()),
-                        0x4 => stream.push("sev", Colors::opcode()),
-                        0x10 => stream.push("esb", Colors::opcode()),
-                        0x11 => stream.push("psb csync", Colors::opcode()),
-                        0x12 => stream.push("tsb csync", Colors::opcode()),
-                        0x14 => stream.push("csdb", Colors::opcode()),
-                        0x15 => stream.push("sevl", Colors::opcode()),
+                        0x0 => stream.push("nop", CONFIG.colors.asm.opcode),
+                        0x1 => stream.push("yield", CONFIG.colors.asm.opcode),
+                        0x2 => stream.push("wfe", CONFIG.colors.asm.opcode),
+                        0x3 => stream.push("wfi", CONFIG.colors.asm.opcode),
+                        0x4 => stream.push("sev", CONFIG.colors.asm.opcode),
+                        0x10 => stream.push("esb", CONFIG.colors.asm.opcode),
+                        0x11 => stream.push("psb csync", CONFIG.colors.asm.opcode),
+                        0x12 => stream.push("tsb csync", CONFIG.colors.asm.opcode),
+                        0x14 => stream.push("csdb", CONFIG.colors.asm.opcode),
+                        0x15 => stream.push("sevl", CONFIG.colors.asm.opcode),
                         _ => {
-                            stream.push("hint #", Colors::opcode());
+                            stream.push("hint #", CONFIG.colors.asm.opcode);
                             stream.push_owned(
                                 decoder::encode_uhex(hint_num as u64),
-                                Colors::immediate(),
+                                CONFIG.colors.asm.immediate,
                             );
                         }
                     };
@@ -840,18 +841,18 @@ impl ToTokens for Instruction {
                 ) = (self.operands[1], self.operands[2], self.operands[3])
                 {
                     if cond < 0b1110 && rn == rm {
-                        stream.push("cneg ", Colors::opcode());
+                        stream.push("cneg ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
                         return;
                     }
                 } else {
                     unreachable!("operands 2 and 3 are always registers");
                 }
-                stream.push("csneg", Colors::opcode());
+                stream.push("csneg", CONFIG.colors.asm.opcode);
             }
             Opcode::CSINC => {
                 match (self.operands[1], self.operands[2], self.operands[3]) {
@@ -862,17 +863,17 @@ impl ToTokens for Instruction {
                     ) => {
                         if n == m && cond < 0b1110 {
                             if n == 31 {
-                                stream.push("cset ", Colors::opcode());
+                                stream.push("cset ", CONFIG.colors.asm.opcode);
                                 self.operands[0].tokenize(stream, symbols);
-                                stream.push(", ", Colors::expr());
+                                stream.push(", ", CONFIG.colors.asm.expr);
                                 Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
                                 return;
                             } else {
-                                stream.push("cinc ", Colors::opcode());
+                                stream.push("cinc ", CONFIG.colors.asm.opcode);
                                 self.operands[0].tokenize(stream, symbols);
-                                stream.push(", ", Colors::expr());
+                                stream.push(", ", CONFIG.colors.asm.expr);
                                 self.operands[1].tokenize(stream, symbols);
-                                stream.push(", ", Colors::expr());
+                                stream.push(", ", CONFIG.colors.asm.expr);
                                 Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
                                 return;
                             }
@@ -880,7 +881,7 @@ impl ToTokens for Instruction {
                     }
                     _ => {}
                 }
-                stream.push("csinc", Colors::opcode());
+                stream.push("csinc", CONFIG.colors.asm.opcode);
             }
             Opcode::CSINV => {
                 match (self.operands[1], self.operands[2], self.operands[3]) {
@@ -890,131 +891,131 @@ impl ToTokens for Instruction {
                         Operand::ConditionCode(cond),
                     ) => {
                         if n == m && n != 31 && cond < 0b1110 {
-                            stream.push("cinv ", Colors::opcode());
+                            stream.push("cinv ", CONFIG.colors.asm.opcode);
                             self.operands[0].tokenize(stream, symbols);
-                            stream.push(", ", Colors::expr());
+                            stream.push(", ", CONFIG.colors.asm.expr);
                             self.operands[1].tokenize(stream, symbols);
-                            stream.push(", ", Colors::expr());
+                            stream.push(", ", CONFIG.colors.asm.expr);
                             Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
                             return;
                         } else if n == m && n == 31 && cond < 0b1110 {
-                            stream.push("csetm ", Colors::opcode());
+                            stream.push("csetm ", CONFIG.colors.asm.opcode);
                             self.operands[0].tokenize(stream, symbols);
-                            stream.push(", ", Colors::expr());
+                            stream.push(", ", CONFIG.colors.asm.expr);
                             Operand::ConditionCode(cond ^ 0x01).tokenize(stream, symbols);
                             return;
                         }
                     }
                     _ => {}
                 }
-                stream.push("csinv", Colors::opcode());
+                stream.push("csinv", CONFIG.colors.asm.opcode);
             }
             Opcode::MADD => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    stream.push("mul ", Colors::opcode());
+                    stream.push("mul ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("madd", Colors::opcode());
+                stream.push("madd", CONFIG.colors.asm.opcode);
             }
             Opcode::MSUB => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    stream.push("mneg ", Colors::opcode());
+                    stream.push("mneg ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("msub", Colors::opcode());
+                stream.push("msub", CONFIG.colors.asm.opcode);
             }
             Opcode::SMADDL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    stream.push("smull ", Colors::opcode());
+                    stream.push("smull ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("smaddl", Colors::opcode());
+                stream.push("smaddl", CONFIG.colors.asm.opcode);
             }
             Opcode::SMSUBL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    stream.push("smnegl ", Colors::opcode());
+                    stream.push("smnegl ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("smsubl", Colors::opcode());
+                stream.push("smsubl", CONFIG.colors.asm.opcode);
             }
             Opcode::UMADDL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    stream.push("umull ", Colors::opcode());
+                    stream.push("umull ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("umaddl", Colors::opcode());
+                stream.push("umaddl", CONFIG.colors.asm.opcode);
             }
             Opcode::UMSUBL => {
                 if let Operand::Register(_, 31) = self.operands[3] {
-                    stream.push("umnegl ", Colors::opcode());
+                    stream.push("umnegl ", CONFIG.colors.asm.opcode);
                     self.operands[0].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[1].tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     self.operands[2].tokenize(stream, symbols);
                     return;
                 }
-                stream.push("umsubl", Colors::opcode());
+                stream.push("umsubl", CONFIG.colors.asm.opcode);
             }
             Opcode::LSLV => {
                 // lslv == lsl (register) and, quoth the manual, `lsl is always the preferred
                 // disassembly`.
-                stream.push("lsl", Colors::opcode());
+                stream.push("lsl", CONFIG.colors.asm.opcode);
             }
             Opcode::LSRV => {
                 // lsrv == lsr (register) and, quoth the manual, `lsr is always the preferred
                 // disassembly`.
-                stream.push("lsr", Colors::opcode());
+                stream.push("lsr", CONFIG.colors.asm.opcode);
             }
             Opcode::ASRV => {
                 // asrv == asr (register) and, quoth the manual, `asr is always the preferred
                 // disassembly`.
-                stream.push("asr", Colors::opcode());
+                stream.push("asr", CONFIG.colors.asm.opcode);
             }
             Opcode::RORV => {
                 // rorv == ror (register) and, quoth the manual, `ror is always the preferred
                 // disassembly`.
-                stream.push("ror", Colors::opcode());
+                stream.push("ror", CONFIG.colors.asm.opcode);
             }
             Opcode::INS => {
                 // `ins (element)` and `ins (general)` both have `mov` as an alias. manual reports
                 // that `mov` is the preferred disassembly.
-                stream.push("mov", Colors::opcode());
+                stream.push("mov", CONFIG.colors.asm.opcode);
             }
             Opcode::DUP => {
                 if let Operand::Register(_, _) = self.operands[1] {
                     // `dup (general)`
-                    stream.push("dup", Colors::opcode());
+                    stream.push("dup", CONFIG.colors.asm.opcode);
                 } else {
                     // `dup (element)`
                     // manual says `mov` is the preferred disassembly here? but capstone uses
                     // `dup`.
-                    stream.push("mov", Colors::opcode());
+                    stream.push("mov", CONFIG.colors.asm.opcode);
                 }
             }
             Opcode::UMOV => {
@@ -1026,13 +1027,13 @@ impl ToTokens for Instruction {
                     if (reg_sz == SizeCode::W && elem_sz == SIMDSizeCode::S)
                         || (reg_sz == SizeCode::X && elem_sz == SIMDSizeCode::D)
                     {
-                        stream.push("mov ", Colors::opcode());
+                        stream.push("mov ", CONFIG.colors.asm.opcode);
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[1].tokenize(stream, symbols);
                         return;
                     } else {
-                        stream.push("umov", Colors::opcode());
+                        stream.push("umov", CONFIG.colors.asm.opcode);
                     }
                 }
             }
@@ -1040,12 +1041,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stadd ", Colors::opcode());
+                            stream.push("stadd ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("staddl ", Colors::opcode());
+                            stream.push("staddl ", CONFIG.colors.asm.opcode);
                         }
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1056,12 +1057,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stclr ", Colors::opcode());
+                            stream.push("stclr ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stclrl ", Colors::opcode());
+                            stream.push("stclrl ", CONFIG.colors.asm.opcode);
                         }
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1072,12 +1073,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stset ", Colors::opcode());
+                            stream.push("stset ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsetl ", Colors::opcode());
+                            stream.push("stsetl ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1088,12 +1089,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stsmax ", Colors::opcode());
+                            stream.push("stsmax ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsmaxl ", Colors::opcode());
+                            stream.push("stsmaxl ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1104,12 +1105,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stsmin ", Colors::opcode());
+                            stream.push("stsmin ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsminl ", Colors::opcode());
+                            stream.push("stsminl ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1120,12 +1121,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stumax ", Colors::opcode());
+                            stream.push("stumax ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stumaxl ", Colors::opcode());
+                            stream.push("stumaxl ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1136,12 +1137,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stumin ", Colors::opcode());
+                            stream.push("stumin ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stuminl ", Colors::opcode());
+                            stream.push("stuminl ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1152,12 +1153,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("steor ", Colors::opcode());
+                            stream.push("steor ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("steorl ", Colors::opcode());
+                            stream.push("steorl ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1168,12 +1169,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("staddh ", Colors::opcode());
+                            stream.push("staddh ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("staddlh ", Colors::opcode());
+                            stream.push("staddlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1184,12 +1185,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stclrh ", Colors::opcode());
+                            stream.push("stclrh ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stclrlh ", Colors::opcode());
+                            stream.push("stclrlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1200,12 +1201,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stseth ", Colors::opcode());
+                            stream.push("stseth ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsetlh ", Colors::opcode());
+                            stream.push("stsetlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1216,12 +1217,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stsmaxh ", Colors::opcode());
+                            stream.push("stsmaxh ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsmaxlh ", Colors::opcode());
+                            stream.push("stsmaxlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1232,12 +1233,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stsminh ", Colors::opcode());
+                            stream.push("stsminh ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsminlh ", Colors::opcode());
+                            stream.push("stsminlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1248,12 +1249,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stumaxh ", Colors::opcode());
+                            stream.push("stumaxh ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stumaxlh ", Colors::opcode());
+                            stream.push("stumaxlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1264,12 +1265,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stuminh ", Colors::opcode());
+                            stream.push("stuminh ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stuminlh ", Colors::opcode());
+                            stream.push("stuminlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1280,12 +1281,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("steorh ", Colors::opcode());
+                            stream.push("steorh ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("steorlh ", Colors::opcode());
+                            stream.push("steorlh ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1296,12 +1297,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("staddb ", Colors::opcode());
+                            stream.push("staddb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("staddlb ", Colors::opcode());
+                            stream.push("staddlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1312,12 +1313,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stclrb ", Colors::opcode());
+                            stream.push("stclrb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stclrlb ", Colors::opcode());
+                            stream.push("stclrlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1328,12 +1329,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stsetb ", Colors::opcode());
+                            stream.push("stsetb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsetlb ", Colors::opcode());
+                            stream.push("stsetlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1344,12 +1345,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stsmaxb ", Colors::opcode());
+                            stream.push("stsmaxb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsmaxlb ", Colors::opcode());
+                            stream.push("stsmaxlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1360,12 +1361,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stsminb ", Colors::opcode());
+                            stream.push("stsminb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stsminlb ", Colors::opcode());
+                            stream.push("stsminlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1376,12 +1377,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stumaxb ", Colors::opcode());
+                            stream.push("stumaxb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stumaxlb ", Colors::opcode());
+                            stream.push("stumaxlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1392,12 +1393,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("stuminb ", Colors::opcode());
+                            stream.push("stuminb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("stuminlb ", Colors::opcode());
+                            stream.push("stuminlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1408,12 +1409,12 @@ impl ToTokens for Instruction {
                 if let Operand::Register(_, rt) = self.operands[1] {
                     if rt == 31 && ar & 0b10 == 0b00 {
                         if ar & 0b01 == 0b00 {
-                            stream.push("steorb ", Colors::opcode());
+                            stream.push("steorb ", CONFIG.colors.asm.opcode);
                         } else {
-                            stream.push("steorlb ", Colors::opcode());
+                            stream.push("steorlb ", CONFIG.colors.asm.opcode);
                         };
                         self.operands[0].tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
+                        stream.push(", ", CONFIG.colors.asm.expr);
                         self.operands[2].tokenize(stream, symbols);
                         return;
                     }
@@ -1424,28 +1425,28 @@ impl ToTokens for Instruction {
         };
 
         if self.operands[0] != Operand::Nothing {
-            stream.push(" ", Colors::expr());
+            stream.push(" ", CONFIG.colors.asm.expr);
             self.operands[0].tokenize(stream, symbols);
         } else {
             return;
         }
 
         if self.operands[1] != Operand::Nothing {
-            stream.push(", ", Colors::expr());
+            stream.push(", ", CONFIG.colors.asm.expr);
             self.operands[1].tokenize(stream, symbols);
         } else {
             return;
         }
 
         if self.operands[2] != Operand::Nothing {
-            stream.push(", ", Colors::expr());
+            stream.push(", ", CONFIG.colors.asm.expr);
             self.operands[2].tokenize(stream, symbols);
         } else {
             return;
         }
 
         if self.operands[3] != Operand::Nothing {
-            stream.push(", ", Colors::expr());
+            stream.push(", ", CONFIG.colors.asm.expr);
             self.operands[3].tokenize(stream, symbols);
         } else {
             return;
@@ -2918,42 +2919,42 @@ impl ToTokens for Opcode {
             Opcode::SUBPS => "subps",
 
             Opcode::Bcc(cond) => {
-                stream.push("b.", Colors::opcode());
+                stream.push("b.", CONFIG.colors.asm.opcode);
                 Operand::ConditionCode(cond).tokenize(stream, symbols);
                 return;
             }
             Opcode::DMB(option) => {
                 return match option {
-                    0b0001 => stream.push("dmb oshld", Colors::opcode()),
-                    0b0010 => stream.push("dmb oshst", Colors::opcode()),
-                    0b0011 => stream.push("dmb osh", Colors::opcode()),
-                    0b0101 => stream.push("dmb nshld", Colors::opcode()),
-                    0b0110 => stream.push("dmb nshst", Colors::opcode()),
-                    0b0111 => stream.push("dmb nsh", Colors::opcode()),
-                    0b1001 => stream.push("dmb ishld", Colors::opcode()),
-                    0b1010 => stream.push("dmb ishst", Colors::opcode()),
-                    0b1011 => stream.push("dmb ish", Colors::opcode()),
-                    0b1101 => stream.push("dmb ld", Colors::opcode()),
-                    0b1110 => stream.push("dmb st", Colors::opcode()),
-                    0b1111 => stream.push("dmb sy", Colors::opcode()),
-                    _ => stream.push_owned(format!("dmb #{option}"), Colors::opcode()),
+                    0b0001 => stream.push("dmb oshld", CONFIG.colors.asm.opcode),
+                    0b0010 => stream.push("dmb oshst", CONFIG.colors.asm.opcode),
+                    0b0011 => stream.push("dmb osh", CONFIG.colors.asm.opcode),
+                    0b0101 => stream.push("dmb nshld", CONFIG.colors.asm.opcode),
+                    0b0110 => stream.push("dmb nshst", CONFIG.colors.asm.opcode),
+                    0b0111 => stream.push("dmb nsh", CONFIG.colors.asm.opcode),
+                    0b1001 => stream.push("dmb ishld", CONFIG.colors.asm.opcode),
+                    0b1010 => stream.push("dmb ishst", CONFIG.colors.asm.opcode),
+                    0b1011 => stream.push("dmb ish", CONFIG.colors.asm.opcode),
+                    0b1101 => stream.push("dmb ld", CONFIG.colors.asm.opcode),
+                    0b1110 => stream.push("dmb st", CONFIG.colors.asm.opcode),
+                    0b1111 => stream.push("dmb sy", CONFIG.colors.asm.opcode),
+                    _ => stream.push_owned(format!("dmb #{option}"), CONFIG.colors.asm.opcode),
                 };
             }
             Opcode::DSB(option) => {
                 return match option {
-                    0b0001 => stream.push("dsb oshld", Colors::opcode()),
-                    0b0010 => stream.push("dsb oshst", Colors::opcode()),
-                    0b0011 => stream.push("dsb osh", Colors::opcode()),
-                    0b0101 => stream.push("dsb nshld", Colors::opcode()),
-                    0b0110 => stream.push("dsb nshst", Colors::opcode()),
-                    0b0111 => stream.push("dsb nsh", Colors::opcode()),
-                    0b1001 => stream.push("dsb ishld", Colors::opcode()),
-                    0b1010 => stream.push("dsb ishst", Colors::opcode()),
-                    0b1011 => stream.push("dsb ish", Colors::opcode()),
-                    0b1101 => stream.push("dsb ld", Colors::opcode()),
-                    0b1110 => stream.push("dsb st", Colors::opcode()),
-                    0b1111 => stream.push("dsb sy", Colors::opcode()),
-                    _ => stream.push_owned(format!("dsb #{option}"), Colors::opcode()),
+                    0b0001 => stream.push("dsb oshld", CONFIG.colors.asm.opcode),
+                    0b0010 => stream.push("dsb oshst", CONFIG.colors.asm.opcode),
+                    0b0011 => stream.push("dsb osh", CONFIG.colors.asm.opcode),
+                    0b0101 => stream.push("dsb nshld", CONFIG.colors.asm.opcode),
+                    0b0110 => stream.push("dsb nshst", CONFIG.colors.asm.opcode),
+                    0b0111 => stream.push("dsb nsh", CONFIG.colors.asm.opcode),
+                    0b1001 => stream.push("dsb ishld", CONFIG.colors.asm.opcode),
+                    0b1010 => stream.push("dsb ishst", CONFIG.colors.asm.opcode),
+                    0b1011 => stream.push("dsb ish", CONFIG.colors.asm.opcode),
+                    0b1101 => stream.push("dsb ld", CONFIG.colors.asm.opcode),
+                    0b1110 => stream.push("dsb st", CONFIG.colors.asm.opcode),
+                    0b1111 => stream.push("dsb sy", CONFIG.colors.asm.opcode),
+                    _ => stream.push_owned(format!("dsb #{option}"), CONFIG.colors.asm.opcode),
                 };
             }
             Opcode::HINT => "hint",
@@ -3003,7 +3004,7 @@ impl ToTokens for Opcode {
             }
         };
 
-        stream.push(text, Colors::opcode());
+        stream.push(text, CONFIG.colors.asm.opcode);
     }
 }
 
@@ -3014,7 +3015,7 @@ fn format_register_32(stream: &mut TokenStream, reg: u16) {
         "w27", "w28", "w29", "w30", "w31",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 fn format_register_64(stream: &mut TokenStream, reg: u16) {
@@ -3024,7 +3025,7 @@ fn format_register_64(stream: &mut TokenStream, reg: u16) {
         "x27", "x28", "x29", "x30", "x31",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 fn format_register_b(stream: &mut TokenStream, reg: u16) {
@@ -3034,7 +3035,7 @@ fn format_register_b(stream: &mut TokenStream, reg: u16) {
         "b27", "b28", "b29", "b30", "b31",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 fn format_register_h(stream: &mut TokenStream, reg: u16) {
@@ -3044,7 +3045,7 @@ fn format_register_h(stream: &mut TokenStream, reg: u16) {
         "h27", "h28", "h29", "h30", "h31",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 fn format_register_s(stream: &mut TokenStream, reg: u16) {
@@ -3054,7 +3055,7 @@ fn format_register_s(stream: &mut TokenStream, reg: u16) {
         "s27", "s28", "s29", "s30", "s31",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 fn format_register_d(stream: &mut TokenStream, reg: u16) {
@@ -3064,7 +3065,7 @@ fn format_register_d(stream: &mut TokenStream, reg: u16) {
         "d27", "d28", "d29", "d30", "d31",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 fn format_register_q(stream: &mut TokenStream, reg: u16) {
@@ -3074,7 +3075,7 @@ fn format_register_q(stream: &mut TokenStream, reg: u16) {
         "q27", "q28", "q29", "q30", "q31",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 fn format_register_ctrl(stream: &mut TokenStream, reg: u16) {
@@ -3083,7 +3084,7 @@ fn format_register_ctrl(stream: &mut TokenStream, reg: u16) {
         "c14", "c15",
     ];
 
-    stream.push(LOOKUP[reg as usize], Colors::register());
+    stream.push(LOOKUP[reg as usize], CONFIG.colors.asm.register);
 }
 
 /// the way a shift operation is carried out.
@@ -3330,10 +3331,10 @@ impl ToTokens for Operand {
                 if *reg == 31 {
                     match size {
                         SizeCode::X => {
-                            stream.push("xzr", Colors::register());
+                            stream.push("xzr", CONFIG.colors.asm.register);
                         }
                         SizeCode::W => {
-                            stream.push("wzr", Colors::register());
+                            stream.push("wzr", CONFIG.colors.asm.register);
                         }
                     }
                 } else {
@@ -3349,7 +3350,7 @@ impl ToTokens for Operand {
             }
             Operand::RegisterPair(size, reg) => {
                 Operand::Register(*size, *reg).tokenize(stream, symbols);
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
                 Operand::Register(*size, *reg + 1).tokenize(stream, symbols);
             }
             Operand::ControlReg(reg) => {
@@ -3361,7 +3362,7 @@ impl ToTokens for Operand {
                 let policy = op & 1;
 
                 if ty == 0b11 || target == 0b11 {
-                    stream.push_owned(format!("{:#02x}", op), Colors::immediate());
+                    stream.push_owned(format!("{:#02x}", op), CONFIG.colors.asm.immediate);
                 } else {
                     let op = format!(
                         "{}{}{}",
@@ -3369,15 +3370,15 @@ impl ToTokens for Operand {
                         ["l1", "l2", "l3"][target as usize],
                         ["keep", "strm"][policy as usize],
                     );
-                    stream.push_owned(op, Colors::opcode());
+                    stream.push_owned(op, CONFIG.colors.asm.opcode);
                 }
             }
             Operand::SystemReg(reg) => {
                 // TODO: look up system register names better
                 match reg {
-                    0x4000 => stream.push("midr_el1", Colors::register()),
-                    0x5e82 => stream.push("tpidr_el0", Colors::register()),
-                    0x5f02 => stream.push("cntvct_el0", Colors::register()),
+                    0x4000 => stream.push("midr_el1", CONFIG.colors.asm.register),
+                    0x5e82 => stream.push("tpidr_el0", CONFIG.colors.asm.register),
+                    0x5f02 => stream.push("cntvct_el0", CONFIG.colors.asm.register),
                     _ => {
                         // syntax for otherwise-undescribed system register names is described in
                         // MRS or similar, S<op0>_<op1>_<Cn>_<Cm>_<op2>
@@ -3388,22 +3389,22 @@ impl ToTokens for Operand {
                         let op1 = (reg >> 11) & 0b111;
                         let op0 = ((reg >> 14) & 0b1) + 2;
 
-                        stream.push_owned(format!("s{op0}"), Colors::immediate());
-                        stream.push("_", Colors::expr());
-                        stream.push_owned(format!("{op1}"), Colors::immediate());
-                        stream.push("_", Colors::expr());
-                        stream.push_owned(format!("c{CRn}"), Colors::register());
-                        stream.push("_", Colors::expr());
-                        stream.push_owned(format!("c{CRm}"), Colors::register());
-                        stream.push("_", Colors::expr());
-                        stream.push_owned(format!("{op2}"), Colors::immediate());
+                        stream.push_owned(format!("s{op0}"), CONFIG.colors.asm.immediate);
+                        stream.push("_", CONFIG.colors.asm.expr);
+                        stream.push_owned(format!("{op1}"), CONFIG.colors.asm.immediate);
+                        stream.push("_", CONFIG.colors.asm.expr);
+                        stream.push_owned(format!("c{CRn}"), CONFIG.colors.asm.register);
+                        stream.push("_", CONFIG.colors.asm.expr);
+                        stream.push_owned(format!("c{CRm}"), CONFIG.colors.asm.register);
+                        stream.push("_", CONFIG.colors.asm.expr);
+                        stream.push_owned(format!("{op2}"), CONFIG.colors.asm.immediate);
                     }
                 }
             }
             Operand::PstateField(reg) => {
                 // `MSR (immediate)` writes to the `PSTATE` registers, setting a few bit patterns as
                 // selected by `reg`.
-                stream.push_owned(format!("pstate.{:#x}", reg), Colors::register());
+                stream.push_owned(format!("pstate.{:#x}", reg), CONFIG.colors.asm.register);
             }
             Operand::SIMDRegister(size, reg) => match size {
                 SIMDSizeCode::B => format_register_b(stream, *reg),
@@ -3415,11 +3416,11 @@ impl ToTokens for Operand {
             Operand::SIMDRegisterElements(vector_width, reg, lane_width) => {
                 let num_items = vector_width.width() / lane_width.width();
                 let op = format!("v{}.{}{}", reg, num_items, lane_width.name());
-                stream.push_owned(op, Colors::register());
+                stream.push_owned(op, CONFIG.colors.asm.register);
             }
             Operand::SIMDRegisterElementsLane(_vector_width, reg, lane_width, lane) => {
                 let op = format!("v{}.{}[{}]", reg, lane_width.name(), lane);
-                stream.push_owned(op, Colors::register());
+                stream.push_owned(op, CONFIG.colors.asm.register);
             }
             Operand::SIMDRegisterElementsMultipleLane(
                 _vector_width,
@@ -3429,47 +3430,47 @@ impl ToTokens for Operand {
                 num_lanes,
             ) => {
                 let op = format!("v{}.{}{}[{}]", reg, num_lanes, lane_width.name(), lane);
-                stream.push_owned(op, Colors::register());
+                stream.push_owned(op, CONFIG.colors.asm.register);
             }
             Operand::SIMDRegisterGroup(vector_width, reg, lane_width, group_size) => {
                 let num_items = vector_width.width() / lane_width.width();
                 let format_reg = |stream: &mut TokenStream, reg, elems, lane_size: SIMDSizeCode| {
                     let op = format!("v{}.{}{}", reg, elems, lane_size.name());
-                    stream.push_owned(op, Colors::register());
+                    stream.push_owned(op, CONFIG.colors.asm.register);
                 };
 
-                stream.push("{", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
                 format_reg(stream, *reg, num_items, *lane_width);
                 for i in 1..*group_size {
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     format_reg(stream, (*reg + i as u16) % 32, num_items, *lane_width);
                 }
-                stream.push("}", Colors::brackets());
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::SIMDRegisterGroupLane(reg, lane_width, group_size, lane) => {
                 let format_reg = |stream: &mut TokenStream, reg, lane_size: SIMDSizeCode| {
                     let op = format!("v{}.{}", reg, lane_size.name());
-                    stream.push_owned(op, Colors::register());
+                    stream.push_owned(op, CONFIG.colors.asm.register);
                 };
 
-                stream.push("{", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
                 format_reg(stream, *reg, *lane_width);
                 for i in 1..*group_size {
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     format_reg(stream, (*reg + i as u16) % 32, *lane_width);
                 }
-                stream.push("}[", Colors::brackets());
-                stream.push_owned(lane.to_string(), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("}[", CONFIG.colors.brackets);
+                stream.push_owned(lane.to_string(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegisterOrSP(size, reg) => {
                 if *reg == 31 {
                     match size {
                         SizeCode::X => {
-                            stream.push("sp", Colors::register());
+                            stream.push("sp", CONFIG.colors.asm.register);
                         }
                         SizeCode::W => {
-                            stream.push("wsp", Colors::register());
+                            stream.push("wsp", CONFIG.colors.asm.register);
                         }
                     }
                 } else {
@@ -3485,108 +3486,108 @@ impl ToTokens for Operand {
             }
             Operand::ConditionCode(cond) => {
                 match cond {
-                    0b0000 => stream.push("eq", Colors::opcode()),
-                    0b0010 => stream.push("hs", Colors::opcode()),
-                    0b0100 => stream.push("mi", Colors::opcode()),
-                    0b0110 => stream.push("vs", Colors::opcode()),
-                    0b1000 => stream.push("hi", Colors::opcode()),
-                    0b1010 => stream.push("ge", Colors::opcode()),
-                    0b1100 => stream.push("gt", Colors::opcode()),
-                    0b1110 => stream.push("al", Colors::opcode()),
-                    0b0001 => stream.push("ne", Colors::opcode()),
-                    0b0011 => stream.push("lo", Colors::opcode()),
-                    0b0101 => stream.push("pl", Colors::opcode()),
-                    0b0111 => stream.push("vc", Colors::opcode()),
-                    0b1001 => stream.push("ls", Colors::opcode()),
-                    0b1011 => stream.push("lt", Colors::opcode()),
-                    0b1101 => stream.push("le", Colors::opcode()),
+                    0b0000 => stream.push("eq", CONFIG.colors.asm.opcode),
+                    0b0010 => stream.push("hs", CONFIG.colors.asm.opcode),
+                    0b0100 => stream.push("mi", CONFIG.colors.asm.opcode),
+                    0b0110 => stream.push("vs", CONFIG.colors.asm.opcode),
+                    0b1000 => stream.push("hi", CONFIG.colors.asm.opcode),
+                    0b1010 => stream.push("ge", CONFIG.colors.asm.opcode),
+                    0b1100 => stream.push("gt", CONFIG.colors.asm.opcode),
+                    0b1110 => stream.push("al", CONFIG.colors.asm.opcode),
+                    0b0001 => stream.push("ne", CONFIG.colors.asm.opcode),
+                    0b0011 => stream.push("lo", CONFIG.colors.asm.opcode),
+                    0b0101 => stream.push("pl", CONFIG.colors.asm.opcode),
+                    0b0111 => stream.push("vc", CONFIG.colors.asm.opcode),
+                    0b1001 => stream.push("ls", CONFIG.colors.asm.opcode),
+                    0b1011 => stream.push("lt", CONFIG.colors.asm.opcode),
+                    0b1101 => stream.push("le", CONFIG.colors.asm.opcode),
                     // `The Condition code NV exists only to provide a valid disassembly of the
                     // 0b1111 encoding, otherwise its behavior is identical to AL`.
-                    0b1111 => stream.push("nv", Colors::opcode()),
+                    0b1111 => stream.push("nv", CONFIG.colors.asm.opcode),
                     _ => unreachable!(),
                 }
             }
             Operand::PCOffset(offs) => {
                 if *offs >= 0 {
-                    stream.push("$", Colors::expr());
-                    stream.push("+", Colors::immediate());
+                    stream.push("$", CONFIG.colors.asm.expr);
+                    stream.push("+", CONFIG.colors.asm.immediate);
                 } else {
-                    stream.push("$", Colors::expr());
+                    stream.push("$", CONFIG.colors.asm.expr);
                 }
-                stream.push_owned(decoder::encode_hex(*offs), Colors::immediate());
+                stream.push_owned(decoder::encode_hex(*offs), CONFIG.colors.asm.immediate);
             }
             Operand::Immediate(imm) => match symbols.get_sym_by_addr(*imm as usize) {
                 Some(symbol) => {
-                    stream.push("<", colors::BLUE);
+                    stream.push("<", CONFIG.colors.asm.immediate);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
-                    stream.push(">", colors::BLUE);
+                    stream.push(">", CONFIG.colors.asm.immediate);
                 }
                 None => {
-                    stream.push("#", Colors::expr());
-                    stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                    stream.push("#", CONFIG.colors.asm.expr);
+                    stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
                 }
             },
             Operand::ImmediateDouble(d) => {
                 if *d as i64 as f64 == *d {
                     let imm = format!("#{d:0.1}");
-                    stream.push_owned(imm, Colors::immediate());
+                    stream.push_owned(imm, CONFIG.colors.asm.immediate);
                 } else {
                     let imm = format!("#{d:0.}");
-                    stream.push_owned(imm, Colors::immediate());
+                    stream.push_owned(imm, CONFIG.colors.asm.immediate);
                 }
             }
             Operand::Imm16(imm) => match symbols.get_sym_by_addr(*imm as usize) {
                 Some(symbol) => {
-                    stream.push("<", colors::BLUE);
+                    stream.push("<", CONFIG.colors.asm.immediate);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
-                    stream.push(">", colors::BLUE);
+                    stream.push(">", CONFIG.colors.asm.immediate);
                 }
                 None => {
-                    stream.push("#", Colors::expr());
-                    stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                    stream.push("#", CONFIG.colors.asm.expr);
+                    stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
                 }
             },
             Operand::Imm64(imm) => match symbols.get_sym_by_addr(*imm as usize) {
                 Some(symbol) => {
-                    stream.push("<", colors::BLUE);
+                    stream.push("<", CONFIG.colors.asm.immediate);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
-                    stream.push(">", colors::BLUE);
+                    stream.push(">", CONFIG.colors.asm.immediate);
                 }
                 None => {
-                    stream.push("#", Colors::expr());
-                    stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                    stream.push("#", CONFIG.colors.asm.expr);
+                    stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
                 }
             },
             Operand::Imm64Special(imm) => {
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                stream.push("#", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
             }
             Operand::ImmShift(imm, shift) => {
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                stream.push("#", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
 
                 if *shift != 0 {
-                    stream.push(", ", Colors::expr());
-                    stream.push("lsl ", Colors::opcode());
-                    stream.push("#", Colors::expr());
-                    stream.push_owned(shift.to_string(), Colors::immediate());
+                    stream.push(", ", CONFIG.colors.asm.expr);
+                    stream.push("lsl ", CONFIG.colors.asm.opcode);
+                    stream.push("#", CONFIG.colors.asm.expr);
+                    stream.push_owned(shift.to_string(), CONFIG.colors.asm.immediate);
                 }
             }
             Operand::ImmShiftMSL(imm, shift) => {
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                stream.push("#", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
 
                 if *shift != 0 {
-                    stream.push(", ", Colors::expr());
-                    stream.push("msl ", Colors::opcode());
-                    stream.push("#", Colors::expr());
-                    stream.push_owned(shift.to_string(), Colors::immediate());
+                    stream.push(", ", CONFIG.colors.asm.expr);
+                    stream.push("msl ", CONFIG.colors.asm.opcode);
+                    stream.push("#", CONFIG.colors.asm.expr);
+                    stream.push_owned(shift.to_string(), CONFIG.colors.asm.immediate);
                 }
             }
             Operand::RegShift(shift_type, amount, size, reg) => match size {
@@ -3597,15 +3598,15 @@ impl ToTokens for Operand {
                         Operand::Register(SizeCode::X, *reg).tokenize(stream, symbols);
                     } else if *amount != 0 {
                         Operand::Register(SizeCode::X, *reg).tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
-                        stream.push(shift_type.as_str(), Colors::opcode());
-                        stream.push(" ", Colors::expr());
-                        stream.push("#", Colors::expr());
-                        stream.push_owned(amount.to_string(), Colors::immediate());
+                        stream.push(", ", CONFIG.colors.asm.expr);
+                        stream.push(shift_type.as_str(), CONFIG.colors.asm.opcode);
+                        stream.push(" ", CONFIG.colors.asm.expr);
+                        stream.push("#", CONFIG.colors.asm.expr);
+                        stream.push_owned(amount.to_string(), CONFIG.colors.asm.immediate);
                     } else {
                         Operand::Register(SizeCode::X, *reg).tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
-                        stream.push(shift_type.as_str(), Colors::opcode());
+                        stream.push(", ", CONFIG.colors.asm.expr);
+                        stream.push(shift_type.as_str(), CONFIG.colors.asm.opcode);
                     }
                 }
                 SizeCode::W => {
@@ -3613,78 +3614,78 @@ impl ToTokens for Operand {
                         Operand::Register(SizeCode::W, *reg).tokenize(stream, symbols);
                     } else if *amount != 0 {
                         Operand::Register(SizeCode::W, *reg).tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
-                        stream.push(shift_type.as_str(), Colors::opcode());
-                        stream.push(" ", Colors::expr());
-                        stream.push("#", Colors::expr());
-                        stream.push_owned(amount.to_string(), Colors::immediate());
+                        stream.push(", ", CONFIG.colors.asm.expr);
+                        stream.push(shift_type.as_str(), CONFIG.colors.asm.opcode);
+                        stream.push(" ", CONFIG.colors.asm.expr);
+                        stream.push("#", CONFIG.colors.asm.expr);
+                        stream.push_owned(amount.to_string(), CONFIG.colors.asm.immediate);
                     } else {
                         Operand::Register(SizeCode::W, *reg).tokenize(stream, symbols);
-                        stream.push(", ", Colors::expr());
-                        stream.push(shift_type.as_str(), Colors::opcode());
+                        stream.push(", ", CONFIG.colors.asm.expr);
+                        stream.push(shift_type.as_str(), CONFIG.colors.asm.opcode);
                     }
                 }
             },
             Operand::RegRegOffset(reg, index_reg, index_size, extend, amount) => {
                 if extend == &ShiftStyle::LSL && *amount == 0 {
-                    stream.push("[", Colors::brackets());
+                    stream.push("[", CONFIG.colors.brackets);
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
-                    stream.push("]", Colors::brackets());
+                    stream.push("]", CONFIG.colors.brackets);
                 } else if ((extend == &ShiftStyle::UXTW && index_size == &SizeCode::W)
                     || (extend == &ShiftStyle::UXTX && index_size == &SizeCode::X))
                     && *amount == 0
                 {
-                    stream.push("[", Colors::brackets());
+                    stream.push("[", CONFIG.colors.brackets);
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
-                    stream.push(extend.as_str(), Colors::opcode());
-                    stream.push("]", Colors::brackets());
+                    stream.push(", ", CONFIG.colors.asm.expr);
+                    stream.push(extend.as_str(), CONFIG.colors.asm.opcode);
+                    stream.push("]", CONFIG.colors.brackets);
                 } else {
-                    stream.push("[", Colors::brackets());
+                    stream.push("[", CONFIG.colors.brackets);
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     Operand::Register(*index_size, *index_reg).tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
-                    stream.push(extend.as_str(), Colors::opcode());
-                    stream.push(" ", Colors::expr());
-                    stream.push("#", Colors::expr());
-                    stream.push_owned(amount.to_string(), Colors::immediate());
-                    stream.push("]", Colors::brackets());
+                    stream.push(", ", CONFIG.colors.asm.expr);
+                    stream.push(extend.as_str(), CONFIG.colors.asm.opcode);
+                    stream.push(" ", CONFIG.colors.asm.expr);
+                    stream.push("#", CONFIG.colors.asm.expr);
+                    stream.push_owned(amount.to_string(), CONFIG.colors.asm.immediate);
+                    stream.push("]", CONFIG.colors.brackets);
                 }
             }
             Operand::RegPreIndex(reg, offset, wback_bit) => {
                 if *offset != 0 || *wback_bit {
-                    stream.push("[", Colors::brackets());
+                    stream.push("[", CONFIG.colors.brackets);
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                    stream.push(", ", Colors::expr());
-                    stream.push("#", Colors::expr());
-                    stream.push_owned(decoder::encode_hex(*offset as i64), Colors::immediate());
-                    stream.push("]", Colors::brackets());
+                    stream.push(", ", CONFIG.colors.asm.expr);
+                    stream.push("#", CONFIG.colors.asm.expr);
+                    stream.push_owned(decoder::encode_hex(*offset as i64), CONFIG.colors.asm.immediate);
+                    stream.push("]", CONFIG.colors.brackets);
 
                     if *wback_bit {
-                        stream.push("!", Colors::expr());
+                        stream.push("!", CONFIG.colors.asm.expr);
                     }
                 } else {
-                    stream.push("[", Colors::brackets());
+                    stream.push("[", CONFIG.colors.brackets);
                     Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                    stream.push("]", Colors::brackets());
+                    stream.push("]", CONFIG.colors.brackets);
                 }
             }
             Operand::RegPostIndex(reg, offset) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                stream.push("], ", Colors::expr());
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_hex(*offset as i64), Colors::immediate());
+                stream.push("], ", CONFIG.colors.asm.expr);
+                stream.push("#", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_hex(*offset as i64), CONFIG.colors.asm.immediate);
             }
             Operand::RegPostIndexReg(reg, offset_reg) => {
-                stream.push("[", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
                 Operand::RegisterOrSP(SizeCode::X, *reg).tokenize(stream, symbols);
-                stream.push("], ", Colors::expr());
+                stream.push("], ", CONFIG.colors.asm.expr);
                 format_register_64(stream, *offset_reg);
             }
             Operand::Nothing => panic!("Tried to format nothing opcode"),

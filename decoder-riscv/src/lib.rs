@@ -5,7 +5,8 @@ mod tests;
 use decoder::{Error, ErrorKind, ToTokens};
 use debugvault::Index;
 use once_cell::sync::Lazy;
-use tokenizing::{TokenStream, ColorScheme, Colors};
+use tokenizing::{TokenStream, colors};
+use config::CONFIG;
 
 macro_rules! operands {
     [] => {([$crate::Operand::Nothing; 3], 0)};
@@ -732,7 +733,7 @@ pub enum Operand {
 impl ToTokens for Operand {
     fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
         match self {
-            Self::Register(reg) => stream.push(reg.as_str(), Colors::register()),
+            Self::Register(reg) => stream.push(reg.as_str(), CONFIG.colors.asm.register),
             Self::Immediate(imm) => {
                 match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
@@ -740,7 +741,7 @@ impl ToTokens for Operand {
                             stream.push_token(token.clone());
                         }
                     }
-                    None => stream.push_owned(imm.to_string(), Colors::immediate()),
+                    None => stream.push_owned(imm.to_string(), CONFIG.colors.asm.immediate),
                 }
             }
             Self::Nothing => unreachable!("empty operand encountered"),
@@ -971,11 +972,11 @@ fn decode(reader: &mut decoder::Reader, decoder: &Decoder) -> Result<Instruction
 
 impl ToTokens for Instruction {
     fn tokenize(&self, stream: &mut TokenStream, symbols: &Index) {
-        stream.push(self.opcode.as_str(), Colors::opcode());
+        stream.push(self.opcode.as_str(), CONFIG.colors.asm.opcode);
 
         // there are operands
         if self.operand_count > 0 {
-            stream.push(" ", Colors::spacing());
+            stream.push(" ", colors::WHITE);
 
             // iterate through operands
             for idx in 0..self.operand_count {
@@ -983,7 +984,7 @@ impl ToTokens for Instruction {
 
                 // separator
                 if idx != self.operand_count - 1 {
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                 }
             }
         }

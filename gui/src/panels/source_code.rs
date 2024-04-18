@@ -9,7 +9,7 @@ use tree_sitter::{Language, QueryError};
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 
 use crate::common::*;
-use commands::CONFIG;
+use config::CONFIG;
 use debugvault::FileAttr;
 use tokenizing::colors;
 
@@ -150,7 +150,7 @@ impl Source {
 
             if line_nr == file_attr.line {
                 for section in line.sections.iter_mut() {
-                    section.bg_color = CONFIG.colors.highlight;
+                    section.bg_color = CONFIG.colors.src.highlight.linear_multiply(0.5);
                     section.fg_color = Color32::WHITE;
                 }
             }

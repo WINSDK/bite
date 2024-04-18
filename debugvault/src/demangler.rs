@@ -1,6 +1,7 @@
 //! Symbol demangler for common mangling schemes.
 
-use tokenizing::{Color, ColorScheme, Colors, Token};
+use tokenizing::{Token, Color32};
+use config::CONFIG;
 
 pub fn parse(s: &str) -> TokenStream {
     // symbols without leading underscores are accepted as
@@ -57,7 +58,7 @@ impl TokenStream {
             tokens: Vec::with_capacity(1),
         };
 
-        this.tokens.push(Token::from_string(s.to_string(), Colors::item()));
+        this.tokens.push(Token::from_string(s.to_string(), CONFIG.colors.asm.component));
         this
     }
 
@@ -68,12 +69,12 @@ impl TokenStream {
     }
 
     #[inline]
-    pub fn push(&mut self, text: &'static str, color: Color) {
+    pub fn push(&mut self, text: &'static str, color: Color32) {
         self.tokens.push(Token::from_str(text, color));
     }
 
     #[inline]
-    pub fn push_string(&mut self, text: String, color: Color) {
+    pub fn push_string(&mut self, text: String, color: Color32) {
         self.tokens.push(Token::from_string(text, color));
     }
 

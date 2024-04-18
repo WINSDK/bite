@@ -13,7 +13,8 @@ pub use crate::MemoryAccessSize;
 
 use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
 use debugvault::Index;
-use tokenizing::{TokenStream, ColorScheme, Colors};
+use tokenizing::TokenStream;
+use config::CONFIG;
 
 /// an `x86_64` register, including its number and type. if `fmt` is enabled, name too.
 ///
@@ -590,7 +591,7 @@ impl SaeMode {
 
 impl ToTokens for SaeMode {
     fn tokenize(&self, stream: &mut TokenStream, _: &Index) {
-        stream.push("{", Colors::brackets());
+        stream.push("{", CONFIG.colors.brackets);
         stream.push(
             match self {
                 SaeMode::RoundNearest => "rne-sae",
@@ -598,9 +599,9 @@ impl ToTokens for SaeMode {
                 SaeMode::RoundUp => "ru-sae",
                 SaeMode::RoundZero => "rz-sae",
             },
-            Colors::register(),
+            CONFIG.colors.asm.register,
         );
-        stream.push("}", Colors::brackets());
+        stream.push("}", CONFIG.colors.brackets);
     }
 }
 

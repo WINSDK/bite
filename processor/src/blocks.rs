@@ -2,7 +2,7 @@ use crate::Processor;
 use binformat::elf::{Elf32Dyn, Elf32Sym, Elf64Dyn, Elf64Sym};
 use binformat::pe::ExceptionDirectoryEntry;
 use binformat::ToData;
-use commands::CONFIG;
+use config::CONFIG;
 use debugvault::Symbol;
 use object::Endian;
 use processor_shared::{encode_hex_bytes_truncated, Section, SectionKind};
@@ -78,62 +78,62 @@ impl Block {
     pub fn tokenize(&self, stream: &mut TokenStream) {
         match &self.content {
             BlockContent::Label { symbol } => {
-                stream.push("\n<", colors::BLUE);
+                stream.push("\n<", CONFIG.colors.asm.label);
                 stream.inner.extend_from_slice(symbol.name());
-                stream.push(">", colors::BLUE);
+                stream.push(">", CONFIG.colors.asm.label);
             }
             BlockContent::SectionStart { section } => {
                 stream.push("section started", colors::WHITE);
-                stream.push_owned(format!(" {} ", section.name), colors::BLUE);
-                stream.push("{", colors::GRAY60);
+                stream.push_owned(format!(" {} ", section.name), CONFIG.colors.asm.section);
+                stream.push("{", CONFIG.colors.brackets);
                 if section.ident == "UNKNOWN" {
-                    stream.push_owned(format!("{:?}", section.kind), colors::MAGENTA);
+                    stream.push_owned(format!("{:?}", section.kind), CONFIG.colors.asm.component);
                 } else {
-                    stream.push(section.ident, colors::MAGENTA);
+                    stream.push(section.ident, CONFIG.colors.asm.component);
                 }
-                stream.push("} ", colors::GRAY60);
+                stream.push("} ", CONFIG.colors.brackets);
                 stream.push_owned(format!("{:x}", section.start), colors::GREEN);
-                stream.push("-", colors::GRAY60);
+                stream.push("-", CONFIG.colors.delimiter);
                 stream.push_owned(format!("{:x}", section.end), colors::GREEN);
             }
             BlockContent::SectionEnd { section } => {
                 stream.push("section ended", colors::WHITE);
-                stream.push_owned(format!(" {} ", section.name), colors::BLUE);
-                stream.push("{", colors::GRAY60);
-                stream.push_owned(format!("{:?}", section.kind), colors::MAGENTA);
-                stream.push("} ", colors::GRAY60);
+                stream.push_owned(format!(" {} ", section.name), CONFIG.colors.asm.section);
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push_owned(format!("{:?}", section.kind), CONFIG.colors.asm.component);
+                stream.push("} ", CONFIG.colors.brackets);
                 stream.push_owned(format!("{:x}", section.start), colors::GREEN);
-                stream.push("-", colors::GRAY60);
+                stream.push("-", CONFIG.colors.delimiter);
                 stream.push_owned(format!("{:x}", section.end), colors::GREEN);
             }
             BlockContent::Instruction { inst, bytes } => {
-                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
-                stream.push_owned(bytes.clone(), colors::GREEN);
+                stream.push_owned(format!("{:0>10X}  ", self.addr), CONFIG.colors.address);
+                stream.push_owned(bytes.clone(), CONFIG.colors.bytes);
                 stream.inner.extend_from_slice(&inst);
             }
             BlockContent::Error { err, bytes } => {
-                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
-                stream.push_owned(bytes.clone(), colors::GREEN);
-                stream.push("<", colors::GRAY40);
-                stream.push_owned(format!("{err:?}"), colors::RED);
-                stream.push(">", colors::GRAY40);
+                stream.push_owned(format!("{:0>10X}  ", self.addr), CONFIG.colors.address);
+                stream.push_owned(bytes.clone(), CONFIG.colors.bytes);
+                stream.push("<", CONFIG.colors.brackets);
+                stream.push_owned(format!("{err:?}"), CONFIG.colors.asm.invalid);
+                stream.push(">", CONFIG.colors.brackets);
             }
             BlockContent::CString { bytes } => {
-                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
+                stream.push_owned(format!("{:0>10X}  ", self.addr), CONFIG.colors.address);
                 let lossy_string = String::from_utf8_lossy(&bytes);
                 let escaped = format!("\"{}\"", lossy_string.escape_debug());
-                stream.push_owned(escaped, colors::ORANGE);
+                stream.push_owned(escaped, CONFIG.colors.asm.string);
             }
             BlockContent::Got { symbol, .. } => {
-                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
-                stream.push("<", colors::BLUE);
+                stream.push_owned(format!("{:0>10X}  ", self.addr), CONFIG.colors.address);
+                stream.push("<", CONFIG.colors.asm.label);
                 let name = symbol.name();
                 if name.is_empty() {
-                    stream.push("unresolved", colors::RED);
+                    stream.push("unresolved", CONFIG.colors.asm.invalid);
                 } else {
                     stream.inner.extend_from_slice(symbol.name());
                 }
-                stream.push(">", colors::BLUE);
+                stream.push(">", CONFIG.colors.asm.label);
             }
             BlockContent::DataStructure { ident, fields } => {
                 // addr  struct Ident {
@@ -142,38 +142,38 @@ impl Block {
                 // addr  }
                 let start_addr = fields[0].0;
                 let end_addr = fields[fields.len() - 1].0;
-                stream.push_owned(format!("{:0>10X}  ", start_addr), colors::GRAY40);
-                stream.push("struct ", CONFIG.colors.keyword);
-                stream.push(ident, CONFIG.colors.tipe);
+                stream.push_owned(format!("{:0>10X}  ", start_addr), CONFIG.colors.address);
+                stream.push("struct ", CONFIG.colors.src.keyword);
+                stream.push(ident, CONFIG.colors.src.tipe);
                 stream.push(" {\n", CONFIG.colors.delimiter);
                 for (addr, name, tipe, value) in fields {
-                    stream.push_owned(format!("{:0>10X}  ", addr), colors::GRAY40);
+                    stream.push_owned(format!("{:0>10X}  ", addr), CONFIG.colors.address);
                     stream.push("    ", colors::WHITE);
-                    stream.push(name, CONFIG.colors.field);
+                    stream.push(name, CONFIG.colors.src.field);
                     stream.push(": ", colors::WHITE);
-                    stream.push(tipe, CONFIG.colors.tipe);
+                    stream.push(tipe, CONFIG.colors.src.tipe);
                     stream.push(" = ", CONFIG.colors.delimiter);
-                    stream.push_owned(value.clone(), CONFIG.colors.constant);
+                    stream.push_owned(value.clone(), CONFIG.colors.src.constant);
                     stream.push("\n", colors::WHITE);
                 }
-                stream.push_owned(format!("{:0>10X}  ", end_addr), colors::GRAY40);
+                stream.push_owned(format!("{:0>10X}  ", end_addr), CONFIG.colors.address);
                 stream.push("}", CONFIG.colors.delimiter);
             }
             BlockContent::Pointer { value, symbol, .. } => {
-                stream.push_owned(format!("{:0>10X}  ", self.addr), colors::GRAY40);
-                stream.push_owned(format!("{:#x}", value), colors::GREEN);
+                stream.push_owned(format!("{:0>10X}  ", self.addr), CONFIG.colors.address);
+                stream.push_owned(format!("{:#x}", value), CONFIG.colors.bytes);
                 if let Some(symbol) = symbol {
-                    stream.push(" <", colors::BLUE);
+                    stream.push(" <", CONFIG.colors.asm.label);
                     stream.inner.extend_from_slice(symbol.name());
-                    stream.push(">", colors::BLUE);
+                    stream.push(">", CONFIG.colors.asm.label);
                 }
             }
             BlockContent::Bytes { bytes } => {
                 let mut off = 0;
                 for chunk in bytes.chunks(32) {
-                    stream.push_owned(format!("{:0>10X}  ", self.addr + off), colors::GRAY40);
+                    stream.push_owned(format!("{:0>10X}  ", self.addr + off), CONFIG.colors.address);
                     let s = processor_shared::encode_hex_bytes_truncated(chunk, usize::MAX, false);
-                    stream.push_owned(s, colors::GREEN);
+                    stream.push_owned(s, CONFIG.colors.bytes);
                     stream.push("\n", colors::WHITE);
                     off += chunk.len();
                 }

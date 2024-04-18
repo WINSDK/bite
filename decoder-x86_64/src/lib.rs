@@ -12,7 +12,8 @@ pub mod protected_mode;
 mod safer_unchecked;
 
 use debugvault::Index;
-use tokenizing::{ColorScheme, Colors, TokenStream};
+use tokenizing::TokenStream;
+use config::CONFIG;
 
 const MEM_SIZE_STRINGS: [&str; 64] = [
     "byte ", "word ", "BUG ", "dword ", "ptr ", "far ", "BUG ", "qword ", "BUG ", "mword ", "BUG ",
@@ -28,14 +29,14 @@ struct Number(i32);
 impl decoder::ToTokens for Number {
     fn tokenize(&self, stream: &mut TokenStream, _: &Index) {
         if self.0 == i32::MIN {
-            stream.push(" - ", Colors::expr());
-            stream.push("0x7fffffff", Colors::immediate());
+            stream.push(" - ", CONFIG.colors.asm.expr);
+            stream.push("0x7fffffff", CONFIG.colors.asm.immediate);
         } else if self.0 < 0 {
-            stream.push(" - ", Colors::expr());
-            stream.push_owned(decoder::encode_hex(-self.0 as i64), Colors::immediate());
+            stream.push(" - ", CONFIG.colors.asm.expr);
+            stream.push_owned(decoder::encode_hex(-self.0 as i64), CONFIG.colors.asm.immediate);
         } else {
-            stream.push(" + ", Colors::expr());
-            stream.push_owned(decoder::encode_hex(self.0 as i64), Colors::immediate());
+            stream.push(" + ", CONFIG.colors.asm.expr);
+            stream.push_owned(decoder::encode_hex(self.0 as i64), CONFIG.colors.asm.immediate);
         }
     }
 }

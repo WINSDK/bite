@@ -1,5 +1,7 @@
 use crate::common::*;
+use config::CONFIG;
 use egui::mutex::RwLock;
+use egui::Color32;
 use infinite_scroll::{Callback, InfiniteScroll};
 use processor::{Block, BlockContent, Processor};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -227,7 +229,14 @@ impl Display for Listing {
         ui.painter().rect(
             rect.expand2(egui::vec2(5.0, 0.0)),
             0.0,
-            tokenizing::colors::GRAY35,
+            {
+                let color = CONFIG.colors.bg_primary;
+                Color32::from_rgb(
+                    (color[0] as f32 * 1.1) as u8,
+                    (color[1] as f32 * 1.1) as u8,
+                    (color[2] as f32 * 1.1) as u8
+                )
+            },
             egui::Stroke::new(2.5, egui::Color32::BLACK),
         );
 

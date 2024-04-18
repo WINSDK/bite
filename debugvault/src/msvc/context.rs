@@ -1,7 +1,7 @@
 use super::{Literal, Modifiers, NestedPath, Scope, Type};
 
 use crate::TokenStream;
-use tokenizing::Color;
+use tokenizing::Color32;
 
 /// Max recursion depth
 const MAX_DEPTH: usize = 256;
@@ -100,7 +100,7 @@ impl Context<'_> {
     }
 
     /// Pushes a [`Literal`] to the [`TokenStream`], resolving any indexing within a literal.
-    pub fn push_literal(&mut self, literal: &Literal, color: Color) {
+    pub fn push_literal(&mut self, literal: &Literal, color: Color32) {
         let literal = &self.stream.inner()[literal.start..literal.end];
         self.stream.push(literal, color);
     }

@@ -25,6 +25,7 @@ tree-sitter-highlight = "0.20"
 
 log = { path = "../log" }
 commands = { path = "../commands" }
+config = { path = "../config" }
 tokenizing = { path = "../tokenizing" }
 debugvault = { path = "../debugvault" }
 processor = { path = "../processor" }

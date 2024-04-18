@@ -12,9 +12,6 @@ log = { path = "./log" }
 gui = { path = "./gui" }
 debugvault = { path = "./debugvault" }
 
-[profile.dev]
-panic = 'abort'
-
 [profile.release]
 lto = 'thin'
 
@@ -37,7 +34,8 @@ members = [
     "processor",
     "processor_shared",
     "infinite_scroll",
-    "binformat"
+    "binformat",
+    "config"
 ]
 
 [workspace.dependencies]
@@ -50,3 +48,4 @@ pdb = { git = "https://github.com/WINSDK/pdb-rs" }
 once_cell = "1.18"
 nix = { git = "https://github.com/mbyzhang/nix" }
 memmap2 = "0.9"
+dirs = "5"

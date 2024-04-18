@@ -7,4 +7,5 @@ edition = "2021"
 decoder = { path = "../decoder" }
 tokenizing = { path = "../tokenizing" }
 debugvault = { path = "../debugvault" }
+config = { path = "../config" }
 bitvec = "0.19" # update this really old dep

@@ -13,6 +13,7 @@ tokenizing = { path = "../tokenizing" }
 debugvault = { path = "../debugvault" }
 decoder = { path = "../decoder" }
 commands = { path = "../commands" }
+config = { path = "../config" }
 arm = { path = "../decoder-arm" }
 x86_64 = { path = "../decoder-x86_64" }
 riscv = { path = "../decoder-riscv" }

@@ -5,7 +5,8 @@ mod tests;
 use decoder::{Error, ErrorKind};
 use debugvault::Index;
 use std::borrow::Cow;
-use tokenizing::{TokenStream, ColorScheme, Colors};
+use tokenizing::{colors, TokenStream};
+use config::CONFIG;
 
 macro_rules! operands {
     [] => {([$crate::EMPTY_OPERAND; 3], 0)};
@@ -245,24 +246,24 @@ fn decode(reader: &mut decoder::Reader) -> Result<Instruction, ErrorKind> {
 
 impl decoder::ToTokens for Instruction {
     fn tokenize(&self, stream: &mut TokenStream, _: &Index) {
-        stream.push(self.mnemomic, Colors::opcode());
+        stream.push(self.mnemomic, CONFIG.colors.asm.opcode);
 
         // there are operands
         if self.operand_count > 0 {
-            stream.push(" ", Colors::spacing());
+            stream.push(" ", colors::WHITE);
 
             // iterate through operands
             for idx in 0..self.operand_count {
                 let operand = self.operands[idx].clone();
 
                 match operand {
-                    Cow::Owned(s) => stream.push_owned(s, Colors::immediate()),
-                    Cow::Borrowed(s) => stream.push(s, Colors::register()),
+                    Cow::Owned(s) => stream.push_owned(s, CONFIG.colors.asm.immediate),
+                    Cow::Borrowed(s) => stream.push(s, CONFIG.colors.asm.register),
                 };
 
                 // separator
                 if idx != self.operand_count - 1 {
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                 }
             }
         }

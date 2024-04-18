@@ -1,5 +1,6 @@
 use crate::common::*;
 
+use config::CONFIG;
 use processor_shared::Addressed;
 use egui::text::LayoutJob;
 use processor::Processor;
@@ -44,8 +45,8 @@ fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) 
         tokens.push(Token::from_str(" | ", colors::WHITE));
 
         if let Some(module) = item.module() {
-            tokens.push(Token::from_string(module.to_string(), colors::MAGENTA));
-            tokens.push(Token::from_str("!", colors::GRAY60));
+            tokens.push(Token::from_string(module.to_string(), CONFIG.colors.asm.component));
+            tokens.push(Token::from_str("!", CONFIG.colors.delimiter));
         }
 
         for token in item.name() {

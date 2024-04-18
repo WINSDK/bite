@@ -5,7 +5,8 @@ use core::fmt::{self, Display, Formatter};
 
 use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
 use debugvault::Index;
-use tokenizing::{colors, ColorScheme, Colors, TokenStream};
+use tokenizing::TokenStream;
+use config::CONFIG;
 
 mod thumb;
 
@@ -34,7 +35,7 @@ impl ToTokens for ConditionedOpcode {
         match self.0 {
             Opcode::UDF | Opcode::Invalid => {
                 // invalid_op
-                stream.push_owned(self.to_string(), Colors::invalid())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.invalid)
             }
             Opcode::TBB
             | Opcode::TBH
@@ -47,7 +48,7 @@ impl ToTokens for ConditionedOpcode {
             | Opcode::BX
             | Opcode::BXJ => {
                 // control_flow_op
-                stream.push_owned(self.to_string(), Colors::opcode())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.opcode)
             }
             Opcode::AND
             | Opcode::EOR
@@ -135,15 +136,15 @@ impl ToTokens for ConditionedOpcode {
             | Opcode::SMLAL
             | Opcode::SMLAL_halfword(_, _) => {
                 // arithmetic_op
-                stream.push_owned(self.to_string(), Colors::opcode())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.opcode)
             }
             Opcode::PUSH | Opcode::POP => {
                 // stack_op
-                stream.push_owned(self.to_string(), Colors::opcode())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.opcode)
             }
             Opcode::TST | Opcode::TEQ | Opcode::CMP | Opcode::CMN => {
                 // comparison_op
-                stream.push_owned(self.to_string(), Colors::opcode())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.opcode)
             }
             Opcode::LDRSH
             | Opcode::LDRSHT
@@ -215,7 +216,7 @@ impl ToTokens for ConditionedOpcode {
             | Opcode::MOVT
             | Opcode::MVN => {
                 // data_op
-                stream.push_owned(self.to_string(), Colors::opcode())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.opcode)
             }
             Opcode::HINT
             | Opcode::NOP
@@ -228,7 +229,7 @@ impl ToTokens for ConditionedOpcode {
             | Opcode::SRS(_, _)
             | Opcode::BKPT => {
                 // misc_op
-                stream.push_owned(self.to_string(), Colors::opcode())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.opcode)
             }
             Opcode::DBG
             | Opcode::CPS(_)
@@ -261,7 +262,7 @@ impl ToTokens for ConditionedOpcode {
             | Opcode::MRRC(_, _)
             | Opcode::CDP2(_, _, _) => {
                 // platform_op
-                stream.push_owned(self.to_string(), Colors::opcode())
+                stream.push_owned(self.to_string(), CONFIG.colors.asm.opcode)
             }
         }
     }
@@ -1683,22 +1684,22 @@ impl Operand {
         match self {
             Operand::RegList(list) => format_reg_list(stream, *list),
             Operand::BankedReg(bank, reg) => {
-                stream.push(reg.as_str(), Colors::register());
-                stream.push("_", Colors::expr());
-                stream.push(bank.as_str(), Colors::register());
+                stream.push(reg.as_str(), CONFIG.colors.asm.register);
+                stream.push("_", CONFIG.colors.asm.expr);
+                stream.push(bank.as_str(), CONFIG.colors.asm.register);
             }
             Operand::BankedSPSR(bank) => {
-                stream.push("spsr", Colors::register());
-                stream.push("_", Colors::expr());
-                stream.push(bank.as_str(), Colors::register());
+                stream.push("spsr", CONFIG.colors.asm.register);
+                stream.push("_", CONFIG.colors.asm.expr);
+                stream.push(bank.as_str(), CONFIG.colors.asm.register);
             }
             Operand::Reg(reg) => {
-                stream.push(reg.as_str(), Colors::register());
+                stream.push(reg.as_str(), CONFIG.colors.asm.register);
             }
             Operand::RegDeref(reg) => {
-                stream.push("[", Colors::brackets());
-                stream.push(reg.as_str(), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(reg.as_str(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
             }
             Operand::RegShift(shift) => format_shift(stream, *shift),
             Operand::RegDerefPostindexRegShift(reg, shift, add, wback) => {
@@ -1714,123 +1715,123 @@ impl Operand {
                 format_reg_imm_mem(stream, *reg, *offs, *add, true, *wback)
             }
             Operand::RegDerefPostindexReg(reg, offsreg, add, wback) => {
-                stream.push("[", Colors::brackets());
-                stream.push(reg.as_str(), Colors::register());
-                stream.push("]", Colors::brackets());
-                stream.push(", ", Colors::expr());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(reg.as_str(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
+                stream.push(", ", CONFIG.colors.asm.expr);
 
                 if !*add {
-                    stream.push("-", Colors::expr());
+                    stream.push("-", CONFIG.colors.asm.expr);
                 }
 
-                stream.push(offsreg.as_str(), Colors::register());
+                stream.push(offsreg.as_str(), CONFIG.colors.asm.register);
 
                 if *wback {
-                    stream.push("!", Colors::expr());
+                    stream.push("!", CONFIG.colors.asm.expr);
                 }
             }
             Operand::RegDerefPreindexReg(reg, offsreg, add, wback) => {
-                stream.push("[", Colors::brackets());
-                stream.push(reg.as_str(), Colors::register());
-                stream.push(", ", Colors::expr());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(reg.as_str(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
 
                 if !*add {
-                    stream.push("-", Colors::expr());
+                    stream.push("-", CONFIG.colors.asm.expr);
                 }
 
-                stream.push(offsreg.as_str(), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push(offsreg.as_str(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
 
                 if *wback {
-                    stream.push("!", Colors::expr());
+                    stream.push("!", CONFIG.colors.asm.expr);
                 }
             }
             Operand::Imm12(imm) => {
                 match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
-                        stream.push("<", colors::BLUE);
+                        stream.push("<", CONFIG.colors.asm.immediate);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
-                        stream.push(">", colors::BLUE);
+                        stream.push(">", CONFIG.colors.asm.immediate);
                     }
                     None => {
-                        stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                        stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
                     }
                 }
             }
             Operand::Imm32(imm) => {
                 match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
-                        stream.push("<", colors::BLUE);
+                        stream.push("<", CONFIG.colors.asm.immediate);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
-                        stream.push(">", colors::BLUE);
+                        stream.push(">", CONFIG.colors.asm.immediate);
                     }
                     None => {
-                        stream.push_owned(decoder::encode_uhex(*imm as u64), Colors::immediate());
+                        stream.push_owned(decoder::encode_uhex(*imm as u64), CONFIG.colors.asm.immediate);
                     }
                 }
             }
             Operand::Imm64(imm) => {
                 match symbols.get_sym_by_addr(*imm as usize) {
                     Some(symbol) => {
-                        stream.push("<", colors::BLUE);
+                        stream.push("<", CONFIG.colors.asm.immediate);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
-                        stream.push(">", colors::BLUE);
+                        stream.push(">", CONFIG.colors.asm.immediate);
                     }
                     None => {
-                        stream.push("#", Colors::expr());
-                        stream.push_owned(decoder::encode_uhex(*imm), Colors::immediate());
+                        stream.push("#", CONFIG.colors.asm.expr);
+                        stream.push_owned(decoder::encode_uhex(*imm), CONFIG.colors.asm.immediate);
                     }
                 }
             }
             Operand::Imm64Special(imm) => {
-                stream.push("#", Colors::expr());
-                stream.push_owned(decoder::encode_uhex(*imm), Colors::immediate());
+                stream.push("#", CONFIG.colors.asm.expr);
+                stream.push_owned(decoder::encode_uhex(*imm), CONFIG.colors.asm.immediate);
             }
             Operand::BranchOffset(offs) => {
                 if *offs >= 0 {
-                    stream.push("$", Colors::expr());
-                    stream.push("+", Colors::immediate());
+                    stream.push("$", CONFIG.colors.asm.expr);
+                    stream.push("+", CONFIG.colors.asm.immediate);
                 } else {
-                    stream.push("$", Colors::immediate());
+                    stream.push("$", CONFIG.colors.asm.immediate);
                 }
-                stream.push_owned(decoder::encode_hex((offs * 4) as i64), Colors::immediate());
+                stream.push_owned(decoder::encode_hex((offs * 4) as i64), CONFIG.colors.asm.immediate);
             }
             Operand::BranchThumbOffset(offs) => {
                 if *offs >= 0 {
-                    stream.push("$", Colors::expr());
-                    stream.push("+", Colors::immediate());
+                    stream.push("$", CONFIG.colors.asm.expr);
+                    stream.push("+", CONFIG.colors.asm.immediate);
                 } else {
-                    stream.push("$", Colors::immediate());
+                    stream.push("$", CONFIG.colors.asm.immediate);
                 }
-                stream.push_owned(decoder::encode_hex((offs * 2) as i64), Colors::immediate());
+                stream.push_owned(decoder::encode_hex((offs * 2) as i64), CONFIG.colors.asm.immediate);
             }
             Operand::Coprocessor(num) => {
-                stream.push("p", Colors::register());
-                stream.push_owned(num.to_string(), Colors::register());
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(num.to_string(), CONFIG.colors.asm.register);
             }
             Operand::CoprocOption(num) => {
-                stream.push("{", Colors::brackets());
-                stream.push_owned(decoder::encode_hex(*num as i64), Colors::register());
-                stream.push("}", Colors::brackets());
+                stream.push("{", CONFIG.colors.brackets);
+                stream.push_owned(decoder::encode_hex(*num as i64), CONFIG.colors.asm.register);
+                stream.push("}", CONFIG.colors.brackets);
             }
             Operand::RegWBack(reg, wback) => {
-                stream.push(reg.as_str(), Colors::register());
+                stream.push(reg.as_str(), CONFIG.colors.asm.register);
 
                 if *wback {
-                    stream.push("!", Colors::expr());
+                    stream.push("!", CONFIG.colors.asm.expr);
                 }
             }
-            Operand::CReg(creg) => stream.push(creg.as_str(), Colors::register()),
-            Operand::StatusRegMask(mask) => stream.push(mask.as_str(), Colors::register()),
-            Operand::APSR => stream.push("apsr", Colors::register()),
-            Operand::SPSR => stream.push("spsr", Colors::register()),
-            Operand::CPSR => stream.push("cpsr", Colors::register()),
+            Operand::CReg(creg) => stream.push(creg.as_str(), CONFIG.colors.asm.register),
+            Operand::StatusRegMask(mask) => stream.push(mask.as_str(), CONFIG.colors.asm.register),
+            Operand::APSR => stream.push("apsr", CONFIG.colors.asm.register),
+            Operand::SPSR => stream.push("spsr", CONFIG.colors.asm.register),
+            Operand::CPSR => stream.push("cpsr", CONFIG.colors.asm.register),
             Operand::Nothing => panic!("tried to print Nothing operand"),
         }
     }
@@ -1909,44 +1910,44 @@ impl Instruction {
 }
 
 fn format_reg_list(stream: &mut TokenStream, mut list: u16) {
-    stream.push("{", Colors::brackets());
+    stream.push("{", CONFIG.colors.brackets);
     let mut i = 0;
     let mut tail = false;
     while i < 16 {
         let present = (list & 1) == 1;
         if present {
             if tail {
-                stream.push(", ", Colors::expr());
+                stream.push(", ", CONFIG.colors.asm.expr);
             } else {
                 tail = true;
             }
-            stream.push(Reg::from_u8(i).as_str(), Colors::register());
+            stream.push(Reg::from_u8(i).as_str(), CONFIG.colors.asm.register);
         }
         i += 1;
         list >>= 1;
     }
-    stream.push("}", Colors::brackets());
+    stream.push("}", CONFIG.colors.brackets);
 }
 
 fn format_shift(stream: &mut TokenStream, shift: RegShift) {
     match shift.into_shift() {
         RegShiftStyle::RegImm(imm_shift) => {
             if imm_shift.imm() == 0 && imm_shift.stype() == ShiftStyle::LSL {
-                stream.push(imm_shift.shiftee().as_str(), Colors::register());
+                stream.push(imm_shift.shiftee().as_str(), CONFIG.colors.asm.register);
             } else {
-                stream.push(imm_shift.shiftee().as_str(), Colors::register());
-                stream.push(", ", Colors::expr());
-                stream.push(imm_shift.stype().as_str(), Colors::segment());
-                stream.push(" ", Colors::expr());
-                stream.push_owned(imm_shift.imm().to_string(), Colors::immediate());
+                stream.push(imm_shift.shiftee().as_str(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push(imm_shift.stype().as_str(), CONFIG.colors.asm.segment);
+                stream.push(" ", CONFIG.colors.asm.expr);
+                stream.push_owned(imm_shift.imm().to_string(), CONFIG.colors.asm.immediate);
             }
         }
         RegShiftStyle::RegReg(reg_shift) => {
-            stream.push(reg_shift.shiftee().as_str(), Colors::register());
-            stream.push(", ", Colors::expr());
-            stream.push(reg_shift.stype().as_str(), Colors::segment());
-            stream.push(" ", Colors::expr());
-            stream.push(reg_shift.shifter().as_str(), Colors::register());
+            stream.push(reg_shift.shiftee().as_str(), CONFIG.colors.asm.register);
+            stream.push(", ", CONFIG.colors.asm.expr);
+            stream.push(reg_shift.stype().as_str(), CONFIG.colors.asm.segment);
+            stream.push(" ", CONFIG.colors.asm.expr);
+            stream.push(reg_shift.shifter().as_str(), CONFIG.colors.asm.register);
         }
     }
 }
@@ -1963,24 +1964,24 @@ fn format_reg_shift_mem(
 
     match (pre, wback) {
         (true, true) => {
-            stream.push("[", Colors::brackets());
-            stream.push(rd.as_str(), Colors::register());
-            stream.push(", ", Colors::expr());
-            stream.push(rd.as_str(), Colors::register());
-            stream.push(op, Colors::immediate());
+            stream.push("[", CONFIG.colors.brackets);
+            stream.push(rd.as_str(), CONFIG.colors.asm.register);
+            stream.push(", ", CONFIG.colors.asm.expr);
+            stream.push(rd.as_str(), CONFIG.colors.asm.register);
+            stream.push(op, CONFIG.colors.asm.immediate);
             format_shift(stream, shift);
-            stream.push("]", Colors::brackets());
-            stream.push("!", Colors::expr());
+            stream.push("]", CONFIG.colors.brackets);
+            stream.push("!", CONFIG.colors.asm.expr);
         }
 
         (true, false) => {
-            stream.push("[", Colors::brackets());
-            stream.push(rd.as_str(), Colors::register());
-            stream.push(", ", Colors::expr());
-            stream.push(rd.as_str(), Colors::register());
-            stream.push(op, Colors::immediate());
+            stream.push("[", CONFIG.colors.brackets);
+            stream.push(rd.as_str(), CONFIG.colors.asm.register);
+            stream.push(", ", CONFIG.colors.asm.expr);
+            stream.push(rd.as_str(), CONFIG.colors.asm.register);
+            stream.push(op, CONFIG.colors.asm.immediate);
             format_shift(stream, shift);
-            stream.push("]", Colors::brackets());
+            stream.push("]", CONFIG.colors.brackets);
         }
         (false, true) => {
             unreachable!(
@@ -1989,11 +1990,11 @@ fn format_reg_shift_mem(
             );
         }
         (false, false) => {
-            stream.push("[", Colors::brackets());
-            stream.push(rd.as_str(), Colors::register());
-            stream.push("]", Colors::brackets());
-            stream.push(", ", Colors::expr());
-            stream.push(op, Colors::immediate());
+            stream.push("[", CONFIG.colors.brackets);
+            stream.push(rd.as_str(), CONFIG.colors.asm.register);
+            stream.push("]", CONFIG.colors.brackets);
+            stream.push(", ", CONFIG.colors.asm.expr);
+            stream.push(op, CONFIG.colors.asm.immediate);
             format_shift(stream, shift)
         }
     }
@@ -2010,57 +2011,57 @@ fn format_reg_imm_mem(
     if imm != 0 {
         match (pre, wback) {
             (true, true) => {
-                stream.push("[", Colors::brackets());
-                stream.push(rn.as_str(), Colors::register());
-                stream.push(", ", Colors::expr());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(rn.as_str(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
                 if add {
-                    stream.push_owned(decoder::encode_hex(imm as i64), Colors::immediate());
+                    stream.push_owned(decoder::encode_hex(imm as i64), CONFIG.colors.asm.immediate);
                 } else {
-                    stream.push_owned(decoder::encode_hex(imm as i64 * -1), Colors::immediate());
+                    stream.push_owned(decoder::encode_hex(imm as i64 * -1), CONFIG.colors.asm.immediate);
                 }
-                stream.push("]", Colors::brackets());
-                stream.push("!", Colors::expr());
+                stream.push("]", CONFIG.colors.brackets);
+                stream.push("!", CONFIG.colors.asm.expr);
             }
             (true, false) => {
-                stream.push("[", Colors::brackets());
-                stream.push(rn.as_str(), Colors::register());
-                stream.push(", ", Colors::expr());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(rn.as_str(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
                 if add {
-                    stream.push_owned(decoder::encode_hex(imm as i64), Colors::immediate());
+                    stream.push_owned(decoder::encode_hex(imm as i64), CONFIG.colors.asm.immediate);
                 } else {
-                    stream.push_owned(decoder::encode_hex(imm as i64 * -1), Colors::immediate());
+                    stream.push_owned(decoder::encode_hex(imm as i64 * -1), CONFIG.colors.asm.immediate);
                 }
-                stream.push("]", Colors::brackets());
+                stream.push("]", CONFIG.colors.brackets);
             }
             (false, _) => {
-                stream.push("[", Colors::brackets());
-                stream.push(rn.as_str(), Colors::register());
-                stream.push("]", Colors::brackets());
-                stream.push(", ", Colors::expr());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(rn.as_str(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
+                stream.push(", ", CONFIG.colors.asm.expr);
                 if add {
-                    stream.push_owned(decoder::encode_hex(imm as i64), Colors::immediate());
+                    stream.push_owned(decoder::encode_hex(imm as i64), CONFIG.colors.asm.immediate);
                 } else {
-                    stream.push_owned(decoder::encode_hex(imm as i64 * -1), Colors::immediate());
+                    stream.push_owned(decoder::encode_hex(imm as i64 * -1), CONFIG.colors.asm.immediate);
                 }
             }
         }
     } else {
         match (pre, wback) {
             (true, true) => {
-                stream.push("[", Colors::brackets());
-                stream.push(rn.as_str(), Colors::register());
-                stream.push("]", Colors::brackets());
-                stream.push("!", Colors::expr());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(rn.as_str(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
+                stream.push("!", CONFIG.colors.asm.expr);
             }
             (true, false) => {
-                stream.push("[", Colors::brackets());
-                stream.push(rn.as_str(), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(rn.as_str(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
             }
             (false, _) => {
-                stream.push("[", Colors::brackets());
-                stream.push(rn.as_str(), Colors::register());
-                stream.push("]", Colors::brackets());
+                stream.push("[", CONFIG.colors.brackets);
+                stream.push(rn.as_str(), CONFIG.colors.asm.register);
+                stream.push("]", CONFIG.colors.brackets);
             }
         }
     }
@@ -2142,7 +2143,7 @@ impl ToTokens for Instruction {
                             },
                             condition,
                         );
-                        stream.push_owned(op, Colors::opcode());
+                        stream.push_owned(op, CONFIG.colors.asm.opcode);
                     } else if mask & 0b0010 != 0 {
                         // two flags
                         let op = format!(
@@ -2159,7 +2160,7 @@ impl ToTokens for Instruction {
                             },
                             condition,
                         );
-                        stream.push_owned(op, Colors::opcode());
+                        stream.push_owned(op, CONFIG.colors.asm.opcode);
                     } else if mask & 0b0100 != 0 {
                         // one flag
                         let op = format!(
@@ -2171,15 +2172,15 @@ impl ToTokens for Instruction {
                             },
                             condition,
                         );
-                        stream.push_owned(op, Colors::opcode());
+                        stream.push_owned(op, CONFIG.colors.asm.opcode);
                     } else {
                         // no flags
                         let op = format!("it {}", condition);
-                        stream.push_owned(op, Colors::opcode());
+                        stream.push_owned(op, CONFIG.colors.asm.opcode);
                     }
                     // if the condition is AL, it won't get displayed. append it here.
                     if *cond == 14 {
-                        stream.push("al", Colors::opcode());
+                        stream.push("al", CONFIG.colors.asm.opcode);
                     }
                     return;
                 } else {
@@ -2195,10 +2196,10 @@ impl ToTokens for Instruction {
                         if aif & 0b010 != 0 { "i" } else { "" },
                         if aif & 0b001 != 0 { "f" } else { "" },
                     );
-                    stream.push_owned(op, Colors::opcode());
+                    stream.push_owned(op, CONFIG.colors.asm.opcode);
                     if let Operand::Imm12(mode) = &self.operands[1] {
-                        stream.push(", #", Colors::expr());
-                        stream.push_owned(decoder::encode_hex(*mode as i64), Colors::immediate());
+                        stream.push(", #", CONFIG.colors.asm.expr);
+                        stream.push_owned(decoder::encode_hex(*mode as i64), CONFIG.colors.asm.immediate);
                     }
                     return;
                 } else {
@@ -2208,9 +2209,9 @@ impl ToTokens for Instruction {
             Opcode::SETEND => {
                 if let Operand::Imm12(i) = &self.operands[0] {
                     if *i == 0 {
-                        stream.push("setend le", Colors::opcode());
+                        stream.push("setend le", CONFIG.colors.asm.opcode);
                     } else {
-                        stream.push("setend be", Colors::opcode());
+                        stream.push("setend be", CONFIG.colors.asm.opcode);
                     }
                     return;
                 } else {
@@ -2224,9 +2225,9 @@ impl ToTokens for Instruction {
                     {
                         ConditionedOpcode(Opcode::POP, self.s(), self.w(), self.condition)
                             .tokenize(stream, symbols);
-                        stream.push(" {", Colors::brackets());
-                        stream.push(rt.as_str(), Colors::register());
-                        stream.push("}", Colors::brackets());
+                        stream.push(" {", CONFIG.colors.brackets);
+                        stream.push(rt.as_str(), CONFIG.colors.asm.register);
+                        stream.push("}", CONFIG.colors.brackets);
                         return;
                     }
                     _ => {}
@@ -2239,9 +2240,9 @@ impl ToTokens for Instruction {
                     {
                         ConditionedOpcode(Opcode::PUSH, self.s(), self.w(), self.condition)
                             .tokenize(stream, symbols);
-                        stream.push(" {", Colors::brackets());
-                        stream.push(rt.as_str(), Colors::register());
-                        stream.push("}", Colors::brackets());
+                        stream.push(" {", CONFIG.colors.brackets);
+                        stream.push(rt.as_str(), CONFIG.colors.asm.register);
+                        stream.push("}", CONFIG.colors.brackets);
                         return;
                     }
                     _ => {}
@@ -2254,7 +2255,7 @@ impl ToTokens for Instruction {
                     {
                         ConditionedOpcode(Opcode::POP, self.s(), self.w(), self.condition)
                             .tokenize(stream, symbols);
-                        stream.push(" ", Colors::expr());
+                        stream.push(" ", CONFIG.colors.asm.expr);
                         format_reg_list(stream, list);
                         return;
                     }
@@ -2268,7 +2269,7 @@ impl ToTokens for Instruction {
                     {
                         ConditionedOpcode(Opcode::PUSH, self.s(), self.w(), self.condition)
                             .tokenize(stream, symbols);
-                        stream.push(" ", Colors::expr());
+                        stream.push(" ", CONFIG.colors.asm.expr);
                         format_reg_list(stream, list);
                         return;
                     }
@@ -2286,12 +2287,12 @@ impl ToTokens for Instruction {
                 {
                     ConditionedOpcode(self.opcode, self.s(), self.w(), self.condition)
                         .tokenize(stream, symbols);
-                    stream.push(" ", Colors::expr());
-                    stream.push(rr.as_str(), Colors::register());
+                    stream.push(" ", CONFIG.colors.asm.expr);
+                    stream.push(rr.as_str(), CONFIG.colors.asm.register);
                     if wback {
-                        stream.push("!", Colors::expr());
+                        stream.push("!", CONFIG.colors.asm.expr);
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     format_reg_list(stream, list);
                     return;
                 }
@@ -2300,192 +2301,192 @@ impl ToTokens for Instruction {
                 }
             },
             Opcode::STCL(coproc) => {
-                stream.push("stcl ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("stcl ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::STC(coproc) => {
-                stream.push("stc ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("stc ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::STC2L(coproc) => {
-                stream.push("stc2l ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("stc2l ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::STC2(coproc) => {
-                stream.push("stc2 ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("stc2 ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::LDC(coproc) => {
-                stream.push("ldc ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("ldc ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::LDCL(coproc) => {
-                stream.push("ldcl ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("ldcl ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::LDC2(coproc) => {
-                stream.push("ldc2 ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("ldc2 ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::LDC2L(coproc) => {
-                stream.push("ldc2l ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
+                stream.push("ldc2l ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::MRRC2(coproc, opc) => {
-                stream.push("mrrc2 ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc.to_string(), Colors::register());
+                stream.push("mrrc2 ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::MCRR2(coproc, opc) => {
-                stream.push("mcrr2 ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc.to_string(), Colors::register());
+                stream.push("mcrr2 ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
             }
             Opcode::MRC2(coproc, opc1, opc2) => {
-                stream.push("mrc2 ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc1.to_string(), Colors::register());
+                stream.push("mrc2 ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc1.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
 
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc2.to_string(), Colors::register());
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc2.to_string(), CONFIG.colors.asm.register);
             }
             Opcode::MCR2(coproc, opc1, opc2) => {
-                stream.push("mcr2 ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc1.to_string(), Colors::register());
+                stream.push("mcr2 ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc1.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
 
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc2.to_string(), Colors::register());
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc2.to_string(), CONFIG.colors.asm.register);
             }
             Opcode::CDP2(coproc, opc1, opc2) => {
-                stream.push("cdp2 ", Colors::opcode());
-                stream.push("p", Colors::register());
-                stream.push_owned(coproc.to_string(), Colors::register());
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc1.to_string(), Colors::register());
+                stream.push("cdp2 ", CONFIG.colors.asm.opcode);
+                stream.push("p", CONFIG.colors.asm.register);
+                stream.push_owned(coproc.to_string(), CONFIG.colors.asm.register);
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc1.to_string(), CONFIG.colors.asm.register);
                 let ops = self.operands.iter();
                 for op in ops {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, imm_override);
                 }
 
-                stream.push(", ", Colors::expr());
-                stream.push_owned(opc2.to_string(), Colors::register());
+                stream.push(", ", CONFIG.colors.asm.expr);
+                stream.push_owned(opc2.to_string(), CONFIG.colors.asm.register);
             }
             _ => {
                 ConditionedOpcode(self.opcode, self.s(), self.w(), self.condition)
@@ -2495,7 +2496,7 @@ impl ToTokens for Instruction {
                     if let Operand::Nothing = first_op {
                         return;
                     }
-                    stream.push(" ", Colors::expr());
+                    stream.push(" ", CONFIG.colors.asm.expr);
                     first_op.tokenize(stream, symbols, None);
                 } else {
                     return;
@@ -2505,7 +2506,7 @@ impl ToTokens for Instruction {
                     if let Operand::Nothing = op {
                         break;
                     }
-                    stream.push(", ", Colors::expr());
+                    stream.push(", ", CONFIG.colors.asm.expr);
                     op.tokenize(stream, symbols, None);
                 }
             }
