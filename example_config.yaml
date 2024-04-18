@@ -3,16 +3,38 @@
 
 colors:
   src:
-    # keyword: "#000000"
-    # tipe: "#000000"
-    # field: "#000000"
-    # function: "#000000"
-    # delimiter: "#000000"
-    # operator: "#000000"
-    # comment: "#000000"
-    # string: "#000000"
-    # variable: "#000000"
-    # constant: "#000000"
-    # highlight: "#000000"
-  # bg_primary: "#303030"
-  # bg_secondary: "#000000"
+    keyword: "#ff5900"
+    tipe: "#faa51b"
+    field: "#288cc7"
+    function: "#02ed6e"
+    operator: "#ffa500"
+    string: "#02ed6e"
+    variable: "#d46ccb"
+    constant: "#9b51c2"
+    highlight: "#ff6400"
+  asm:
+    section: "#3ebce6"
+    opcode: "#ffffff"
+    # component1::component2::component3 or just component for function names without mangling.
+    # Also used for section type identifiers.
+    component: "#f51281"
+    register: "#f51281"
+    # <label> the brackets around a label.
+    label: "#3ebce6"
+    segment: "#02ed6e"
+    invalid: "#ff1fff"
+    pointer: "#ff0000"
+    # Any kind of math expression.
+    expr: "#999999"
+    immediate: "#3ebce6"
+    annotation: "#3ebce6"
+    # Think size_t or str.
+    primitive: "#69b5a9"
+    string: "#e6ab3e"
+    brackets: "#606060"
+    comment: "#a0a0a0"
+    address: "#404040"
+    bytes: "#02ed6e"
+    delimiter: "#a0a0a0"
+    bg_primary: "#303030"
+    bg_secondary: "#2d2d2d"

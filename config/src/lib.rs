@@ -15,7 +15,9 @@ pub struct Config {
 
 #[derive(Debug, Deserialize)]
 pub struct Colors {
+    #[serde(default = "defaults::src_colors")]
     pub src: SourceColors,
+    #[serde(default = "defaults::asm_colors")]
     pub asm: AsmColors,
     #[serde(default = "defaults::comment", deserialize_with = "color32")]
     pub comment: Color32,
@@ -145,8 +147,13 @@ mod defaults {
     pub fn config() -> super::Config {
         serde_yaml::from_str("").unwrap()
     }
-
     pub fn colors() -> super::Colors {
+        serde_yaml::from_str("").unwrap()
+    }
+    pub fn src_colors() -> super::SourceColors {
+        serde_yaml::from_str("").unwrap()
+    }
+    pub fn asm_colors() -> super::AsmColors {
         serde_yaml::from_str("").unwrap()
     }
 
