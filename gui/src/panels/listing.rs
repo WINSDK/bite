@@ -11,6 +11,7 @@ pub struct Listing {
     boundaries: Arc<RwLock<Vec<usize>>>,
     scroll: InfiniteScroll<Block, usize>,
     reset_position: Arc<AtomicUsize>,
+    current_addr: usize,
 }
 
 impl Listing {
@@ -127,8 +128,10 @@ impl Listing {
             .start_loader(start_loader)
             .end_loader(end_loader);
 
+        let current_addr = processor.sections().next().unwrap().start;
+
         // we show one block higher, not one boundary
-        Self { scroll: infinite_scroll, boundaries, processor, reset_position }
+        Self { scroll: infinite_scroll, boundaries, processor, reset_position, current_addr }
     }
 
     pub fn jump(&mut self, addr: usize) -> bool {
@@ -164,17 +167,12 @@ impl Display for Listing {
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .animated(false);
 
-        let mut current_addr = None;
         let start_y = ui.cursor().min.y;
 
         area.show(ui, |ui| {
             ui.set_width(ui.available_width());
 
-            self.scroll.ui(ui, 10, |ui, _, block| {
-                if current_addr.is_none() {
-                    current_addr = Some(block.addr);
-                }
-
+            let response = self.scroll.ui(ui, 10, |ui, _, block| {
                 if let BlockContent::SectionStart { .. } = block.content {
                     draw_horizontal_line(ui);
                 }
@@ -184,6 +182,9 @@ impl Display for Listing {
                 ui.label(tokens_to_layoutjob(stream.inner));
             });
 
+            let start_block_idx = response.item_range.start;
+            self.current_addr = self.boundaries.read()[start_block_idx];
+
             ui.vertical_centered(|ui| {
                 ui.set_visible(self.scroll.bottom_loading_state().loading());
                 ui.spinner();
@@ -191,30 +192,28 @@ impl Display for Listing {
         });
 
         // Overlay current section.
-        if let Some(addr) = current_addr {
-            let text = self.processor.section_name(addr).unwrap();
-            let max_width = ui.available_width();
-            let size = egui::vec2(9.0 * text.len() as f32, 25.0);
-            let offset = egui::pos2(8.0, start_y + 6.0);
-            let rect = egui::Rect::from_two_pos(
-                egui::pos2(max_width - offset.x, offset.y),
-                egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
-            );
+        let text = self.processor.section_name(self.current_addr).unwrap();
+        let max_width = ui.available_width();
+        let size = egui::vec2(9.0 * text.len() as f32, 25.0);
+        let offset = egui::pos2(8.0, start_y + 6.0);
+        let rect = egui::Rect::from_two_pos(
+            egui::pos2(max_width - offset.x, offset.y),
+            egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
+        );
 
-            ui.painter().rect(
-                rect.expand2(egui::vec2(5.0, 0.0)),
-                0.0,
-                tokenizing::colors::GRAY35,
-                egui::Stroke::new(2.5, egui::Color32::BLACK),
-            );
+        ui.painter().rect(
+            rect.expand2(egui::vec2(5.0, 0.0)),
+            0.0,
+            tokenizing::colors::GRAY35,
+            egui::Stroke::new(2.5, egui::Color32::BLACK),
+        );
 
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                text,
-                FONT,
-                egui::Color32::WHITE,
-            );
-        }
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            text,
+            FONT,
+            egui::Color32::WHITE,
+        );
     }
 }
