@@ -138,15 +138,29 @@ impl Index {
 
         let dwarf = match obj {
             #[cfg(target_os = "macos")]
-            object::File::MachO32(_) | object::File::MachO64(_) => macho_dwarf(obj, path)?,
-            _ => dwarf::Dwarf::parse(obj)?,
+            object::File::MachO32(_) | object::File::MachO64(_) => macho_dwarf(obj, path),
+            _ => dwarf::Dwarf::parse(obj),
         };
 
-        this.file_attrs.extend(dwarf.file_attrs);
+        match dwarf {
+            Ok(dwarf) => this.file_attrs.extend(dwarf.file_attrs),
+            Err(err) => log::complex!(
+                w "[dwarf::parse] ",
+                y format!("Failed to parse dwarf: {err:?}"),
+                w ".",
+            )
+        };
 
         let mut pdb = None;
         if let Some(parsed_pdb) = pdb::PDB::parse(obj) {
-            pdb = Some(parsed_pdb?);
+            match parsed_pdb {
+                Ok(parsed_pdb) => pdb = Some(parsed_pdb),
+                Err(err) => log::complex!(
+                    w "[pdb::parse] ",
+                    y format!("Failed to parse pdb: {err}"),
+                    w ".",
+                )
+            };
         }
 
         // NOTE: This is a little scuffed. We have to take a `ref mut` here
