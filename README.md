@@ -24,7 +24,7 @@ Here is an example of the assembly listing viewing.
 
 ![Assembly listing](./assets/screenshot.png)
 
-The ability to view a binaries disassembly and it's associated source code.
+The ability to view a binary's disassembly and its associated source code.
 
 ![Source Code](./assets/split_source.png)
 
