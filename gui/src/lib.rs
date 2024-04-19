@@ -73,11 +73,11 @@ impl WinitQueue {
     }
 }
 
-pub struct UIQueue {
+pub struct UiQueue {
     inner: crossbeam_queue::ArrayQueue<UIEvent>,
 }
 
-impl UIQueue {
+impl UiQueue {
     pub fn push(&self, event: UIEvent) {
         let _ = self.inner.push(event);
     }
@@ -91,7 +91,7 @@ pub struct UI {
     instance: wgpu_backend::Instance<'static>,
     egui_render_pass: wgpu_backend::egui::Pipeline,
     platform: winit_backend::Platform,
-    ui_queue: Arc<UIQueue>,
+    ui_queue: Arc<UiQueue>,
 }
 
 impl UI {
@@ -110,7 +110,7 @@ impl UI {
         #[cfg(target_family = "unix")]
         let arch = Arch::new();
 
-        let ui_queue = Arc::new(UIQueue {
+        let ui_queue = Arc::new(UiQueue {
             inner: crossbeam_queue::ArrayQueue::new(100),
         });
 

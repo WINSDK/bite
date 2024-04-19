@@ -1,17 +1,18 @@
-use crate::{common::*, UIQueue};
+use crate::{common::*, UIEvent, UiQueue};
 use config::CONFIG;
+use debugvault::Index;
 use egui::mutex::RwLock;
 use egui::Color32;
 use infinite_scroll::{Callback, InfiniteScroll};
 use processor::{Block, BlockContent, Processor};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokenizing::{colors, TokenStream};
+use tokenizing::{colors, Token, TokenStream};
 
 pub struct Listing {
     processor: Arc<Processor>,
     #[allow(dead_code)]
-    ui_queue: Arc<UIQueue>,
+    ui_queue: Arc<UiQueue>,
     boundaries: Arc<RwLock<Vec<usize>>>,
     scroll: InfiniteScroll<Block, usize>,
     reset_position: Arc<AtomicUsize>,
@@ -20,7 +21,7 @@ pub struct Listing {
 }
 
 impl Listing {
-    pub fn new(processor: Arc<Processor>, ui_queue: Arc<UIQueue>) -> Self {
+    pub fn new(processor: Arc<Processor>, ui_queue: Arc<UiQueue>) -> Self {
         let boundaries: Arc<RwLock<Vec<usize>>> = Arc::default();
 
         {
@@ -170,6 +171,21 @@ impl Listing {
     }
 }
 
+fn split_instruction_by_label(tokens: Vec<Token>) -> (Vec<Token>, Vec<Token>, Vec<Token>) {
+    let start = tokens.iter().position(|token| token.text.contains('<'));
+    let end = tokens.iter().rposition(|token| token.text.contains('>'));
+
+    if let (Some(start), Some(end)) = (start, end) {
+        return (
+            tokens[..start].to_vec(),
+            tokens[start..=end].to_vec(),
+            tokens[end + 1..].to_vec(),
+        );
+    }
+
+    (tokens, Vec::new(), Vec::new())
+}
+
 fn draw_horizontal_line(ui: &mut egui::Ui) {
     let thickness = 1.0;
     let y = ui.cursor().min.y;
@@ -183,6 +199,25 @@ fn draw_horizontal_line(ui: &mut egui::Ui) {
 
     ui.add_space(5.0);
     ui.painter().extend(dashed_line);
+}
+
+fn draw_instruction(ui: &mut egui::Ui, tokens: Vec<Token>, index: &Index, ui_queue: &UiQueue) {
+    let (a, b, c) = split_instruction_by_label(tokens);
+    let label = tokens_to_layoutjob(b);
+    let label_text = label.text.clone();
+
+    ui.horizontal(|ui| {
+        ui.style_mut().spacing.item_spacing.x = 0.0;
+
+        ui.label(tokens_to_layoutjob(a));
+        if ui.link(label).clicked() {
+            let label_without_arrows = &label_text[1..][..label_text.len() - 2];
+            if let Some(addr) = index.get_func_by_name(label_without_arrows) {
+                ui_queue.push(UIEvent::GotoAddr(addr));
+            }
+        }
+        ui.label(tokens_to_layoutjob(c));
+    });
 }
 
 impl Display for Listing {
@@ -209,7 +244,21 @@ impl Display for Listing {
 
                 let mut stream = TokenStream::new();
                 block.tokenize(&mut stream);
-                ui.label(tokens_to_layoutjob(stream.inner));
+
+                match block.content {
+                    BlockContent::Instruction { .. } => {
+                        draw_instruction(ui, stream.inner, &self.processor.index, &self.ui_queue);
+                    }
+                    BlockContent::Label { .. } => {
+                        if ui.link(tokens_to_layoutjob(stream.inner)).clicked() {
+                            self.ui_queue.push(UIEvent::GotoAddr(block.addr));
+                        }
+                    }
+                    _ => {
+                        ui.label(tokens_to_layoutjob(stream.inner));
+                    }
+                }
+
                 idx += 1;
             });
 
@@ -237,7 +286,7 @@ impl Display for Listing {
                 Color32::from_rgb(
                     (color[0] as f32 * 1.1) as u8,
                     (color[1] as f32 * 1.1) as u8,
-                    (color[2] as f32 * 1.1) as u8
+                    (color[2] as f32 * 1.1) as u8,
                 )
             },
             egui::Stroke::new(2.5, egui::Color32::BLACK),

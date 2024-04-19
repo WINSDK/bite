@@ -1,5 +1,5 @@
 use crate::common::*;
-use crate::{UIQueue, UIEvent};
+use crate::{UiQueue, UIEvent};
 use config::CONFIG;
 use processor_shared::Addressed;
 use processor::Processor;
@@ -8,7 +8,7 @@ use tokenizing::{colors, Token};
 
 pub struct Functions {
     processor: Arc<Processor>,
-    ui_queue: Arc<UIQueue>,
+    ui_queue: Arc<UiQueue>,
     lines: Vec<(usize, Vec<Token>)>,
     lines_count: usize,
     min_row: usize,
@@ -16,7 +16,7 @@ pub struct Functions {
 }
 
 impl Functions {
-    pub fn new(processor: Arc<Processor>, ui_queue: Arc<UIQueue>) -> Self {
+    pub fn new(processor: Arc<Processor>, ui_queue: Arc<UiQueue>) -> Self {
         let function_count = processor.index.named_funcs_count();
 
         Self {

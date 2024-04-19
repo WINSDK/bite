@@ -131,14 +131,14 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
 pub struct Panels {
     tree: Tree<Identifier>,
     panes: Tabs,
-    ui_queue: Arc<crate::UIQueue>,
+    ui_queue: Arc<crate::UiQueue>,
     #[allow(dead_code)] // used on windows and linux for top bar
     winit_queue: WinitQueue,
     loading: bool,
 }
 
 impl Panels {
-    pub fn new(ui_queue: Arc<crate::UIQueue>, winit_queue: WinitQueue) -> Self {
+    pub fn new(ui_queue: Arc<crate::UiQueue>, winit_queue: WinitQueue) -> Self {
         let mut tiles = Tiles::default();
         let tabs = vec![
             tiles.insert_pane(DISASSEMBLY),
