@@ -100,7 +100,11 @@ impl Block {
                 stream.push("section ended", colors::WHITE);
                 stream.push_owned(format!(" {} ", section.name), CONFIG.colors.asm.section);
                 stream.push("{", CONFIG.colors.brackets);
-                stream.push_owned(format!("{:?}", section.kind), CONFIG.colors.asm.component);
+                if section.ident == "UNKNOWN" {
+                    stream.push_owned(format!("{:?}", section.kind), CONFIG.colors.asm.component);
+                } else {
+                    stream.push(section.ident, CONFIG.colors.asm.component);
+                }
                 stream.push("} ", CONFIG.colors.brackets);
                 stream.push_owned(format!("{:x}", section.start), colors::GREEN);
                 stream.push("-", CONFIG.colors.delimiter);
@@ -189,7 +193,11 @@ impl Processor {
     /// might conflict with a label.
     fn get_symbol_by_addr(&self, addr: usize, section: &Section) -> Option<Arc<Symbol>> {
         if addr == section.start {
-            return None;
+            if let Some(symbol) = self.index.get_sym_by_addr(addr) {
+                if symbol.as_str() == section.name {
+                    return None;
+                }
+            }
         }
 
         self.index.get_sym_by_addr(addr)
