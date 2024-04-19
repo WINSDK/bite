@@ -85,7 +85,7 @@ impl TextEditState {
         ctx.data_mut(|d| d.insert_persisted(id, self));
     }
 
-    /// The the currently selected range of characters.
+    /// The currently selected range of characters.
     pub fn ccursor_range(&self) -> Option<CCursorRange> {
         self.ccursor_range
             .or_else(|| self.cursor_range.map(|cursor_range| cursor_range.as_ccursor_range()))
