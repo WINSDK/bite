@@ -137,8 +137,8 @@ impl Index {
         let mut this = Self::default();
 
         let dwarf = match obj {
-            object::File::MachO32(_) => macho_dwarf(obj, path)?,
-            object::File::MachO64(_) => macho_dwarf(obj, path)?,
+            #[cfg(target_os = "macos")]
+            object::File::MachO32(_) | object::File::MachO64(_) => macho_dwarf(obj, path)?,
             _ => dwarf::Dwarf::parse(obj)?,
         };
 
@@ -310,21 +310,28 @@ pub fn macho_dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Erro
         .join(path.file_name().unwrap());
 
     if !opt_dsym.is_file() {
-        let dsymutil_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/dsymutil");
-        assert!(dsymutil_path.exists(), "dsymutil somehow missing");
+        #[cfg(target_arch = "x86_64")]
+        let dsymutil_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/dsymutil_x86_64");
+        #[cfg(target_arch = "aarch64")]
+        let dsymutil_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/dsymutil_aarch64");
 
-        log::PROGRESS.set("Running dsymutil.", 1);
-        let exit_status =
-            Command::new(dsymutil_path).arg("--linker=parallel").arg(path).spawn()?.wait()?;
-        log::PROGRESS.step();
+        if dsymutil_path.exists() {
+            log::PROGRESS.set("Running dsymutil.", 1);
+            let exit_status = Command::new(dsymutil_path)
+                .arg("--linker=parallel")
+                .arg(path)
+                .spawn()?
+                .wait()?;
+            log::PROGRESS.step();
 
-        if !exit_status.success() {
-            log::complex!(
-                w "[macho::dwarf] ",
-                y "Generating dSym failed with exit code ",
-                g exit_status.code().unwrap_or(1).to_string(),
-                y "."
-            );
+            if !exit_status.success() {
+                log::complex!(
+                    w "[macho::dwarf] ",
+                    y "Generating dSym failed with exit code ",
+                    g exit_status.code().unwrap_or(1).to_string(),
+                    y "."
+                );
+            }
         }
     }
 
