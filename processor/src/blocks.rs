@@ -537,10 +537,6 @@ impl Processor {
                 break;
             }
 
-            if self.index.get_sym_by_addr(addr).is_some() {
-                boundaries.push(addr);
-            }
-
             if let Some(inst) = self.instruction_by_addr(addr) {
                 boundaries.push(addr);
                 addr += self.instruction_width(inst);
@@ -564,11 +560,6 @@ impl Processor {
                 }
 
                 if self.error_by_addr(baddr).is_some() {
-                    break;
-                }
-
-                // We found some labelled bytes, so those would have to be in a different block.
-                if addr != baddr && self.index.get_sym_by_addr(baddr).is_some() {
                     break;
                 }
 
