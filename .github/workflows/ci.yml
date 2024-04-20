@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Checking out rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -22,7 +22,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Linux build
           path: ./target/release/bite
@@ -30,7 +30,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Checking out rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -41,7 +41,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: MacOS build
           path: ./target/release/bite
@@ -49,7 +49,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Checking out rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -60,7 +60,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Upload binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Windows build
           path: ./target/release/bite.exe
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Checking out rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -84,7 +84,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Checking out rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -98,7 +98,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Checking out rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
