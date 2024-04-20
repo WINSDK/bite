@@ -261,9 +261,11 @@ impl Operand {
         match *self {
             Operand::ImmediateI8(_) => match symbols.get_sym_by_addr(addr) {
                 Some(symbol) => {
+                    stream.push("<", CONFIG.colors.asm.label);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
+                    stream.push(">", CONFIG.colors.asm.label);
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
@@ -272,9 +274,11 @@ impl Operand {
             },
             Operand::ImmediateU8(_) => match symbols.get_sym_by_addr(addr) {
                 Some(symbol) => {
+                    stream.push("<", CONFIG.colors.asm.label);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
+                    stream.push(">", CONFIG.colors.asm.label);
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
@@ -283,9 +287,11 @@ impl Operand {
             },
             Operand::ImmediateI16(_) => match symbols.get_sym_by_addr(addr) {
                 Some(symbol) => {
+                    stream.push("<", CONFIG.colors.asm.label);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
+                    stream.push(">", CONFIG.colors.asm.label);
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
@@ -294,9 +300,11 @@ impl Operand {
             },
             Operand::ImmediateU16(_) => match symbols.get_sym_by_addr(addr) {
                 Some(symbol) => {
+                    stream.push("<", CONFIG.colors.asm.label);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
+                    stream.push(">", CONFIG.colors.asm.label);
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
@@ -305,9 +313,11 @@ impl Operand {
             },
             Operand::ImmediateI32(_) => match symbols.get_sym_by_addr(addr) {
                 Some(symbol) => {
+                    stream.push("<", CONFIG.colors.asm.label);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
+                    stream.push(">", CONFIG.colors.asm.label);
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
@@ -316,9 +326,11 @@ impl Operand {
             },
             Operand::ImmediateU32(_) => match symbols.get_sym_by_addr(addr) {
                 Some(symbol) => {
+                    stream.push("<", CONFIG.colors.asm.label);
                     for token in symbol.name() {
                         stream.push_token(token.clone());
                     }
+                    stream.push(">", CONFIG.colors.asm.label);
                 }
                 None => {
                     let text = decoder::encode_hex(addr as i64);
@@ -329,10 +341,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
-                        dbg!(symbol.as_str());
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         let text = decoder::encode_hex(addr as i64);
@@ -345,9 +358,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(spec), CONFIG.colors.asm.register);
@@ -360,9 +375,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(spec), CONFIG.colors.asm.register);
@@ -376,9 +393,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(spec), CONFIG.colors.asm.register);
@@ -393,9 +412,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
@@ -409,9 +430,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
@@ -426,9 +449,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
@@ -444,9 +469,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
@@ -463,9 +490,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(spec), CONFIG.colors.asm.register);
@@ -482,9 +511,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(spec), CONFIG.colors.asm.register);
@@ -502,9 +533,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(spec), CONFIG.colors.asm.register);
@@ -524,9 +557,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
@@ -544,9 +579,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
@@ -566,9 +603,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
@@ -594,9 +633,11 @@ impl Operand {
                 stream.push("[", CONFIG.colors.brackets);
                 match symbols.get_sym_by_addr(addr) {
                     Some(symbol) => {
+                        stream.push("<", CONFIG.colors.asm.label);
                         for token in symbol.name() {
                             stream.push_token(token.clone());
                         }
+                        stream.push(">", CONFIG.colors.asm.label);
                     }
                     None => {
                         stream.push(regspec_label(base), CONFIG.colors.asm.register);
