@@ -407,7 +407,8 @@ fn parse_dynamic_table<'data>(
 ) -> Result<(), object::Error> {
     log::complex!(
         w "[macho::parse_dynamic_table] ",
-        y "TODO",
+        y "Missing an implementation",
+        w ".",
     );
     Ok(())
 }
