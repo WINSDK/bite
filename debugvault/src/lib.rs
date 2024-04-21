@@ -6,7 +6,7 @@ use processor_shared::{AddressMap, Addressed};
 use radix_trie::{Trie, TrieCommon};
 use std::path::Path;
 use std::sync::Arc;
-use std::{fmt, process::Command};
+use std::fmt;
 use tokenizing::Token;
 
 mod common;
@@ -131,6 +131,7 @@ pub struct Index {
 impl Index {
     pub fn parse<'data>(
         obj: &object::File<'data>,
+        #[allow(unused_variables)]
         path: &Path,
         mut syms: AddressMap<RawSymbol<'data>>,
     ) -> Result<Self, Error> {
@@ -139,7 +140,7 @@ impl Index {
         let dwarf = match obj {
             #[cfg(target_os = "macos")]
             object::File::MachO32(_) | object::File::MachO64(_) => macho_dwarf(obj, path),
-            _ => dwarf::Dwarf::parse(obj),
+            _ => Dwarf::parse(obj),
         };
 
         match dwarf {
@@ -332,7 +333,7 @@ pub fn macho_dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Erro
 
         if dsymutil_path.exists() {
             log::PROGRESS.set("Running dsymutil.", 1);
-            let exit_status = Command::new(dsymutil_path)
+            let exit_status = std::process::Command::new(dsymutil_path)
                 .arg("--linker=parallel")
                 .arg(path)
                 .spawn()?
