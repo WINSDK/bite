@@ -309,6 +309,7 @@ fn sort_by_shortest_match(input: &[&ArcStr], prefix: &str) -> Vec<String> {
     matches
 }
 
+#[cfg(target_os = "macos")]
 pub fn macho_dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Error> {
     let mut dwarf = Dwarf::parse(obj)?;
 
