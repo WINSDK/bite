@@ -1,8 +1,9 @@
 mod armv7;
 mod armv8;
 
-use decoder::{Decodable, Reader, TokenStream, ToTokens};
+use decoder::{Decodable, Reader, ToTokens};
 use debugvault::Index;
+use tokenizing::TokenStream;
 
 fn test_range<A: Decodable>(decoder: &A, start: u64, end: u64) {
     let mut stream = TokenStream::new();

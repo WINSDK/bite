@@ -183,7 +183,8 @@ fn unlikely(b: bool) -> bool {
 pub fn encode_hex(mut imm: i64) -> String {
     unsafe {
         let mut buffer = Vec::with_capacity(19);
-        let slice = &mut buffer[..];
+        let slice = buffer.spare_capacity_mut();
+        let slice = std::mem::transmute::<_, &mut [u8]>(slice);
         let mut idx = 0;
 
         if imm.is_negative() {
@@ -227,7 +228,8 @@ pub fn encode_hex(mut imm: i64) -> String {
 pub fn encode_uhex(mut imm: u64) -> String {
     unsafe {
         let mut buffer = Vec::with_capacity(19);
-        let slice = &mut buffer[..];
+        let slice = buffer.spare_capacity_mut();
+        let slice = std::mem::transmute::<_, &mut [u8]>(slice);
         let mut idx = 0;
 
         *slice.get_unchecked_mut(idx) = b'0';
@@ -272,5 +274,12 @@ mod tests {
         assert_eq!(super::encode_hex(0x0), "0x0");
         assert_eq!(super::encode_hex(-0x800000000000000), "-0x800000000000000");
         assert_eq!(super::encode_hex(0x7fffffffffffffff), "0x7fffffffffffffff");
+    }
+
+    #[test]
+    fn encode_uhex() {
+        assert_eq!(super::encode_uhex(0x123123), "0x123123");
+        assert_eq!(super::encode_uhex(0x0), "0x0");
+        assert_eq!(super::encode_uhex(0x7fffffffffffffff), "0x7fffffffffffffff");
     }
 }
