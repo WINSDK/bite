@@ -18,8 +18,8 @@
 // TODO: Implement binary presidence (10 + 10 * 10 == 110).
 //       This likely requires parsing in two steps where we first generate tokens.
 
-use std::fmt;
 use debugvault::Index;
+use std::fmt;
 
 const MAX_DEPTH: usize = 256;
 
@@ -532,9 +532,16 @@ impl CompleteExpr {
         }
     }
 
-    pub fn autocomplete(&self, index: &Index, cursor: usize) -> Option<(Vec<String>, Span)> {
-        self.find_matching_symbol(&self.root, cursor)
-            .map(|(prefix, span)| (index.prefix_match_func(prefix), span))
+    pub fn autocomplete<'a>(
+        &self,
+        index: &'a Index,
+        cursor: usize,
+    ) -> Option<(debugvault::prefix::Match, Span)> {
+        if let Some((prefix, span)) = self.find_matching_symbol(&self.root, cursor) {
+            return Some((index.prefixes.find(prefix), span));
+        }
+
+        None
     }
 
     pub fn parse(s: &str) -> Result<Self, Error> {

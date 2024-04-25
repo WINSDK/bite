@@ -1,15 +1,13 @@
 use binformat::RawSymbol;
-use common::*;
 use demangler::TokenStream;
 use dwarf::Dwarf;
 use processor_shared::{AddressMap, Addressed};
-use radix_trie::{Trie, TrieCommon};
 use std::path::Path;
 use std::sync::Arc;
 use std::fmt;
 use tokenizing::Token;
 
-mod common;
+pub mod prefix;
 mod demangler;
 mod dwarf;
 mod error;
@@ -37,7 +35,7 @@ pub struct FileAttr {
 
 pub struct Symbol {
     name: TokenStream,
-    name_as_str: ArcStr,
+    name_as_str: Arc<str>,
     module: Option<String>,
     is_intrinsics: bool,
 }
@@ -66,7 +64,7 @@ impl Default for Symbol {
     fn default() -> Self {
         Self {
             name: TokenStream::new(""),
-            name_as_str: ArcStr::new(""),
+            name_as_str: Arc::from(""),
             module: None,
             is_intrinsics: false,
         }
@@ -84,6 +82,7 @@ impl Symbol {
         self.module.as_deref()
     }
 
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.name_as_str
     }
@@ -121,8 +120,8 @@ pub struct Index {
     /// The addresses are sorted.
     pub file_attrs: AddressMap<FileAttr>,
 
-    /// Prefix tree for finding symbols.
-    trie: Trie<ArcStr, Arc<Symbol>>,
+    /// Efficient string match searcher.
+    pub prefixes: prefix::PrefixMatcher,
 
     /// Number of named compiler artifacts.
     named_len: usize,
@@ -176,7 +175,7 @@ impl Index {
             let demangled = demangler::parse(item.name);
             let is_intrinsics = is_name_an_intrinsic(item.name);
             let name_as_str = String::from_iter(demangled.tokens().iter().map(|t| &t.text[..]));
-            let name_as_str = ArcStr::new(&name_as_str);
+            let name_as_str = Arc::from(name_as_str);
             let symbol = Symbol {
                 name_as_str,
                 name: demangled,
@@ -231,13 +230,16 @@ impl Index {
     }
 
     fn build_prefix_tree(&mut self) {
-        log::PROGRESS.set("Building prefix tree", self.syms.len());
+        log::PROGRESS.set("Building prefix tree", self.syms.len() + 1);
 
         // Radix-prefix tree for fast lookups.
         for Addressed { item: func, .. } in self.syms.iter() {
-            self.trie.insert(func.name_as_str.clone(), Arc::clone(func));
+            self.prefixes.insert(func);
             log::PROGRESS.step();
         }
+
+        self.prefixes.reorder();
+        log::PROGRESS.step();
     }
 
     pub fn named_funcs_count(&self) -> usize {
@@ -273,41 +275,12 @@ impl Index {
             addr,
             item: Arc::new(Symbol {
                 name: TokenStream::simple(name),
-                name_as_str: ArcStr::new(name),
+                name_as_str: Arc::from(name),
                 module: None,
                 is_intrinsics: false,
             }),
         })
     }
-
-    pub fn prefix_match_func(&self, prefix: &str) -> Vec<String> {
-        let arc_prefix = ArcStr::new(prefix);
-        let desc = match self.trie.get_raw_descendant(&arc_prefix) {
-            Some(desc) => desc.keys().collect(),
-            None => Vec::new(),
-        };
-
-        sort_by_shortest_match(&desc, prefix)
-    }
-}
-
-/// Sort the first 100 strings by length if they have a matching prefix.
-fn sort_by_shortest_match(input: &[&ArcStr], prefix: &str) -> Vec<String> {
-    let mut matches: Vec<String> = Vec::new();
-
-    for possible in input {
-        if matches.len() == 100 {
-            break;
-        }
-
-        if possible.starts_with(prefix) {
-            matches.push(possible.to_string());
-        }
-    }
-
-    // sort the matches by length
-    matches.sort_by_key(|a| a.len());
-    matches
 }
 
 #[cfg(target_os = "macos")]
@@ -355,4 +328,46 @@ pub fn macho_dwarf(obj: &object::File, path: &Path) -> Result<Dwarf, dwarf::Erro
     dwarf.merge(dsym_dwarf);
 
     Ok(dwarf)
+}
+
+pub fn parallel_compute<In, Out, F>(items: Vec<In>, output: &mut Vec<Out>, transformer: F)
+where
+    F: FnOnce(&In) -> Out,
+    F: Send + Copy,
+    In: Sync,
+    Out: Send + Sync,
+{
+    let thread_count = std::thread::available_parallelism().unwrap().get();
+
+    // For small item counts, perform single-threaded.
+    if items.len() < thread_count {
+        for item in items.iter() {
+            output.push(transformer(item));
+        }
+
+        return;
+    }
+
+    // Multithreaded.
+    std::thread::scope(|s| {
+        let chunks = items.chunks(items.len() / thread_count);
+        let mut threads = Vec::with_capacity(thread_count);
+
+        for chunk in chunks {
+            let thread = s.spawn(move || {
+                let mut result = Vec::with_capacity(chunk.len());
+                for item in chunk {
+                    result.push(transformer(item));
+                }
+                result
+            });
+
+            threads.push(thread);
+        }
+
+        for thread in threads {
+            let chunk = thread.join().unwrap();
+            output.extend(chunk);
+        }
+    });
 }

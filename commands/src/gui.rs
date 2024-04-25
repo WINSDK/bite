@@ -330,9 +330,9 @@ impl<'src> Context<'src> {
         if let Some((suggestions, span)) = expr.autocomplete(self.index, relative_cursor) {
             let span = span.start() + offset..span.end() + offset;
 
-            for suggestion in suggestions {
+            for suggestion in suggestions.iter(&self.index.prefixes) {
                 let mut src = self.src.to_string();
-                src.replace_range(span.clone(), &suggestion);
+                src.replace_range(span.clone(), suggestion.as_str());
                 self.suggestions.push(src);
             }
         }

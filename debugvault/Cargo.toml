@@ -10,7 +10,6 @@ config = { path = "../config" }
 tokenizing = { path = "../tokenizing" }
 processor_shared = { path = "../processor_shared" }
 bitflags = "2"
-radix_trie = "0.2"
 gimli = { workspace = true }
 pdb = { workspace = true }
 object = { workspace = true }
