@@ -73,47 +73,55 @@ impl Match {
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//
-//     #[test]
-//     fn insert() {
-//         let mut tree = PrefixMatch::default();
-//         tree.insert("file", 0);
-//         tree.insert("file_name", 1);
-//         tree.insert("file::name", 2);
-//         tree.insert("file::no", 3);
-//         tree.reorder();
-//         let expected = [
-//             ("file", 0),
-//             ("file::name", 2),
-//             ("file::no", 3),
-//             ("file_name", 1),
-//         ];
-//         assert_eq!(tree.items.len(), expected.len(), "Mismatched length");
-//         for (x, y) in tree.items.iter().zip(expected.iter()) {
-//             assert_eq!(x.0, y.0, "Mismatched strings");
-//             assert_eq!(x.1, y.1, "Mismatched metadata");
-//         }
-//     }
-//
-//     #[test]
-//     fn find() {
-//         let mut tree = PrefixMatch::default();
-//         tree.insert("file", 0);
-//         tree.insert("file_name", 1);
-//         tree.insert("file::name", 2);
-//         tree.insert("file::no", 3);
-//         tree.reorder();
-//         let expected = [
-//             ("file::name", 2),
-//             ("file::no", 3),
-//         ];
-//         assert_eq!(tree.find("file::").range.len(), expected.len(), "Mismatched length");
-//         for (x, y) in tree.find("file::").iter(&tree).zip(expected.iter()) {
-//             assert_eq!(x.0, y.0, "Mismatched strings");
-//             assert_eq!(*x.1, y.1, "Mismatched metadata");
-//         }
-//     }
-// }
+#[cfg(test)]
+mod test {
+    use crate::demangler::TokenStream;
+    use super::*;
+
+    fn symbol(s: &str) -> Arc<Symbol> {
+        Arc::new(Symbol {
+            name_as_str: Arc::from(s),
+            name: TokenStream::simple(s),
+            module: None,
+            is_intrinsics: false
+        })
+    }
+
+    #[test]
+    fn insert() {
+        let mut tree = PrefixMatcher::default();
+        tree.insert(&symbol("file"));
+        tree.insert(&symbol("file_name"));
+        tree.insert(&symbol("file::name"));
+        tree.insert(&symbol("file::no"));
+        tree.reorder();
+        let expected = [
+            "file",
+            "file::name",
+            "file::no",
+            "file_name",
+        ];
+        assert_eq!(tree.items.len(), expected.len(), "Mismatched length");
+        for (x, y) in tree.items.iter().zip(expected.iter()) {
+            assert_eq!(&x.as_str(), y, "Mismatch");
+        }
+    }
+
+    #[test]
+    fn find() {
+        let mut tree = PrefixMatcher::default();
+        tree.insert(&symbol("file"));
+        tree.insert(&symbol("file_name"));
+        tree.insert(&symbol("file::name"));
+        tree.insert(&symbol("file::no"));
+        tree.reorder();
+        let expected = [
+            "file::name",
+            "file::no",
+        ];
+        assert_eq!(tree.find("file::").range.len(), expected.len(), "Mismatched length");
+        for (x, y) in tree.find("file::").iter(&tree).zip(expected.iter()) {
+            assert_eq!(&x.as_str(), y, "Mismatch");
+        }
+    }
+}
