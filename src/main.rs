@@ -15,10 +15,7 @@ fn main() {
         wayland::set_env();
     }
 
-    if ARGS.disassemble {
-        let mut ui = gui::UI::new().unwrap();
-        ui.process_args();
-        ui.run();
-        return;
-    }
+    let mut ui = gui::UI::new().unwrap();
+    ui.offload_binary_processing(ARGS.path.clone());
+    ui.run();
 }

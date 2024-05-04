@@ -135,13 +135,7 @@ impl UI {
         })
     }
 
-    pub fn process_args(&mut self) {
-        if let Some(path) = commands::ARGS.path.as_ref().cloned() {
-            self.offload_binary_processing(path);
-        }
-    }
-
-    fn offload_binary_processing(&mut self, path: std::path::PathBuf) {
+    pub fn offload_binary_processing(&mut self, path: std::path::PathBuf) {
         // don't load multiple binaries at a time
         if self.panels.is_loading() {
             return;

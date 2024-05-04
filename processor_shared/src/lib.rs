@@ -194,7 +194,8 @@ pub fn encode_hex_bytes_truncated(bytes: &[u8], max_width: usize, is_padded: boo
         let len = bytes.len() * 3;
         let pad = is_padded as usize * max_width.saturating_sub(len);
         let mut buffer = Vec::with_capacity(len + pad);
-        let slice = &mut buffer[..];
+        let slice = buffer.spare_capacity_mut();
+        let slice = std::mem::transmute::<_, &mut [u8]>(slice);
         let mut idx = 0;
 
         // truncation has to occur

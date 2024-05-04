@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 macro_rules! exit {
     ($code:expr => $($arg:tt)*) => {{
@@ -13,51 +13,28 @@ USAGE: bite [options] <OBJECT>
 
 OPTIONS:
   -H, --help          Print usage information
-  -L, --libs          Print linked shared libraries 
-  -N, --names         Print all symbols exposed by object
-  -S, --simplify      Replace common types with shortened paths
   -D, --disassemble   Path to object you're disassembling
-  -T, --tracing       Trace all syscalls performed
   -C, --config        Path to config used for disassembling
-  -B, --debug         Enable extra debug information";
+  -B, --debug         Enable verbose internal info";
 
-const ABBRV: &[&str] = &["-H", "-L", "-S", "-D", "-C", "-T", "-B"];
+const ABBRV: &[&str] = &["-H", "-D", "-C", "-B"];
 const NAMES: &[&str] = &[
     "--help",
-    "--libs",
-    "--names",
-    "--simplify",
     "--disassemble",
-    "--tracing",
     "--config",
     "--debug",
 ];
 
 #[derive(Default, Debug, Clone)]
 pub struct Cli {
-    /// Print shared libraries the object is linked against.
-    pub libs: bool,
-
-    /// Print all symbols exposed by object.
-    pub names: bool,
-
-    /// Strip symbols into a simpler format.
-    pub simplify: bool,
-
-    /// Disassemble object into `readable` assembly,
-    pub disassemble: bool,
-
-    /// Record syscalls.
-    pub tracing: bool,
-
-    /// Show egui debug overlay.
-    pub debug: bool,
-
     /// Path to symbol being disassembled.
-    pub path: Option<PathBuf>,
+    pub path: PathBuf,
 
     /// Optional path to config.
     pub config: Option<PathBuf>,
+
+    /// Show egui debug overlay.
+    pub debug: bool,
 }
 
 impl Cli {
@@ -68,36 +45,32 @@ impl Cli {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "-H" | "--help" => exit!(0 => "{HELP}"),
-                "-S" | "--simplify" => cli.simplify = true,
-                "-N" | "--names" => {
-                    cli.names = true;
-
-                    if let Some(path) = args.next().as_deref() {
-                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
-                            cli.path = Some(PathBuf::from(path));
-                        }
-                    }
-                }
-                "-L" | "--libs" => {
-                    cli.libs = true;
-
-                    if let Some(path) = args.next().as_deref() {
-                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
-                            cli.path = Some(PathBuf::from(path));
-                        }
-                    }
-                }
                 "-D" | "--disassemble" => {
-                    cli.disassemble = true;
-
                     if let Some(path) = args.next().as_deref() {
                         if !NAMES.contains(&path) && !ABBRV.contains(&path) {
-                            cli.path = Some(PathBuf::from(path));
+                            if cli.path != Path::new("") {
+                                exit!(1 => "Path to object already given.");
+                            }
+                            cli.path = PathBuf::from(path);
                         }
                     }
+                },
+                "-C" | "--config" => {
+                    if let Some(path) = args.next().as_deref() {
+                        if !NAMES.contains(&path) && !ABBRV.contains(&path) {
+                            if cli.config.is_some() {
+                                exit!(1 => "Path to config already given.");
+                            }
+                            cli.config = Some(PathBuf::from(path));
+                        }
+                    }
+                },
+                "-B" | "--debug" => {
+                    if cli.debug {
+                        exit!(1 => "Debug flag already set.");
+                    }
+                    cli.debug = true
                 }
-                "-T" | "--tracing" => cli.tracing = true,
-                "-B" | "--debug" => cli.debug = true,
                 unknown => {
                     let mut distance = u32::MAX;
                     let mut best_guess = "";
@@ -124,22 +97,18 @@ impl Cli {
     }
 
     fn validate_args(&mut self) {
-        if self.disassemble || self.libs || self.names {
-            if self.path.is_none() {
-                exit!(1 => "Missing path to an object.");
+        if self.path == Path::new("") {
+            exit!(1 => "You must provide a path to disassemble.");
+        }
+
+        if !self.path.exists() {
+            exit!(1 => "Object {:?} does not exist.", self.path);
+        }
+
+        if let Some(ref cfg) = self.config {
+            if !cfg.exists() {
+                exit!(1 => "Config {cfg:?} does not exist.");
             }
-        } else {
-            // no action arguments were given
-            self.disassemble = true;
-            return;
-        }
-
-        if self.tracing && !self.disassemble {
-            exit!(1 => "Invalid combination of arguements.\n\n{HELP}");
-        }
-
-        if self.disassemble as usize + self.libs as usize + self.names as usize > 1 {
-            exit!(1 => "Invalid combination of arguements.\n\n{HELP}");
         }
     }
 }
