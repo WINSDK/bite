@@ -203,9 +203,6 @@ trait ArgScope<'me, 'ctx>: fmt::Debug {
     /// Get the current scope's `index`th template argument.
     fn get_template_arg(&'me self, index: usize)
         -> Result<(&'ctx TemplateArg, &'ctx TemplateArgs)>;
-
-    /// Get the current scope's `index`th function argument's type.
-    fn get_function_arg(&'me self, index: usize) -> Result<&'ctx Type>;
 }
 
 /// An `ArgScopeStack` represents the current function and template demangling
@@ -281,18 +278,6 @@ impl<'prev, 'subs> ArgScope<'prev, 'subs> for Option<ArgScopeStack<'prev, 'subs>
         }
 
         Err(error::Error::BadTemplateArgReference)
-    }
-
-    fn get_function_arg(&'prev self, idx: usize) -> Result<&'subs Type> {
-        let mut scope = self.as_ref();
-        while let Some(s) = scope {
-            if let Ok(arg) = s.item.get_function_arg(idx) {
-                return Ok(arg);
-            }
-            scope = s.prev;
-        }
-
-        Err(error::Error::BadFunctionArgReference)
     }
 }
 
@@ -2165,10 +2150,6 @@ impl<'subs> ArgScope<'subs, 'subs> for SourceName {
         _: usize,
     ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
         Err(error::Error::BadTemplateArgReference)
-    }
-
-    fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {
-        Err(error::Error::BadFunctionArgReference)
     }
 }
 
@@ -4062,10 +4043,6 @@ impl<'subs> ArgScope<'subs, 'subs> for UnnamedTypeName {
     ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
         Err(error::Error::BadTemplateArgReference)
     }
-
-    fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {
-        Err(error::Error::BadFunctionArgReference)
-    }
 }
 
 /// The `<array-type>` production.
@@ -4595,10 +4572,6 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
         idx: usize,
     ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
         self.0.get(idx).ok_or(error::Error::BadTemplateArgReference).map(|v| (v, self))
-    }
-
-    fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {
-        Err(error::Error::BadFunctionArgReference)
     }
 }
 
@@ -6367,10 +6340,6 @@ impl<'subs> ArgScope<'subs, 'subs> for ClosureTypeName {
     ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
         Err(error::Error::BadTemplateArgReference)
     }
-
-    fn get_function_arg(&'subs self, _: usize) -> Result<&'subs Type> {
-        Err(error::Error::BadFunctionArgReference)
-    }
 }
 
 impl<'a> GetLeafName<'a> for ClosureTypeName {
@@ -6575,10 +6544,6 @@ impl<'a> ArgScope<'a, 'a> for WellKnownComponent {
 
     fn get_template_arg(&'a self, _: usize) -> Result<(&'a TemplateArg, &'a TemplateArgs)> {
         Err(error::Error::BadTemplateArgReference)
-    }
-
-    fn get_function_arg(&'a self, _: usize) -> Result<&'a Type> {
-        Err(error::Error::BadFunctionArgReference)
     }
 }
 

@@ -23,10 +23,6 @@ pub enum Error {
     /// within an earlier arg).
     ForwardTemplateArgReference,
 
-    /// Found a reference to a function arg that is either out-of-bounds, or in
-    /// a context without function args.
-    BadFunctionArgReference,
-
     /// Found a reference to a leaf name in a context where there is no current
     /// leaf name.
     BadLeafNameReference,
@@ -70,11 +66,6 @@ impl fmt::Display for Error {
                     "reference to a template arg from itself or a later template arg"
                 )
             }
-            Error::BadFunctionArgReference => write!(
-                f,
-                "reference to a function arg that is either out-of-bounds, or in a context \
-                 without function args"
-            ),
             Error::BadLeafNameReference => write!(
                 f,
                 "reference to a leaf name in a context where there is no current leaf name"

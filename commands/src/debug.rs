@@ -25,25 +25,6 @@ const MAX_DEPTH: usize = 256;
 
 type Span = std::ops::RangeInclusive<usize>;
 
-/// Trait for indicating that any error has to be propagated up.
-trait Failing: Sized {
-    fn failing(self, ctx: &mut Context) -> Self;
-}
-
-impl<T, E> Failing for Result<T, E> {
-    fn failing(self, ctx: &mut Context) -> Self {
-        ctx.is_failing = self.is_err();
-        self
-    }
-}
-
-impl<T> Failing for Option<T> {
-    fn failing(self, ctx: &mut Context) -> Self {
-        ctx.is_failing = self.is_none();
-        self
-    }
-}
-
 /// Index into expression arena.
 #[derive(Debug, PartialEq, Clone, Copy)]
 struct ExprRef(usize);
@@ -60,7 +41,7 @@ struct Context<'src> {
     /// Recursion depth.
     depth: usize,
 
-    /// Indicator used by the [`Failing`] trait.
+    /// Indicator that error is unrecoverable.
     is_failing: bool,
 
     /// Arena of expressions.
