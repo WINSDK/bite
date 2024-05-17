@@ -98,7 +98,8 @@ impl Cli {
 
     fn validate_args(&mut self) {
         if self.path == Path::new("") {
-            exit!(1 => "You must provide a path to disassemble.");
+            // exit!(1 => "You must provide a path to disassemble.");
+            return;
         }
 
         if !self.path.exists() {
