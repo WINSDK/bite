@@ -10,6 +10,7 @@ mod unix;
 mod windows;
 mod winit_backend;
 
+use std::path::Path;
 #[cfg(target_family = "unix")]
 use unix::Arch;
 
@@ -138,6 +139,10 @@ impl UI {
     pub fn offload_binary_processing(&mut self, path: std::path::PathBuf) {
         // don't load multiple binaries at a time
         if self.panels.is_loading() {
+            return;
+        }
+
+        if path == Path::new("") {
             return;
         }
 
