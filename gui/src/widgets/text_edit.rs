@@ -35,8 +35,6 @@ pub struct TextEditOutput {
 ///
 /// Attention: You also need to `store` the updated state.
 #[derive(Clone, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(default))]
 pub struct TextEditState {
     cursor_range: Option<CursorRange>,
 
@@ -45,15 +43,12 @@ pub struct TextEditState {
     ccursor_range: Option<CCursorRange>,
 
     /// Wrapped in Arc for cheaper clones.
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) undoer: Arc<Mutex<Undoer>>,
 
     // If IME candidate window is shown on this text edit.
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) has_ime: bool,
 
     // Visual offset when editing singleline text bigger than the width.
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) singleline_offset: f32,
 }
 
@@ -1020,28 +1015,6 @@ fn events(
                     None
                 }
             }
-
-            #[cfg(feature = "accesskit")]
-            Event::AccessKitActionRequest(accesskit::ActionRequest {
-                action: accesskit::Action::SetTextSelection,
-                target,
-                data: Some(accesskit::ActionData::SetTextSelection(selection)),
-            }) => {
-                if id.accesskit_id() == *target {
-                    let primary =
-                        ccursor_from_accesskit_text_position(id, galley, &selection.focus);
-                    let secondary =
-                        ccursor_from_accesskit_text_position(id, galley, &selection.anchor);
-                    if let (Some(primary), Some(secondary)) = (primary, secondary) {
-                        Some(CCursorRange { primary, secondary })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-
             _ => None,
         };
 

@@ -3,7 +3,21 @@ use std::{cmp::Ordering, sync::Arc};
 
 use crate::Symbol;
 
-fn cmp(a: &str, b: &str) -> Ordering {
+#[inline]
+fn sort_cmp(a: &str, b: &str) -> Ordering {
+    for (x, y) in a.chars().zip(b.chars()) {
+        if x < y {
+            return Ordering::Less;
+        } else if x > y {
+            return Ordering::Greater;
+        }
+    }
+
+    a.len().cmp(&b.len())
+}
+
+#[inline]
+fn find_cmp(a: &str, b: &str) -> Ordering {
     for (x, y) in a.chars().zip(b.chars()) {
         if x < y {
             return Ordering::Less;
@@ -29,7 +43,7 @@ impl PrefixMatcher {
 
     /// Sorts elements to allow for searching.
     pub fn reorder(&mut self) {
-        self.items.sort_unstable_by(|a, b| cmp(a.as_str(), b.as_str()));
+        self.items.sort_unstable_by(|a, b| sort_cmp(a.as_str(), b.as_str()));
         self.items.shrink_to_fit();
     }
 
@@ -37,20 +51,19 @@ impl PrefixMatcher {
     /// Must call [`PrefixMatch::reorder`] before calling this.
     pub fn find(&self, prefix: &str) -> Match {
         // This works as cmp() will return Ordering::Equal if the prefix matches.
-        let mid = match self.items.binary_search_by(|item| cmp(item.as_str(), prefix)) {
-            Ok(idx) => idx,
-            Err(_) => return Match { range: 0..0 },
+        let Ok(mid) = self.items.binary_search_by(|item| find_cmp(item.as_str(), prefix)) else {
+            return Match { range: 0..0 };
         };
 
         // Look left and try to find more matching prefixes
         let mut start = mid;
-        while start != 0 && self.items[start - 1].as_str().starts_with(prefix) {
+        while start > 0 && self.items[start - 1].as_str().starts_with(prefix) {
             start -= 1;
         }
 
         // Look right and try to find more matching prefixes
         let mut end = mid;
-        while end != self.items.len() && self.items[end + 1].as_str().starts_with(prefix) {
+        while end + 1 < self.items.len() && self.items[end + 1].as_str().starts_with(prefix) {
             end += 1;
         }
 

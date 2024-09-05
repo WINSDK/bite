@@ -63,7 +63,6 @@ impl Dwarf {
         Ok(Dwarf { file_attrs })
     }
 
-    #[allow(dead_code)]
     pub fn load(path: &Path) -> Result<Self> {
         let file = std::fs::File::open(path)?;
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
@@ -71,7 +70,6 @@ impl Dwarf {
         Self::parse(&obj)
     }
 
-    #[allow(dead_code)]
     pub fn merge(&mut self, other: Self) {
         self.file_attrs.extend(other.file_attrs);
     }
