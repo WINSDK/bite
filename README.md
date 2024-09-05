@@ -15,8 +15,8 @@
 ![](https://img.shields.io/github/license/WINSDK/bite)
 
 `BiTE` is a platform-agnostic executable analysis tool. It aims to offer an
-environment for inspecting the content of binaries and it's debug info. While it is
-still in early development, it supports various architectures.
+environment for inspecting the content of binaries and their debug info. While it is
+still in early development, various architectures are supported.
 
 ## Showcase
 
@@ -24,7 +24,7 @@ Here is an example of the assembly listing viewing.
 
 ![Assembly listing](./assets/screenshot.png)
 
-The ability to view a binary's disassembly and its associated source code.
+The ability to view a binary's disassembly and the associated source code.
 
 ![Source Code](./assets/split_source.png)
 
