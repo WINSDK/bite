@@ -1,7 +1,7 @@
 [package]
 name = "bite"
 description = "Disassembler"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 
 [dependencies]
@@ -33,14 +33,14 @@ members = [
     "debugvault",
     "processor",
     "processor_shared",
-    "infinite_scroll",
     "binformat",
     "config"
 ]
 
 [workspace.dependencies]
-egui = { version = "0.27", features = ["bytemuck"], default-features = false }
-rfd = "0.14"
+egui = { version = "0.33", features = ["bytemuck"], default-features = false }
+rfd = "0.17"
+egui_tiles = "0.14"
 crossbeam-queue = "0.3"
 object = "0.32"
 gimli = "0.28"

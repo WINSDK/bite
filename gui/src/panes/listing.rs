@@ -2,7 +2,7 @@ use crate::{common::*, UIEvent, UiQueue};
 use config::CONFIG;
 use debugvault::Index;
 use egui::mutex::RwLock;
-use infinite_scroll::{Callback, InfiniteScroll};
+use egui_infinite_scroll::InfiniteScroll;
 use processor::{Block, BlockContent, Processor};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -10,7 +10,6 @@ use tokenizing::{colors, Token, TokenStream};
 
 pub struct Listing {
     processor: Arc<Processor>,
-    #[allow(dead_code)]
     ui_queue: Arc<UiQueue>,
     boundaries: Arc<RwLock<Vec<usize>>>,
     scroll: InfiniteScroll<Block, usize>,
@@ -34,13 +33,14 @@ impl Listing {
         };
 
         let reset_position = Arc::new(AtomicUsize::new(0));
+        let mut scroll = InfiniteScroll::new();
 
-        let start_loader = {
+        scroll = {
             let reset_position = Arc::clone(&reset_position);
             let boundaries = Arc::clone(&boundaries);
             let processor = Arc::clone(&processor);
 
-            move |cursor: Option<usize>, callback: Callback<Block, usize>| {
+            scroll.start_loader(move |cursor, callback| {
                 let boundaries = Arc::clone(&boundaries);
                 let processor = Arc::clone(&processor);
 
@@ -80,15 +80,15 @@ impl Listing {
 
                     callback(Ok((all_blocks, Some(idx))));
                 });
-            }
+            })
         };
 
-        let end_loader = {
+        scroll = {
             let reset_position = Arc::clone(&reset_position);
             let boundaries = Arc::clone(&boundaries);
             let processor = Arc::clone(&processor);
 
-            move |cursor: Option<usize>, callback: Callback<Block, usize>| {
+            scroll.end_loader(move |cursor, callback| {
                 let boundaries = Arc::clone(&boundaries);
                 let processor = Arc::clone(&processor);
 
@@ -122,10 +122,9 @@ impl Listing {
 
                     callback(Ok((all_blocks, Some(idx))));
                 });
-            }
+            })
         };
 
-        let scroll = InfiniteScroll::new().start_loader(start_loader).end_loader(end_loader);
         let current_addr = processor.sections().next().unwrap().start;
 
         Self {
@@ -223,7 +222,10 @@ impl Display for Listing {
     fn show(&mut self, ui: &mut egui::Ui) {
         let root_rect = ui.max_rect();
         let area = egui::ScrollArea::vertical()
-            .drag_to_scroll(false)
+            .scroll_source(egui::scroll_area::ScrollSource {
+                drag: false,
+                ..egui::scroll_area::ScrollSource::ALL
+            })
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .animated(false);
 
@@ -263,7 +265,9 @@ impl Display for Listing {
             });
 
             ui.vertical_centered(|ui| {
-                ui.set_visible(self.scroll.bottom_loading_state().loading());
+                if !self.scroll.bottom_loading_state().loading() {
+                    ui.set_invisible();
+                }
                 ui.spinner();
             });
         });
@@ -283,6 +287,7 @@ impl Display for Listing {
             0.0,
             colors::BLACK,
             egui::Stroke::new(2.5, CONFIG.colors.bg_secondary),
+            egui::StrokeKind::Inside,
         );
 
         ui.painter().text(

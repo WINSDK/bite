@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use copypasta::ClipboardProvider;
 use egui::emath::{pos2, vec2};
-use egui::{Context, FontData, FontDefinitions, FontFamily, Key};
+use egui::{Context, FontData, FontDefinitions, FontFamily, Key, MouseWheelUnit};
 
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceId, Event, KeyEvent, TouchPhase, WindowEvent};
@@ -41,19 +41,19 @@ impl Platform {
 
         fonts.font_data.insert(
             "hack".to_owned(),
-            FontData::from_static(include_bytes!("../fonts/Hack-Regular.ttf")),
+            FontData::from_static(include_bytes!("../fonts/Hack-Regular.ttf")).into(),
         );
 
         fonts.font_data.insert(
             "icons".to_owned(),
-            FontData::from_static(include_bytes!("../fonts/IcoMoon.ttf")),
+            FontData::from_static(include_bytes!("../fonts/IcoMoon.ttf")).into(),
         );
 
         fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("hack".to_owned());
         fonts.families.get_mut(&FontFamily::Monospace).unwrap().push("icons".to_owned());
 
         if let Some((font_name, bytes)) = find_cjk_font().and_then(read_font) {
-            fonts.font_data.insert(font_name.clone(), FontData::from_owned(bytes));
+            fonts.font_data.insert(font_name.clone(), FontData::from_owned(bytes).into());
             fonts.families.get_mut(&FontFamily::Monospace).unwrap().push(font_name);
         }
 
@@ -289,22 +289,20 @@ impl Platform {
                     }
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
-                    let delta = match *delta {
+                    let (unit, delta) = match *delta {
                         winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                            let line_height = 50.0;
-                            vec2(x, y) * line_height
+                            (MouseWheelUnit::Line, vec2(x, y))
                         }
                         winit::event::MouseScrollDelta::PixelDelta(delta) => {
-                            vec2(delta.x as f32, delta.y as f32)
+                            (MouseWheelUnit::Point, vec2(delta.x as f32, delta.y as f32))
                         }
                     };
 
-                    // The ctrl (cmd on macos) key indicates a zoom is desired.
-                    if self.raw_input.modifiers.ctrl || self.raw_input.modifiers.command {
-                        self.raw_input.events.push(egui::Event::Zoom((delta.y / 200.0).exp()));
-                    } else {
-                        self.raw_input.events.push(egui::Event::Scroll(delta));
-                    }
+                    self.raw_input.events.push(egui::Event::MouseWheel {
+                        unit,
+                        delta,
+                        modifiers: self.raw_input.modifiers,
+                    });
                 }
                 WindowEvent::CursorMoved { position, .. } => {
                     let pointer_pos = pos2(
@@ -335,14 +333,14 @@ impl Platform {
 
     /// Starts a new frame by providing a new `Ui` instance to write into.
     pub fn begin_frame(&mut self) {
-        self.context.begin_frame(self.raw_input.take());
+        self.context.begin_pass(self.raw_input.take());
     }
 
     /// Ends the frame. Returns what has happened as `Output` and gives you the draw instructions
     /// as `PaintJobs`. If the optional `window` is set, it will set the cursor key based on
     /// egui's instructions.
     pub fn end_frame(&mut self, window: Option<&winit::window::Window>) -> egui::FullOutput {
-        let output = self.context.end_frame();
+        let output = self.context.end_pass();
 
         if let Some(window) = window {
             if let Some(cursor_icon) = egui_to_winit_cursor_icon(output.platform_output.cursor_icon)
@@ -357,9 +355,10 @@ impl Platform {
             }
         }
 
-        let copied_text = &output.platform_output.copied_text;
-        if !copied_text.is_empty() {
-            let _ = self.clipboard.set_contents(copied_text.clone());
+        for command in &output.platform_output.commands {
+            if let egui::output::OutputCommand::CopyText(text) = command {
+                let _ = self.clipboard.set_contents(text.clone());
+            }
         }
 
         output

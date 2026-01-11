@@ -7,7 +7,7 @@ use crate::widgets::{Donut, SearchPopup, Terminal};
 use crate::{common::*, WinitQueue};
 use config::CONFIG;
 use egui::Color32;
-use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
+use egui_tiles::{Container, SimplificationOptions, TabState, Tile, TileId, Tiles, Tree, UiResponse};
 use processor::Processor;
 use tokenizing::colors;
 
@@ -60,9 +60,9 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         _: &egui::Visuals,
         _: &Tiles<Identifier>,
         _: TileId,
-        active: bool,
+        state: &TabState,
     ) -> egui::Color32 {
-        if active {
+        if state.active {
             colors::BLACK
         } else {
             CONFIG.colors.bg_secondary
@@ -102,7 +102,7 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         _tile_id: egui_tiles::TileId,
         pane: &mut Identifier,
     ) -> UiResponse {
-        egui::Frame::default().inner_margin(egui::Margin::same(5.0)).show(ui, |ui| {
+        egui::Frame::default().inner_margin(egui::Margin::same(5)).show(ui, |ui| {
             match self.mapping.get_mut(pane) {
                 Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
                 Some(PanelKind::Functions(functions)) => functions.show(ui),
@@ -110,7 +110,10 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
                 Some(PanelKind::Logging) => {
                     let area = egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .drag_to_scroll(false)
+                        .scroll_source(egui::scroll_area::ScrollSource {
+                            drag: false,
+                            ..egui::scroll_area::ScrollSource::ALL
+                        })
                         .stick_to_bottom(true);
 
                     area.show(ui, |ui| {
@@ -440,7 +443,7 @@ impl Panels {
             .resizable(true)
             .frame({
                 egui::Frame::default()
-                    .inner_margin(egui::Margin::same(STYLE.separator_width * 2.0))
+                    .inner_margin(egui::Margin::same((STYLE.separator_width * 2.0).round() as i8))
                     .fill(Color32::BLACK)
             });
 
@@ -470,15 +473,15 @@ impl Panels {
         });
 
         if self.is_search_open() {
-            egui::TopBottomPanel::bottom("search bar")
-                .frame({
-                    egui::Frame::default()
-                        .inner_margin(egui::Margin::symmetric(
-                            STYLE.separator_width * 2.0,
-                            STYLE.separator_width * 2.0,
-                        ))
-                        .fill(colors::BLACK)
-                })
+                    egui::TopBottomPanel::bottom("search bar")
+                        .frame({
+                            egui::Frame::default()
+                                .inner_margin(egui::Margin::symmetric(
+                                    (STYLE.separator_width * 2.0).round() as i8,
+                                    (STYLE.separator_width * 2.0).round() as i8,
+                                ))
+                                .fill(colors::BLACK)
+                        })
                 .show(ctx, |ui| {
                     let index = self.panes.processor.as_ref().map(|proc| &proc.index);
                     self.search.show(ui, index);
@@ -487,7 +490,7 @@ impl Panels {
 
         ctx.set_visuals(EGUI.visuals.clone());
 
-        let frame = egui::Frame::none().fill(colors::BLACK);
+        let frame = egui::Frame::new().fill(colors::BLACK);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
             if self.loading {
                 ui.spacing_mut().item_spacing.y = 20.0;

@@ -18,7 +18,7 @@ pub struct Source {
     lines: Vec<Line>,
     max_number_width: usize,
     scroll: Option<usize>,
-    cache: (Range<usize>, Arc<Galley>),
+    cache: (Range<usize>, Option<Arc<Galley>>),
 }
 
 struct Line {
@@ -159,19 +159,7 @@ impl Source {
             offset += line_len + 1;
         }
 
-        let cache = (
-            0..0,
-            Arc::new(Galley {
-                job: Arc::new(LayoutJob::default()),
-                rows: Vec::new(),
-                elided: false,
-                rect: egui::Rect::NOTHING,
-                mesh_bounds: egui::Rect::NOTHING,
-                num_indices: 0,
-                num_vertices: 0,
-                pixels_per_point: 1.0,
-            }),
-        );
+        let cache = (0..0, None);
 
         Self {
             src: src.to_string(),
@@ -186,7 +174,9 @@ impl Source {
 impl Source {
     fn show_code(&mut self, ui: &mut egui::Ui, row_range: Range<usize>) {
         if self.cache.0 == row_range {
-            ui.label(Arc::clone(&self.cache.1));
+            if let Some(cached) = &self.cache.1 {
+                ui.label(Arc::clone(cached));
+            }
             return;
         }
 
@@ -206,8 +196,8 @@ impl Source {
             }
         }
 
-        let output = ui.fonts(|f| f.layout_job(output));
-        self.cache = (row_range, Arc::clone(&output));
+        let output = ui.fonts_mut(|f| f.layout_job(output));
+        self.cache = (row_range, Some(Arc::clone(&output)));
         ui.label(output);
     }
 
@@ -220,7 +210,12 @@ impl Source {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let mut area = egui::ScrollArea::vertical().auto_shrink(false).drag_to_scroll(false);
+        let mut area = egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .scroll_source(egui::scroll_area::ScrollSource {
+                drag: false,
+                ..egui::scroll_area::ScrollSource::ALL
+            });
 
         if let Some(scroll) = self.scroll.take() {
             let row_height = FONT.size;
@@ -231,7 +226,7 @@ impl Source {
 
         area.show_rows(ui, FONT.size, self.lines.len(), |ui, row_range| {
             let pad = 8.0;
-            let char_width = ui.fonts(|f| f.glyph_width(&FONT, '1'));
+            let char_width = ui.fonts_mut(|f| f.glyph_width(&FONT, '1'));
             let width = char_width * self.max_number_width as f32 + pad;
             let split = width / ui.available_width();
 
@@ -351,10 +346,16 @@ fn draw_columns<R>(
             ),
         );
 
-        let mut lcolumn_ui =
-            ui.child_ui(lrect, egui::Layout::top_down_justified(egui::Align::LEFT));
-        let mut rcolumn_ui =
-            ui.child_ui(rrect, egui::Layout::top_down_justified(egui::Align::LEFT));
+        let mut lcolumn_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(lrect)
+                .layout(egui::Layout::top_down_justified(egui::Align::LEFT)),
+        );
+        let mut rcolumn_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rrect)
+                .layout(egui::Layout::top_down_justified(egui::Align::LEFT)),
+        );
         lcolumn_ui.set_width(column_width * split);
         rcolumn_ui.set_width(column_width * (1.0 - split));
         (lcolumn_ui, rcolumn_ui)

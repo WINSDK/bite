@@ -61,7 +61,12 @@ fn tokenize_functions(index: &debugvault::Index, range: std::ops::Range<usize>) 
 
 impl Display for Functions {
     fn show(&mut self, ui: &mut egui::Ui) {
-        let area = egui::ScrollArea::both().auto_shrink([false, false]).drag_to_scroll(false);
+        let area = egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .scroll_source(egui::scroll_area::ScrollSource {
+                drag: false,
+                ..egui::scroll_area::ScrollSource::ALL
+            });
 
         area.show_rows(ui, FONT.size, self.lines_count, |ui, row_range| {
             if row_range != (self.min_row..self.max_row) {

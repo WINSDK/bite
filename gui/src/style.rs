@@ -1,5 +1,5 @@
 use egui::style::{ScrollStyle, Selection, Spacing, Visuals, WidgetVisuals, Widgets};
-use egui::{Color32, FontFamily, FontId, Rounding, Stroke, TextStyle};
+use egui::{Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle};
 use once_cell::sync::Lazy;
 use tokenizing::colors;
 use config::CONFIG;
@@ -8,15 +8,15 @@ use config::CONFIG;
 pub struct Style {
     pub separator_width: f32,
     pub selection_color: Color32,
-    pub tab_rounding: Rounding,
+    pub tab_rounding: CornerRadius,
     pub active_text_color: Color32,
     pub text_color: Color32,
 }
 
 pub static STYLE: Lazy<Style> = Lazy::new(|| Style {
     separator_width: 3.0,
-    selection_color: Color32::from_rgba_unmultiplied(0x60, 0x60, 0x60, 60),
-    tab_rounding: Rounding::ZERO,
+    selection_color: Color32::from_rgba_unmultiplied(0xbf, 0xbf, 0xbf, 60),
+    tab_rounding: CornerRadius::ZERO,
     active_text_color: colors::WHITE,
     text_color: colors::GRAYAA,
 });
@@ -33,11 +33,22 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         ..Default::default()
     },
     visuals: Visuals {
+        // Slightly transparent selection for text fields so background shows through.
+        // Tabs/pane drag still use `STYLE.selection_color` directly.
+        selection: {
+            let [r, g, b, a] = STYLE.selection_color.to_srgba_unmultiplied();
+            let selection_bg =
+                Color32::from_rgba_unmultiplied(r, g, b, ((a as f32) * 0.5).round() as u8);
+            Selection {
+                bg_fill: selection_bg,
+                stroke: Stroke::NONE,
+            }
+        },
         widgets: Widgets {
             noninteractive: WidgetVisuals {
                 bg_fill: CONFIG.colors.bg_secondary,
                 weak_bg_fill: CONFIG.colors.bg_secondary,
-                rounding: STYLE.tab_rounding,
+                corner_radius: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 0.0,
@@ -48,7 +59,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             inactive: WidgetVisuals {
                 bg_fill: CONFIG.colors.bg_secondary,
                 weak_bg_fill: CONFIG.colors.bg_secondary,
-                rounding: STYLE.tab_rounding,
+                corner_radius: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 0.0,
@@ -59,7 +70,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             hovered: WidgetVisuals {
                 bg_fill: CONFIG.colors.bg_secondary,
                 weak_bg_fill: CONFIG.colors.bg_secondary,
-                rounding: STYLE.tab_rounding,
+                corner_radius: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 0.0,
@@ -70,7 +81,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             active: WidgetVisuals {
                 bg_fill: CONFIG.colors.bg_primary,
                 weak_bg_fill: CONFIG.colors.bg_secondary,
-                rounding: STYLE.tab_rounding,
+                corner_radius: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 0.0,
@@ -81,7 +92,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             open: WidgetVisuals {
                 bg_fill: CONFIG.colors.bg_secondary,
                 weak_bg_fill: CONFIG.colors.bg_secondary,
-                rounding: STYLE.tab_rounding,
+                corner_radius: STYLE.tab_rounding,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke {
                     width: 0.0,
@@ -90,22 +101,17 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
                 expansion: 0.0,
             },
         },
-        selection: Selection {
-            bg_fill: STYLE.selection_color,
-            stroke: Stroke::NONE,
-        },
-        menu_rounding: STYLE.tab_rounding,
+        menu_corner_radius: STYLE.tab_rounding,
         dark_mode: true,
         override_text_color: None,
         popup_shadow: egui::epaint::Shadow::NONE,
-        window_rounding: STYLE.tab_rounding,
+        window_corner_radius: STYLE.tab_rounding,
         window_fill: colors::BLACK,
         panel_fill: colors::BLACK,
         extreme_bg_color: colors::BLACK,
-        text_cursor: Stroke::new(2.0, Color32::from_rgba_unmultiplied(130, 130, 130, 200)),
         ..Default::default()
     },
-    wrap: Some(true),
+    wrap_mode: Some(egui::TextWrapMode::Wrap),
     explanation_tooltips: false,
     text_styles: {
         let mut styles = std::collections::BTreeMap::new();
@@ -127,6 +133,7 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
             show_resize: true,
             show_interactive_widgets: true,
             show_widget_hits: true,
+            show_unaligned: true,
         }
     } else {
         egui::style::DebugOptions::default()

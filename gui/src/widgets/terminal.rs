@@ -522,7 +522,10 @@ impl Terminal {
     pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
         let area = egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .drag_to_scroll(false)
+            .scroll_source(egui::scroll_area::ScrollSource {
+                drag: false,
+                ..egui::scroll_area::ScrollSource::ALL
+            })
             .stick_to_bottom(true)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 

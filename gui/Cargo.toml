@@ -10,7 +10,7 @@ bytemuck = { version = "1.14", default-features = false }
 winit = { version = "0.29"}
 wgpu = { version = "0.19" }
 egui = { workspace = true }
-egui_tiles = "0.8"
+egui_tiles = { workspace = true }
 copypasta = "0.10"
 once_cell = { workspace = true }
 png = "0.17"
@@ -31,7 +31,8 @@ tokenizing = { path = "../tokenizing" }
 debugvault = { path = "../debugvault" }
 processor = { path = "../processor" }
 processor_shared = { path = "../processor_shared" }
-infinite_scroll = { path = "../infinite_scroll" }
+egui_inbox = "0.10.0"
+egui_infinite_scroll = "0.9.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = "0.17.1"

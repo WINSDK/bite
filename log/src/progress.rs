@@ -77,15 +77,20 @@ impl ProgressBar {
         Spinner::new().color(self.fg_col).paint_at(ui, spinner_rect);
 
         // Draw centered text.
-        ui.allocate_ui_at_rect(bot_rect, |ui| {
-            ui.with_layout(
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| {
-                    let steps_done = steps_done.clamp(0, step_count);
-                    let status = format!("{desc} {steps_done}/{step_count}");
-                    ui.label(egui::RichText::new(status).size(top_rect.height() * 1.3))
-                },
-            );
-        });
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(bot_rect)
+                .layout(ui.layout().clone()),
+            |ui| {
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        let steps_done = steps_done.clamp(0, step_count);
+                        let status = format!("{desc} {steps_done}/{step_count}");
+                        ui.label(egui::RichText::new(status).size(top_rect.height() * 1.3))
+                    },
+                );
+            },
+        );
     }
 }

@@ -549,10 +549,15 @@ impl SearchPopup {
             job.wrap.break_anywhere = true;
 
             response |= ui
-                .allocate_ui_at_rect(text_rect, |ui| {
-                    ui.set_clip_rect(text_rect);
-                    ui.add(egui::Label::new(job))
-                })
+                .scope_builder(
+                    egui::UiBuilder::new()
+                        .max_rect(text_rect)
+                        .layout(ui.layout().clone()),
+                    |ui| {
+                        ui.set_clip_rect(text_rect);
+                        ui.add(egui::Label::new(job))
+                    },
+                )
                 .inner;
 
             if response.hovered() {

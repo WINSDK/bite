@@ -1,9 +1,7 @@
 use crate::style::EGUI;
-use crate::widgets::TextEdit;
-
 use egui::text::LayoutJob;
-use egui::text::{CCursor, CCursorRange};
-use egui::FontId;
+use egui::text::CCursor;
+use egui::{FontId, TextEdit, TextBuffer};
 
 type Layouter<'l> = &'l mut dyn FnMut(&str) -> LayoutJob;
 
@@ -40,7 +38,8 @@ impl<'l> TextSelection<'l> {
 
 impl egui::Widget for TextSelection<'_> {
     fn ui(mut self, ui: &mut egui::Ui) -> egui::Response {
-        let mut layouter = |ui: &egui::Ui, s: &str, wrap_width: f32| {
+        let mut layouter = |ui: &egui::Ui, buffer: &dyn TextBuffer, wrap_width: f32| {
+            let s = buffer.as_str();
             let layout = match (self.layouter.as_mut(), self.precomputed) {
                 (Some(stored_layouter), None) | (Some(stored_layouter), Some(_)) => {
                     let mut layout = stored_layouter(s);
@@ -56,7 +55,7 @@ impl egui::Widget for TextSelection<'_> {
                 ),
             };
 
-            ui.fonts(|f| f.layout_job(layout))
+            ui.fonts_mut(|f| f.layout_job(layout))
         };
 
         // cursor requires a TextBuffer to be displayed, I don't know why but
@@ -77,10 +76,10 @@ impl egui::Widget for TextSelection<'_> {
         );
 
         let text_edit_id = response.id;
-        if let Some(mut state) = TextEdit::load_state(ui.ctx(), text_edit_id) {
-            if let Some(position) = self.reset_position {
+        if let Some(position) = self.reset_position {
+            if let Some(mut state) = egui::widgets::text_edit::TextEditState::load(ui.ctx(), text_edit_id) {
                 let ccursor = CCursor::new(position);
-                state.set_ccursor_range(Some(CCursorRange::one(ccursor)));
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
                 state.store(ui.ctx(), text_edit_id);
             }
         }
