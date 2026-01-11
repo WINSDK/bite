@@ -349,6 +349,12 @@ impl Terminal {
         let mut events_processed = 0;
         let mut prev_consumed = false;
 
+        let modifier = if cfg!(target_os = "macos") {
+            egui::Modifiers::MAC_CMD
+        } else {
+            egui::Modifiers::CTRL
+        };
+
         events.retain(|event| {
             match event {
                 egui::Event::Text(received) => {
@@ -392,6 +398,15 @@ impl Terminal {
                     modifiers: egui::Modifiers::NONE,
                     ..
                 } => self.clear_line(),
+                egui::Event::Key {
+                    key: egui::Key::F,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } if modifiers.contains(modifier) => {
+                    prev_consumed = true;
+                    return true;
+                }
                 egui::Event::Key {
                     key: egui::Key::C,
                     pressed: true,

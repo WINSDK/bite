@@ -6,6 +6,7 @@ use crate::style::{EGUI, STYLE};
 use crate::widgets::{Donut, SearchPopup, Terminal};
 use crate::{common::*, WinitQueue};
 use config::CONFIG;
+use egui::Color32;
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 use processor::Processor;
 use tokenizing::colors;
@@ -102,7 +103,7 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         pane: &mut Identifier,
     ) -> UiResponse {
         // Set pane background color.
-        ui.painter().rect_filled(ui.max_rect(), 0.0, CONFIG.colors.bg_primary);
+        ui.painter().rect_filled(ui.max_rect(), 0.0, Color32::BLACK);
 
         egui::Frame::default().inner_margin(egui::Margin::same(5.0)).show(ui, |ui| {
             match self.mapping.get_mut(pane) {

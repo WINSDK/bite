@@ -99,9 +99,9 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         override_text_color: None,
         popup_shadow: egui::epaint::Shadow::NONE,
         window_rounding: STYLE.tab_rounding,
-        window_fill: CONFIG.colors.bg_primary,
-        panel_fill: CONFIG.colors.bg_primary,
-        extreme_bg_color: CONFIG.colors.bg_primary,
+        window_fill: Color32::BLACK,
+        panel_fill: Color32::BLACK,
+        extreme_bg_color: Color32::BLACK,
         text_cursor: Stroke::new(2.0, Color32::from_rgba_unmultiplied(130, 130, 130, 200)),
         ..Default::default()
     },

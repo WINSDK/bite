@@ -40,6 +40,7 @@ pub mod colors {
     }
 
     pub const WHITE: Color32 = color!(0xff, 0xff, 0xff);
+    pub const BLACK: Color32 = color!(0x0, 0x0, 0x0);
     pub const GREEN: Color32 = color!(0x02, 0xed, 0x6e);
     pub const GRAY35: Color32 = color!(0x35, 0x35, 0x35);
     pub const GRAY60: Color32 = color!(0x60, 0x60, 0x60);

@@ -1,13 +1,13 @@
 use crate::common::FONT;
 use debugvault::Index;
 use nucleo::pattern::{CaseMatching, Normalization};
-use nucleo::{Config, Nucleo, Utf32String};
+use nucleo::{Config, Matcher, Nucleo, Utf32String};
 use std::sync::Arc;
 use tokenizing::colors;
 
 const MAX_RESULTS: u32 = 50;
-const MATCHER_TIMEOUT_MS: u64 = 10;
 const VISIBLE_SUGGESTIONS: usize = 8;
+const MATCHER_TIMEOUT_MS: u64 = 10;
 
 #[derive(Clone)]
 struct SearchEntry {
@@ -19,6 +19,7 @@ struct SearchEntry {
 struct SearchResult {
     name: String,
     addr: usize,
+    indices: Vec<u32>,
 }
 
 struct MatcherState {
@@ -39,6 +40,47 @@ pub struct SearchPopup {
 }
 
 impl SearchPopup {
+    fn highlight_job(entry: &SearchResult, normal: egui::Color32) -> egui::text::LayoutJob {
+        let mut job = egui::text::LayoutJob::default();
+        let mut buffer = String::new();
+        let mut current_color = colors::WHITE;
+        let mut hits = entry.indices.iter().copied().peekable();
+
+        let flush = |buf: &mut String, color: egui::Color32, job: &mut egui::text::LayoutJob| {
+            if buf.is_empty() {
+                return;
+            }
+            job.append(
+                buf,
+                0.0,
+                egui::TextFormat {
+                    font_id: FONT,
+                    color,
+                    ..Default::default()
+                },
+            );
+            buf.clear();
+        };
+
+        for (idx, ch) in entry.name.chars().enumerate() {
+            let is_hit = hits.peek().map_or(false, |&i| i == idx as u32);
+            if is_hit {
+                hits.next();
+            }
+            let color = if is_hit { colors::GREEN } else { normal };
+
+            if color != current_color {
+                flush(&mut buffer, current_color, &mut job);
+                current_color = color;
+            }
+
+            buffer.push(ch);
+        }
+
+        flush(&mut buffer, current_color, &mut job);
+        job
+    }
+
     pub fn new() -> Self {
         Self {
             visible: false,
@@ -139,11 +181,30 @@ impl SearchPopup {
         let snapshot = matcher.nucleo.snapshot();
         let count = snapshot.matched_item_count().min(MAX_RESULTS);
 
+        let mut indices_buf = Vec::new();
+        let mut scorer = Matcher::default();
+        let pattern = snapshot.pattern().column_pattern(0).clone();
+
         if count > 0 {
             for item in snapshot.matched_items(0..count) {
+                indices_buf.clear();
+                if pattern
+                    .indices(
+                        item.matcher_columns[0].slice(..),
+                        &mut scorer,
+                        &mut indices_buf,
+                    )
+                    .is_none()
+                {
+                    continue;
+                }
+                indices_buf.sort_unstable();
+                indices_buf.dedup();
+
                 refreshed.push(SearchResult {
                     name: item.data.name.clone(),
                     addr: item.data.addr,
+                    indices: indices_buf.clone(),
                 });
             }
         }
@@ -277,10 +338,31 @@ impl SearchPopup {
             }
             egui::Event::Key {
                 key: egui::Key::Home,
+                modifiers:
+                    egui::Modifiers {
+                        ctrl: true,
+                        shift: false,
+                        ..
+                    },
                 pressed: true,
                 ..
             } => {
                 self.cursor = 0;
+                consumed = true;
+                false
+            }
+            egui::Event::Key {
+                key: egui::Key::End,
+                modifiers:
+                    egui::Modifiers {
+                        ctrl: true,
+                        shift: false,
+                        ..
+                    },
+                pressed: true,
+                ..
+            } => {
+                self.cursor = self.query.chars().count();
                 consumed = true;
                 false
             }
@@ -328,11 +410,11 @@ impl SearchPopup {
                 false
             }
             egui::Event::Key {
-            key: egui::Key::C | egui::Key::D,
-            pressed: true,
-            modifiers: egui::Modifiers::CTRL,
-            ..
-        } => {
+                key: egui::Key::C | egui::Key::D,
+                pressed: true,
+                modifiers: egui::Modifiers::CTRL,
+                ..
+            } => {
                 self.close();
                 consumed = true;
                 false
@@ -398,7 +480,7 @@ impl SearchPopup {
                     0.0,
                     egui::TextFormat {
                         font_id: FONT,
-                        color: egui::Color32::WHITE,
+                        color: colors::WHITE,
                         ..Default::default()
                     },
                 );
@@ -425,31 +507,49 @@ impl SearchPopup {
             let selected = self.selected;
             let suggestions: Vec<SearchResult> =
                 self.results.iter().take(VISIBLE_SUGGESTIONS).cloned().collect();
-            if suggestions.is_empty() {
-                return;
-            }
+            let normal_color = ui.visuals().widgets.inactive.fg_stroke.color;
 
-            for (idx, suggestion) in suggestions.into_iter().enumerate() {
-                let mut render = |ui: &mut egui::Ui| {
-                    let label = ui.label(egui::RichText::new(&suggestion.name).font(FONT));
-                    if label.clicked() {
+            egui::Frame::none().fill(colors::BLACK).show(ui, |ui| {
+                for (idx, suggestion) in suggestions.into_iter().enumerate() {
+                    let bar_color = if idx == selected {
+                        egui::Color32::from_rgb(0xdb, 0x3c, 0x30)
+                    } else {
+                        colors::GRAY60
+                    };
+
+                    let render = |ui: &mut egui::Ui| {
+                        ui.horizontal(|ui| {
+                            let size = egui::vec2(4.0, ui.spacing().interact_size.y);
+                            let (bar_rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                            ui.painter().rect_filled(bar_rect, 0.0, bar_color);
+
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            ui.link(Self::highlight_job(&suggestion, normal_color))
+                        })
+                        .inner
+                    };
+
+                    let response = if idx == selected {
+                        egui::Frame::none()
+                            .fill(colors::GRAY35)
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                render(ui)
+                            })
+                            .inner
+                    } else {
+                        render(ui)
+                    };
+
+                    if response.clicked() {
                         self.query = suggestion.name.clone();
                         self.cursor = self.query.chars().count();
                         self.selected = 0;
                         self.pending_jump = Some(suggestion.addr);
                         self.close();
                     }
-                };
-
-                if idx == selected {
-                    egui::Frame::none()
-                        .fill(colors::GRAY60)
-                        .inner_margin(egui::Margin::symmetric(6.0, 4.0))
-                        .show(ui, render);
-                } else {
-                    render(ui);
                 }
-            }
+            });
         });
     }
 }
