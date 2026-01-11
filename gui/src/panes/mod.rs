@@ -339,7 +339,7 @@ impl Panels {
 
     #[cfg(any(target_family = "windows", target_os = "linux"))]
     fn top_bar(&mut self, ui: &mut egui::Ui) {
-        let bar = egui::MenuBar::new(ui.id()).ui(ui, |ui| {
+        let bar = egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button(crate::icon!(FOLDER_OPEN, " Open")).clicked() {
                     self.ask_for_binary();
