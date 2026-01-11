@@ -339,38 +339,38 @@ impl Panels {
 
     #[cfg(any(target_family = "windows", target_os = "linux"))]
     fn top_bar(&mut self, ui: &mut egui::Ui) {
-        let bar = egui::menu::bar(ui, |ui| {
+        let bar = egui::MenuBar::new(ui.id()).ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button(crate::icon!(FOLDER_OPEN, " Open")).clicked() {
                     self.ask_for_binary();
-                    ui.close_menu();
+                    ui.close();
                 }
 
                 if ui.button(crate::icon!(CROSS, " Exit")).clicked() {
                     self.winit_queue.push(crate::WinitEvent::CloseRequest);
-                    ui.close_menu();
+                    ui.close();
                 }
             });
 
             ui.menu_button("Windows", |ui| {
                 if ui.button(DISASSEMBLY).clicked() {
                     self.goto_window(DISASSEMBLY);
-                    ui.close_menu();
+                    ui.close();
                 }
 
                 if ui.button(FUNCTIONS).clicked() {
                     self.goto_window(FUNCTIONS);
-                    ui.close_menu();
+                    ui.close();
                 }
 
                 if ui.button(SOURCE).clicked() {
                     self.goto_window(SOURCE);
-                    ui.close_menu();
+                    ui.close();
                 }
 
                 if ui.button(LOGGING).clicked() {
                     self.goto_window(LOGGING);
-                    ui.close_menu();
+                    ui.close();
                 }
             });
 

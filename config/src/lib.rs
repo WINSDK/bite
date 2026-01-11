@@ -256,7 +256,6 @@ impl Config {
     pub fn parse() -> Self {
         let Some(mut path) = dirs::data_dir() else {
             log::error!("You must have a data directory set.");
-            return defaults::config();
         };
 
         path.push("bite");

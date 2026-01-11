@@ -66,7 +66,6 @@ macro_rules! error {
         if cfg!(debug_assertions) {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             unsafe { core::arch::asm!("int3", options(nomem, nostack, preserves_flags)) }
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
             std::process::abort();
         } else {
             std::process::exit(1);
@@ -86,7 +85,6 @@ macro_rules! error {
         if cfg!(debug_assertions) {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             unsafe { core::arch::asm!("int3", options(nomem, nostack, preserves_flags)) }
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
             std::process::abort();
         } else {
             std::process::exit(1);
