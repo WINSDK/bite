@@ -1,5 +1,6 @@
 use crate::common::FONT;
 use debugvault::Index;
+use egui::text::LayoutJob;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config, Matcher, Nucleo, Utf32String};
 use std::sync::Arc;
@@ -40,13 +41,13 @@ pub struct SearchPopup {
 }
 
 impl SearchPopup {
-    fn highlight_job(entry: &SearchResult, normal: egui::Color32) -> egui::text::LayoutJob {
-        let mut job = egui::text::LayoutJob::default();
+    fn highlight_job(entry: &SearchResult) -> LayoutJob {
+        let mut job = LayoutJob::default();
         let mut buffer = String::new();
         let mut current_color = colors::WHITE;
         let mut hits = entry.indices.iter().copied().peekable();
 
-        let flush = |buf: &mut String, color: egui::Color32, job: &mut egui::text::LayoutJob| {
+        let flush = |buf: &mut String, color: egui::Color32, job: &mut LayoutJob| {
             if buf.is_empty() {
                 return;
             }
@@ -67,8 +68,8 @@ impl SearchPopup {
             if is_hit {
                 hits.next();
             }
-            let color = if is_hit { colors::GREEN } else { normal };
 
+            let color = if is_hit { colors::GREEN } else { colors::WHITE };
             if color != current_color {
                 flush(&mut buffer, current_color, &mut job);
                 current_color = color;
@@ -465,90 +466,76 @@ impl SearchPopup {
 
     pub fn show(&mut self, ui: &mut egui::Ui, index: Option<&Index>) {
         let available_width = ui.available_width();
-        let frame = egui::Frame::default()
-            .rounding(egui::Rounding::ZERO)
-            .stroke(egui::Stroke::NONE)
-            .fill(colors::GRAY35);
 
-        frame.show(ui, |ui| {
-            ui.set_width(available_width);
+        ui.set_width(available_width);
 
-            let layout = {
-                let mut job = egui::text::LayoutJob::default();
-                job.append(
-                    &self.query,
-                    0.0,
-                    egui::TextFormat {
-                        font_id: FONT,
-                        color: colors::WHITE,
-                        ..Default::default()
-                    },
-                );
-                job
-            };
+        let layout = {
+            let mut job = LayoutJob::default();
+            job.append(
+                &self.query,
+                0.0,
+                egui::TextFormat {
+                    font_id: FONT,
+                    color: colors::WHITE,
+                    ..Default::default()
+                },
+            );
+            job
+        };
 
-            let input_id = egui::Frame::none()
-                .fill(colors::GRAY60)
-                .show(ui, |ui| {
-                    let mut widget = crate::widgets::TextSelection::precomputed(&layout);
-                    widget.set_reset_position(self.cursor);
-                    ui.add_sized([ui.available_width(), ui.spacing().interact_size.y], widget).id
-                })
-                .inner;
+        let mut widget = crate::widgets::TextSelection::precomputed(&layout);
+        widget.set_reset_position(self.cursor);
+        let input_id = ui.add_sized([ui.available_width(), ui.spacing().interact_size.y], widget).id;
 
-            if self.focus_input {
-                ui.ctx().memory_mut(|m| m.request_focus(input_id));
-                self.focus_input = false;
-            }
+        if self.focus_input {
+            ui.ctx().memory_mut(|m| m.request_focus(input_id));
+            self.focus_input = false;
+        }
 
-            ui.add_space(6.0);
+        self.refresh_results(ui.ctx(), index);
+        let selected = self.selected;
+        let suggestions: Vec<SearchResult> =
+            self.results.iter().take(VISIBLE_SUGGESTIONS).cloned().collect();
 
-            self.refresh_results(ui.ctx(), index);
-            let selected = self.selected;
-            let suggestions: Vec<SearchResult> =
-                self.results.iter().take(VISIBLE_SUGGESTIONS).cloned().collect();
-            let normal_color = ui.visuals().widgets.inactive.fg_stroke.color;
+        egui::Frame::none().fill(colors::BLACK).show(ui, |ui| {
+            for (idx, suggestion) in suggestions.into_iter().enumerate() {
+                let bar_color = if idx == selected {
+                    egui::Color32::from_rgb(0xdb, 0x3c, 0x30)
+                } else {
+                    colors::GRAY60
+                };
 
-            egui::Frame::none().fill(colors::BLACK).show(ui, |ui| {
-                for (idx, suggestion) in suggestions.into_iter().enumerate() {
-                    let bar_color = if idx == selected {
-                        egui::Color32::from_rgb(0xdb, 0x3c, 0x30)
-                    } else {
-                        colors::GRAY60
-                    };
+                let render = |ui: &mut egui::Ui| {
+                    ui.horizontal(|ui| {
+                        let size = egui::vec2(4.0, ui.spacing().interact_size.y);
+                        let (bar_rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                        ui.painter().rect_filled(bar_rect, 0.0, bar_color);
 
-                    let render = |ui: &mut egui::Ui| {
-                        ui.horizontal(|ui| {
-                            let size = egui::vec2(4.0, ui.spacing().interact_size.y);
-                            let (bar_rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                            ui.painter().rect_filled(bar_rect, 0.0, bar_color);
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        ui.link(Self::highlight_job(&suggestion))
+                    })
+                    .inner
+                };
 
-                            ui.spacing_mut().item_spacing.x = 6.0;
-                            ui.link(Self::highlight_job(&suggestion, normal_color))
-                        })
-                        .inner
-                    };
+                let response = if idx == selected {
+                    ui.set_width(ui.available_width());
+                    egui::Frame::none().fill(colors::GRAY35).show(ui, render).inner
+                } else {
+                    render(ui)
+                };
 
-                    let response = if idx == selected {
-                        ui.set_width(ui.available_width());
-                        egui::Frame::none().fill(colors::GRAY35).show(ui, render).inner
-                    } else {
-                        render(ui)
-                    };
-
-                    if response.hovered() {
-                        self.selected = idx;
-                    }
-
-                    if response.clicked() {
-                        self.query = suggestion.name.clone();
-                        self.cursor = self.query.chars().count();
-                        self.selected = 0;
-                        self.pending_jump = Some(suggestion.addr);
-                        self.close();
-                    }
+                if response.hovered() {
+                    self.selected = idx;
                 }
-            });
+
+                if response.clicked() {
+                    self.query = suggestion.name.clone();
+                    self.cursor = self.query.chars().count();
+                    self.selected = 0;
+                    self.pending_jump = Some(suggestion.addr);
+                    self.close();
+                }
+            }
         });
     }
 }

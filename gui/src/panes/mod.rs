@@ -103,7 +103,7 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         pane: &mut Identifier,
     ) -> UiResponse {
         // Set pane background color.
-        ui.painter().rect_filled(ui.max_rect(), 0.0, Color32::BLACK);
+        ui.painter().rect_filled(ui.max_rect(), 0.0, colors::BLACK);
 
         egui::Frame::default().inner_margin(egui::Margin::same(5.0)).show(ui, |ui| {
             match self.mapping.get_mut(pane) {
@@ -444,7 +444,7 @@ impl Panels {
             .frame({
                 egui::Frame::default()
                     .inner_margin(egui::Margin::same(STYLE.separator_width * 2.0))
-                    .fill(colors::GRAY35)
+                    .fill(Color32::BLACK)
             });
 
         let mut visuals = EGUI.visuals.clone();
@@ -480,7 +480,7 @@ impl Panels {
                             STYLE.separator_width * 2.0,
                             STYLE.separator_width * 2.0,
                         ))
-                        .fill(colors::GRAY35)
+                        .fill(colors::BLACK)
                 })
                 .show(ctx, |ui| {
                     let index = self.panes.processor.as_ref().map(|proc| &proc.index);
