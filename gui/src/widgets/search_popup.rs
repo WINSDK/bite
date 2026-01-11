@@ -2,11 +2,11 @@ use crate::common::FONT;
 use debugvault::Index;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config, Nucleo, Utf32String};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokenizing::colors;
 
 const MAX_RESULTS: u32 = 50;
+const N_SUGGESTIONS: usize = 8;
 const MATCHER_TIMEOUT_MS: u64 = 10;
 
 #[derive(Clone)]
@@ -24,11 +24,8 @@ struct SearchResult {
 struct MatcherState {
     nucleo: Nucleo<SearchEntry>,
     last_query: String,
-    index_id: usize,
-    dirty: Arc<AtomicBool>,
+    index_ptr: *const Index,
 }
-
-const N_SUGGESTIONS: usize = 8;
 
 pub struct SearchPopup {
     visible: bool,
@@ -80,15 +77,13 @@ impl SearchPopup {
         }
     }
 
-    fn build_matcher(index: &Index) -> MatcherState {
-        let dirty = Arc::new(AtomicBool::new(false));
+    fn build(ctx: &egui::Context, index: &Index) -> MatcherState {
         let notify = {
-            let dirty = Arc::clone(&dirty);
-            Arc::new(move || {
-                dirty.store(true, Ordering::Release);
-            })
+            let ctx = ctx.clone();
+            Arc::new(move || ctx.request_repaint())
         };
 
+        let now = std::time::Instant::now();
         let mut nucleo = Nucleo::new(Config::DEFAULT, notify, None, 1);
         let injector = nucleo.injector();
 
@@ -103,33 +98,33 @@ impl SearchPopup {
             });
         }
 
-        // process any queued work so the first refresh has data
-        let _ = nucleo.tick(0);
+        let _ = nucleo.tick(MATCHER_TIMEOUT_MS);
+        log::complex!(
+            w "[search::build] fuzzy matcher ready in ",
+            y format!("{:?}", now.elapsed()),
+            w " (",
+            g nucleo.snapshot().item_count().to_string(),
+            w " entries)."
+        );
 
         MatcherState {
             nucleo,
             last_query: String::new(),
-            index_id: index as *const _ as usize,
-            dirty,
+            index_ptr: index,
         }
     }
 
-    fn matcher_for(&mut self, index: &Index) -> &mut MatcherState {
-        let needs_new = self
-            .matcher
-            .as_ref()
-            .map(|m| m.index_id != index as *const _ as usize)
-            .unwrap_or(true);
+    fn matcher_for(&mut self, ctx: &egui::Context, index: &Index) -> &mut MatcherState {
+        let needs_new = self.matcher.as_ref().is_none_or(|m| !std::ptr::eq(m.index_ptr, index));
 
         if needs_new {
-            self.matcher = Some(Self::build_matcher(index));
+            self.matcher = Some(Self::build(ctx, index));
         }
 
-        // Safe due to assignment above.
         self.matcher.as_mut().unwrap()
     }
 
-    fn refresh_results(&mut self, index: Option<&Index>, timeout_ms: u64) {
+    fn refresh_results(&mut self, ctx: &egui::Context, index: Option<&Index>) {
         let Some(index) = index else {
             self.results.clear();
             self.reset_selection(0);
@@ -137,10 +132,9 @@ impl SearchPopup {
         };
 
         let query = self.query.clone();
-        let visible = self.visible;
         let mut refreshed = Vec::new();
 
-        let matcher = self.matcher_for(index);
+        let matcher = self.matcher_for(ctx, index);
 
         if matcher.last_query != query {
             let append = query.starts_with(&matcher.last_query);
@@ -152,15 +146,9 @@ impl SearchPopup {
                 append,
             );
             matcher.last_query.clone_from(&query);
-            matcher.dirty.store(true, Ordering::Release);
         }
 
-        let should_tick = matcher.dirty.swap(false, Ordering::AcqRel) || visible;
-        if should_tick {
-            let timeout = timeout_ms.min(MATCHER_TIMEOUT_MS);
-            let _ = matcher.nucleo.tick(timeout);
-        }
-
+        let _ = matcher.nucleo.tick(MATCHER_TIMEOUT_MS);
         let snapshot = matcher.nucleo.snapshot();
         let count = snapshot.matched_item_count().min(MAX_RESULTS);
 
@@ -177,8 +165,8 @@ impl SearchPopup {
         self.reset_selection(self.results.len());
     }
 
-    fn resolve_to_addr(&mut self, index: Option<&Index>) -> Option<usize> {
-        self.refresh_results(index, MATCHER_TIMEOUT_MS);
+    fn resolve_to_addr(&mut self, ctx: &egui::Context, index: Option<&Index>) -> Option<usize> {
+        self.refresh_results(ctx, index);
 
         if let Some(result) = self.results.get(self.selected) {
             return Some(result.addr);
@@ -354,6 +342,16 @@ impl SearchPopup {
                 false
             }
             egui::Event::Key {
+                key: egui::Key::C | egui::Key::D,
+                pressed: true,
+                modifiers: egui::Modifiers::CTRL,
+                ..
+            } => {
+                self.close();
+                consumed = true;
+                false
+            }
+            egui::Event::Key {
                 key: egui::Key::Escape,
                 pressed: true,
                 ..
@@ -384,13 +382,14 @@ impl SearchPopup {
             return true;
         }
 
-        if self.visible && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-        {
-            if let Some(addr) = self.resolve_to_addr(index) {
-                self.pending_jump = Some(addr);
+        if self.visible {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                if let Some(addr) = self.resolve_to_addr(ctx, index) {
+                    self.pending_jump = Some(addr);
+                }
+                self.close();
+                return true;
             }
-            self.close();
-            return true;
         }
 
         false
@@ -425,10 +424,7 @@ impl SearchPopup {
                 .show(ui, |ui| {
                     let mut widget = crate::widgets::TextSelection::precomputed(&layout);
                     widget.set_reset_position(self.cursor);
-                    let input =
-                        ui.add_sized([ui.available_width(), ui.spacing().interact_size.y], widget);
-
-                    input.id
+                    ui.add_sized([ui.available_width(), ui.spacing().interact_size.y], widget).id
                 })
                 .inner;
 
@@ -439,7 +435,7 @@ impl SearchPopup {
 
             ui.add_space(6.0);
 
-            self.refresh_results(index, MATCHER_TIMEOUT_MS);
+            self.refresh_results(ui.ctx(), index);
             let selected = self.selected;
             let suggestions: Vec<SearchResult> =
                 self.results.iter().take(N_SUGGESTIONS).cloned().collect();
