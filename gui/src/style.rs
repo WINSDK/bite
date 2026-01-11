@@ -1,8 +1,8 @@
+use config::CONFIG;
 use egui::style::{ScrollStyle, Selection, Spacing, Visuals, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle};
 use once_cell::sync::Lazy;
 use tokenizing::colors;
-use config::CONFIG;
 
 #[derive(Debug, Clone)]
 pub struct Style {
@@ -33,16 +33,11 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         ..Default::default()
     },
     visuals: Visuals {
-        // Slightly transparent selection for text fields so background shows through.
-        // Tabs/pane drag still use `STYLE.selection_color` directly.
-        selection: {
-            let [r, g, b, a] = STYLE.selection_color.to_srgba_unmultiplied();
-            let selection_bg =
-                Color32::from_rgba_unmultiplied(r, g, b, ((a as f32) * 0.5).round() as u8);
-            Selection {
-                bg_fill: selection_bg,
-                stroke: Stroke::NONE,
-            }
+        selection: Selection {
+            bg_fill: STYLE.selection_color,
+            // Have to set a non-zero stroke or else transparent doesn't get applied to the
+            // selection. Definitely a bug in egui itself.
+            stroke: Stroke::new(0.00001, Color32::WHITE),
         },
         widgets: Widgets {
             noninteractive: WidgetVisuals {

@@ -226,14 +226,13 @@ impl Display for Listing {
                 drag: false,
                 ..egui::scroll_area::ScrollSource::ALL
             })
+            .auto_shrink([false, false])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .animated(false);
 
         let start_y = ui.cursor().min.y;
 
         area.show(ui, |ui| {
-            ui.set_width(ui.available_width());
-
             let mut idx = 0;
             self.scroll.ui(ui, 10, |ui, _, block| {
                 if idx == 0 {

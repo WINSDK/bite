@@ -7,7 +7,9 @@ use crate::widgets::{Donut, SearchPopup, Terminal};
 use crate::{common::*, WinitQueue};
 use config::CONFIG;
 use egui::Color32;
-use egui_tiles::{Container, SimplificationOptions, TabState, Tile, TileId, Tiles, Tree, UiResponse};
+use egui_tiles::{
+    Container, SimplificationOptions, TabState, Tile, TileId, Tiles, Tree, UiResponse,
+};
 use processor::Processor;
 use tokenizing::colors;
 
@@ -102,7 +104,10 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         _tile_id: egui_tiles::TileId,
         pane: &mut Identifier,
     ) -> UiResponse {
-        egui::Frame::default().inner_margin(egui::Margin::same(5)).show(ui, |ui| {
+        egui::Frame::default()
+            .fill(colors::BLACK)
+            .inner_margin(egui::Margin::same(5))
+            .show(ui, |ui| {
             match self.mapping.get_mut(pane) {
                 Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
                 Some(PanelKind::Functions(functions)) => functions.show(ui),
@@ -443,18 +448,15 @@ impl Panels {
             .resizable(true)
             .frame({
                 egui::Frame::default()
-                    .inner_margin(egui::Margin::same((STYLE.separator_width * 2.0).round() as i8))
+                    .inner_margin(egui::Margin::same(
+                        (STYLE.separator_width * 2.0).round() as i8
+                    ))
                     .fill(Color32::BLACK)
             });
 
         let mut visuals = EGUI.visuals.clone();
-
         // set alternative background color
         visuals.extreme_bg_color = CONFIG.colors.bg_secondary;
-        // disable on-hover highlighting for terminal
-        visuals.widgets.active.fg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.fg_stroke = egui::Stroke::NONE;
-
         ctx.set_visuals(visuals);
 
         let mut request_focus = if self.is_search_open() {
@@ -473,15 +475,15 @@ impl Panels {
         });
 
         if self.is_search_open() {
-                    egui::TopBottomPanel::bottom("search bar")
-                        .frame({
-                            egui::Frame::default()
-                                .inner_margin(egui::Margin::symmetric(
-                                    (STYLE.separator_width * 2.0).round() as i8,
-                                    (STYLE.separator_width * 2.0).round() as i8,
-                                ))
-                                .fill(colors::BLACK)
-                        })
+            egui::TopBottomPanel::bottom("search bar")
+                .frame({
+                    egui::Frame::default()
+                        .inner_margin(egui::Margin::symmetric(
+                            (STYLE.separator_width * 2.0).round() as i8,
+                            (STYLE.separator_width * 2.0).round() as i8,
+                        ))
+                        .fill(colors::BLACK)
+                })
                 .show(ctx, |ui| {
                     let index = self.panes.processor.as_ref().map(|proc| &proc.index);
                     self.search.show(ui, index);

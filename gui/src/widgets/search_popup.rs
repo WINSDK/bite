@@ -23,6 +23,103 @@ struct SearchResult {
     indices: Vec<u32>,
 }
 
+fn best_slice(len: usize, visible_chars: usize, indices: &[u32]) -> (usize, usize) {
+    if len <= visible_chars {
+        return (0, len);
+    }
+
+    // find longest contiguous hit run, fall back to middle if none
+    let mut best_start = 0;
+    let mut best_len = 0;
+    let mut current_start = 0;
+    let mut current_len = 0;
+    let mut prev_idx: Option<u32> = None;
+    for &idx in indices {
+        if prev_idx.map_or(false, |p| idx == p + 1) {
+            current_len += 1;
+        } else {
+            current_start = idx as usize;
+            current_len = 1;
+        }
+
+        if current_len > best_len {
+            best_len = current_len;
+            best_start = current_start;
+        }
+
+        prev_idx = Some(idx);
+    }
+
+    let center = if best_len == 0 { len / 2 } else { best_start + best_len / 2 };
+
+    let window_len = visible_chars.max(1);
+
+    let mut slice_start = center.saturating_sub(window_len / 2);
+    if slice_start + window_len > len {
+        slice_start = len - window_len;
+    }
+    let slice_end = (slice_start + window_len).min(len);
+
+    (slice_start, slice_end)
+}
+
+fn truncated_job(entry: &SearchResult, visible_chars: usize) -> LayoutJob {
+    let chars: Vec<char> = entry.name.chars().collect();
+    let len = chars.len();
+    let (start, end) = best_slice(len, visible_chars, &entry.indices);
+
+    let mut job = LayoutJob::default();
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+
+    let mut buffer = String::new();
+    let mut current_color = colors::WHITE;
+    let mut hits = entry
+        .indices
+        .iter()
+        .copied()
+        .filter(|&i| (start as u32) <= i && i < end as u32)
+        .peekable();
+
+    let flush = |buf: &mut String, color: egui::Color32, job: &mut LayoutJob| {
+        if buf.is_empty() {
+            return;
+        }
+        job.append(
+            buf,
+            0.0,
+            egui::TextFormat {
+                font_id: FONT,
+                color,
+                ..Default::default()
+            },
+        );
+        buf.clear();
+    };
+
+    for (idx, chr) in chars[start..end].iter().enumerate() {
+        let gidx = start + idx;
+        let is_hit = hits.peek().map_or(false, |&i| i == gidx as u32);
+        let color = if is_hit {
+            hits.next();
+            colors::GREEN
+        } else {
+            colors::WHITE
+        };
+
+        if color != current_color {
+            flush(&mut buffer, current_color, &mut job);
+            current_color = color;
+        }
+
+        buffer.push(*chr);
+    }
+
+    flush(&mut buffer, current_color, &mut job);
+
+    job
+}
+
 struct MatcherState {
     nucleo: Nucleo<SearchEntry>,
     last_query: String,
@@ -42,47 +139,6 @@ pub struct SearchPopup {
 }
 
 impl SearchPopup {
-    fn highlight_job(entry: &SearchResult) -> LayoutJob {
-        let mut job = LayoutJob::default();
-        let mut buffer = String::new();
-        let mut current_color = colors::WHITE;
-        let mut hits = entry.indices.iter().copied().peekable();
-
-        let flush = |buf: &mut String, color: egui::Color32, job: &mut LayoutJob| {
-            if buf.is_empty() {
-                return;
-            }
-            job.append(
-                buf,
-                0.0,
-                egui::TextFormat {
-                    font_id: FONT,
-                    color,
-                    ..Default::default()
-                },
-            );
-            buf.clear();
-        };
-
-        for (idx, ch) in entry.name.chars().enumerate() {
-            let is_hit = hits.peek().map_or(false, |&i| i == idx as u32);
-            if is_hit {
-                hits.next();
-            }
-
-            let color = if is_hit { colors::GREEN } else { colors::WHITE };
-            if color != current_color {
-                flush(&mut buffer, current_color, &mut job);
-                current_color = color;
-            }
-
-            buffer.push(ch);
-        }
-
-        flush(&mut buffer, current_color, &mut job);
-        job
-    }
-
     pub fn new() -> Self {
         Self {
             visible: false,
@@ -515,12 +571,12 @@ impl SearchPopup {
 
         let start = self.selected.saturating_sub(VISIBLE_SUGGESTIONS.saturating_sub(1));
         let end = (start + VISIBLE_SUGGESTIONS).min(total);
+        let char_width = ui.fonts_mut(|f| f.glyph_width(&FONT, 'a')).max(1.0);
 
         for idx in start..end {
             let suggestion = &self.results[idx];
             let name = suggestion.name.clone();
             let addr = suggestion.addr;
-            let job = Self::highlight_job(suggestion);
             let row_size = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
             let (row_rect, mut response) = ui.allocate_exact_size(row_size, egui::Sense::click());
 
@@ -543,10 +599,8 @@ impl SearchPopup {
                 egui::vec2(row_rect.width() - bar_rect.width() - 6.0, row_rect.height()),
             );
 
-            let mut job = job.clone();
-            job.wrap.max_width = text_rect.width().max(0.0);
-            job.wrap.max_rows = 1;
-            job.wrap.break_anywhere = true;
+            let max_chars = (text_rect.width() / char_width).floor().max(1.0) as usize;
+            let job = truncated_job(suggestion, max_chars);
 
             response |= ui
                 .scope_builder(
@@ -578,5 +632,64 @@ impl SearchPopup {
                 self.close();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{best_slice, truncated_job, SearchResult};
+    use egui::text::LayoutJob;
+    use tokenizing::colors;
+
+    fn job_text(job: &LayoutJob) -> String {
+        job.sections
+            .iter()
+            .map(|s| job.text[s.byte_range.clone()].to_string())
+            .collect()
+    }
+
+    #[test]
+    fn best_slice_prefers_hits() {
+        let name = "xx__prefix__MATCH__suffix__yy";
+        let hits: Vec<u32> = (12..17).collect(); // MATCH
+        let (start, end) = best_slice(name.len(), 10, &hits);
+        assert!(start <= 12 && end >= 16, "slice should include match window");
+        assert!(end <= name.len(), "slice end within bounds");
+    }
+
+    #[test]
+    fn truncated_job_retains() {
+        let entry = SearchResult {
+            name: "abc__prefix__MATCH__suffix__xyz".to_string(),
+            addr: 0,
+            indices: (13..18).collect(), // MATCH
+        };
+
+        let job = truncated_job(&entry, 10);
+        let text = job_text(&job);
+        assert!(text.contains("MATCH"), "match chunk should be visible");
+
+        let has_green = job.sections.iter().any(|s| s.format.color == colors::GREEN);
+        assert!(has_green, "match highlight should remain");
+    }
+
+    #[test]
+    fn truncated_job_no_truncation() {
+        let entry = SearchResult {
+            name: "short".to_string(),
+            addr: 0,
+            indices: vec![1, 3],
+        };
+
+        let job = truncated_job(&entry, 20);
+        let text = job_text(&job);
+        assert_eq!(text, "short");
+        let green_hits = job
+            .sections
+            .iter()
+            .filter(|s| s.format.color == colors::GREEN)
+            .map(|s| job.text[s.byte_range.clone()].chars().count())
+            .sum::<usize>();
+        assert_eq!(green_hits, 2);
     }
 }
