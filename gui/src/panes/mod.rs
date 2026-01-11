@@ -223,8 +223,10 @@ impl Panels {
         }
     }
 
-    pub fn load_binary(&mut self, processor: Processor) {
+    pub fn load_binary(&mut self, ctx: &egui::Context, processor: Processor) {
         let processor = Arc::new(processor);
+
+        self.search.set_processor(ctx, Some(processor.clone()));
 
         self.panes.mapping.insert(
             DISASSEMBLY,
@@ -433,10 +435,7 @@ impl Panels {
         // Generic keyboard inputs.
         self.input(ctx);
         // Allow search shortcut even if events were consumed earlier.
-        {
-            let search_index = self.panes.processor.as_ref().map(|proc| &proc.index);
-            self.search.handle_input(ctx, search_index);
-        }
+        self.search.handle_input(ctx);
 
         #[cfg(any(target_family = "windows", target_os = "linux"))]
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
@@ -485,8 +484,7 @@ impl Panels {
                         .fill(colors::BLACK)
                 })
                 .show(ctx, |ui| {
-                    let index = self.panes.processor.as_ref().map(|proc| &proc.index);
-                    self.search.show(ui, index);
+                    self.search.show(ui);
                 });
         }
 

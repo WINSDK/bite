@@ -196,7 +196,8 @@ impl UI {
                     self.arch.bar.set_path(&disassembly.path);
 
                     self.panels.stop_loading();
-                    self.panels.load_binary(disassembly);
+                    let ctx = self.platform.context();
+                    self.panels.load_binary(&ctx, disassembly);
                 }
                 UIEvent::GotoAddr(addr) => {
                     if let Some(listing) = self.panels.listing() {

@@ -3,6 +3,7 @@ use debugvault::Index;
 use egui::text::LayoutJob;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config, Matcher, Nucleo, Utf32String};
+use processor::Processor;
 use std::sync::Arc;
 use tokenizing::colors;
 
@@ -123,7 +124,6 @@ fn truncated_job(entry: &SearchResult, visible_chars: usize) -> LayoutJob {
 struct MatcherState {
     nucleo: Nucleo<SearchEntry>,
     last_query: String,
-    index_ptr: *const Index,
 }
 
 pub struct SearchPopup {
@@ -135,6 +135,7 @@ pub struct SearchPopup {
     pending_jump: Option<usize>,
     results: Vec<SearchResult>,
     matcher: Option<MatcherState>,
+    current_processor: Option<Arc<Processor>>,
     last_hover_pointer: Option<egui::Pos2>,
 }
 
@@ -149,6 +150,7 @@ impl SearchPopup {
             pending_jump: None,
             results: Vec::new(),
             matcher: None,
+            current_processor: None,
             last_hover_pointer: None,
         }
     }
@@ -199,30 +201,26 @@ impl SearchPopup {
         MatcherState {
             nucleo,
             last_query: String::new(),
-            index_ptr: index,
         }
     }
 
-    fn matcher_for(&mut self, ctx: &egui::Context, index: &Index) -> &mut MatcherState {
-        let needs_new = self.matcher.as_ref().is_none_or(|m| !std::ptr::eq(m.index_ptr, index));
-
-        if needs_new {
-            self.matcher = Some(Self::build(ctx, index));
-        }
-
-        self.matcher.as_mut().unwrap()
+    pub fn set_processor(&mut self, ctx: &egui::Context, processor: Option<Arc<Processor>>) {
+        self.matcher = processor
+            .as_ref()
+            .map(|proc| Self::build(ctx, &proc.index));
+        self.current_processor = processor;
+        self.results.clear();
+        self.selected = 0;
     }
 
-    fn refresh_results(&mut self, ctx: &egui::Context, index: Option<&Index>) {
-        let Some(index) = index else {
+    fn refresh_results(&mut self) {
+        let Some(matcher) = self.matcher.as_mut() else {
             self.results.clear();
             return;
         };
 
         let query = self.query.clone();
         let mut refreshed = Vec::new();
-
-        let matcher = self.matcher_for(ctx, index);
 
         if matcher.last_query != query {
             let append = query.starts_with(&matcher.last_query);
@@ -271,14 +269,16 @@ impl SearchPopup {
         self.results = refreshed;
     }
 
-    fn resolve_to_addr(&mut self, ctx: &egui::Context, index: Option<&Index>) -> Option<usize> {
-        self.refresh_results(ctx, index);
+    fn resolve_to_addr(&mut self) -> Option<usize> {
+        self.refresh_results();
 
         if let Some(result) = self.results.get(self.selected) {
             return Some(result.addr);
         }
 
-        index.and_then(|idx| idx.get_func_by_name(&self.query))
+        self.current_processor
+            .as_ref()
+            .and_then(|proc| proc.index.get_func_by_name(&self.query))
     }
 
     pub fn take_jump(&mut self) -> Option<usize> {
@@ -504,7 +504,7 @@ impl SearchPopup {
         consumed
     }
 
-    pub fn handle_input(&mut self, ctx: &egui::Context, index: Option<&Index>) -> bool {
+    pub fn handle_input(&mut self, ctx: &egui::Context) -> bool {
         let modifier = if cfg!(target_os = "macos") {
             egui::Modifiers::MAC_CMD
         } else {
@@ -518,7 +518,7 @@ impl SearchPopup {
 
         if self.visible {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
-                if let Some(addr) = self.resolve_to_addr(ctx, index) {
+                if let Some(addr) = self.resolve_to_addr() {
                     self.pending_jump = Some(addr);
                 }
                 self.close();
@@ -529,7 +529,7 @@ impl SearchPopup {
         false
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, index: Option<&Index>) {
+    pub fn show(&mut self, ui: &mut egui::Ui) {
         let available_width = ui.available_width();
 
         ui.set_width(available_width);
@@ -560,7 +560,7 @@ impl SearchPopup {
 
         ui.add_space(6.0);
 
-        self.refresh_results(ui.ctx(), index);
+        self.refresh_results();
         let total = self.results.len();
         if total == 0 {
             return;
