@@ -345,7 +345,7 @@ impl Terminal {
 
     /// Process all character having been entered.
     /// Returns how many events were processed.
-    pub fn record_input(&mut self, events: &mut Vec<egui::Event>, index: &Index) -> usize {
+    pub fn handle_events(&mut self, events: &mut Vec<egui::Event>, index: &Index) -> usize {
         let mut events_processed = 0;
         let mut prev_consumed = false;
 

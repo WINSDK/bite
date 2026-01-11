@@ -128,7 +128,7 @@ impl<'a> AsRef<[u8]> for IndexStr<'a> {
 }
 
 impl<'a> From<&'a [u8]> for IndexStr<'a> {
-    fn from(s: &[u8]) -> IndexStr {
+    fn from(s: &'a [u8]) -> IndexStr<'a> {
         IndexStr::new(s)
     }
 }

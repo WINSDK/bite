@@ -3561,33 +3561,6 @@ impl<'a> GetLeafName<'a> for BuiltinType {
     }
 }
 
-/// A built-in type with CV-qualifiers.
-///
-/// Like unqualified built-in types, CV-qualified built-in types do not go into
-/// the substitutions table.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct QualifiedBuiltin(CvQualifiers, BuiltinType);
-
-impl<'subs> Demangle<'subs> for QualifiedBuiltin {
-    fn demangle<'prev, 'ctx>(
-        &'subs self,
-        ctx: &'ctx mut DemangleContext<'subs>,
-        scope: Option<ArgScopeStack<'prev, 'subs>>,
-    ) {
-        ctx.push_inner(&self.0);
-        self.1.demangle(ctx, scope);
-        if ctx.pop_inner_if(&self.0) {
-            self.0.demangle_as_inner(ctx, scope);
-        }
-    }
-}
-
-impl<'a> GetLeafName<'a> for QualifiedBuiltin {
-    fn get_leaf_name(&'a self, _: &'a SubstitutionTable) -> Option<LeafName<'a>> {
-        None
-    }
-}
-
 /// The `<exception-spec>` production.
 ///
 /// <exception-spec> ::= Do                # non-throwing exception-specification (e.g., noexcept, throw())

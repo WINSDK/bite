@@ -16,6 +16,7 @@ once_cell = { workspace = true }
 png = "0.17"
 pollster = "0.3.0"
 crossbeam-queue = { workspace = true }
+nucleo = "0.5.0"
 
 tree-sitter = "0.20"
 tree-sitter-c = { version = "*", git = "https://github.com/WINSDK/tree-sitter-c" }

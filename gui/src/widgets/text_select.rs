@@ -72,6 +72,7 @@ impl egui::Widget for TextSelection<'_> {
                 .font(self.font.clone())
                 .lock_focus(true)
                 .desired_width(f32::INFINITY)
+                .desired_rows(1)
                 .layouter(&mut layouter),
         );
 

@@ -132,9 +132,6 @@ trait Parse: Sized {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-struct TypeRef(u32);
-
-#[derive(Default, Debug, Clone, PartialEq)]
 enum Type {
     #[default]
     Unit,

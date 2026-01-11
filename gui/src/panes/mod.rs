@@ -3,14 +3,14 @@ mod listing;
 mod source_code;
 
 use crate::style::{EGUI, STYLE};
-use crate::widgets::{Donut, Terminal};
+use crate::widgets::{Donut, SearchPopup, Terminal};
 use crate::{common::*, WinitQueue};
 use config::CONFIG;
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 use processor::Processor;
 use tokenizing::colors;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 pub type Identifier = &'static str;
@@ -135,6 +135,7 @@ pub struct Panels {
     #[allow(dead_code)] // used on windows and linux for top bar
     winit_queue: WinitQueue,
     loading: bool,
+    search: SearchPopup,
 }
 
 impl Panels {
@@ -154,6 +155,7 @@ impl Panels {
             ui_queue,
             winit_queue,
             loading: false,
+            search: SearchPopup::new(),
         }
     }
 
@@ -164,6 +166,16 @@ impl Panels {
         })
     }
 
+    fn active_panes(&self) -> HashSet<Identifier> {
+        let mut set = HashSet::new();
+        for id in self.tree.active_tiles() {
+            if let Some(egui_tiles::Tile::Pane(identifier)) = self.tree.tiles.get(id) {
+                set.insert(*identifier);
+            }
+        }
+        set
+    }
+
     #[inline]
     pub fn processor(&mut self) -> Option<&Arc<Processor>> {
         self.panes.processor.as_ref()
@@ -172,6 +184,10 @@ impl Panels {
     #[inline]
     pub fn terminal(&mut self) -> &mut Terminal {
         &mut self.panes.terminal
+    }
+
+    fn is_search_open(&self) -> bool {
+        self.search.is_visible()
     }
 
     pub fn is_loading(&self) -> bool {
@@ -230,13 +246,21 @@ impl Panels {
     }
 
     pub fn handle_events(&mut self, events: &mut Vec<egui::Event>) {
-        if let Some(listing) = self.listing() {
-            listing.record_input(events);
+        self.search.handle_events(events);
+
+        if self.is_search_open() {
+            return;
+        }
+
+        if self.active_panes().contains(&DISASSEMBLY) {
+            if let Some(listing) = self.listing() {
+                listing.handle_events(events);
+            }
         }
 
         let empty_index = debugvault::Index::default();
         let index = self.panes.processor.as_ref().map(|proc| &proc.index).unwrap_or(&empty_index);
-        self.panes.terminal.record_input(events, index);
+        self.panes.terminal.handle_events(events, index);
     }
 
     pub fn goto_window(&mut self, tile: Identifier) {
@@ -400,8 +424,13 @@ impl Panels {
     }
 
     pub fn draw(&mut self, ctx: &mut egui::Context) {
-        // generic keyboard inputs
+        // Generic keyboard inputs.
         self.input(ctx);
+        // Allow search shortcut even if events were consumed earlier.
+        {
+            let search_index = self.panes.processor.as_ref().map(|proc| &proc.index);
+            self.search.handle_input(ctx, search_index);
+        }
 
         #[cfg(any(target_family = "windows", target_os = "linux"))]
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| self.top_bar(ui));
@@ -427,7 +456,12 @@ impl Panels {
 
         ctx.set_visuals(visuals);
 
-        let request_focus = self.terminal().should_reset_cursor();
+        let mut request_focus = if self.is_search_open() {
+            false
+        } else {
+            self.terminal().should_reset_cursor()
+        };
+
         let term_response = terminal.show(ctx, |ui| {
             let response = ui
                 .with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
@@ -436,6 +470,22 @@ impl Panels {
 
             response.inner
         });
+
+        if self.is_search_open() {
+            egui::TopBottomPanel::bottom("search bar")
+                .frame({
+                    egui::Frame::default()
+                        .inner_margin(egui::Margin::symmetric(
+                            STYLE.separator_width * 2.0,
+                            STYLE.separator_width * 2.0,
+                        ))
+                        .fill(colors::GRAY35)
+                })
+                .show(ctx, |ui| {
+                    let index = self.panes.processor.as_ref().map(|proc| &proc.index);
+                    self.search.show(ui, index);
+                });
+        }
 
         ctx.set_visuals(EGUI.visuals.clone());
 
@@ -455,9 +505,17 @@ impl Panels {
             }
 
             // give focus to terminal if any valid keyboard input happened
+            if self.is_search_open() {
+                request_focus = false;
+            }
+
             if request_focus {
                 ui.ctx().memory_mut(|m| m.request_focus(term_response.inner.id));
             }
         });
+
+        if let Some(addr) = self.search.take_jump() {
+            self.ui_queue.push(crate::UIEvent::GotoAddr(addr));
+        }
     }
 }

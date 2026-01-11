@@ -59,7 +59,7 @@ impl Symbol<'_> {
     /// Given some raw storage, parse the mangled symbol from it with the default
     /// options.
     #[inline]
-    fn new(raw: &str) -> Result<Symbol> {
+    fn new(raw: &str) -> Result<Symbol<'_>> {
         let mut substitutions = subs::SubstitutionTable::new();
 
         let parsed = {

@@ -151,7 +151,7 @@ impl Listing {
         false
     }
 
-    pub fn record_input(&mut self, events: &mut Vec<egui::Event>) {
+    pub fn handle_events(&mut self, events: &mut Vec<egui::Event>) {
         events.retain(|event| match event {
             egui::Event::Key {
                 key: egui::Key::Escape,
@@ -222,6 +222,7 @@ fn draw_instruction(ui: &mut egui::Ui, tokens: Vec<Token>, index: &Index, ui_que
 
 impl Display for Listing {
     fn show(&mut self, ui: &mut egui::Ui) {
+        let root_rect = ui.max_rect();
         let area = egui::ScrollArea::vertical()
             .drag_to_scroll(false)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
@@ -268,11 +269,11 @@ impl Display for Listing {
             });
         });
 
-        // Overlay current section.
+        let section_y = start_y + 6.0;
         let text = self.processor.section_name(self.current_addr).unwrap();
-        let max_width = ui.available_width();
+        let max_width = root_rect.right();
         let size = egui::vec2(9.0 * text.len() as f32, 25.0);
-        let offset = egui::pos2(8.0, start_y + 6.0);
+        let offset = egui::pos2(8.0, section_y);
         let rect = egui::Rect::from_two_pos(
             egui::pos2(max_width - offset.x, offset.y),
             egui::pos2(max_width - offset.x - size.x, offset.y + size.y),

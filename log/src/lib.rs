@@ -63,9 +63,14 @@ macro_rules! error {
                 .set_level($crate::MessageLevel::Error)
                 .show();
 
-        #[cfg(debug_assertion)]
-        unsafe { std::arch::asm!("int3") }
-        std::process::exit(1);
+        if cfg!(debug_assertions) {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            unsafe { core::arch::asm!("int3", options(nomem, nostack, preserves_flags)) }
+            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+            std::process::abort();
+        } else {
+            std::process::exit(1);
+        }
     }};
 
     ($($arg:tt)*) => {{
@@ -78,9 +83,14 @@ macro_rules! error {
             .set_level($crate::MessageLevel::Error)
             .show();
 
-        #[cfg(debug_assertion)]
-        unsafe { std::arch::asm!("int3") }
-        std::process::exit(1);
+        if cfg!(debug_assertions) {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            unsafe { core::arch::asm!("int3", options(nomem, nostack, preserves_flags)) }
+            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+            std::process::abort();
+        } else {
+            std::process::exit(1);
+        }
     }};
 }
 

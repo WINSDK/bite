@@ -264,17 +264,17 @@ impl<'a, R: gimli::Reader<Offset = usize>> gimli::Reader for Relocate<'a, R> {
     }
 
     #[inline]
-    fn to_slice(&self) -> gimli::Result<Cow<[u8]>> {
+    fn to_slice(&self) -> gimli::Result<Cow<'_, [u8]>> {
         self.reader.to_slice()
     }
 
     #[inline]
-    fn to_string(&self) -> gimli::Result<Cow<str>> {
+    fn to_string(&self) -> gimli::Result<Cow<'_, str>> {
         self.reader.to_string()
     }
 
     #[inline]
-    fn to_string_lossy(&self) -> gimli::Result<Cow<str>> {
+    fn to_string_lossy(&self) -> gimli::Result<Cow<'_, str>> {
         self.reader.to_string_lossy()
     }
 
