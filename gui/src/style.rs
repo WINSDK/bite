@@ -15,7 +15,7 @@ pub struct Style {
 
 pub static STYLE: Lazy<Style> = Lazy::new(|| Style {
     separator_width: 3.0,
-    selection_color: Color32::from_rgba_unmultiplied(150, 150, 150, 60),
+    selection_color: Color32::from_rgba_unmultiplied(0x60, 0x60, 0x60, 60),
     tab_rounding: Rounding::ZERO,
     active_text_color: colors::WHITE,
     text_color: colors::GRAYAA,
@@ -99,9 +99,9 @@ pub static EGUI: Lazy<egui::Style> = Lazy::new(|| egui::Style {
         override_text_color: None,
         popup_shadow: egui::epaint::Shadow::NONE,
         window_rounding: STYLE.tab_rounding,
-        window_fill: Color32::BLACK,
-        panel_fill: Color32::BLACK,
-        extreme_bg_color: Color32::BLACK,
+        window_fill: colors::BLACK,
+        panel_fill: colors::BLACK,
+        extreme_bg_color: colors::BLACK,
         text_cursor: Stroke::new(2.0, Color32::from_rgba_unmultiplied(130, 130, 130, 200)),
         ..Default::default()
     },

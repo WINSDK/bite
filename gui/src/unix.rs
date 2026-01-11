@@ -43,6 +43,7 @@ mod macos {
     pub struct MenuBar {
         bar: Menu,
         windows: Vec<CheckMenuItem>,
+        path_entry: Option<Submenu>,
     }
 
     impl MenuBar {
@@ -118,7 +119,11 @@ mod macos {
             window_m.set_as_windows_menu_for_nsapp();
             bar.init_for_nsapp();
 
-            Ok(Self { bar, windows })
+            Ok(Self {
+                bar,
+                windows,
+                path_entry: None,
+            })
         }
 
         pub fn set_checked(&self, ident: Identifier) {
@@ -128,10 +133,20 @@ mod macos {
             }
         }
 
-        pub fn set_path(&self, path: &Path) {
+        pub fn set_path(&mut self, path: &Path) {
             let path = path.to_string_lossy();
-            let title_m = ManuallyDrop::new(Submenu::new(format!(":: {path}"), false));
-            let _ = self.bar.append(&*title_m);
+            let title = format!(":: {path}");
+
+            if let Some(ref entry) = self.path_entry {
+                if entry.id() == &entry.id() {
+                    let _ = self.bar.remove(entry);
+                }
+                self.path_entry = None;
+            }
+
+            let title = Submenu::new(title, false);
+            let _ = self.bar.append(&title);
+            self.path_entry = Some(title);
         }
     }
 }

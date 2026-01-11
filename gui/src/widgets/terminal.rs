@@ -527,7 +527,7 @@ impl Terminal {
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
         let response = area.show(ui, |ui| {
-            let title = "(bite) ";
+            let title = "> ";
             let input = self.current_line();
             let color = EGUI.noninteractive().fg_stroke.color;
 

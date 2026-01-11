@@ -34,7 +34,7 @@ processor_shared = { path = "../processor_shared" }
 infinite_scroll = { path = "../infinite_scroll" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-muda = "0.13"
+muda = "0.17.1"
 
 [build-dependencies]
 cc = "1" # tree-sitter requirement

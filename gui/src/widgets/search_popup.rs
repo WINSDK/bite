@@ -492,6 +492,8 @@ impl SearchPopup {
             self.focus_input = false;
         }
 
+        ui.add_space(6.0);
+
         self.refresh_results(ui.ctx(), index);
         let selected = self.selected;
         let suggestions: Vec<SearchResult> =

@@ -2,7 +2,6 @@ use crate::{common::*, UIEvent, UiQueue};
 use config::CONFIG;
 use debugvault::Index;
 use egui::mutex::RwLock;
-use egui::Color32;
 use infinite_scroll::{Callback, InfiniteScroll};
 use processor::{Block, BlockContent, Processor};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -273,7 +272,7 @@ impl Display for Listing {
         let text = self.processor.section_name(self.current_addr).unwrap();
         let max_width = root_rect.right();
         let size = egui::vec2(9.0 * text.len() as f32, 25.0);
-        let offset = egui::pos2(8.0, section_y);
+        let offset = egui::pos2(12.0, section_y);
         let rect = egui::Rect::from_two_pos(
             egui::pos2(max_width - offset.x, offset.y),
             egui::pos2(max_width - offset.x - size.x, offset.y + size.y),
@@ -282,16 +281,8 @@ impl Display for Listing {
         ui.painter().rect(
             rect.expand2(egui::vec2(5.0, 0.0)),
             0.0,
-            egui::Color32::BLACK,
-            {
-                let color = CONFIG.colors.bg_primary;
-                let bg = Color32::from_rgb(
-                    (color[0] as f32 * 1.1) as u8,
-                    (color[1] as f32 * 1.1) as u8,
-                    (color[2] as f32 * 1.1) as u8,
-                );
-                egui::Stroke::new(2.5, bg)
-            },
+            colors::BLACK,
+            egui::Stroke::new(2.5, CONFIG.colors.bg_secondary),
         );
 
         ui.painter().text(
@@ -299,7 +290,7 @@ impl Display for Listing {
             egui::Align2::CENTER_CENTER,
             text,
             FONT,
-            egui::Color32::WHITE,
+            colors::WHITE,
         );
     }
 }

@@ -1,3 +1,5 @@
+use tokenizing::colors;
+
 use crate::common::*;
 
 pub struct Donut {
@@ -94,7 +96,7 @@ impl Display for Donut {
             egui::Align2::CENTER_CENTER,
             self.frame(),
             font,
-            egui::Color32::WHITE,
+            colors::WHITE,
         );
         ui.allocate_rect(rect, egui::Sense::hover());
     }

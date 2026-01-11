@@ -245,10 +245,10 @@ mod defaults {
         comment()
     }
     pub fn bg_primary() -> Color32 {
-        Color32::from_rgb(0x30, 0x30, 0x30)
+        Color32::from_rgb(0x2c, 0x2c, 0x2c)
     }
     pub fn bg_secondary() -> Color32 {
-        Color32::from_rgb(0x2d, 0x2d, 0x2d)
+        Color32::from_rgb(0x2c, 0x2c, 0x2c)
     }
 }
 

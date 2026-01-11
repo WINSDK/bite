@@ -63,7 +63,7 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         active: bool,
     ) -> egui::Color32 {
         if active {
-            CONFIG.colors.bg_primary
+            colors::BLACK
         } else {
             CONFIG.colors.bg_secondary
         }
@@ -102,9 +102,6 @@ impl egui_tiles::Behavior<Identifier> for Tabs {
         _tile_id: egui_tiles::TileId,
         pane: &mut Identifier,
     ) -> UiResponse {
-        // Set pane background color.
-        ui.painter().rect_filled(ui.max_rect(), 0.0, colors::BLACK);
-
         egui::Frame::default().inner_margin(egui::Margin::same(5.0)).show(ui, |ui| {
             match self.mapping.get_mut(pane) {
                 Some(PanelKind::Disassembly(disassembly)) => disassembly.show(ui),
@@ -490,7 +487,7 @@ impl Panels {
 
         ctx.set_visuals(EGUI.visuals.clone());
 
-        let frame = egui::Frame::default().inner_margin(egui::Margin::same(0.0));
+        let frame = egui::Frame::none().fill(colors::BLACK);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
             if self.loading {
                 ui.spacing_mut().item_spacing.y = 20.0;
