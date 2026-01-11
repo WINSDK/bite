@@ -38,6 +38,7 @@ pub struct SearchPopup {
     pending_jump: Option<usize>,
     results: Vec<SearchResult>,
     matcher: Option<MatcherState>,
+    last_hover_pointer: Option<egui::Pos2>,
 }
 
 impl SearchPopup {
@@ -92,6 +93,7 @@ impl SearchPopup {
             pending_jump: None,
             results: Vec::new(),
             matcher: None,
+            last_hover_pointer: None,
         }
     }
 
@@ -381,9 +383,13 @@ impl SearchPopup {
                 pressed: true,
                 ..
             } => {
-                let visible_len = self.results.len().min(VISIBLE_SUGGESTIONS);
-                if visible_len > 0 && self.selected > 0 {
-                    self.selected -= 1;
+                let total = self.results.len();
+                if total > 0 {
+                    if self.selected >= total {
+                        self.selected = total - 1;
+                    } else if self.selected > 0 {
+                        self.selected -= 1;
+                    }
                 }
                 consumed = true;
                 false
@@ -393,9 +399,13 @@ impl SearchPopup {
                 pressed: true,
                 ..
             } => {
-                let visible_len = self.results.len().min(VISIBLE_SUGGESTIONS);
-                if visible_len > 0 {
-                    self.selected = (self.selected + 1).min(visible_len.saturating_sub(1));
+                let total = self.results.len();
+                if total > 0 {
+                    if self.selected >= total.saturating_sub(1) {
+                        self.selected = total.saturating_sub(1);
+                    } else {
+                        self.selected += 1;
+                    }
                 }
                 consumed = true;
                 false
@@ -485,7 +495,8 @@ impl SearchPopup {
 
         let mut widget = crate::widgets::TextSelection::precomputed(&layout);
         widget.set_reset_position(self.cursor);
-        let input_id = ui.add_sized([ui.available_width(), ui.spacing().interact_size.y], widget).id;
+        let input_id =
+            ui.add_sized([ui.available_width(), ui.spacing().interact_size.y], widget).id;
 
         if self.focus_input {
             ui.ctx().memory_mut(|m| m.request_focus(input_id));
@@ -495,49 +506,68 @@ impl SearchPopup {
         ui.add_space(6.0);
 
         self.refresh_results(ui.ctx(), index);
-        let selected = self.selected;
-        let suggestions: Vec<SearchResult> =
-            self.results.iter().take(VISIBLE_SUGGESTIONS).cloned().collect();
+        let total = self.results.len();
+        if total == 0 {
+            return;
+        }
+        if self.selected >= total {
+            self.selected = total - 1;
+        }
 
-        egui::Frame::none().fill(colors::BLACK).show(ui, |ui| {
-            for (idx, suggestion) in suggestions.into_iter().enumerate() {
-                let bar_color = if idx == selected {
-                    egui::Color32::from_rgb(0xdb, 0x3c, 0x30)
-                } else {
-                    colors::GRAY60
-                };
+        let start = self.selected.saturating_sub(VISIBLE_SUGGESTIONS.saturating_sub(1));
+        let end = (start + VISIBLE_SUGGESTIONS).min(total);
 
-                let render = |ui: &mut egui::Ui| {
-                    ui.horizontal(|ui| {
-                        let size = egui::vec2(4.0, ui.spacing().interact_size.y);
-                        let (bar_rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                        ui.painter().rect_filled(bar_rect, 0.0, bar_color);
+        for idx in start..end {
+            let suggestion = &self.results[idx];
+            let name = suggestion.name.clone();
+            let addr = suggestion.addr;
+            let job = Self::highlight_job(suggestion);
+            let row_size = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+            let (row_rect, mut response) = ui.allocate_exact_size(row_size, egui::Sense::click());
 
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        ui.link(Self::highlight_job(&suggestion))
-                    })
-                    .inner
-                };
+            if idx == self.selected {
+                ui.painter().rect_filled(row_rect, 0.0, colors::GRAY35);
+            }
 
-                let response = if idx == selected {
-                    ui.set_width(ui.available_width());
-                    egui::Frame::none().fill(colors::GRAY35).show(ui, render).inner
-                } else {
-                    render(ui)
-                };
+            let bar_color = if idx == self.selected {
+                egui::Color32::from_rgb(0xdb, 0x3c, 0x30)
+            } else {
+                colors::GRAY60
+            };
 
-                if response.hovered() {
-                    self.selected = idx;
-                }
+            let bar_rect =
+                egui::Rect::from_min_size(row_rect.min, egui::vec2(4.0, row_rect.height()));
+            ui.painter().rect_filled(bar_rect, 0.0, bar_color);
 
-                if response.clicked() {
-                    self.query = suggestion.name.clone();
-                    self.cursor = self.query.chars().count();
-                    self.selected = 0;
-                    self.pending_jump = Some(suggestion.addr);
-                    self.close();
+            let text_rect = egui::Rect::from_min_size(
+                egui::pos2(bar_rect.max.x + 6.0, row_rect.min.y),
+                egui::vec2(row_rect.width() - bar_rect.width() - 6.0, row_rect.height()),
+            );
+
+            response |= ui
+                .allocate_ui_at_rect(text_rect, |ui| {
+                    ui.set_clip_rect(text_rect);
+                    ui.add(egui::Label::new(job.clone()))
+                })
+                .inner;
+
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                if let Some(pos) = ui.ctx().input(|i| i.pointer.latest_pos()) {
+                    if self.last_hover_pointer.map_or(true, |prev| prev != pos) {
+                        self.selected = idx;
+                        self.last_hover_pointer = Some(pos);
+                    }
                 }
             }
-        });
+
+            if response.clicked() {
+                self.query = name;
+                self.cursor = self.query.chars().count();
+                self.selected = idx;
+                self.pending_jump = Some(addr);
+                self.close();
+            }
+        }
     }
 }
