@@ -6,8 +6,8 @@ use std::sync::Arc;
 use tokenizing::colors;
 
 const MAX_RESULTS: u32 = 50;
-const N_SUGGESTIONS: usize = 8;
 const MATCHER_TIMEOUT_MS: u64 = 10;
+const VISIBLE_SUGGESTIONS: usize = 8;
 
 #[derive(Clone)]
 struct SearchEntry {
@@ -33,7 +33,6 @@ pub struct SearchPopup {
     query: String,
     cursor: usize,
     selected: usize,
-    filtered_len: usize,
     pending_jump: Option<usize>,
     results: Vec<SearchResult>,
     matcher: Option<MatcherState>,
@@ -47,7 +46,6 @@ impl SearchPopup {
             query: String::new(),
             cursor: 0,
             selected: 0,
-            filtered_len: 0,
             pending_jump: None,
             results: Vec::new(),
             matcher: None,
@@ -60,21 +58,11 @@ impl SearchPopup {
         self.query.clear();
         self.cursor = 0;
         self.selected = 0;
-        self.filtered_len = 0;
     }
 
     pub fn close(&mut self) {
         self.visible = false;
         self.focus_input = false;
-    }
-
-    fn reset_selection(&mut self, len: usize) {
-        self.filtered_len = len;
-        if len == 0 {
-            self.selected = 0;
-        } else if self.selected >= len {
-            self.selected = 0;
-        }
     }
 
     fn build(ctx: &egui::Context, index: &Index) -> MatcherState {
@@ -127,7 +115,6 @@ impl SearchPopup {
     fn refresh_results(&mut self, ctx: &egui::Context, index: Option<&Index>) {
         let Some(index) = index else {
             self.results.clear();
-            self.reset_selection(0);
             return;
         };
 
@@ -162,7 +149,6 @@ impl SearchPopup {
         }
 
         self.results = refreshed;
-        self.reset_selection(self.results.len());
     }
 
     fn resolve_to_addr(&mut self, ctx: &egui::Context, index: Option<&Index>) -> Option<usize> {
@@ -312,7 +298,7 @@ impl SearchPopup {
                 pressed: true,
                 ..
             } => {
-                let visible_len = self.filtered_len.min(N_SUGGESTIONS);
+                let visible_len = self.results.len().min(VISIBLE_SUGGESTIONS);
                 if visible_len > 0 && self.selected > 0 {
                     self.selected -= 1;
                 }
@@ -324,7 +310,7 @@ impl SearchPopup {
                 pressed: true,
                 ..
             } => {
-                let visible_len = self.filtered_len.min(N_SUGGESTIONS);
+                let visible_len = self.results.len().min(VISIBLE_SUGGESTIONS);
                 if visible_len > 0 {
                     self.selected = (self.selected + 1).min(visible_len.saturating_sub(1));
                 }
@@ -342,11 +328,11 @@ impl SearchPopup {
                 false
             }
             egui::Event::Key {
-                key: egui::Key::C | egui::Key::D,
-                pressed: true,
-                modifiers: egui::Modifiers::CTRL,
-                ..
-            } => {
+            key: egui::Key::C | egui::Key::D,
+            pressed: true,
+            modifiers: egui::Modifiers::CTRL,
+            ..
+        } => {
                 self.close();
                 consumed = true;
                 false
@@ -438,7 +424,7 @@ impl SearchPopup {
             self.refresh_results(ui.ctx(), index);
             let selected = self.selected;
             let suggestions: Vec<SearchResult> =
-                self.results.iter().take(N_SUGGESTIONS).cloned().collect();
+                self.results.iter().take(VISIBLE_SUGGESTIONS).cloned().collect();
             if suggestions.is_empty() {
                 return;
             }
