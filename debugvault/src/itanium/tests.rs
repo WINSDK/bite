@@ -3,15 +3,16 @@
 use super::ast::{
     ArrayType, BareFunctionType, BaseUnresolvedName, BuiltinType, CallOffset, ClassEnumType,
     ClosureTypeName, CtorDtorName, CvQualifiers, DataMemberPrefix, Decltype, DestructorName,
-    Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FunctionParam, FunctionType,
+    Discriminator, Encoding, ExceptionSpec, ExprPrimary, Expression, FoldExpr, FunctionParam, FunctionType,
     GlobalCtorDtor, Identifier, Initializer, LambdaSig, LocalName, MangledName, MemberName, Name,
     NestedName, NonSubstitution, Number, NvOffset, OperatorName, Parse, ParseContext,
     PointerToMemberType, Prefix, PrefixHandle, RefQualifier, ResourceName, SeqId, SimpleId,
     SimpleOperatorName, SourceName, SpecialName, StandardBuiltinType, SubobjectExpr, Substitution,
-    TaggedName, TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam,
-    TemplateTemplateParamHandle, Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
+    TemplateArg, TemplateArgs, TemplateParam, TemplateTemplateParam, TemplateTemplateParamHandle,
+    Type, TypeHandle, UnnamedTypeName, UnqualifiedName,
     UnresolvedName, UnresolvedQualifierLevel, UnresolvedType, UnresolvedTypeHandle, UnscopedName,
     UnscopedTemplateName, UnscopedTemplateNameHandle, VOffset, VectorType, WellKnownComponent,
+    ParametricBuiltinType, AbiTag, AbiTags, MemberLikeFriend, TemplateParamDecl, ConstraintExpression,
 };
 
 use super::error::Error;
@@ -226,11 +227,10 @@ fn parse_mangled_name() {
                     Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 3,
                                         end: 6,
-                                    })))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                 b"..."
             }
             b"_GLOBAL__I__Z3foo..." => {
@@ -241,12 +241,11 @@ fn parse_mangled_name() {
                                 Encoding::Data(
                                     Name::Unscoped(
                                         UnscopedName::Unqualified(
-                                            UnqualifiedName::Source(
-                                                SourceName(
+                                            UnqualifiedName::Source(SourceName(
                                                     Identifier {
                                                         start: 14,
                                                         end: 17,
-                                                    }))))))))),
+                                                    }), MemberLikeFriend::NotFriend, AbiTags::default())))))))),
                 b"..."
             }
         }
@@ -269,14 +268,14 @@ fn parse_encoding() {
                     Encoding::Function(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 1,
                                         end: 4,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                         BareFunctionType(vec![
                             TypeHandle::Builtin(BuiltinType::Standard(StandardBuiltinType::Int))
-                        ])),
+                        ]),
+                        ConstraintExpression::default()),
                     b"...",
                     []
                 }
@@ -284,11 +283,10 @@ fn parse_encoding() {
                     Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 1,
                                         end: 4,
-                                    }))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                     b"...",
                     []
                 }
@@ -297,11 +295,10 @@ fn parse_encoding() {
                         SpecialName::Guard(
                             Name::Unscoped(
                                 UnscopedName::Unqualified(
-                                    UnqualifiedName::Source(
-                                        SourceName(Identifier {
+                                    UnqualifiedName::Source(SourceName(Identifier {
                                             start: 3,
                                             end: 6,
-                                        })))))),
+                                        }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     b"...",
                     []
                 }
@@ -325,12 +322,11 @@ fn parse_global_ctor_dtor() {
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(
+                                        UnqualifiedName::Source(SourceName(
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                })))))))),
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))),
                 b"..."
             }
             b".I__Z3foo..." => {
@@ -340,12 +336,11 @@ fn parse_global_ctor_dtor() {
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(
+                                        UnqualifiedName::Source(SourceName(
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                })))))))),
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))),
                 b"..."
             }
             b"$I__Z3foo..." => {
@@ -355,12 +350,11 @@ fn parse_global_ctor_dtor() {
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(
+                                        UnqualifiedName::Source(SourceName(
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                })))))))),
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))),
                 b"..."
             }
             b"_D__Z3foo..." => {
@@ -370,12 +364,11 @@ fn parse_global_ctor_dtor() {
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(
+                                        UnqualifiedName::Source(SourceName(
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                })))))))),
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))),
                 b"..."
             }
             b".D__Z3foo..." => {
@@ -385,12 +378,11 @@ fn parse_global_ctor_dtor() {
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(
+                                        UnqualifiedName::Source(SourceName(
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                })))))))),
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))),
                 b"..."
             }
             b"$D__Z3foo..." => {
@@ -400,12 +392,11 @@ fn parse_global_ctor_dtor() {
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(
+                                        UnqualifiedName::Source(SourceName(
                                                 Identifier {
                                                     start: 6,
                                                     end: 9,
-                                                })))))))),
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))),
                 b"..."
             }
         }
@@ -425,51 +416,56 @@ fn parse_name() {
     assert_parse!(Name {
         with subs [
             Substitutable::Prefix(
-                Prefix::Unqualified(
-                    UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::New)))),
+                Prefix::Unqualified(UnqualifiedName::Operator(
+                    OperatorName::Simple(SimpleOperatorName::New),
+                    AbiTags::default(),
+                ))),
             Substitutable::Prefix(
-                Prefix::Nested(PrefixHandle::BackReference(0),
-                               UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::New)))),
+                Prefix::Nested(
+                    PrefixHandle::BackReference(0),
+                    UnqualifiedName::Operator(
+                        OperatorName::Simple(SimpleOperatorName::New),
+                        AbiTags::default(),
+                    ),
+                )),
         ] => {
             Ok => {
                 b"NS0_3abcE..." => {
                     Name::Nested(NestedName::Unqualified(CvQualifiers::default(),
                                                          None,
-                                                         PrefixHandle::BackReference(1),
+                                                         Some(PrefixHandle::BackReference(1)),
                                                          UnqualifiedName::Source(SourceName(Identifier {
                                                              start: 5,
                                                              end: 8,
-                                                         })))),
+                                                         }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     b"...",
                     []
                 }
                 b"3abc..." => {
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 1,
                                     end: 4,
-                                })))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     b"...",
                     []
                 }
                 b"dlIcE..." => {
                     Name::UnscopedTemplate(
                         UnscopedTemplateNameHandle::BackReference(2),
-                        TemplateArgs(vec![
+                        TemplateArgs { args: vec![
                             TemplateArg::Type(
                                 TypeHandle::Builtin(
                                     BuiltinType::Standard(StandardBuiltinType::Char)))
-                        ])),
+                        ], requires_clause: ConstraintExpression::default() }),
                     b"...",
                     [
                         Substitutable::UnscopedTemplateName(
                             UnscopedTemplateName(
                                 UnscopedName::Unqualified(
-                                    UnqualifiedName::Operator(
-                                        OperatorName::Simple(
-                                            SimpleOperatorName::Delete))))),
+                                    UnqualifiedName::Operator(OperatorName::Simple(
+                                            SimpleOperatorName::Delete), AbiTags::default())))),
                     ]
                 }
                 b"Z3abcEs..." => {
@@ -478,11 +474,10 @@ fn parse_name() {
                             Box::new(Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(Identifier {
+                                        UnqualifiedName::Source(SourceName(Identifier {
                                                 start: 2,
                                                 end: 5,
-                                            })))))),
+                                            }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                             None,
                             None)),
                     b"...",
@@ -504,9 +499,8 @@ fn parse_unscoped_template_name_handle() {
             Substitutable::UnscopedTemplateName(
                 UnscopedTemplateName(
                     UnscopedName::Unqualified(
-                        UnqualifiedName::Operator(
-                            OperatorName::Simple(
-                                SimpleOperatorName::New))))),
+                        UnqualifiedName::Operator(OperatorName::Simple(
+                                SimpleOperatorName::New), AbiTags::default())))),
         ] => {
             Ok => {
                 b"S_..." => {
@@ -521,9 +515,8 @@ fn parse_unscoped_template_name_handle() {
                         Substitutable::UnscopedTemplateName(
                             UnscopedTemplateName(
                                 UnscopedName::Unqualified(
-                                    UnqualifiedName::Operator(
-                                        OperatorName::Simple(
-                                            SimpleOperatorName::Delete)))))
+                                    UnqualifiedName::Operator(OperatorName::Simple(
+                                            SimpleOperatorName::Delete), AbiTags::default()))))
                     ]
                 }
             }
@@ -543,9 +536,8 @@ fn parse_nested_name() {
         with subs [
             Substitutable::Prefix(
                 Prefix::Unqualified(
-                    UnqualifiedName::Operator(
-                        OperatorName::Simple(
-                            SimpleOperatorName::New)))),
+                    UnqualifiedName::Operator(OperatorName::Simple(
+                            SimpleOperatorName::New), AbiTags::default()))),
         ] => {
             Ok => {
                 b"NKOS_3abcE..." => {
@@ -556,12 +548,11 @@ fn parse_nested_name() {
                             konst: true,
                         },
                         Some(RefQualifier::RValueRef),
-                        PrefixHandle::BackReference(0),
-                        UnqualifiedName::Source(
-                            SourceName(Identifier {
+                        Some(PrefixHandle::BackReference(0)),
+                        UnqualifiedName::Source(SourceName(Identifier {
                                 start: 6,
                                 end: 9,
-                            }))),
+                            }), MemberLikeFriend::NotFriend, AbiTags::default())),
                     b"...",
                     []
                 }
@@ -573,12 +564,11 @@ fn parse_nested_name() {
                             konst: false,
                         },
                         Some(RefQualifier::RValueRef),
-                        PrefixHandle::BackReference(0),
-                        UnqualifiedName::Source(
-                            SourceName(Identifier {
+                        Some(PrefixHandle::BackReference(0)),
+                        UnqualifiedName::Source(SourceName(Identifier {
                                 start: 5,
                                 end: 8,
-                            }))),
+                            }), MemberLikeFriend::NotFriend, AbiTags::default())),
                     b"...",
                     []
                 }
@@ -590,12 +580,11 @@ fn parse_nested_name() {
                             konst: false,
                         },
                         None,
-                        PrefixHandle::BackReference(0),
-                        UnqualifiedName::Source(
-                            SourceName(Identifier {
+                        Some(PrefixHandle::BackReference(0)),
+                        UnqualifiedName::Source(SourceName(Identifier {
                                 start: 4,
                                 end: 7,
-                            }))),
+                            }), MemberLikeFriend::NotFriend, AbiTags::default())),
                     b"...",
                     []
                 }
@@ -613,11 +602,10 @@ fn parse_nested_name() {
                         Substitutable::Prefix(
                             Prefix::Nested(
                                 PrefixHandle::BackReference(0),
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 6,
                                         end: 9,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     ]
                 }
                 b"NOS_3abcIJEEE..." => {
@@ -634,11 +622,10 @@ fn parse_nested_name() {
                         Substitutable::Prefix(
                             Prefix::Nested(
                                 PrefixHandle::BackReference(0),
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 5,
                                         end: 8,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     ]
                 }
                 b"NS_3abcIJEEE..." => {
@@ -655,17 +642,31 @@ fn parse_nested_name() {
                         Substitutable::Prefix(
                             Prefix::Nested(
                                 PrefixHandle::BackReference(0),
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 4,
                                         end: 7,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     ]
+                }
+                b"NK1fE..." => {
+                    NestedName::Unqualified(
+                        CvQualifiers {
+                            restrict: false,
+                            volatile: false,
+                            konst: true,
+                        },
+                        None,
+                        None,
+                        UnqualifiedName::Source(SourceName(Identifier {
+                                start: 3,
+                                end: 4,
+                            }), MemberLikeFriend::NotFriend, AbiTags::default())),
+                    b"...",
+                    []
                 }
             }
             Err => {
                 // Ends with a prefix that is not a name or template.
-                b"NS_E..." => Error::UnexpectedText,
                 b"NS_DttrEE..." => Error::UnexpectedText,
 
                 b"zzz" => Error::UnexpectedText,
@@ -698,9 +699,8 @@ fn parse_prefix_handle() {
         with subs [
             Substitutable::Prefix(
                 Prefix::Unqualified(
-                    UnqualifiedName::Operator(
-                        OperatorName::Simple(
-                            SimpleOperatorName::New)))),
+                    UnqualifiedName::Operator(OperatorName::Simple(
+                            SimpleOperatorName::New), AbiTags::default()))),
         ] => {
             Ok => {
                 b"3foo..." => {
@@ -709,11 +709,10 @@ fn parse_prefix_handle() {
                     [
                         Substitutable::Prefix(
                             Prefix::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 1,
                                         end: 4,
-                                    }))))
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default())))
                     ]
                 }
                 b"3abc3def..." => {
@@ -722,19 +721,17 @@ fn parse_prefix_handle() {
                     [
                         Substitutable::Prefix(
                             Prefix::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 1,
                                         end: 4,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                         Substitutable::Prefix(
                             Prefix::Nested(
                                 PrefixHandle::BackReference(1),
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 5,
                                         end: 8,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     ]
                 }
                 b"3fooIJEE..." => {
@@ -743,16 +740,16 @@ fn parse_prefix_handle() {
                     [
                         Substitutable::Prefix(
                             Prefix::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 1,
                                         end: 4,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                         Substitutable::Prefix(
                             Prefix::Template(PrefixHandle::BackReference(1),
-                                             TemplateArgs(vec![
-                                                 TemplateArg::ArgPack(vec![]),
-                                             ])))
+                                             TemplateArgs {
+                                                 args: vec![TemplateArg::ArgPack(vec![])],
+                                                 requires_clause: ConstraintExpression::default(),
+                                             }))
                     ]
                 }
                 b"T_..." => {
@@ -777,11 +774,10 @@ fn parse_prefix_handle() {
                     [
                         Substitutable::Prefix(
                             Prefix::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 1,
                                         end: 4,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                         Substitutable::Prefix(
                             Prefix::DataMember(
                                 PrefixHandle::BackReference(1),
@@ -804,11 +800,10 @@ fn parse_prefix_handle() {
                     [
                         Substitutable::Prefix(
                             Prefix::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 1,
                                         end: 4,
-                                    })))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     ]
                 }
             }
@@ -892,9 +887,9 @@ fn parse_type_handle() {
                         Substitutable::Type(
                             Type::TemplateTemplate(
                                 TemplateTemplateParamHandle::BackReference(1),
-                                TemplateArgs(vec![
+                                TemplateArgs { args: vec![
                                     TemplateArg::Type(TypeHandle::BackReference(0))
-                                ]))),
+                                ], requires_clause: ConstraintExpression::default() })),
                     ]
                 }
                 b"DTtrE..." => {
@@ -975,9 +970,9 @@ fn parse_type_handle() {
                                     start: 2,
                                     end: 5,
                                 }),
-                                Some(TemplateArgs(vec![
+                                Some(TemplateArgs { args: vec![
                                     TemplateArg::Type(TypeHandle::BackReference(0))
-                                ])),
+                                ], requires_clause: ConstraintExpression::default() }),
                                 TypeHandle::BackReference(0)))
                     ]
                 }
@@ -998,11 +993,10 @@ fn parse_type_handle() {
                                 ClassEnumType::Named(
                                     Name::Unscoped(
                                         UnscopedName::Unqualified(
-                                            UnqualifiedName::Source(
-                                                SourceName(Identifier {
+                                            UnqualifiedName::Source(SourceName(Identifier {
                                                     start: 1,
                                                     end: 4,
-                                                })))))))
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))
                     ]
                 }
             }
@@ -1206,44 +1200,40 @@ fn parse_class_enum_type() {
                 ClassEnumType::Named(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 1,
                                     end: 4,
-                                }))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                 b"..."
             }
             b"Ts3abc..." => {
                 ClassEnumType::ElaboratedStruct(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 3,
                                     end: 6,
-                                }))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                 b"..."
             }
             b"Tu3abc..." => {
                 ClassEnumType::ElaboratedUnion(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 3,
                                     end: 6,
-                                }))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                 b"..."
             }
             b"Te3abc..." => {
                 ClassEnumType::ElaboratedEnum(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 3,
                                     end: 6,
-                                }))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                 b"..."
             }
         }
@@ -1409,17 +1399,39 @@ fn parse_template_args() {
         ] => {
             Ok => {
                 b"IS_E..." => {
-                    TemplateArgs(vec![TemplateArg::Type(TypeHandle::BackReference(0))]),
+                    TemplateArgs { args: vec![TemplateArg::Type(TypeHandle::BackReference(0))], requires_clause: ConstraintExpression::default() },
                     b"...",
                     []
                 }
                 b"IS_S_S_S_E..." => {
-                    TemplateArgs(vec![
+                    TemplateArgs { args: vec![
                         TemplateArg::Type(TypeHandle::BackReference(0)),
                         TemplateArg::Type(TypeHandle::BackReference(0)),
                         TemplateArg::Type(TypeHandle::BackReference(0)),
                         TemplateArg::Type(TypeHandle::BackReference(0)),
-                    ]),
+                    ], requires_clause: ConstraintExpression::default() },
+                    b"...",
+                    []
+                }
+                b"IS_QeqstS_Li1EE..." => {
+                    TemplateArgs {
+                        args: vec![TemplateArg::Type(TypeHandle::BackReference(0))],
+                        requires_clause: ConstraintExpression(Some(Box::new(
+                            Expression::Binary(
+                                OperatorName::Simple(SimpleOperatorName::Eq),
+                                Box::new(Expression::SizeofType(TypeHandle::BackReference(0))),
+                                Box::new(Expression::Primary(
+                                    ExprPrimary::Literal(
+                                        TypeHandle::Builtin(
+                                            BuiltinType::Standard(
+                                                StandardBuiltinType::Int,
+                                            ),
+                                        ), 12, 13,
+                                    ),
+                                )),
+                            ),
+                        ))),
+                    },
                     b"...",
                     []
                 }
@@ -1486,17 +1498,16 @@ fn parse_template_arg() {
                                             end: 7
                                         }),
                                         Some(
-                                            TemplateArgs(
-                                                vec![
-                                                    TemplateArg::Type(
-                                                        TypeHandle::Builtin(
-                                                            BuiltinType::Standard(
-                                                                StandardBuiltinType::Long
-                                                            )
+                                            TemplateArgs {
+                                                args: vec![TemplateArg::Type(
+                                                    TypeHandle::Builtin(
+                                                        BuiltinType::Standard(
+                                                            StandardBuiltinType::Long
                                                         )
                                                     )
-                                                ]
-                                            )
+                                                )],
+                                                requires_clause: ConstraintExpression::default(),
+                                            }
                                         )
                                     )
                                 )
@@ -1528,12 +1539,35 @@ fn parse_template_arg() {
                     b"...",
                     []
                 }
+                b"TnS_S_..." => {
+                    TemplateArg::ParamDecl(
+                        TemplateParamDecl::NonType(TypeHandle::BackReference(0)),
+                        Box::new(TemplateArg::Type(TypeHandle::BackReference(0)))
+                    ),
+                    b"...",
+                    []
+                }
+                b"TpTnS_S_..." => {
+                    TemplateArg::ParamDecl(
+                        TemplateParamDecl::ParameterPack(Box::new(
+                            TemplateParamDecl::NonType(TypeHandle::BackReference(0))
+                        )),
+                        Box::new(TemplateArg::Type(TypeHandle::BackReference(0)))
+                    ),
+                    b"...",
+                    []
+                }
             }
             Err => {
                 b"..." => Error::UnexpectedText,
                 b"X..." => Error::UnexpectedText,
                 b"J..." => Error::UnexpectedText,
                 b"JS_..." => Error::UnexpectedText,
+                // <template-param-decl>s that we don't implement yet.
+                b"Ty" => Error::UnexpectedText,
+                b"Tk" => Error::UnexpectedText,
+                b"Tt" => Error::UnexpectedText,
+                b"Tp" => Error::UnexpectedText,
                 b"JS_" => Error::UnexpectedEnd,
                 b"X" => Error::UnexpectedEnd,
                 b"J" => Error::UnexpectedEnd,
@@ -1678,11 +1712,16 @@ fn parse_expression() {
                 }
                 b"ilLS_1EE..." => {
                     Expression::BracedInitList(
-                        Box::new(Expression::Primary(
+                        vec![Expression::Primary(
                             ExprPrimary::Literal(
                                 TypeHandle::BackReference(0),
                                 5,
-                                6)))),
+                                6))]),
+                    b"...",
+                    []
+                }
+                b"ilE..." => {
+                    Expression::BracedInitList(vec![]),
                     b"...",
                     []
                 }
@@ -1954,12 +1993,11 @@ fn parse_expression() {
                         MemberName(
                             Name::Unscoped(
                                 UnscopedName::Unqualified(
-                                    UnqualifiedName::Source(
-                                        SourceName(
+                                    UnqualifiedName::Source(SourceName(
                                             Identifier {
                                                 start: 5,
                                                 end: 8,
-                                            })))))),
+                                            }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     b"...",
                     []
                 }
@@ -1969,12 +2007,11 @@ fn parse_expression() {
                         MemberName(
                             Name::Unscoped(
                                 UnscopedName::Unqualified(
-                                    UnqualifiedName::Source(
-                                        SourceName(
+                                    UnqualifiedName::Source(SourceName(
                                             Identifier {
                                                 start: 5,
                                                 end: 8,
-                                            })))))),
+                                            }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     b"...",
                     []
                 }
@@ -1984,9 +2021,9 @@ fn parse_expression() {
                         MemberName(
                             Name::UnscopedTemplate(
                                 UnscopedTemplateNameHandle::NonSubstitution(NonSubstitution(0)),
-                                TemplateArgs(vec![
+                                TemplateArgs { args: vec![
                                     TemplateArg::Type(
-                                        TypeHandle::BackReference(1))])))),
+                                        TypeHandle::BackReference(1))], requires_clause: ConstraintExpression::default() }))),
                     b"...",
                     [
                         Substitutable::Type(
@@ -1994,12 +2031,11 @@ fn parse_expression() {
                                 ClassEnumType::Named(
                                     Name::Unscoped(
                                         UnscopedName::Unqualified(
-                                            UnqualifiedName::Source(
-                                                SourceName(
+                                            UnqualifiedName::Source(SourceName(
                                                     Identifier {
                                                         start: 9,
                                                         end: 12
-                                                    })))))))
+                                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))))
                     ]
                 }
                 //               ::= ds <expression> <expression>                 # expr.*expr
@@ -2029,6 +2065,39 @@ fn parse_expression() {
                 b"spT_..." => {
                     Expression::PackExpansion(
                         Box::new(Expression::TemplateParam(TemplateParam(0)))),
+                    b"...",
+                    []
+                }
+                b"flplT_..." => {
+                    Expression::Fold(
+                        FoldExpr::UnaryLeft(
+                            SimpleOperatorName::Add,
+                            Box::new(Expression::TemplateParam(TemplateParam(0))),
+                        )
+                    ),
+                    b"...",
+                    []
+                }
+                b"fraaT_..." => {
+                    Expression::Fold(
+                        FoldExpr::UnaryRight(
+                            SimpleOperatorName::LogicalAnd,
+                            Box::new(Expression::TemplateParam(TemplateParam(0))),
+                        )
+                    ),
+                    b"...",
+                    []
+                }
+                b"fRoospT_spT0_..." => {
+                    Expression::Fold(
+                        FoldExpr::BinaryRight(
+                            SimpleOperatorName::LogicalOr,
+                            Box::new(Expression::PackExpansion(
+                                Box::new(Expression::TemplateParam(TemplateParam(0))))),
+                            Box::new(Expression::PackExpansion(
+                                Box::new(Expression::TemplateParam(TemplateParam(1))))),
+                        )
+                    ),
                     b"...",
                     []
                 }
@@ -2062,11 +2131,10 @@ fn parse_expression() {
                                 Encoding::Data(
                                     Name::Unscoped(
                                         UnscopedName::Unqualified(
-                                            UnqualifiedName::Source(
-                                                SourceName(Identifier {
+                                            UnqualifiedName::Source(SourceName(Identifier {
                                                     start: 4,
                                                     end: 7,
-                                                })))))))),
+                                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))))),
                     b"...",
                     []
                 }
@@ -2084,11 +2152,10 @@ fn parse_expression() {
                             MemberName(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(Identifier {
+                                        UnqualifiedName::Source(SourceName(Identifier {
                                                 start: 10,
                                                 end: 14,
-                                            })))
+                                            }), MemberLikeFriend::NotFriend, AbiTags::default()))
                                  )
                             )
                         )),
@@ -2117,6 +2184,8 @@ fn parse_expression() {
             }
             Err => {
                 b"dtStfp_clI3abcE..." => Error::UnexpectedText,
+                // A fold expression with a unary operator should be rejected.
+                b"flpsT_..." => Error::UnexpectedText,
             }
         }
     });
@@ -2252,9 +2321,9 @@ fn parse_unresolved_type_handle() {
                     b"...",
                     [
                         Substitutable::UnresolvedType(
-                            UnresolvedType::Template(TemplateParam(0), Some(TemplateArgs(vec![
+                            UnresolvedType::Template(TemplateParam(0), Some(TemplateArgs { args: vec![
                                 TemplateArg::Type(TypeHandle::BackReference(0))
-                            ])))),
+                            ], requires_clause: ConstraintExpression::default() }))),
                     ]
                 }
                 b"DTtrE..." => {
@@ -2294,9 +2363,9 @@ fn parse_unresolved_qualifier_level() {
                     UnresolvedQualifierLevel(SimpleId(SourceName(Identifier {
                         start: 1,
                         end: 4,
-                    }), Some(TemplateArgs(vec![
+                    }), Some(TemplateArgs { args: vec![
                         TemplateArg::Type(TypeHandle::BackReference(0))
-                    ])))),
+                    ], requires_clause: ConstraintExpression::default() }))),
                     b"...",
                     []
                 }
@@ -2328,9 +2397,9 @@ fn parse_simple_id() {
                     SimpleId(SourceName(Identifier {
                         start: 1,
                         end: 4,
-                    }), Some(TemplateArgs(vec![
+                    }), Some(TemplateArgs { args: vec![
                         TemplateArg::Type(TypeHandle::BackReference(0))
-                    ]))),
+                    ], requires_clause: ConstraintExpression::default() })),
                     b"...",
                     []
                 }
@@ -2365,9 +2434,9 @@ fn parse_base_unresolved_name() {
                 }
                 b"onnwIS_E..." => {
                     BaseUnresolvedName::Operator(OperatorName::Simple(SimpleOperatorName::New),
-                                                 Some(TemplateArgs(vec![
+                                                 Some(TemplateArgs { args: vec![
                                                      TemplateArg::Type(TypeHandle::BackReference(0))
-                                                 ]))),
+                                                 ], requires_clause: ConstraintExpression::default() })),
                     b"...",
                     []
                 }
@@ -2444,11 +2513,10 @@ fn parse_expr_primary() {
                             Encoding::Data(
                                 Name::Unscoped(
                                     UnscopedName::Unqualified(
-                                        UnqualifiedName::Source(
-                                            SourceName(Identifier {
+                                        UnqualifiedName::Source(SourceName(Identifier {
                                                 start: 4,
                                                 end: 7,
-                                            }))))))),
+                                            }), MemberLikeFriend::NotFriend, AbiTags::default())))))),
                     b"...",
                     []
                 }
@@ -2503,18 +2571,16 @@ fn parse_local_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 2,
                                         end: 5,
-                                    })))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     Some(Box::new(Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 7,
                                     end: 10,
-                                })))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     Some(Discriminator(0))),
                 b"..."
             }
@@ -2523,18 +2589,16 @@ fn parse_local_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 2,
                                         end: 5,
-                                    })))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     Some(Box::new(Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 7,
                                     end: 10,
-                                })))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     None),
                 b"..."
             }
@@ -2543,11 +2607,10 @@ fn parse_local_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 2,
                                         end: 5,
-                                    })))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     None,
                     Some(Discriminator(0))),
                 b"..."
@@ -2557,11 +2620,10 @@ fn parse_local_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 2,
                                         end: 5,
-                                    })))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     None,
                     None),
                 b"..."
@@ -2571,19 +2633,17 @@ fn parse_local_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 2,
                                         end: 5,
-                                    })))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     Some(1),
                     Box::new(Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 10,
                                     end: 13,
-                                })))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                 b"..."
             }
             b"Z3abcEd_3abc..." => {
@@ -2591,19 +2651,17 @@ fn parse_local_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 2,
                                         end: 5,
-                                    })))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                     None,
                     Box::new(Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 9,
                                     end: 12,
-                                })))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default()))))),
                 b"..."
             }
         }
@@ -2771,11 +2829,10 @@ fn parse_special_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 9,
                                         end: 12,
-                                    }))))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default())))))),
                 b"..."
             }
             b"Tcv42_36_v42_36_3abc..." => {
@@ -2785,33 +2842,30 @@ fn parse_special_name() {
                     Box::new(Encoding::Data(
                         Name::Unscoped(
                             UnscopedName::Unqualified(
-                                UnqualifiedName::Source(
-                                    SourceName(Identifier {
+                                UnqualifiedName::Source(SourceName(Identifier {
                                         start: 17,
                                         end: 20,
-                                    }))))))),
+                                    }), MemberLikeFriend::NotFriend, AbiTags::default())))))),
                 b"..."
             }
             b"GV3abc..." => {
                 SpecialName::Guard(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 3,
                                     end: 6,
-                                }))))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                 b"..."
             }
             b"GR3abc_..." => {
                 SpecialName::GuardTemporary(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 3,
                                     end: 6,
-                                })))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     0),
                 b"..."
             }
@@ -2819,11 +2873,10 @@ fn parse_special_name() {
                 SpecialName::GuardTemporary(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier {
+                            UnqualifiedName::Source(SourceName(Identifier {
                                     start: 3,
                                     end: 6,
-                                })))),
+                                }), MemberLikeFriend::NotFriend, AbiTags::default()))),
                     1),
                 b"..."
             }
@@ -2851,16 +2904,14 @@ fn parse_special_name() {
                 SpecialName::TlsInit(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier { start: 3, end: 7 }))))),
+                            UnqualifiedName::Source(SourceName(Identifier { start: 3, end: 7 }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                 b"..."
             }
             b"TW4name..." => {
                 SpecialName::TlsWrapper(
                     Name::Unscoped(
                         UnscopedName::Unqualified(
-                            UnqualifiedName::Source(
-                                SourceName(Identifier { start: 3, end: 7 }))))),
+                            UnqualifiedName::Source(SourceName(Identifier { start: 3, end: 7 }), MemberLikeFriend::NotFriend, AbiTags::default())))),
                 b"..."
             }
         }
@@ -3069,10 +3120,44 @@ fn parse_builtin_type() {
                 })),
                 b"..."
             }
+            b"DF16b..." => {
+                BuiltinType::Standard(StandardBuiltinType::BFloat16),
+                b"..."
+            }
         }
         Err => {
             b"." => Error::UnexpectedText,
             b"" => Error::UnexpectedEnd,
+        }
+    });
+}
+
+#[test]
+fn parse_parametric_builtin_type() {
+    assert_parse!(BuiltinType {
+        Ok => {
+            b"DB8_..." => {
+                BuiltinType::Parametric(ParametricBuiltinType::SignedBitInt(8)),
+                b"..."
+            }
+            b"DUsZT__" => {
+                BuiltinType::Parametric(ParametricBuiltinType::UnsignedBitIntExpression(Box::new(Expression::SizeofTemplatePack(TemplateParam(0))))),
+                b""
+            }
+            b"DF128_..." => {
+                BuiltinType::Parametric(ParametricBuiltinType::FloatN(128)),
+                b"..."
+            }
+            b"DF256x..." => {
+                BuiltinType::Parametric(ParametricBuiltinType::FloatNx(256)),
+                b"..."
+            }
+        }
+        Err => {
+            b"DB100000000000000000000000_" => Error::Overflow,
+            b"DFsZT_" => Error::UnexpectedText,
+            b"DB" => Error::UnexpectedEnd,
+            b"DB32" => Error::UnexpectedEnd,
         }
     });
 }
@@ -3109,14 +3194,14 @@ fn parse_unscoped_name() {
                 UnscopedName::Std(UnqualifiedName::Source(SourceName(Identifier {
                     start: 3,
                     end: 8,
-                }))),
+                }), MemberLikeFriend::NotFriend, AbiTags::default())),
                 b"..."
             }
             b"5hello..." => {
                 UnscopedName::Unqualified(UnqualifiedName::Source(SourceName(Identifier {
                     start: 1,
                     end: 6,
-                }))),
+                }), MemberLikeFriend::NotFriend, AbiTags::default())),
                 b"..."
             }
         }
@@ -3133,18 +3218,22 @@ fn parse_unqualified_name() {
     assert_parse!(UnqualifiedName {
         Ok => {
             b"qu.." => {
-                UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::Question)),
+                UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::Question), AbiTags::default()),
+                b".."
+            }
+            b"onqu.." => {
+                UnqualifiedName::Operator(OperatorName::Simple(SimpleOperatorName::Question), AbiTags::default()),
                 b".."
             }
             b"C1.." => {
-                UnqualifiedName::CtorDtor(CtorDtorName::CompleteConstructor(None)),
+                UnqualifiedName::CtorDtor(CtorDtorName::CompleteConstructor(None), AbiTags::default()),
                 b".."
             }
             b"10abcdefghij..." => {
                 UnqualifiedName::Source(SourceName(Identifier {
                     start: 2,
                     end: 12,
-                })),
+                }), MemberLikeFriend::NotFriend, AbiTags::default()),
                 b"..."
             }
             b"UllE_..." => {
@@ -3155,37 +3244,130 @@ fn parse_unqualified_name() {
                                 BuiltinType::Standard(
                                     StandardBuiltinType::Long))
                         ]),
-                        None)),
+                        None),
+                    AbiTags::default()),
                 b"..."
             }
             b"Ut5_..." => {
-                UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5))),
-                b"..."
-            }
-            b"B5cxx11..." => {
-                UnqualifiedName::ABITag(TaggedName(SourceName(Identifier {
-                    start: 2,
-                    end: 7,
-                }))),
+                UnqualifiedName::UnnamedType(UnnamedTypeName(Some(5)), AbiTags::default()),
                 b"..."
             }
             b"L3foo_0..." => {
-                UnqualifiedName::LocalSourceName(
-                    SourceName(Identifier {
+                UnqualifiedName::LocalSourceName(SourceName(Identifier {
                         start: 2,
                         end: 5
-                    }),
-                    Some(Discriminator(0))
-                ),
+                    }), Some(Discriminator(0)), AbiTags::default()),
                 "..."
             }
             b"L3foo..." => {
+                UnqualifiedName::LocalSourceName(SourceName(Identifier {
+                        start: 2,
+                        end: 5
+                    }), None, AbiTags::default()),
+                "..."
+            }
+            b"quB1Q.." => {
+                UnqualifiedName::Operator(
+                    OperatorName::Simple(SimpleOperatorName::Question),
+                    AbiTags(vec![AbiTag(SourceName(Identifier {
+                        start: 4,
+                        end: 5,
+                    }))]),
+                ),
+                b".."
+            }
+            b"C1B1Q.." => {
+                UnqualifiedName::CtorDtor(
+                    CtorDtorName::CompleteConstructor(None),
+                    AbiTags(vec![AbiTag(SourceName(Identifier {
+                        start: 4,
+                        end: 5,
+                    }))]),
+                ),
+                b".."
+            }
+            b"10abcdefghijB1QB2lp..." => {
+                UnqualifiedName::Source(
+                    SourceName(Identifier {
+                        start: 2,
+                        end: 12,
+                    }),
+                    MemberLikeFriend::NotFriend,
+                    AbiTags(vec![
+                        AbiTag(SourceName(Identifier {
+                            start: 14,
+                            end: 15,
+                        })),
+                        AbiTag(SourceName(Identifier {
+                            start: 17,
+                            end: 19,
+                        })),
+                    ]),
+                ),
+                b"..."
+            }
+            b"UllE_B1Q..." => {
+                UnqualifiedName::ClosureType(
+                    ClosureTypeName(
+                        LambdaSig(vec![
+                            TypeHandle::Builtin(
+                                BuiltinType::Standard(StandardBuiltinType::Long))
+                        ]),
+                        None),
+                    AbiTags(vec![AbiTag(SourceName(Identifier {
+                        start: 7,
+                        end: 8,
+                    }))]),
+                ),
+                b"..."
+            }
+            b"Ut5_B1QB2lp..." => {
+                UnqualifiedName::UnnamedType(
+                    UnnamedTypeName(Some(5)),
+                    AbiTags(vec![
+                        AbiTag(SourceName(Identifier {
+                            start: 6,
+                            end: 7,
+                        })),
+                        AbiTag(SourceName(Identifier {
+                            start: 9,
+                            end: 11,
+                        })),
+                    ]),
+                ),
+                b"..."
+            }
+            b"L3foo_0B1Q..." => {
                 UnqualifiedName::LocalSourceName(
                     SourceName(Identifier {
                         start: 2,
                         end: 5
                     }),
-                    None
+                    Some(Discriminator(0)),
+                    AbiTags(vec![AbiTag(SourceName(Identifier {
+                        start: 9,
+                        end: 10,
+                    }))]),
+                ),
+                "..."
+            }
+            b"L3fooB1QB2lp..." => {
+                UnqualifiedName::LocalSourceName(
+                    SourceName(Identifier {
+                        start: 2,
+                        end: 5
+                    }),
+                    None,
+                    AbiTags(vec![
+                        AbiTag(SourceName(Identifier {
+                            start: 7,
+                            end: 8,
+                        })),
+                        AbiTag(SourceName(Identifier {
+                            start: 10,
+                            end: 12,
+                        })),
+                    ]),
                 ),
                 "..."
             }
@@ -3517,14 +3699,12 @@ fn parse_subobject_expr() {
                                     Encoding::Data(
                                         Name::Unscoped(
                                             UnscopedName::Unqualified(
-                                                UnqualifiedName::Source(
-                                                    SourceName(
+                                                UnqualifiedName::Source(SourceName(
                                                         Identifier {
                                                             start: 7,
                                                             end: 10,
                                                         }
-                                                    )
-                                                )
+                                                    ), MemberLikeFriend::NotFriend, AbiTags::default())
                                             )
                                         )
                                     ),

@@ -59,7 +59,7 @@ impl<'a> IndexStr<'a> {
         (self.range_to(..idx), self.range_from(idx..))
     }
 
-    /// The same as `split_at`, but returns a `Result` rather than panicking
+    /// The same as `split_at`, but returns an `Option` rather than panicking
     /// when the index is out of bounds.
     #[inline]
     pub fn try_split_at(&self, idx: usize) -> Option<(IndexStr<'a>, IndexStr<'a>)> {

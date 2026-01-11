@@ -1,8 +1,8 @@
 //! This crate can parse a C++ “mangled” linker symbol name into a Rust value
 //! describing what the name refers to: a variable, a function, a virtual table,
-//! etc. The description type implements `Display`, producing human-readable
-//! text describing the mangled name. Debuggers and profilers can use this crate
-//! to provide more meaningful output.
+//! etc. The description type implements functions such as `demangle()`,
+//! producing human-readable text describing the mangled name. Debuggers and
+//! profilers can use this crate to provide more meaningful output.
 //!
 //! C++ requires the compiler to choose names for linker symbols consistently
 //! across compilation units, so that two compilation units that have seen the
@@ -22,8 +22,7 @@
 //!
 //! The Itanium C++ ABI specifies that the linker symbol for that function must
 //! be named `_ZN5space3fooEii`. This crate can parse that name into a Rust
-//! value representing its structure. Formatting the value with the `format!`
-//! macro or the `std::string::ToString::to_string` trait method yields the
+//! value representing its structure. That Rust value can be `demangle()`d to the
 //! string `space::foo(int, int)`, which is more meaningful to the C++
 //! developer.
 #![allow(rustdoc::invalid_html_tags, rustdoc::broken_intra_doc_links)]
@@ -82,10 +81,7 @@ impl Symbol<'_> {
         })
     }
 
-    /// Demangle the symbol and return it as a String.
-    ///
-    /// Unlike the `ToString` implementation, this function allows options to
-    /// be specified.
+    /// Demangle the symbol into a token stream.
     #[inline]
     fn demangle(&self) -> TokenStream {
         let mut ctx = ast::DemangleContext::new(&self.substitutions, self.raw);

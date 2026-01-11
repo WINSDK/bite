@@ -336,6 +336,9 @@ pub(crate) struct DemangleContext<'a> {
     /// argument pack.
     is_template_argument_pack: bool,
 
+    // We are currently demangling an object with an explicit named parameter.
+    is_explicit_obj_param: bool,
+
     /// Whether to show types of expression literals.
     show_expression_literal_types: bool,
 }
@@ -354,6 +357,7 @@ impl<'a> DemangleContext<'a> {
             is_template_prefix: false,
             is_template_prefix_in_nested_name: false,
             is_template_argument_pack: false,
+            is_explicit_obj_param: false,
             show_expression_literal_types: false,
         }
     }
@@ -679,6 +683,11 @@ impl<'subs> Demangle<'subs> for FunctionArgSlice {
         for arg in self.iter() {
             if need_comma {
                 ctx.push(", ", CONFIG.colors.delimiter);
+            }
+            // Only the first param should have `this`.
+            if ctx.is_explicit_obj_param {
+                ctx.push("this ", CONFIG.colors.asm.primitive);
+                ctx.is_explicit_obj_param = false;
             }
             arg.demangle(ctx, scope);
             need_comma = true;
@@ -1019,14 +1028,14 @@ impl<'subs> Demangle<'subs> for MangledName {
 /// The `<encoding>` production.
 ///
 /// ```text
-/// <encoding> ::= <function name> <bare-function-type>
+/// <encoding> ::= <function name> <bare-function-type> [Q <requires-clause expr>]
 ///            ::= <data name>
 ///            ::= <special-name>
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Encoding {
     /// An encoded function.
-    Function(Name, BareFunctionType),
+    Function(Name, BareFunctionType, ConstraintExpression),
 
     /// An encoded static variable.
     Data(Name),
@@ -1045,7 +1054,8 @@ impl Parse for Encoding {
 
         if let Ok((name, tail)) = Name::parse(ctx, subs, input) {
             if let Ok((ty, tail)) = BareFunctionType::parse(ctx, subs, tail) {
-                return Ok((Encoding::Function(name, ty), tail));
+                let (requires_clause, tail) = ConstraintExpression::parse(ctx, subs, tail)?;
+                return Ok((Encoding::Function(name, ty, requires_clause), tail));
             } else {
                 return Ok((Encoding::Data(name), tail));
             }
@@ -1065,7 +1075,7 @@ impl<'subs> Demangle<'subs> for Encoding {
         inner_barrier!(ctx);
 
         match *self {
-            Encoding::Function(ref name, ref fun_ty) => {
+            Encoding::Function(ref name, ref fun_ty, _) => {
                 // Even if this function takes no args and doesn't have a return
                 // value (see below), it will have the void parameter.
                 debug_assert!(!fun_ty.0.is_empty());
@@ -1123,7 +1133,7 @@ impl<'subs> DemangleAsInner<'subs> for Encoding {
         ctx: &'ctx mut DemangleContext<'subs>,
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
-        if let Encoding::Function(ref name, ref fun_ty) = *self {
+        if let Encoding::Function(ref name, ref fun_ty, _) = *self {
             let (scope, function_args) =
                 if let Some(template_args) = name.get_template_args(ctx.subs) {
                     let scope = scope.push(template_args);
@@ -1379,6 +1389,15 @@ impl Parse for UnscopedName {
             return Ok((UnscopedName::Std(name), tail));
         }
 
+        // NB: Because this is unscoped, we shouldn't see a MemberLikeFriend
+        // here. But UnqualifiedName::parse isn't smart enough to know that,
+        // so guard here. We could use UnqualifiedName::starts_with but that
+        // checks for a bunch of other cases too that we can just let the
+        // Parse impl try to bite on.
+        if input.peek() == Some(b'F') {
+            return Err(error::Error::UnexpectedText);
+        }
+
         let (name, tail) = UnqualifiedName::parse(ctx, subs, input)?;
         Ok((UnscopedName::Unqualified(name), tail))
     }
@@ -1497,12 +1516,22 @@ pub(crate) enum NestedName {
     Unqualified(
         CvQualifiers,
         Option<RefQualifier>,
-        PrefixHandle,
+        Option<PrefixHandle>,
         UnqualifiedName,
     ),
 
     /// A nested template name. The `<template-args>` are part of the `PrefixHandle`.
     Template(CvQualifiers, Option<RefQualifier>, PrefixHandle),
+
+    /// A nested name with an explicit object.
+    UnqualifiedExplicitObject(
+        Option<PrefixHandle>,
+        UnqualifiedName,
+        ExplicitObjectParameter,
+    ),
+
+    /// A nested template name with an explicit object.
+    TemplateExplicitObject(PrefixHandle, ExplicitObjectParameter),
 }
 
 impl Parse for NestedName {
@@ -1515,16 +1544,28 @@ impl Parse for NestedName {
 
         let tail = consume(b"N", input)?;
 
-        let (cv_qualifiers, tail) = if let Ok((q, tail)) = CvQualifiers::parse(ctx, subs, tail) {
-            (q, tail)
-        } else {
-            (Default::default(), tail)
-        };
+        let (cv_qualifiers, ref_qualifier, explicit_obj_param, tail) = match tail.peek() {
+            Some(b'H') => {
+                let (explicit_obj_param, tail) = ExplicitObjectParameter::parse(ctx, subs, tail)?;
+                (Default::default(), None, Some(explicit_obj_param), tail)
+            }
+            _ => {
+                let (cv_qualifiers, tail) =
+                    if let Ok((q, tail)) = CvQualifiers::parse(ctx, subs, tail) {
+                        (q, tail)
+                    } else {
+                        (Default::default(), tail)
+                    };
 
-        let (ref_qualifier, tail) = if let Ok((r, tail)) = RefQualifier::parse(ctx, subs, tail) {
-            (Some(r), tail)
-        } else {
-            (None, tail)
+                let (ref_qualifier, tail) =
+                    if let Ok((r, tail)) = RefQualifier::parse(ctx, subs, tail) {
+                        (Some(r), tail)
+                    } else {
+                        (None, tail)
+                    };
+
+                (cv_qualifiers, ref_qualifier, None, tail)
+            }
         };
 
         let (prefix, tail) = PrefixHandle::parse(ctx, subs, tail)?;
@@ -1536,21 +1577,55 @@ impl Parse for NestedName {
             PrefixHandle::WellKnown(_) => None,
         };
 
-        match substitutable {
-            Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))) => Ok((
-                NestedName::Unqualified(cv_qualifiers, ref_qualifier, prefix.clone(), name.clone()),
+        match (substitutable, explicit_obj_param) {
+            (Some(&Substitutable::Prefix(Prefix::Unqualified(ref name))), None) => Ok((
+                NestedName::Unqualified(cv_qualifiers, ref_qualifier, None, name.clone()),
                 tail,
             )),
-            Some(&Substitutable::Prefix(Prefix::Template(..))) => Ok((
+            (Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))), None) => Ok((
+                NestedName::Unqualified(
+                    cv_qualifiers,
+                    ref_qualifier,
+                    Some(prefix.clone()),
+                    name.clone(),
+                ),
+                tail,
+            )),
+            (Some(&Substitutable::Prefix(Prefix::Template(..))), None) => Ok((
                 NestedName::Template(cv_qualifiers, ref_qualifier, prefix),
                 tail,
             )),
+            (Some(&Substitutable::Prefix(Prefix::Unqualified(ref name))), Some(param)) => Ok((
+                NestedName::UnqualifiedExplicitObject(None, name.clone(), param),
+                tail,
+            )),
+            (Some(&Substitutable::Prefix(Prefix::Nested(ref prefix, ref name))), Some(param)) => {
+                Ok((
+                    NestedName::UnqualifiedExplicitObject(
+                        Some(prefix.clone()),
+                        name.clone(),
+                        param,
+                    ),
+                    tail,
+                ))
+            }
+            (Some(&Substitutable::Prefix(Prefix::Template(..))), Some(param)) => {
+                Ok((NestedName::TemplateExplicitObject(prefix, param), tail))
+            }
             _ => Err(error::Error::UnexpectedText),
         }
     }
 }
 
 impl NestedName {
+    /// Get the CV-qualifiers for this name.
+    pub fn cv_qualifiers(&self) -> Option<&CvQualifiers> {
+        match *self {
+            NestedName::Unqualified(ref q, ..) | NestedName::Template(ref q, ..) => Some(q),
+            _ => None,
+        }
+    }
+
     /// Get the ref-qualifier for this name, if one exists.
     pub(crate) fn ref_qualifier(&self) -> Option<&RefQualifier> {
         match *self {
@@ -1563,9 +1638,22 @@ impl NestedName {
     // Not public because the prefix means different things for different
     // variants, and for `::Template` it actually contains part of what
     // conceptually belongs to `<nested-name>`.
-    fn prefix(&self) -> &PrefixHandle {
+    fn prefix(&self) -> Option<&PrefixHandle> {
         match *self {
-            NestedName::Unqualified(_, _, ref p, _) | NestedName::Template(_, _, ref p) => p,
+            NestedName::Unqualified(_, _, ref p, _)
+            | NestedName::UnqualifiedExplicitObject(ref p, ..) => p.as_ref(),
+            NestedName::Template(_, _, ref p) | NestedName::TemplateExplicitObject(ref p, _) => {
+                Some(p)
+            }
+        }
+    }
+
+    /// Check to see if the object has an explicit named parameter.
+    pub fn has_explicit_obj_param(&self) -> bool {
+        match *self {
+            NestedName::UnqualifiedExplicitObject(_, _, _)
+            | NestedName::TemplateExplicitObject(_, _) => true,
+            _ => false,
         }
     }
 }
@@ -1578,8 +1666,8 @@ impl<'subs> Demangle<'subs> for NestedName {
     ) {
         match *self {
             NestedName::Unqualified(_, _, ref p, ref name) => {
-                p.demangle(ctx, scope);
-                if name.accepts_double_colon() {
+                if let Some(p) = p.as_ref() {
+                    p.demangle(ctx, scope);
                     ctx.push("::", CONFIG.colors.delimiter);
                 }
                 name.demangle(ctx, scope);
@@ -1589,10 +1677,32 @@ impl<'subs> Demangle<'subs> for NestedName {
                 p.demangle(ctx, scope);
                 ctx.is_template_prefix_in_nested_name = false;
             }
+            NestedName::UnqualifiedExplicitObject(ref p, ref name, _) => {
+                if let Some(p) = p.as_ref() {
+                    p.demangle(ctx, scope);
+                    ctx.push("::", CONFIG.colors.delimiter);
+                }
+                name.demangle(ctx, scope);
+            }
+            NestedName::TemplateExplicitObject(ref p, _) => {
+                ctx.is_template_prefix_in_nested_name = true;
+                p.demangle(ctx, scope);
+                ctx.is_template_prefix_in_nested_name = false;
+            }
+        }
+
+        if self.has_explicit_obj_param() {
+            ctx.is_explicit_obj_param = true;
         }
 
         if let Some(inner) = ctx.pop_inner() {
             inner.demangle_as_inner(ctx, scope);
+        }
+
+        if let Some(cv_qualifiers) = self.cv_qualifiers() {
+            if cv_qualifiers != &CvQualifiers::default() {
+                cv_qualifiers.demangle(ctx, scope);
+            }
         }
 
         if let Some(refs) = self.ref_qualifier() {
@@ -1605,7 +1715,8 @@ impl<'subs> Demangle<'subs> for NestedName {
 impl GetTemplateArgs for NestedName {
     fn get_template_args<'a>(&'a self, subs: &'a SubstitutionTable) -> Option<&'a TemplateArgs> {
         match *self {
-            NestedName::Template(_, _, ref prefix) => prefix.get_template_args(subs),
+            NestedName::Template(_, _, ref prefix)
+            | NestedName::TemplateExplicitObject(ref prefix, _) => prefix.get_template_args(subs),
             _ => None,
         }
     }
@@ -1614,17 +1725,21 @@ impl GetTemplateArgs for NestedName {
 impl<'a> GetLeafName<'a> for NestedName {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         match *self {
-            NestedName::Unqualified(_, _, ref prefix, ref name) => {
-                name.get_leaf_name(subs).or_else(|| prefix.get_leaf_name(subs))
-            }
-            NestedName::Template(_, _, ref prefix) => prefix.get_leaf_name(subs),
+            NestedName::Unqualified(_, _, ref prefix, ref name)
+            | NestedName::UnqualifiedExplicitObject(ref prefix, ref name, _) => name
+                .get_leaf_name(subs)
+                .or_else(|| prefix.as_ref().and_then(|p| p.get_leaf_name(subs))),
+            NestedName::Template(_, _, ref prefix)
+            | NestedName::TemplateExplicitObject(ref prefix, _) => prefix.get_leaf_name(subs),
         }
     }
 }
 
 impl IsCtorDtorConversion for NestedName {
     fn is_ctor_dtor_conversion(&self, subs: &SubstitutionTable) -> bool {
-        self.prefix().is_ctor_dtor_conversion(subs)
+        self.prefix()
+            .map(|p| p.is_ctor_dtor_conversion(subs))
+            .unwrap_or(false)
     }
 }
 
@@ -1779,24 +1894,33 @@ impl Parse for PrefixHandle {
                     current = Some(save(subs, prefix, tail_tail));
                     tail = tail_tail;
                 }
-                Some(c) if current.is_some() && SourceName::starts_with(c) => {
+                Some(c) if UnqualifiedName::starts_with(c, current.is_none(), &tail) => {
                     // Either
                     //
-                    //     <prefix> ::= <unqualified-name> ::= <source-name>
+                    //     <prefix> ::= <unqualified-name>
                     //
                     // or
                     //
                     //     <prefix> ::= <data-member-prefix> ::= <prefix> <source-name> M
-                    debug_assert!(SourceName::starts_with(c));
-                    debug_assert!(DataMemberPrefix::starts_with(c));
-
-                    let (name, tail_tail) = SourceName::parse(ctx, subs, tail)?;
+                    let (name, tail_tail) = UnqualifiedName::parse(ctx, subs, tail)?;
                     if tail_tail.peek() == Some(b'M') {
-                        let prefix = Prefix::DataMember(current.unwrap(), DataMemberPrefix(name));
+                        // XXXkhuey This seems to be a legacy thing that's dropped from the standard.
+                        // Behave the way we used to.
+                        // Emit a Prefix::DataMember, but only if current.is_some().
+                        let prefix = match current {
+                            None => Prefix::Unqualified(name),
+                            Some(current) => {
+                                let name = match name {
+                                    UnqualifiedName::Source(name, ..) => name,
+                                    UnqualifiedName::LocalSourceName(name, ..) => name,
+                                    _ => return Err(error::Error::UnexpectedText),
+                                };
+                                Prefix::DataMember(current, DataMemberPrefix(name))
+                            }
+                        };
                         current = Some(save(subs, prefix, tail_tail));
                         tail = consume(b"M", tail_tail).unwrap();
                     } else {
-                        let name = UnqualifiedName::Source(name);
                         let prefix = match current {
                             None => Prefix::Unqualified(name),
                             Some(handle) => Prefix::Nested(handle, name),
@@ -1804,16 +1928,6 @@ impl Parse for PrefixHandle {
                         current = Some(save(subs, prefix, tail_tail));
                         tail = tail_tail;
                     }
-                }
-                Some(c) if UnqualifiedName::starts_with(c, &tail) => {
-                    // <prefix> ::= <unqualified-name>
-                    let (name, tail_tail) = UnqualifiedName::parse(ctx, subs, tail)?;
-                    let prefix = match current {
-                        None => Prefix::Unqualified(name),
-                        Some(handle) => Prefix::Nested(handle, name),
-                    };
-                    current = Some(save(subs, prefix, tail_tail));
-                    tail = tail_tail;
                 }
                 Some(_) => {
                     if let Some(handle) = current {
@@ -1883,9 +1997,7 @@ impl<'subs> Demangle<'subs> for Prefix {
             Prefix::Unqualified(ref unqualified) => unqualified.demangle(ctx, scope),
             Prefix::Nested(ref prefix, ref unqualified) => {
                 prefix.demangle(ctx, scope);
-                if unqualified.accepts_double_colon() {
-                    ctx.push("::", CONFIG.colors.delimiter);
-                }
+                ctx.push("::", CONFIG.colors.delimiter);
                 unqualified.demangle(ctx, scope)
             }
             Prefix::Template(ref prefix, ref args) => {
@@ -1950,16 +2062,27 @@ impl PrefixHandle {
     }
 }
 
+/// In certain circumstances a friend function is treated like a member function
+/// for name mangling purposes. See [temp.friend]/9. When that happens, it's
+/// distinguished from a true member function by this flag.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MemberLikeFriend {
+    /// This is a normal definition.
+    #[default]
+    NotFriend,
+    /// This is a special "member-like friend" definition.
+    Friend,
+}
+
 /// The `<unqualified-name>` production.
 ///
 /// ```text
-/// <unqualified-name> ::= <operator-name>
-///                    ::= <ctor-dtor-name>
-///                    ::= <source-name>
-///                    ::= <local-source-name>
-///                    ::= <unnamed-type-name>
-///                    ::= <abi-tag>
-///                    ::= <closure-type-name>
+/// <unqualified-name> ::= [on] <operator-name> [<abi-tags>]
+///                    ::= <ctor-dtor-name> [<abi-tags>]
+///                    ::= F? <source-name> [<abi-tags>]
+///                    ::= <local-source-name> [<abi-tags>]
+///                    ::= <unnamed-type-name> [<abi-tags>]
+///                    ::= <closure-type-name> [<abi-tags>]
 ///
 /// # I think this is from an older version of the standard. It isn't in the
 /// # current version, but all the other demanglers support it, so we will too.
@@ -1968,19 +2091,17 @@ impl PrefixHandle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UnqualifiedName {
     /// An operator name.
-    Operator(OperatorName),
+    Operator(OperatorName, AbiTags),
     /// A constructor or destructor name.
-    CtorDtor(CtorDtorName),
+    CtorDtor(CtorDtorName, AbiTags),
     /// A source name.
-    Source(SourceName),
+    Source(SourceName, MemberLikeFriend, AbiTags),
     /// A local source name.
-    LocalSourceName(SourceName, Option<Discriminator>),
+    LocalSourceName(SourceName, Option<Discriminator>, AbiTags),
     /// A generated name for an unnamed type.
-    UnnamedType(UnnamedTypeName),
-    /// An ABI tag.
-    ABITag(TaggedName),
+    UnnamedType(UnnamedTypeName, AbiTags),
     /// A closure type name
-    ClosureType(ClosureTypeName),
+    ClosureType(ClosureTypeName, AbiTags),
 }
 
 impl Parse for UnqualifiedName {
@@ -1991,12 +2112,17 @@ impl Parse for UnqualifiedName {
     ) -> Result<(UnqualifiedName, IndexStr<'b>)> {
         try_begin_parse!(ctx);
 
-        if let Ok((op, tail)) = OperatorName::parse(ctx, subs, input) {
-            return Ok((UnqualifiedName::Operator(op), tail));
+        // libiberty accepts inputs with and without "on" here,
+        // llvm only accepts with "on". Be less picky.
+        let operator_name_input = consume(b"on", input).unwrap_or(input);
+        if let Ok((op, tail)) = OperatorName::parse(ctx, subs, operator_name_input) {
+            let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+            return Ok((UnqualifiedName::Operator(op, abi_tags), tail));
         }
 
         if let Ok((ctor_dtor, tail)) = CtorDtorName::parse(ctx, subs, input) {
-            return Ok((UnqualifiedName::CtorDtor(ctor_dtor), tail));
+            let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+            return Ok((UnqualifiedName::CtorDtor(ctor_dtor, abi_tags), tail));
         }
 
         if let Ok(tail) = consume(b"L", input) {
@@ -2006,23 +2132,36 @@ impl Parse for UnqualifiedName {
             } else {
                 (None, tail)
             };
-            return Ok((UnqualifiedName::LocalSourceName(name, discr), tail));
+            let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+            return Ok((UnqualifiedName::LocalSourceName(name, discr, abi_tags), tail));
         }
 
         if let Ok((source, tail)) = SourceName::parse(ctx, subs, input) {
-            return Ok((UnqualifiedName::Source(source), tail));
+            let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+            return Ok((
+                UnqualifiedName::Source(source, MemberLikeFriend::NotFriend, abi_tags),
+                tail,
+            ));
         }
 
-        if let Ok((tagged, tail)) = TaggedName::parse(ctx, subs, input) {
-            return Ok((UnqualifiedName::ABITag(tagged), tail));
+        if let Ok(tail) = consume(b"F", input) {
+            if let Ok((source, tail)) = SourceName::parse(ctx, subs, tail) {
+                let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+                return Ok((
+                    UnqualifiedName::Source(source, MemberLikeFriend::Friend, abi_tags),
+                    tail,
+                ));
+            }
         }
 
         if let Ok((closure, tail)) = ClosureTypeName::parse(ctx, subs, input) {
-            return Ok((UnqualifiedName::ClosureType(closure), tail));
+            let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+            return Ok((UnqualifiedName::ClosureType(closure, abi_tags), tail));
         }
 
-        UnnamedTypeName::parse(ctx, subs, input)
-            .map(|(unnamed, tail)| (UnqualifiedName::UnnamedType(unnamed), tail))
+        let (unnamed, tail) = UnnamedTypeName::parse(ctx, subs, input)?;
+        let (abi_tags, tail) = AbiTags::parse(ctx, subs, tail)?;
+        Ok((UnqualifiedName::UnnamedType(unnamed, abi_tags), tail))
     }
 }
 
@@ -2033,17 +2172,34 @@ impl<'subs> Demangle<'subs> for UnqualifiedName {
         scope: Option<ArgScopeStack<'prev, 'subs>>,
     ) {
         match *self {
-            UnqualifiedName::Operator(ref op_name) => {
+            UnqualifiedName::Operator(ref op_name, ref abi_tags) => {
                 ctx.push("operator", CONFIG.colors.asm.primitive);
-                op_name.demangle(ctx, scope)
+                op_name.demangle(ctx, scope);
+                abi_tags.demangle(ctx, scope);
             }
-            UnqualifiedName::CtorDtor(ref ctor_dtor) => ctor_dtor.demangle(ctx, scope),
-            UnqualifiedName::Source(ref name) | UnqualifiedName::LocalSourceName(ref name, ..) => {
-                name.demangle(ctx, scope)
+            UnqualifiedName::CtorDtor(ref ctor_dtor, ref abi_tags) => {
+                ctor_dtor.demangle(ctx, scope);
+                abi_tags.demangle(ctx, scope);
             }
-            UnqualifiedName::UnnamedType(ref unnamed) => unnamed.demangle(ctx, scope),
-            UnqualifiedName::ABITag(ref tagged) => tagged.demangle(ctx, scope),
-            UnqualifiedName::ClosureType(ref closure) => closure.demangle(ctx, scope),
+            UnqualifiedName::Source(ref name, member_like_friend, ref abi_tags) => {
+                if member_like_friend == MemberLikeFriend::Friend {
+                    ctx.push("friend ", CONFIG.colors.comment);
+                }
+                name.demangle(ctx, scope);
+                abi_tags.demangle(ctx, scope);
+            }
+            UnqualifiedName::LocalSourceName(ref name, _, ref abi_tags) => {
+                name.demangle(ctx, scope);
+                abi_tags.demangle(ctx, scope);
+            }
+            UnqualifiedName::UnnamedType(ref unnamed, ref abi_tags) => {
+                unnamed.demangle(ctx, scope);
+                abi_tags.demangle(ctx, scope);
+            }
+            UnqualifiedName::ClosureType(ref closure, ref abi_tags) => {
+                closure.demangle(ctx, scope);
+                abi_tags.demangle(ctx, scope);
+            }
         }
     }
 }
@@ -2051,14 +2207,11 @@ impl<'subs> Demangle<'subs> for UnqualifiedName {
 impl<'a> GetLeafName<'a> for UnqualifiedName {
     fn get_leaf_name(&'a self, subs: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         match *self {
-            UnqualifiedName::ABITag(_)
-            | UnqualifiedName::Operator(_)
-            | UnqualifiedName::CtorDtor(_) => None,
-            UnqualifiedName::UnnamedType(ref name) => Some(LeafName::UnnamedType(name)),
-            UnqualifiedName::ClosureType(ref closure) => closure.get_leaf_name(subs),
-            UnqualifiedName::Source(ref name) | UnqualifiedName::LocalSourceName(ref name, _) => {
-                Some(LeafName::SourceName(name))
-            }
+            UnqualifiedName::Operator(..) | UnqualifiedName::CtorDtor(..) => None,
+            UnqualifiedName::UnnamedType(ref name, _) => Some(LeafName::UnnamedType(name)),
+            UnqualifiedName::ClosureType(ref closure, _) => closure.get_leaf_name(subs),
+            UnqualifiedName::Source(ref name, ..)
+            | UnqualifiedName::LocalSourceName(ref name, ..) => Some(LeafName::SourceName(name)),
         }
     }
 }
@@ -2066,40 +2219,27 @@ impl<'a> GetLeafName<'a> for UnqualifiedName {
 impl IsCtorDtorConversion for UnqualifiedName {
     fn is_ctor_dtor_conversion(&self, _: &SubstitutionTable) -> bool {
         match *self {
-            UnqualifiedName::CtorDtor(_)
-            | UnqualifiedName::Operator(OperatorName::Conversion(_)) => true,
-            UnqualifiedName::Operator(_)
-            | UnqualifiedName::Source(_)
+            UnqualifiedName::CtorDtor(..)
+            | UnqualifiedName::Operator(OperatorName::Conversion(_), _) => true,
+            UnqualifiedName::Operator(..)
+            | UnqualifiedName::Source(..)
             | UnqualifiedName::LocalSourceName(..)
-            | UnqualifiedName::UnnamedType(_)
-            | UnqualifiedName::ClosureType(_)
-            | UnqualifiedName::ABITag(_) => false,
+            | UnqualifiedName::UnnamedType(..)
+            | UnqualifiedName::ClosureType(..) => false,
         }
     }
 }
 
 impl UnqualifiedName {
     #[inline]
-    fn starts_with(byte: u8, input: &IndexStr) -> bool {
+    fn starts_with(byte: u8, first: bool, input: &IndexStr) -> bool {
         byte == b'L'
+            || (byte == b'F' && !first)
             || OperatorName::starts_with(byte)
             || CtorDtorName::starts_with(byte)
             || SourceName::starts_with(byte)
             || UnnamedTypeName::starts_with(byte)
-            || TaggedName::starts_with(byte)
             || ClosureTypeName::starts_with(byte, input)
-    }
-
-    fn accepts_double_colon(&self) -> bool {
-        match *self {
-            UnqualifiedName::Operator(_)
-            | UnqualifiedName::CtorDtor(_)
-            | UnqualifiedName::Source(_)
-            | UnqualifiedName::LocalSourceName(..)
-            | UnqualifiedName::UnnamedType(_)
-            | UnqualifiedName::ClosureType(_) => true,
-            UnqualifiedName::ABITag(_) => false,
-        }
     }
 }
 
@@ -2171,29 +2311,67 @@ impl<'subs> Demangle<'subs> for SourceName {
     }
 }
 
-/// The `<tagged-name>` non-terminal.
+/// The `<abi-tags>` non-terminal.
 ///
 /// ```text
-/// <tagged-name> ::= <name> B <source-name>
+/// <abi-tags> ::= <abi-tag> [<abi-tags>]
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TaggedName(pub SourceName);
+///
+/// To make things easier on ourselves, despite the fact that the `<abi-tags>`
+/// production requires at least one tag, we'll allow a zero-length vector
+/// here instead of having to use Option<AbiTags> in everything that accepts
+/// an AbiTags.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AbiTags(pub Vec<AbiTag>);
 
-impl Parse for TaggedName {
+impl Parse for AbiTags {
     fn parse<'a, 'b>(
         ctx: &'a ParseContext,
         subs: &'a mut SubstitutionTable,
         input: IndexStr<'b>,
-    ) -> Result<(TaggedName, IndexStr<'b>)> {
+    ) -> Result<(AbiTags, IndexStr<'b>)> {
+        try_begin_parse!(ctx);
+
+        let (tags, tail) = zero_or_more::<AbiTag>(ctx, subs, input)?;
+        Ok((AbiTags(tags), tail))
+    }
+}
+
+impl<'subs> Demangle<'subs> for AbiTags {
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) {
+        for tag in &self.0 {
+            tag.demangle(ctx, scope);
+        }
+    }
+}
+
+/// The `<abi-tag>` non-terminal.
+///
+/// ```text
+/// <abi-tag> ::= B <source-name>
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AbiTag(pub SourceName);
+
+impl Parse for AbiTag {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(AbiTag, IndexStr<'b>)> {
         try_begin_parse!(ctx);
 
         let tail = consume(b"B", input)?;
         let (source_name, tail) = SourceName::parse(ctx, subs, tail)?;
-        Ok((TaggedName(source_name), tail))
+        Ok((AbiTag(source_name), tail))
     }
 }
 
-impl<'subs> Demangle<'subs> for TaggedName {
+impl<'subs> Demangle<'subs> for AbiTag {
     fn demangle<'prev, 'ctx>(
         &'subs self,
         ctx: &'ctx mut DemangleContext<'subs>,
@@ -2204,13 +2382,6 @@ impl<'subs> Demangle<'subs> for TaggedName {
         ctx.push(":", CONFIG.colors.delimiter);
         self.0.demangle(ctx, scope);
         ctx.push("]", CONFIG.colors.brackets);
-    }
-}
-
-impl TaggedName {
-    #[inline]
-    fn starts_with(byte: u8) -> bool {
-        byte == b'B'
     }
 }
 
@@ -2533,7 +2704,8 @@ impl<'subs> Demangle<'subs> for OperatorName {
                     SimpleOperatorName::New
                     | SimpleOperatorName::NewArray
                     | SimpleOperatorName::Delete
-                    | SimpleOperatorName::DeleteArray => {
+                    | SimpleOperatorName::DeleteArray
+                    | SimpleOperatorName::CoAwait => {
                         ctx.ensure_space();
                     }
                     _ => {}
@@ -2541,6 +2713,7 @@ impl<'subs> Demangle<'subs> for OperatorName {
                 simple.demangle(ctx, scope)
             }
             OperatorName::Cast(ref ty) | OperatorName::Conversion(ref ty) => {
+                inner_barrier!(ctx);
                 ctx.ensure_space();
 
                 // Cast operators can refer to template arguments before they
@@ -2618,7 +2791,8 @@ define_vocabulary! {
         Call             (b"cl",  "()",       2),
         Index            (b"ix",  "[]",       2),
         Question         (b"qu",  "?:",       3),
-        Spaceship        (b"ss",  "<=>",      2)
+        Spaceship        (b"ss",  "<=>",      2),
+        CoAwait          (b"aw",  "co_await", 1)
     }
 
     impl SimpleOperatorName {
@@ -2755,13 +2929,13 @@ impl Parse for VOffset {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CtorDtorName {
     /// "C1", the "complete object constructor"
-    CompleteConstructor(Option<Box<Name>>),
+    CompleteConstructor(Option<TypeHandle>),
     /// "C2", the "base object constructor"
-    BaseConstructor(Option<Box<Name>>),
+    BaseConstructor(Option<TypeHandle>),
     /// "C3", the "complete object allocating constructor"
-    CompleteAllocatingConstructor(Option<Box<Name>>),
+    CompleteAllocatingConstructor(Option<TypeHandle>),
     /// "C4", the "maybe in-charge constructor"
-    MaybeInChargeConstructor(Option<Box<Name>>),
+    MaybeInChargeConstructor(Option<TypeHandle>),
     /// "D0", the "deleting destructor"
     DeletingDestructor,
     /// "D1", the "complete object destructor"
@@ -2773,7 +2947,7 @@ pub(crate) enum CtorDtorName {
 }
 
 impl CtorDtorName {
-    fn inheriting_mut(&mut self) -> &mut Option<Box<Name>> {
+    fn inheriting_mut(&mut self) -> &mut Option<TypeHandle> {
         match self {
             CtorDtorName::CompleteConstructor(ref mut inheriting)
             | CtorDtorName::BaseConstructor(ref mut inheriting)
@@ -2826,11 +3000,11 @@ impl Parse for CtorDtorName {
                             Ok(CtorDtorName::MaybeInChargeConstructor(None))
                         }
                         _ => Err(error::Error::UnexpectedText),
-                    }?;
+                }?;
 
                 if inheriting {
-                    let (ty, tail) = Name::parse(ctx, subs, tail)?;
-                    *ctor_type.inheriting_mut() = Some(Box::new(ty));
+                    let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+                    *ctor_type.inheriting_mut() = Some(ty);
                     Ok((ctor_type, tail))
                 } else {
                     Ok((ctor_type, tail))
@@ -2955,6 +3129,11 @@ pub(crate) enum Type {
 
     /// A pack expansion.
     PackExpansion(TypeHandle),
+
+    /// Builtin type eligible for substitutions, e.g. vendor extended type or _BitInt(N).
+    /// Note: most builtin types are excluded from substitutions, and we store them directly
+    /// in TypeHandle without creating a Type.
+    Builtin(BuiltinType),
 }
 
 define_handle! {
@@ -2998,6 +3177,30 @@ impl Parse for TypeHandle {
         if let Ok((builtin, tail)) = BuiltinType::parse(ctx, subs, input) {
             // Builtin types are one of two exceptions that do not end up in the
             // substitutions table.
+
+            // But there are exceptions to the exception:
+            //  * "vendor extended type" builtin types do go in the substitution table.
+            //  * Quirk: clang treats `_BitInt` types (`DB<n>_`, `DU<n>_`) as substitutable,
+            //    even though they're <builtin-type>. This contradicts the current Itanium ABI spec.
+            //    This behavior is consistent between clang's mangler and demangler.
+            //    It seems more likely that the ABI spec will be changed to match clang, rather than
+            //    the other way around. So we do what clang does and put _BitInt-s into the substitution table.
+            let substitutable = match &builtin {
+                BuiltinType::Parametric(p) => match p {
+                    ParametricBuiltinType::SignedBitInt(_)
+                    | ParametricBuiltinType::UnsignedBitInt(_)
+                    | ParametricBuiltinType::SignedBitIntExpression(_)
+                    | ParametricBuiltinType::UnsignedBitIntExpression(_) => true,
+                    _ => false,
+                },
+                BuiltinType::Extension(_) => true,
+                _ => false,
+            };
+            if substitutable {
+                let ty = Type::Builtin(builtin);
+                return insert_and_return_handle(ty, subs, tail);
+            }
+
             let handle = TypeHandle::Builtin(builtin);
             return Ok((handle, tail));
         }
@@ -3102,17 +3305,19 @@ impl Parse for TypeHandle {
                 // NB: Parsing a <template-args> production may modify the substitutions
                 // table, so we need to avoid contaminating the official copy.
                 let mut tmp_subs = subs.clone();
-                if let Ok((_, new_tail)) = TemplateArgs::parse(ctx, &mut tmp_subs, tail) {
-                    if new_tail.peek() != Some(b'I') {
+                match TemplateArgs::parse(ctx, &mut tmp_subs, tail) {
+                    Ok((_, new_tail)) if new_tail.peek() == Some(b'I') => {
+                        // We really do have a <template-template-param>. Fall through.
+                        // NB: We can't use the arguments we just parsed because a
+                        // TemplateTemplateParam is substitutable, and if we use it
+                        // any substitutions in the arguments will come *before* it,
+                        // putting the substitution table out of order.
+                    }
+                    _ => {
                         // Don't consume the TemplateArgs.
                         let ty = Type::TemplateParam(param);
                         return insert_and_return_handle(ty, subs, tail);
                     }
-                    // We really do have a <template-template-param>. Fall through.
-                    // NB: We can't use the arguments we just parsed because a
-                    // TemplateTemplateParam is substitutable, and if we use it
-                    // any substitutions in the arguments will come *before* it,
-                    // putting the substitution table out of order.
                 }
             }
         }
@@ -3225,6 +3430,7 @@ impl<'subs> Demangle<'subs> for Type {
                     ctx.push("...", CONFIG.colors.asm.component);
                 }
             }
+            Type::Builtin(ref builtin) => builtin.demangle(ctx, scope),
         }
     }
 }
@@ -3467,12 +3673,22 @@ define_vocabulary! {
     ///                ::= De # IEEE 754r decimal floating point (128 bits)
     ///                ::= Df # IEEE 754r decimal floating point (32 bits)
     ///                ::= Dh # IEEE 754r half-precision floating point (16 bits)
+    ///                ::= DF16b # C++23 std::bfloat16_t
     ///                ::= Di # char32_t
     ///                ::= Ds # char16_t
     ///                ::= Du # char8_t
     ///                ::= Da # auto
     ///                ::= Dc # decltype(auto)
     ///                ::= Dn # std::nullptr_t (i.e., decltype(nullptr))
+    ///                ::= [DS] DA  # N1169 fixed-point [_Sat] T _Accum
+    ///                ::= [DS] DR  # N1169 fixed-point [_Sat] T _Fract
+    ///
+    ///  <fixed-point-size> ::= s # short
+    ///                     ::= t # unsigned short
+    ///                     ::= i # plain
+    ///                     ::= j # unsigned
+    ///                     ::= l # long
+    ///                     ::= m # unsigned long
     /// ```
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub(crate) enum StandardBuiltinType {
@@ -3501,12 +3717,149 @@ define_vocabulary! {
         DecimalFloat128  (b"De", "decimal128"),
         DecimalFloat32   (b"Df", "decimal32"),
         DecimalFloat16   (b"Dh", "half"),
+        BFloat16         (b"DF16b", "std::bfloat16_t"),
         Char32           (b"Di", "char32_t"),
         Char16           (b"Ds", "char16_t"),
         Char8            (b"Du", "char8_t"),
         Auto             (b"Da", "auto"),
         Decltype         (b"Dc", "decltype(auto)"),
-        Nullptr          (b"Dn", "std::nullptr_t")
+        Nullptr          (b"Dn", "std::nullptr_t"),
+        AccumShort       (b"DAs", "short _Accum"),
+        AccumUShort      (b"DAt", "unsigned short _Accum"),
+        Accum            (b"DAi", "_Accum"),
+        AccumUnsigned    (b"DAj", "unsigned _Accum"),
+        AccumLong        (b"DAl", "long _Accum"),
+        AccumULong       (b"DAm", "unsigned long _Accum"),
+        FractShort       (b"DRs", "short _Fract"),
+        FractUShort      (b"DRt", "unsigned short _Fract"),
+        Fract            (b"DRi", "_Fract"),
+        FractUnsigned    (b"DRj", "unsigned _Fract"),
+        FractLong        (b"DRl", "long _Fract"),
+        FractULong       (b"DRm", "unsigned long _Fract"),
+        SatAccumShort    (b"DSDAs", "_Sat short _Accum"),
+        SatAccumUShort   (b"DSDAt", "_Sat unsigned short _Accum"),
+        SatAccum         (b"DSDAi", "_Sat _Accum"),
+        SatAccumUnsigned (b"DSDAj", "_Sat unsigned _Accum"),
+        SatAccumLong     (b"DSDAl", "_Sat long _Accum"),
+        SatAccumULong    (b"DSDAm", "_Sat unsigned long _Accum"),
+        SatFractShort    (b"DSDRs", "_Sat short _Fract"),
+        SatFractUShort   (b"DSDRt", "_Sat unsigned short _Fract"),
+        SatFract         (b"DSDRi", "_Sat _Fract"),
+        SatFractUnsigned (b"DSDRj", "_Sat unsigned _Fract"),
+        SatFractLong     (b"DSDRl", "_Sat long _Fract"),
+        SatFractULong    (b"DSDRm", "_Sat unsigned long _Fract")
+    }
+}
+
+/// <builtin-type> ::= DF <number> _ # ISO/IEC TS 18661 binary floating point type _FloatN (N bits), C++23 std::floatN_t
+///                ::= DF <number> x # IEEE extended precision formats, C23 _FloatNx (N bits)
+///                ::= DB <number> _        # C23 signed _BitInt(N)
+///                ::= DB <instantiation-dependent expression> _ # C23 signed _BitInt(N)
+///                ::= DU <number> _        # C23 unsigned _BitInt(N)
+///                ::= DU <instantiation-dependent expression> _ # C23 unsigned _BitInt(N)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ParametricBuiltinType {
+    /// _FloatN
+    FloatN(Number),
+    /// _FloatNx
+    FloatNx(Number),
+    /// signed _BitInt(N)
+    SignedBitInt(Number),
+    /// unsigned _BitInt(N)
+    UnsignedBitInt(Number),
+    /// signed _BitInt(expr)
+    SignedBitIntExpression(Box<Expression>),
+    /// unsigned _BitInt(expr)
+    UnsignedBitIntExpression(Box<Expression>),
+}
+
+impl Parse for ParametricBuiltinType {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(ParametricBuiltinType, IndexStr<'b>)> {
+        try_begin_parse!(ctx);
+
+        let input = consume(b"D", input)?;
+        let (ch, input) = input.next_or(error::Error::UnexpectedEnd)?;
+        let allow_expression = match ch {
+            b'F' => false,
+            b'B' | b'U' => true,
+            _ => return Err(error::Error::UnexpectedText),
+        };
+        if input
+            .next_or(error::Error::UnexpectedEnd)?
+            .0
+            .is_ascii_digit()
+        {
+            let (bit_size, input) = parse_number(10, false, input)?;
+            if ch == b'F' {
+                if let Ok(input) = consume(b"x", input) {
+                    return Ok((ParametricBuiltinType::FloatNx(bit_size), input));
+                }
+            }
+            let input = consume(b"_", input)?;
+            let ty = match ch {
+                b'F' => ParametricBuiltinType::FloatN(bit_size),
+                b'B' => ParametricBuiltinType::SignedBitInt(bit_size),
+                b'U' => ParametricBuiltinType::UnsignedBitInt(bit_size),
+                _ => unreachable!(),
+            };
+            Ok((ty, input))
+        } else if allow_expression {
+            let (expr, input) = Expression::parse(ctx, subs, input)?;
+            let input = consume(b"_", input)?;
+            let ty = match ch {
+                b'B' => ParametricBuiltinType::SignedBitIntExpression(Box::new(expr)),
+                b'U' => ParametricBuiltinType::UnsignedBitIntExpression(Box::new(expr)),
+                _ => unreachable!(),
+            };
+            Ok((ty, input))
+        } else {
+            Err(error::Error::UnexpectedText)
+        }
+    }
+}
+
+impl<'subs> Demangle<'subs> for ParametricBuiltinType {
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) {
+        match *self {
+            Self::FloatN(ref n) => {
+                ctx.push_owned(format!("_Float{n}"), CONFIG.colors.asm.component);
+            }
+            Self::FloatNx(ref n) => {
+                ctx.push_owned(format!("_Float{n}x"), CONFIG.colors.asm.component);
+            }
+            Self::SignedBitInt(ref n) => {
+                ctx.push_owned(format!("_BitInt({n})"), CONFIG.colors.asm.component);
+            }
+            Self::UnsignedBitInt(ref n) => {
+                ctx.push_owned(format!("unsigned _BitInt({n})"), CONFIG.colors.asm.component);
+            }
+            Self::SignedBitIntExpression(ref expr) => {
+                ctx.push("_BitInt(", CONFIG.colors.asm.component);
+                expr.demangle(ctx, scope);
+                ctx.push(")", CONFIG.colors.asm.component);
+            }
+            Self::UnsignedBitIntExpression(ref expr) => {
+                ctx.push("unsigned _BitInt(", CONFIG.colors.asm.component);
+                expr.demangle(ctx, scope);
+                ctx.push(")", CONFIG.colors.asm.component);
+            }
+        }
+    }
+}
+
+define_vocabulary! {
+    /// A named explicit object parameter.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub(crate) enum ExplicitObjectParameter {
+        ExplicitObjectParameter(b"H", "this")
     }
 }
 
@@ -3515,6 +3868,9 @@ define_vocabulary! {
 pub(crate) enum BuiltinType {
     /// A standards compliant builtin type.
     Standard(StandardBuiltinType),
+
+    /// A standards compliant builtin type with a parameter, e.g. _BitInt(32).
+    Parametric(ParametricBuiltinType),
 
     /// A non-standard, vendor extension type.
     ///
@@ -3536,9 +3892,13 @@ impl Parse for BuiltinType {
             return Ok((BuiltinType::Standard(ty), tail));
         }
 
-        let tail = consume(b"u", input)?;
-        let (name, tail) = SourceName::parse(ctx, subs, tail)?;
-        Ok((BuiltinType::Extension(name), tail))
+        if let Ok(tail) = consume(b"u", input) {
+            let (name, tail) = SourceName::parse(ctx, subs, tail)?;
+            return Ok((BuiltinType::Extension(name), tail));
+        }
+
+        ParametricBuiltinType::parse(ctx, subs, input)
+            .map(|(ty, tail)| (BuiltinType::Parametric(ty), tail))
     }
 }
 
@@ -3550,6 +3910,7 @@ impl<'subs> Demangle<'subs> for BuiltinType {
     ) {
         match *self {
             BuiltinType::Standard(ref ty) => ty.demangle(ctx, scope),
+            BuiltinType::Parametric(ref ty) => ty.demangle(ctx, scope),
             BuiltinType::Extension(ref name) => name.demangle(ctx, scope),
         }
     }
@@ -4485,10 +4846,33 @@ impl<'subs> Demangle<'subs> for FunctionParam {
 /// The `<template-args>` production.
 ///
 /// ```text
-/// <template-args> ::= I <template-arg>+ E
+/// <template-args> ::= I <template-arg>+ [Q <requires-clause expr>] E
 /// ```
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ConstraintExpression(pub(crate) Option<Box<Expression>>);
+
+impl Parse for ConstraintExpression {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(ConstraintExpression, IndexStr<'b>)> {
+        try_begin_parse!(ctx);
+
+        if let Ok(tail) = consume(b"Q", input) {
+            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((ConstraintExpression(Some(Box::new(expr))), tail));
+        }
+
+        Ok((ConstraintExpression(None), input))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TemplateArgs(pub Vec<TemplateArg>);
+pub(crate) struct TemplateArgs {
+    pub(crate) args: Vec<TemplateArg>,
+    pub(crate) requires_clause: ConstraintExpression,
+}
 
 impl Parse for TemplateArgs {
     fn parse<'a, 'b>(
@@ -4501,8 +4885,9 @@ impl Parse for TemplateArgs {
         let tail = consume(b"I", input)?;
 
         let (args, tail) = one_or_more::<TemplateArg>(ctx, subs, tail)?;
+        let (requires_clause, tail) = ConstraintExpression::parse(ctx, subs, tail)?;
         let tail = consume(b"E", tail)?;
-        Ok((TemplateArgs(args), tail))
+        Ok((TemplateArgs { args, requires_clause }, tail))
     }
 }
 
@@ -4520,15 +4905,19 @@ impl<'subs> Demangle<'subs> for TemplateArgs {
 
         ctx.push("<", CONFIG.colors.asm.label);
         let mut need_comma = false;
-        for arg_index in 0..self.0.len() {
+        for arg_index in 0..self.args.len() {
             if need_comma {
                 ctx.push(", ", CONFIG.colors.delimiter);
             }
             if let Some(ref mut scope) = scope {
                 scope.in_arg = Some((arg_index, self));
             }
-            self.0[arg_index].demangle(ctx, scope);
+            self.args[arg_index].demangle(ctx, scope);
             need_comma = true;
+        }
+
+        if let Some(ref mut scope) = scope {
+            scope.in_arg = None;
         }
 
         ctx.push(">", CONFIG.colors.asm.label);
@@ -4544,7 +4933,60 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
         &'subs self,
         idx: usize,
     ) -> Result<(&'subs TemplateArg, &'subs TemplateArgs)> {
-        self.0.get(idx).ok_or(error::Error::BadTemplateArgReference).map(|v| (v, self))
+        self.args
+            .get(idx)
+            .ok_or(error::Error::BadTemplateArgReference)
+            .map(|v| (v, self))
+    }
+}
+
+/// The `<template-param-decl>` production.
+///
+/// ```text
+/// <template-param-decl> ::= Tn <type>                   # non-type parameter
+///                       ::= Tp <template-param-decl>    # parameter pack
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TemplateParamDecl {
+    /// A non-type parameter.
+    NonType(TypeHandle),
+    /// A parameter pack.
+    ParameterPack(Box<TemplateParamDecl>),
+}
+
+impl Parse for TemplateParamDecl {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(TemplateParamDecl, IndexStr<'b>)> {
+        try_begin_parse!(ctx);
+
+        let input = consume(b"T", input)?;
+        if let Ok(tail) = consume(b"n", input) {
+            let (ty, tail) = TypeHandle::parse(ctx, subs, tail)?;
+            return Ok((TemplateParamDecl::NonType(ty), tail));
+        }
+
+        if let Ok(tail) = consume(b"p", input) {
+            let (param_decl, tail) = TemplateParamDecl::parse(ctx, subs, tail)?;
+            return Ok((TemplateParamDecl::ParameterPack(Box::new(param_decl)), tail));
+        }
+
+        Err(error::Error::UnexpectedText)
+    }
+}
+
+impl<'subs> Demangle<'subs> for TemplateParamDecl {
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) {
+        match self {
+            TemplateParamDecl::NonType(ref ty) => ty.demangle(ctx, scope),
+            TemplateParamDecl::ParameterPack(ref pack) => pack.demangle(ctx, scope),
+        }
     }
 }
 
@@ -4555,6 +4997,7 @@ impl<'subs> ArgScope<'subs, 'subs> for TemplateArgs {
 ///                ::= X <expression> E      # expression
 ///                ::= <expr-primary>        # simple expressions
 ///                ::= J <template-arg>* E   # argument pack
+///                ::= <template-param-decl> <template-arg> #
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TemplateArg {
@@ -4569,6 +5012,9 @@ pub(crate) enum TemplateArg {
 
     /// An argument pack.
     ArgPack(Vec<TemplateArg>),
+
+    /// A <template-param-decl> followed by an additional <template-arg>.
+    ParamDecl(TemplateParamDecl, Box<TemplateArg>),
 }
 
 impl Parse for TemplateArg {
@@ -4591,6 +5037,13 @@ impl Parse for TemplateArg {
 
         if let Ok((ty, tail)) = TypeHandle::parse(ctx, subs, input) {
             return Ok((TemplateArg::Type(ty), tail));
+        }
+
+        if let Ok((template_param_decl, tail)) =
+            TemplateParamDecl::parse(ctx, subs, input)
+        {
+            let (arg, tail) = TemplateArg::parse(ctx, subs, tail)?;
+            return Ok((TemplateArg::ParamDecl(template_param_decl, Box::new(arg)), tail));
         }
 
         let tail = if input.peek() == Some(b'J') {
@@ -4619,6 +5072,10 @@ impl<'subs> Demangle<'subs> for TemplateArg {
             TemplateArg::Type(ref ty) => ty.demangle(ctx, scope),
             TemplateArg::Expression(ref expr) => expr.demangle(ctx, scope),
             TemplateArg::SimpleExpression(ref expr) => expr.demangle(ctx, scope),
+            TemplateArg::ParamDecl(_, ref arg) => {
+                // llvm-cxxfilt doesn't print the param.
+                arg.demangle(ctx, scope)
+            }
             TemplateArg::ArgPack(ref args) => {
                 ctx.is_template_argument_pack = true;
                 let mut need_comma = false;
@@ -4765,7 +5222,7 @@ pub(crate) enum Expression {
     ConversionBraced(TypeHandle, Vec<Expression>),
 
     /// A braced init list expression.
-    BracedInitList(Box<Expression>),
+    BracedInitList(Vec<Expression>),
 
     /// The `new` operator.
     New(Vec<Expression>, TypeHandle, Option<Initializer>),
@@ -4855,6 +5312,9 @@ pub(crate) enum Expression {
     /// `expression...`, pack expansion.
     PackExpansion(Box<Expression>),
 
+    /// The fold expressions.
+    Fold(FoldExpr),
+
     /// `throw expression`
     Throw(Box<Expression>),
 
@@ -4919,9 +5379,9 @@ impl Parse for Expression {
                     return Ok((expr, tail));
                 }
                 b"il" => {
-                    let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+                    let (exprs, tail) = zero_or_more::<Expression>(ctx, subs, tail)?;
                     let tail = consume(b"E", tail)?;
-                    let expr = Expression::BracedInitList(Box::new(expr));
+                    let expr = Expression::BracedInitList(exprs);
                     return Ok((expr, tail));
                 }
                 b"dc" => {
@@ -5025,6 +5485,19 @@ impl Parse for Expression {
                 b"sp" => {
                     let (expr, tail) = Expression::parse(ctx, subs, tail)?;
                     let expr = Expression::PackExpansion(Box::new(expr));
+                    return Ok((expr, tail));
+                }
+                b"fl" | b"fr" | b"fR" => {
+                    let (expr, tail) = FoldExpr::parse(ctx, subs, input)?;
+                    let expr = Expression::Fold(expr);
+                    return Ok((expr, tail));
+                }
+                // NB: fL for a fold expression is ambiguous with fL for a
+                // function parameter at this point. Look ahead before we commit
+                // to a fold expression.
+                b"fL" if tail.peek().map(|c| !c.is_ascii_digit()).unwrap_or(false) => {
+                    let (expr, tail) = FoldExpr::parse(ctx, subs, input)?;
+                    let expr = Expression::Fold(expr);
                     return Ok((expr, tail));
                 }
                 b"tw" => {
@@ -5273,7 +5746,14 @@ impl<'subs> Demangle<'subs> for Expression {
             }
             Expression::BracedInitList(ref expr) => {
                 ctx.push("{{", CONFIG.colors.brackets);
-                expr.demangle(ctx, scope);
+                let mut need_comma = false;
+                for expr in expr {
+                    if need_comma {
+                        ctx.push(", ", CONFIG.colors.delimiter);
+                    }
+                    expr.demangle(ctx, scope);
+                    need_comma = true;
+                }
                 ctx.push("}}", CONFIG.colors.brackets);
             }
             // TODO: factor out all this duplication in the `new` variants.
@@ -5498,6 +5978,7 @@ impl<'subs> Demangle<'subs> for Expression {
                 pack.demangle_as_subexpr(ctx, scope);
                 ctx.push("...", CONFIG.colors.delimiter);
             }
+            Expression::Fold(ref expr) => expr.demangle(ctx, scope),
             Expression::Throw(ref expr) => {
                 ctx.push("throw ", CONFIG.colors.asm.primitive);
                 expr.demangle(ctx, scope)
@@ -5530,6 +6011,120 @@ impl Expression {
 
         if needs_parens {
             ctx.push(")", CONFIG.colors.brackets);
+        }
+    }
+}
+
+/// The fold expressions.
+///
+/// These are not separate productions in the grammar but our code is cleaner
+/// if we handle them all together.
+///
+/// <expression>  ::= ...
+///               ::= fl <binary operator-name> <expression>       # (... operator expression), unary left fold
+///               ::= fr <binary operator-name> <expression>       # (expression operator ...), unary right fold
+///               ::= fL <binary operator-name> <expression> <expression> # (expression operator ... operator expression), binary left fold
+///               ::= fR <binary operator-name> <expression> <expression> # (expression operator ... operator expression), binary right fold
+///               ::= ...
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum FoldExpr {
+    /// (...+<expr>)
+    UnaryLeft(SimpleOperatorName, Box<Expression>),
+    /// (<expr>+...)
+    UnaryRight(SimpleOperatorName, Box<Expression>),
+    /// (<expr1>+...+<expr2>)
+    BinaryLeft(SimpleOperatorName, Box<Expression>, Box<Expression>),
+    /// (<expr1>+...+<expr2>)
+    BinaryRight(SimpleOperatorName, Box<Expression>, Box<Expression>),
+}
+
+impl Parse for FoldExpr {
+    fn parse<'a, 'b>(
+        ctx: &'a ParseContext,
+        subs: &'a mut SubstitutionTable,
+        input: IndexStr<'b>,
+    ) -> Result<(FoldExpr, IndexStr<'b>)> {
+        try_begin_parse!(ctx);
+
+        let tail = consume(b"f", input)?;
+        if let Ok(tail) = consume(b"l", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((FoldExpr::UnaryLeft(operator, Box::new(expr)), tail));
+        }
+        if let Ok(tail) = consume(b"r", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((FoldExpr::UnaryRight(operator, Box::new(expr)), tail));
+        }
+        if let Ok(tail) = consume(b"L", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr1, tail) = Expression::parse(ctx, subs, tail)?;
+            let (expr2, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((
+                FoldExpr::BinaryLeft(operator, Box::new(expr1), Box::new(expr2)),
+                tail,
+            ));
+        }
+        if let Ok(tail) = consume(b"R", tail) {
+            let (operator, tail) = SimpleOperatorName::parse(ctx, subs, tail)?;
+            // Only binary operators are permitted.
+            if operator.arity() != 2 {
+                return Err(error::Error::UnexpectedText);
+            }
+            let (expr1, tail) = Expression::parse(ctx, subs, tail)?;
+            let (expr2, tail) = Expression::parse(ctx, subs, tail)?;
+            return Ok((
+                FoldExpr::BinaryRight(operator, Box::new(expr1), Box::new(expr2)),
+                tail,
+            ));
+        }
+
+        Err(error::Error::UnexpectedText)
+    }
+}
+
+impl<'subs> Demangle<'subs> for FoldExpr {
+    fn demangle<'prev, 'ctx>(
+        &'subs self,
+        ctx: &'ctx mut DemangleContext<'subs>,
+        scope: Option<ArgScopeStack<'prev, 'subs>>,
+    ) {
+        match self {
+            FoldExpr::UnaryLeft(ref operator, ref expr) => {
+                ctx.push("(...", CONFIG.colors.brackets);
+                operator.demangle(ctx, scope);
+                expr.demangle_as_subexpr(ctx, scope);
+                ctx.push(")", CONFIG.colors.brackets);
+            }
+            FoldExpr::UnaryRight(ref operator, ref expr) => {
+                ctx.push("(", CONFIG.colors.brackets);
+                expr.demangle_as_subexpr(ctx, scope);
+                operator.demangle(ctx, scope);
+                ctx.push("...)", CONFIG.colors.brackets);
+            }
+            FoldExpr::BinaryLeft(ref operator, ref expr1, ref expr2)
+            | FoldExpr::BinaryRight(ref operator, ref expr1, ref expr2) => {
+                ctx.push("(", CONFIG.colors.brackets);
+                expr1.demangle_as_subexpr(ctx, scope);
+                operator.demangle(ctx, scope);
+                ctx.push("...", CONFIG.colors.delimiter);
+                operator.demangle(ctx, scope);
+                expr2.demangle_as_subexpr(ctx, scope);
+                ctx.push(")", CONFIG.colors.brackets);
+            }
         }
     }
 }
@@ -6409,12 +7004,6 @@ impl<'a> GetLeafName<'a> for DataMemberPrefix {
     #[inline]
     fn get_leaf_name(&'a self, _: &'a SubstitutionTable) -> Option<LeafName<'a>> {
         Some(LeafName::SourceName(&self.0))
-    }
-}
-
-impl DataMemberPrefix {
-    fn starts_with(byte: u8) -> bool {
-        SourceName::starts_with(byte)
     }
 }
 
