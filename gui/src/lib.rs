@@ -201,6 +201,7 @@ impl UI {
                 UIEvent::GotoAddr(addr) => {
                     if let Some(listing) = self.panels.listing() {
                         listing.jump(addr);
+                        self.panels.load_src(addr);
                         self.panels.goto_window(panes::DISASSEMBLY);
                     }
                 }

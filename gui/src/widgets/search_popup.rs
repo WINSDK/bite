@@ -222,8 +222,7 @@ impl SearchPopup {
             return Some(result.addr);
         }
 
-        let query = self.query.trim();
-        index.and_then(|idx| idx.get_func_by_name(query))
+        index.and_then(|idx| idx.get_func_by_name(&self.query))
     }
 
     pub fn take_jump(&mut self) -> Option<usize> {
@@ -544,10 +543,15 @@ impl SearchPopup {
                 egui::vec2(row_rect.width() - bar_rect.width() - 6.0, row_rect.height()),
             );
 
+            let mut job = job.clone();
+            job.wrap.max_width = text_rect.width().max(0.0);
+            job.wrap.max_rows = 1;
+            job.wrap.break_anywhere = true;
+
             response |= ui
                 .allocate_ui_at_rect(text_rect, |ui| {
                     ui.set_clip_rect(text_rect);
-                    ui.add(egui::Label::new(job.clone()))
+                    ui.add(egui::Label::new(job))
                 })
                 .inner;
 
