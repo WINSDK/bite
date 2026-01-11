@@ -25,7 +25,9 @@ pub fn set_env() {
         path.push(user);
         path.push("wayland-1");
 
-        std::env::set_var("WAYLAND_DISPLAY", path);
-        std::env::set_var("XDG_RUNTIME_DIR", "/");
+        unsafe {
+            std::env::set_var("WAYLAND_DISPLAY", path);
+            std::env::set_var("XDG_RUNTIME_DIR", "/");
+        }
     }
 }
