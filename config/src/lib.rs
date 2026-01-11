@@ -254,14 +254,13 @@ mod defaults {
 
 impl Config {
     pub fn parse() -> Self {
-        let path = match dirs::data_dir() {
-            Some(mut dir) => {
-                dir.push("bite");
-                dir.push("config.yaml");
-                dir
-            },
-            None => log::error!("You must have a data directory set."),
+        let Some(mut path) = dirs::data_dir() else {
+            log::error!("You must have a data directory set.");
+            return defaults::config();
         };
+
+        path.push("bite");
+        path.push("config.yaml");
 
         let raw = std::fs::read_to_string(path).unwrap_or_default();
         match serde_yaml::from_str(&raw) {
