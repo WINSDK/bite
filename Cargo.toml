@@ -1,8 +1,8 @@
 [package]
 name = "bite"
 description = "Disassembler"
-version = "0.3.0"
-edition = "2021"
+version = "0.4.0"
+edition = "2024"
 
 [dependencies]
 nix = { workspace = true }
