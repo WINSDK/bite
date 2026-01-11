@@ -530,16 +530,15 @@ impl SearchPopup {
                     };
 
                     let response = if idx == selected {
-                        egui::Frame::none()
-                            .fill(colors::GRAY35)
-                            .show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                render(ui)
-                            })
-                            .inner
+                        ui.set_width(ui.available_width());
+                        egui::Frame::none().fill(colors::GRAY35).show(ui, render).inner
                     } else {
                         render(ui)
                     };
+
+                    if response.hovered() {
+                        self.selected = idx;
+                    }
 
                     if response.clicked() {
                         self.query = suggestion.name.clone();
