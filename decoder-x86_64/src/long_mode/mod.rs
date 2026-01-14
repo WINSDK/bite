@@ -11,10 +11,10 @@ use std::hash::{Hash, Hasher};
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 pub use crate::MemoryAccessSize;
 
-use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
-use debugvault::Index;
-use tokenizing::TokenStream;
 use config::CONFIG;
+use debugvault::Index;
+use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens};
+use tokenizing::TokenStream;
 
 /// an `x86_64` register, including its number and type. if `fmt` is enabled, name too.
 ///
@@ -2640,85 +2640,54 @@ impl Decoded for Instruction {
     }
 
     fn update_rel_addrs(&mut self, addr: usize, _: Option<&Instruction>) {
+        let next_ip = (addr as u64).saturating_add(self.length as u64);
+        let rel_imm = self.opcode.has_ip_relative_imm();
+
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
-            let addr = addr as u64;
             let addr = match operand {
-                Operand::ImmediateI8(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
-                }
-                Operand::ImmediateU8(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
-                }
-                Operand::ImmediateI16(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
-                }
-                Operand::ImmediateU16(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
-                }
-                Operand::ImmediateI32(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
-                }
-                Operand::ImmediateU32(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
-                }
-                Operand::ImmediateI64(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add_signed(imm as i64)
-                }
-                Operand::ImmediateU64(imm) => {
-                    addr.saturating_add(self.length as u64).saturating_add(imm as u64)
-                }
-                Operand::DisplacementU32(imm) => addr.saturating_add(imm as u64),
-                Operand::DisplacementU64(imm) => addr.saturating_add(imm),
-                Operand::RegDisp(RegSpec::RIP, disp) => {
-                    addr.saturating_add(self.length as u64).saturating_add_signed(disp as i64)
-                }
-                Operand::RegScale(RegSpec::RIP, scale) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(scale as u64)
-                }
+                Operand::ImmediateI8(imm) if rel_imm => next_ip.saturating_add_signed(imm as i64),
+                Operand::ImmediateU8(imm) if rel_imm => next_ip.saturating_add(imm as u64),
+                Operand::ImmediateI16(imm) if rel_imm => next_ip.saturating_add_signed(imm as i64),
+                Operand::ImmediateU16(imm) if rel_imm => next_ip.saturating_add(imm as u64),
+                Operand::ImmediateI32(imm) if rel_imm => next_ip.saturating_add_signed(imm as i64),
+                Operand::ImmediateU32(imm) if rel_imm => next_ip.saturating_add(imm as u64),
+                Operand::ImmediateI64(imm) if rel_imm => next_ip.saturating_add_signed(imm as i64),
+                Operand::ImmediateU64(imm) if rel_imm => next_ip.saturating_add(imm as u64),
+                Operand::DisplacementU32(imm) => imm as u64,
+                Operand::DisplacementU64(imm) => imm,
+                Operand::RegDisp(RegSpec::RIP, disp) => next_ip.saturating_add_signed(disp as i64),
+                Operand::RegScale(RegSpec::RIP, scale) => next_ip.saturating_mul(scale as u64),
                 Operand::RegScaleDisp(RegSpec::RIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(scale as u64).saturating_add_signed(disp as i64)
+                    next_ip.saturating_mul(scale as u64).saturating_add_signed(disp as i64)
                 }
-                Operand::RegIndexBase(RegSpec::RIP, RegSpec::RIP) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(2)
-                }
+                Operand::RegIndexBase(RegSpec::RIP, RegSpec::RIP) => next_ip.saturating_mul(2),
                 Operand::RegIndexBaseDisp(RegSpec::RIP, RegSpec::RIP, disp) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_add_signed(disp as i64)
+                    next_ip.saturating_add_signed(disp as i64)
                 }
                 Operand::RegIndexBaseScale(RegSpec::RIP, RegSpec::RIP, scale) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(2 * scale as u64)
+                    next_ip.saturating_mul(2 * scale as u64)
                 }
                 Operand::RegIndexBaseScaleDisp(RegSpec::RIP, RegSpec::RIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(2 * scale as u64).saturating_add_signed(disp as i64)
+                    next_ip.saturating_mul(2 * scale as u64).saturating_add_signed(disp as i64)
                 }
                 Operand::RegDispMasked(RegSpec::RIP, disp, _) => {
-                    addr.saturating_add(self.length as u64).saturating_add_signed(disp as i64)
+                    next_ip.saturating_add_signed(disp as i64)
                 }
                 Operand::RegScaleMasked(RegSpec::RIP, scale, _) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(scale as u64)
+                    next_ip.saturating_mul(scale as u64)
                 }
                 Operand::RegScaleDispMasked(RegSpec::RIP, scale, disp, _) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(scale as u64).saturating_add_signed(disp as i64)
+                    next_ip.saturating_mul(scale as u64).saturating_add_signed(disp as i64)
                 }
                 Operand::RegIndexBaseMasked(RegSpec::RIP, RegSpec::RIP, _) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(2)
+                    next_ip.saturating_mul(2)
                 }
                 Operand::RegIndexBaseDispMasked(RegSpec::RIP, RegSpec::RIP, disp, _) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_add_signed(disp as i64)
+                    next_ip.saturating_add_signed(disp as i64)
                 }
                 Operand::RegIndexBaseScaleMasked(RegSpec::RIP, RegSpec::RIP, scale, _) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(2 * scale as u64)
+                    next_ip.saturating_mul(2 * scale as u64)
                 }
                 Operand::RegIndexBaseScaleDispMasked(
                     RegSpec::RIP,
@@ -2726,10 +2695,7 @@ impl Decoded for Instruction {
                     scale,
                     disp,
                     _,
-                ) => {
-                    let ip = addr.saturating_add(self.length as u64);
-                    ip.saturating_mul(2 * scale as u64).saturating_add_signed(disp as i64)
-                }
+                ) => next_ip.saturating_mul(2 * scale as u64).saturating_add_signed(disp as i64),
                 _ => continue,
             };
 
@@ -4294,6 +4260,21 @@ impl Opcode {
                 | Opcode::SETG
                 | Opcode::SETLE
         )
+    }
+
+    /// check if this opcode encodes its immediate relative to the next instruction pointer.
+    pub fn has_ip_relative_imm(&self) -> bool {
+        self.is_jcc()
+            || matches!(
+                self,
+                Opcode::CALL
+                    | Opcode::JMP
+                    | Opcode::LOOP
+                    | Opcode::LOOPZ
+                    | Opcode::LOOPNZ
+                    | Opcode::JRCXZ
+                    | Opcode::XBEGIN
+            )
     }
 
     /// get the [`ConditionCode`] for this instruction, if it is in fact conditional. x86's

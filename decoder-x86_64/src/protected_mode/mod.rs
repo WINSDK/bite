@@ -11,10 +11,10 @@ use std::hash::{Hash, Hasher};
 use crate::safer_unchecked::unreachable_kinda_unchecked as unreachable_unchecked;
 pub use crate::MemoryAccessSize;
 
-use decoder::{Decoded, Decodable, Error, ErrorKind, Reader, ToTokens};
-use tokenizing::TokenStream;
-use debugvault::Index;
 use config::CONFIG;
+use debugvault::Index;
+use decoder::{Decodable, Decoded, Error, ErrorKind, Reader, ToTokens};
+use tokenizing::TokenStream;
 
 /// an `x86` register, including its number and type. if `fmt` is enabled, name too.
 ///
@@ -2569,78 +2569,51 @@ impl Decoded for Instruction {
     }
 
     fn update_rel_addrs(&mut self, addr: usize, _: Option<&Instruction>) {
+        let next_ip = (addr as u32).saturating_add(self.length as u32);
+        let rel_imm = self.opcode.has_ip_relative_imm();
+
         for idx in 0..self.operand_count as usize {
             let operand = Operand::from_spec(&self, self.operands[idx]);
-            let addr = addr as u32;
             let addr = match operand {
-                Operand::ImmediateI8(imm) => {
-                    addr.saturating_add(self.length as u32).saturating_add_signed(imm as i32)
-                }
-                Operand::ImmediateU8(imm) => {
-                    addr.saturating_add(self.length as u32).saturating_add(imm as u32)
-                }
-                Operand::ImmediateI16(imm) => {
-                    addr.saturating_add(self.length as u32).saturating_add_signed(imm as i32)
-                }
-                Operand::ImmediateU16(imm) => {
-                    addr.saturating_add(self.length as u32).saturating_add(imm as u32)
-                }
-                Operand::ImmediateI32(imm) => {
-                    addr.saturating_add(self.length as u32).saturating_add_signed(imm as i32)
-                }
-                Operand::ImmediateU32(imm) => {
-                    addr.saturating_add(self.length as u32).saturating_add(imm as u32)
-                }
-                Operand::DisplacementU32(imm) => addr.saturating_add(imm as u32),
-                Operand::RegDisp(RegSpec::EIP, disp) => {
-                    addr.saturating_add(self.length as u32).saturating_add_signed(disp as i32)
-                }
-                Operand::RegScale(RegSpec::EIP, scale) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(scale as u32)
-                }
+                Operand::ImmediateI8(imm) if rel_imm => next_ip.saturating_add_signed(imm as i32),
+                Operand::ImmediateU8(imm) if rel_imm => next_ip.saturating_add(imm as u32),
+                Operand::ImmediateI16(imm) if rel_imm => next_ip.saturating_add_signed(imm as i32),
+                Operand::ImmediateU16(imm) if rel_imm => next_ip.saturating_add(imm as u32),
+                Operand::ImmediateI32(imm) if rel_imm => next_ip.saturating_add_signed(imm as i32),
+                Operand::ImmediateU32(imm) if rel_imm => next_ip.saturating_add(imm),
+                Operand::DisplacementU32(imm) => imm,
+                Operand::RegDisp(RegSpec::EIP, disp) => next_ip.saturating_add_signed(disp as i32),
+                Operand::RegScale(RegSpec::EIP, scale) => next_ip.saturating_mul(scale as u32),
                 Operand::RegScaleDisp(RegSpec::EIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(scale as u32).saturating_add_signed(disp as i32)
+                    next_ip.saturating_mul(scale as u32).saturating_add_signed(disp as i32)
                 }
-                Operand::RegIndexBase(RegSpec::EIP, RegSpec::EIP) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(2)
-                }
+                Operand::RegIndexBase(RegSpec::EIP, RegSpec::EIP) => next_ip.saturating_mul(2),
                 Operand::RegIndexBaseDisp(RegSpec::EIP, RegSpec::EIP, disp) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_add_signed(disp as i32)
+                    next_ip.saturating_add_signed(disp as i32)
                 }
                 Operand::RegIndexBaseScale(RegSpec::EIP, RegSpec::EIP, scale) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(2 * scale as u32)
+                    next_ip.saturating_mul(2 * scale as u32)
                 }
                 Operand::RegIndexBaseScaleDisp(RegSpec::EIP, RegSpec::EIP, scale, disp) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(2 * scale as u32).saturating_add_signed(disp as i32)
+                    next_ip.saturating_mul(2 * scale as u32).saturating_add_signed(disp as i32)
                 }
                 Operand::RegDispMasked(RegSpec::EIP, disp, _) => {
-                    addr.saturating_add(self.length as u32).saturating_add_signed(disp as i32)
+                    next_ip.saturating_add_signed(disp as i32)
                 }
                 Operand::RegScaleMasked(RegSpec::EIP, scale, _) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(scale as u32)
+                    next_ip.saturating_mul(scale as u32)
                 }
                 Operand::RegScaleDispMasked(RegSpec::EIP, scale, disp, _) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(scale as u32).saturating_add_signed(disp as i32)
+                    next_ip.saturating_mul(scale as u32).saturating_add_signed(disp as i32)
                 }
                 Operand::RegIndexBaseMasked(RegSpec::EIP, RegSpec::EIP, _) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(2)
+                    next_ip.saturating_mul(2)
                 }
                 Operand::RegIndexBaseDispMasked(RegSpec::EIP, RegSpec::EIP, disp, _) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_add_signed(disp as i32)
+                    next_ip.saturating_add_signed(disp as i32)
                 }
                 Operand::RegIndexBaseScaleMasked(RegSpec::EIP, RegSpec::EIP, scale, _) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(2 * scale as u32)
+                    next_ip.saturating_mul(2 * scale as u32)
                 }
                 Operand::RegIndexBaseScaleDispMasked(
                     RegSpec::EIP,
@@ -2648,10 +2621,7 @@ impl Decoded for Instruction {
                     scale,
                     disp,
                     _,
-                ) => {
-                    let ip = addr.saturating_add(self.length as u32);
-                    ip.saturating_mul(2 * scale as u32).saturating_add_signed(disp as i32)
-                }
+                ) => next_ip.saturating_mul(2 * scale as u32).saturating_add_signed(disp as i32),
                 _ => continue,
             };
 
@@ -4221,6 +4191,21 @@ impl Opcode {
                 | Opcode::SETG
                 | Opcode::SETLE
         )
+    }
+
+    /// check if this opcode encodes its immediate relative to the next instruction pointer.
+    pub fn has_ip_relative_imm(&self) -> bool {
+        self.is_jcc()
+            || matches!(
+                self,
+                Opcode::CALL
+                    | Opcode::JMP
+                    | Opcode::LOOP
+                    | Opcode::LOOPZ
+                    | Opcode::LOOPNZ
+                    | Opcode::JECXZ
+                    | Opcode::XBEGIN
+            )
     }
 
     /// get the [`ConditionCode`] for this instruction, if it is in fact conditional. x86's

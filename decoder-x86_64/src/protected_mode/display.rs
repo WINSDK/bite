@@ -6,10 +6,10 @@ use crate::protected_mode::{
 use crate::safer_unchecked::GetSaferUnchecked as _;
 use crate::{Number, MEM_SIZE_STRINGS};
 
-use decoder::ToTokens;
-use debugvault::Index;
-use tokenizing::{colors, TokenStream};
 use config::CONFIG;
+use debugvault::Index;
+use decoder::ToTokens;
+use tokenizing::{colors, TokenStream};
 
 impl fmt::Display for Decoder {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -252,12 +252,7 @@ impl fmt::Display for RegSpec {
 }
 
 impl Operand {
-    fn tokenize_symbolic(
-        &self,
-        stream: &mut TokenStream,
-        symbols: &Index,
-        addr: usize,
-    ) -> bool {
+    fn tokenize_symbolic(&self, stream: &mut TokenStream, symbols: &Index, addr: usize) -> bool {
         match *self {
             Operand::ImmediateI8(_) => match symbols.get_sym_by_addr(addr) {
                 Some(symbol) => {
@@ -662,12 +657,7 @@ impl Operand {
 }
 
 impl Operand {
-    fn tokenize(
-        &self,
-        stream: &mut TokenStream,
-        symbols: &Index,
-        imm_override: Option<usize>,
-    ) {
+    fn tokenize(&self, stream: &mut TokenStream, symbols: &Index, imm_override: Option<usize>) {
         if let Some(addr) = imm_override {
             // if we we've done a symbolic version of tokenizing
             if self.tokenize_symbolic(stream, symbols, addr) {
@@ -701,9 +691,15 @@ impl Operand {
                 stream.push_owned(text, CONFIG.colors.asm.immediate);
             }
             Operand::AbsoluteFarAddress { segment, address } => {
-                stream.push_owned(decoder::encode_hex(segment as i64), CONFIG.colors.asm.immediate);
+                stream.push_owned(
+                    decoder::encode_hex(segment as i64),
+                    CONFIG.colors.asm.immediate,
+                );
                 stream.push(":", CONFIG.colors.asm.expr);
-                stream.push_owned(decoder::encode_hex(address as i64), CONFIG.colors.asm.immediate);
+                stream.push_owned(
+                    decoder::encode_hex(address as i64),
+                    CONFIG.colors.asm.immediate,
+                );
             }
             Operand::Register(ref spec) => {
                 stream.push(regspec_label(spec), CONFIG.colors.asm.register);
